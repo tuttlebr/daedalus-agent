@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import { imageHistoryKey, removeUnsafeBrowserKeys } from '@/server/images/requestHelpers';
+
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
 import {
   cleanImageParamsForModel,
@@ -48,14 +50,6 @@ const IMAGE_JOB_RATE_LIMIT = ruleFromEnv(
   5,
   60,
 );
-const UNSAFE_BROWSER_KEYS = [
-  'apiKey',
-  'openaiApiKey',
-  'openai_api_key',
-  'OPENAI_API_KEY',
-  'authorization',
-  'Authorization',
-];
 
 type ImageJobState = {
   jobId: string;
@@ -119,27 +113,12 @@ function userJobsKey(userId: string): string {
   return sessionKey(['user', userId, 'imageJobs']);
 }
 
-function historyKey(userId: string, sessionId: string): string {
-  if (userId && userId !== 'anon') {
-    return sessionKey(['user', userId, 'imagePanelHistory']);
-  }
-  return sessionKey(['session', sessionId, 'imagePanelHistory']);
-}
 
 function publicJobState(status: ImageJobState): Omit<ImageJobState, 'userId'> {
   const { userId: _userId, ...publicStatus } = status;
   return publicStatus;
 }
 
-function removeUnsafeBrowserKeys(
-  body: Record<string, unknown>,
-): Record<string, unknown> {
-  const next = { ...body };
-  for (const key of UNSAFE_BROWSER_KEYS) {
-    delete next[key];
-  }
-  return next;
-}
 
 function statusCodeForError(error: unknown): number {
   if (error instanceof ImageBackendError) return error.statusCode;
@@ -246,7 +225,7 @@ async function saveHistoryEntry(
   job: ImageJobState,
   entry: ImageHistoryEntry,
 ): Promise<void> {
-  const key = historyKey(job.userId, job.sessionId);
+  const key = imageHistoryKey(job.userId, job.sessionId);
   const existing = await jsonGet(key);
   const entries = Array.isArray(existing) ? existing : [];
   await jsonSetWithExpiry(

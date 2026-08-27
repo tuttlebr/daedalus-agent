@@ -3,22 +3,14 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from '@/utils/auth/session';
 
 import {
-  getRedis,
   getStreamingStates,
   jsonGet,
   sessionKey,
 } from '@/server/session/redis';
+import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
 
 type TraceLine = Record<string, unknown>;
 
-async function verifyConversationOwnership(
-  username: string,
-  conversationId: string,
-): Promise<boolean> {
-  const redis = getRedis();
-  const userConversationsKey = sessionKey(['user', username, 'conversations']);
-  return (await redis.sismember(userConversationsKey, conversationId)) === 1;
-}
 
 function safeFilenameStem(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_') || 'conversation';

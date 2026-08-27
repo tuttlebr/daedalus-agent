@@ -33,6 +33,13 @@ interface ResponseDocumentProps {
   messageId?: string;
   className?: string;
   fullscreen?: boolean;
+  /**
+   * Skips the raw-HTML rehype pass while tokens are still arriving. That pass
+   * re-parses the whole document as HTML on every flush, and mid-stream markup
+   * is usually half-formed anyway, so the work is discarded. The completed
+   * answer renders through the full pipeline.
+   */
+  isStreaming?: boolean;
 }
 
 /** Uses the same content classification and renderer in inline and fullscreen. */
@@ -43,6 +50,7 @@ export const ResponseDocument = memo(
     messageId,
     className = RESPONSE_PROSE_CLASSES,
     fullscreen = false,
+    isStreaming = false,
   }: ResponseDocumentProps) => {
     if (document.kind === 'html') {
       return (
@@ -61,6 +69,7 @@ export const ResponseDocument = memo(
         messageIndex={messageIndex}
         messageId={messageId}
         className={className}
+        allowHtml={!isStreaming}
       />
     );
   },

@@ -183,7 +183,7 @@ describe('ChatView OAuth banner', () => {
     });
   });
 
-  it('coalesces token updates into a 50ms render batch', async () => {
+  it('coalesces token updates into one render batch per flush interval', async () => {
     const { root } = renderChatView();
 
     await act(async () => {
@@ -203,8 +203,11 @@ describe('ChatView OAuth banner', () => {
 
     expect(document.body.textContent).not.toContain('Hello world');
 
+    // STREAM_RENDER_INTERVAL_MS in ChatView. Each flush re-parses the whole
+    // answer through remark/rehype, so the batch window is deliberately wider
+    // than one frame.
     await act(async () => {
-      vi.advanceTimersByTime(49);
+      vi.advanceTimersByTime(119);
     });
     expect(document.body.textContent).not.toContain('Hello world');
 

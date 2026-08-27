@@ -1,6 +1,6 @@
 'use client';
 
-import { IconAdjustments, IconBell, IconRefresh } from '@tabler/icons-react';
+import { IconAdjustments, IconRefresh } from '@tabler/icons-react';
 import { forwardRef, type ReactNode } from 'react';
 
 import type { AutonomyConfig, AutonomyRun } from '@/types/autonomy';
@@ -13,7 +13,6 @@ interface StatusStripProps {
   config: AutonomyConfig | null;
   activeRun: AutonomyRun | undefined;
   lastRunAt: number | null;
-  pendingApprovals: number;
   queuedRequests: number;
   onOpenWorkspace: () => void;
   onRefresh: () => void;
@@ -28,7 +27,6 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
       config,
       activeRun,
       lastRunAt,
-      pendingApprovals,
       queuedRequests,
       onOpenWorkspace,
       onRefresh,
@@ -78,17 +76,6 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {pendingApprovals > 0 && (
-              <span
-                className="flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-1 text-[11px] font-medium text-amber-200"
-                aria-label={`${pendingApprovals} pending approval${
-                  pendingApprovals === 1 ? '' : 's'
-                }`}
-              >
-                <IconBell size={12} />
-                {pendingApprovals}
-              </span>
-            )}
             <IconChrome
               onClick={onRefresh}
               label={refreshing ? 'Refreshing' : 'Refresh'}

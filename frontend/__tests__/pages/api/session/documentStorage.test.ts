@@ -1,5 +1,4 @@
 import handler, {
-  cleanupSessionDocuments,
   DOCUMENT_UPLOAD_MAX_BYTES,
   config,
 } from '@/pages/api/session/documentStorage';
@@ -421,60 +420,5 @@ describe('/api/session/documentStorage', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mocks.deleteDocumentObject).not.toHaveBeenCalled();
     expect(mocks.jsonDel).not.toHaveBeenCalled();
-  });
-
-  it('cleans up only session documents owned by the authenticated user', async () => {
-    mocks.smembers.mockResolvedValue(['owned-doc', 'foreign-doc']);
-    mocks.jsonGet.mockImplementation(async (key: string) => ({
-      id: key.endsWith('owned-doc') ? 'owned-doc' : 'foreign-doc',
-      storage: 'object-v1',
-      objectKey: key.endsWith('owned-doc')
-        ? 'documents/owner/session-1/owned-doc'
-        : 'documents/other/session-1/foreign-doc',
-      objectBucket: 'documents',
-      filename: 'paper.pdf',
-      mimeType: 'application/pdf',
-      size: 10,
-      createdAt: Date.now(),
-      sessionId: 'session-1',
-      userId: key.endsWith('owned-doc') ? 'alice' : 'mallory',
-    }));
-
-    await expect(cleanupSessionDocuments('session-1', 'alice')).resolves.toBe(
-      1,
-    );
-
-    expect(mocks.deleteDocumentObject).toHaveBeenCalledOnce();
-    expect(mocks.deleteDocumentObject).toHaveBeenCalledWith(
-      'documents/owner/session-1/owned-doc',
-    );
-    expect(mocks.jsonDel).toHaveBeenCalledOnce();
-    expect(mocks.del).not.toHaveBeenCalled();
-  });
-
-  it('keeps metadata when cleanup cannot delete the owned object', async () => {
-    mocks.smembers.mockResolvedValue(['owned-doc']);
-    mocks.jsonGet.mockResolvedValue({
-      id: 'owned-doc',
-      storage: 'object-v1',
-      objectKey: 'documents/owner/session-1/owned-doc',
-      objectBucket: 'documents',
-      filename: 'paper.pdf',
-      mimeType: 'application/pdf',
-      size: 10,
-      createdAt: Date.now(),
-      sessionId: 'session-1',
-      userId: 'alice',
-    });
-    mocks.deleteDocumentObject.mockRejectedValueOnce(
-      new Error('object store unavailable'),
-    );
-
-    await expect(cleanupSessionDocuments('session-1', 'alice')).rejects.toThrow(
-      'object store unavailable',
-    );
-
-    expect(mocks.jsonDel).not.toHaveBeenCalled();
-    expect(mocks.srem).not.toHaveBeenCalled();
   });
 });

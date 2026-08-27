@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
     FastApiFrontEndPluginWorker,
 )
-from nat_helpers.redis_url import close_redis_client
+from nat_helpers.redis_url import close_redis_client, redis_url_from_env
 
 logger = logging.getLogger("daedalus.http_api")
 
@@ -34,6 +34,26 @@ def _rag_readiness_mode() -> str:
             )
         return configured
     return "required" if _env_enabled("DAEDALUS_RAG_READINESS_ENABLED") else "disabled"
+
+
+def _memory_readiness_mode() -> str:
+    """Return the durable-memory dependency policy.
+
+    The request path already treats Hindsight as optional: automatic recall in
+    ``per_user_tool_calling`` is wrapped in a broad ``except`` and chat completes
+    without it. Defaulting readiness to ``required`` contradicted that, so a
+    brief Hindsight outage removed every backend pod from its Service and took
+    chat down for a dependency chat does not need. ``degraded`` keeps the
+    condition visible in the payload without failing the probe.
+    """
+    configured = (os.getenv("DAEDALUS_MEMORY_READINESS_MODE") or "").strip().lower()
+    if configured:
+        if configured not in {"degraded", "required"}:
+            raise ValueError(
+                "DAEDALUS_MEMORY_READINESS_MODE must be degraded or required"
+            )
+        return configured
+    return "degraded"
 
 
 def _required_collections() -> set[str]:
@@ -65,8 +85,10 @@ async def readiness_response() -> JSONResponse:
     try:
         from redis.asyncio import Redis
 
+        # Resolve exactly like every tool store does. A local default here
+        # would let the probe report a Redis the application never uses.
         client = Redis.from_url(
-            os.environ.get("REDIS_URL", "redis://redis:6379"),
+            redis_url_from_env(),
             socket_connect_timeout=1,
             socket_timeout=1,
         )
@@ -89,7 +111,17 @@ async def readiness_response() -> JSONResponse:
             status_code=503,
         )
 
+    try:
+        memory_readiness_mode = _memory_readiness_mode()
+    except ValueError:
+        logger.error("Invalid memory readiness configuration")
+        return JSONResponse(
+            {"status": "unready", "reason": "invalid_memory_readiness_mode"},
+            status_code=503,
+        )
+
     memory = {"state": configured_memory_mode}
+    memory_degraded = False
     if configured_memory_mode == "hindsight":
         try:
             await asyncio.wait_for(client_from_env().health(), timeout=3.5)
@@ -97,14 +129,16 @@ async def readiness_response() -> JSONResponse:
         except Exception:
             logger.warning("Hindsight readiness check failed")
             memory["hindsight"] = "unavailable"
-            return JSONResponse(
-                {
-                    "status": "unready",
-                    "reason": "hindsight_unavailable",
-                    "memory": memory,
-                },
-                status_code=503,
-            )
+            if memory_readiness_mode == "required":
+                return JSONResponse(
+                    {
+                        "status": "unready",
+                        "reason": "hindsight_unavailable",
+                        "memory": memory,
+                    },
+                    status_code=503,
+                )
+            memory_degraded = True
 
     rag = {"state": "disabled"}
     try:
@@ -160,7 +194,9 @@ async def readiness_response() -> JSONResponse:
             rag_degraded = True
 
     status = (
-        "degraded" if capabilities["unavailable_optional"] or rag_degraded else "ready"
+        "degraded"
+        if capabilities["unavailable_optional"] or rag_degraded or memory_degraded
+        else "ready"
     )
     return JSONResponse(
         {"status": status, "mcp": capabilities, "rag": rag, "memory": memory}

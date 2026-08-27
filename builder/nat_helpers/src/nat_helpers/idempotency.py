@@ -9,7 +9,7 @@ import secrets
 from dataclasses import dataclass
 from typing import Any
 
-from nat_helpers.redis_url import close_redis_client, redis_url_from_env
+from nat_helpers.redis_url import close_redis_client, redis_client
 
 
 def _digest(value: str) -> str:
@@ -59,14 +59,7 @@ def _ttl_seconds() -> int:
 
 
 async def _redis_client():
-    from redis.asyncio import Redis
-
-    return Redis.from_url(
-        redis_url_from_env(),
-        decode_responses=True,
-        socket_connect_timeout=5,
-        socket_timeout=5,
-    )
+    return redis_client(timeout_seconds=5)
 
 
 async def reserve_operation(

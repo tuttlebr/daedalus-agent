@@ -7,7 +7,7 @@ import {
   withTimezoneHeader,
 } from '@/utils/server/backendAuth';
 
-import { postToBackend } from '@/server/backend/postToBackend';
+import { postToBackend } from '@/utils/server/httpProxy';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,

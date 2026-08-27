@@ -176,7 +176,10 @@ backend:
   # Shared backend configuration
   pdb:
     enabled: true
-    minAvailable: 1
+    # Leave minAvailable empty so the chart emits maxUnavailable instead; with
+    # replicas: 1 a minAvailable of 1 makes every node drain hang.
+    minAvailable: ''
+    maxUnavailable: 1
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
     # Additional namespaces allowed to call backend pods. Ports default to the
@@ -287,7 +290,8 @@ frontend:
     terminationGracePeriodSeconds: 60
     pdb:
       enabled: true
-      minAvailable: 1
+      minAvailable: ''
+      maxUnavailable: 1
     resources:
       requests:
         cpu: 250m
@@ -341,8 +345,13 @@ nginx:
     # If useTemplate is false, rawConf is used
     rawConf: |
       # Provide nginx conf if not using template
+  # Generated images are stored in Redis and served by the authenticated
+  # /api/generated-image/[id] route. Nothing in frontend/ or builder/ writes to
+  # /tmp/generated_images, so the `location /images/` block this volume backs
+  # can only return 404. Left configurable for deployments with a legacy
+  # volume, but no longer provisioned by default.
   imageVolume:
-    enabled: true
+    enabled: false
     size: 8Gi
     storageClassName: ''
     create: true
@@ -394,6 +403,11 @@ redis:
     limits:
       cpu: 2000m
       memory: 8Gi
+  # Keep below resources.limits.memory so Redis evicts before the cgroup
+  # OOM-kills it. Roughly 75% of the limit leaves room for module and buffer
+  # overhead that maxmemory does not account for.
+  maxmemory: 6gb
+  maxmemoryPolicy: volatile-lru
   persistence:
     enabled: true
     size: 64Gi
@@ -453,7 +467,7 @@ ingress:
   enabled: true
   className: ''
   annotations:
-    # Nginx Ingress Controller - Increase timeouts for long-running AI requests (comprehensive_research_agent can take up to 15 minutes)
+    # Nginx Ingress Controller - must stay above the in-cluster nginx and
     nginx.ingress.kubernetes.io/proxy-connect-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-send-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '900'

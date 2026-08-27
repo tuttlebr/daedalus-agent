@@ -6,7 +6,8 @@ export type AutonomyRunStatus =
   | 'completed'
   | 'failed'
   | 'cancelled'
-  | 'waiting_approval';
+  | 'skipped'
+  | 'aborted';
 
 export type AutonomyTrigger = 'manual' | 'scheduled' | 'goal' | string;
 
@@ -106,23 +107,3 @@ export interface AutonomyFeedItem {
   createdAt: number;
 }
 
-export interface AutonomyApproval {
-  id: string;
-  runId: string;
-  status: 'pending' | 'approved' | 'denied';
-  action: string;
-  reason: string;
-  actionType: string;
-  target?: string;
-  serverName?: string;
-  toolName?: string;
-  approvalRequestId?: string;
-  /** Canonical MCP arguments with credential-like fields redacted. */
-  argumentsPreview?: string;
-  argumentsSha256?: string;
-  risk: 'low' | 'medium' | 'high' | string;
-  authUrl?: string;
-  oauthState?: string;
-  createdAt: number;
-  resolvedAt?: number | null;
-}

@@ -52,7 +52,11 @@ const INITIAL_VISIBLE_MESSAGES = 80;
 const LOAD_OLDER_MESSAGES_STEP = 40;
 const OAUTH_SUCCESS_VISIBLE_MS = 3000;
 const AT_BOTTOM_THRESHOLD_PX = 32;
-const STREAM_RENDER_INTERVAL_MS = 50;
+// Each flush re-runs the whole remark/rehype pipeline over the entire answer
+// so far, which is O(n^2) across a turn. At 50ms that is up to 20 full parses
+// a second, and the cost grows with the response. 120ms reads identically for
+// streamed text and cuts the parse count by more than half.
+const STREAM_RENDER_INTERVAL_MS = 120;
 
 type OAuthPromptState = OAuthPrompt & {
   opened?: boolean;
@@ -344,8 +348,14 @@ export const ChatView = memo(() => {
       succeeded: boolean,
       keepUnopened = false,
     ) => {
-      setOauthPrompts((current) =>
-        current.flatMap((prompt) => {
+      setOauthPrompts((current) => {
+        // This runs on every streamed token. Returning a new array when nothing
+        // changed would re-render the whole chat view per token and defeat the
+        // STREAM_RENDER_INTERVAL_MS batching.
+        if (current.length === 0) return current;
+
+        let changed = false;
+        const next = current.flatMap((prompt) => {
           if (prompt.conversationId !== conversationId) return [prompt];
           if (jobId && prompt.jobId && prompt.jobId !== jobId) return [prompt];
           if (succeeded && prompt.opened) {
@@ -354,13 +364,17 @@ export const ChatView = memo(() => {
             );
             if (!prompt.succeeded) {
               scheduleOAuthPromptSuccessRemoval(oauthPromptKey(prompt));
+              changed = true;
+              return [{ ...prompt, succeeded: true }];
             }
-            return [{ ...prompt, succeeded: true }];
+            return [prompt];
           }
           if (keepUnopened) return [prompt];
+          changed = true;
           return [];
-        }),
-      );
+        });
+        return changed ? next : current;
+      });
     },
     [scheduleOAuthPromptSuccessRemoval],
   );

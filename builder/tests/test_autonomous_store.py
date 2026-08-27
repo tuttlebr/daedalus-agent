@@ -283,41 +283,6 @@ def test_append_feed_items_respects_disabled_dedupe():
     assert len(store.list_feed("u")) == 2
 
 
-def test_applied_approval_round_trip():
-    # F-015: applied-approval keys are recorded and read back.
-    store = _store()
-    assert store.is_approval_applied("u", "tok_1") is False
-    store.mark_approval_applied("u", "tok_1")
-    assert store.is_approval_applied("u", "tok_1") is True
-    # An empty key is never treated as applied (and is a no-op to record).
-    store.mark_approval_applied("u", "")
-    assert store.is_approval_applied("u", "") is False
-
-
-def test_store_consumes_only_exact_mcp_execution_receipt():
-    from user_interaction.approval_tokens import record_mcp_execution_receipt
-
-    store = _store()
-    token = "worker-only-secret"
-    execution = {
-        "actionType": "mcp_mutation",
-        "serverName": "k8s_mcp_server",
-        "toolName": "scale_deployment",
-        "argumentsSha256": "a" * 64,
-    }
-    record_mcp_execution_receipt(
-        store.redis,
-        user_id="u",
-        token=token,
-        server_name=execution["serverName"],
-        tool_name=execution["toolName"],
-        arguments_sha256=execution["argumentsSha256"],
-    )
-
-    assert store.consume_mcp_execution_receipt("u", token, execution)
-    assert not store.consume_mcp_execution_receipt("u", token, execution)
-
-
 class _TxnRedis(_FakeRedis):
     """Fake Redis supporting WATCH/MULTI/EXEC so atomic_update can be tested.
 

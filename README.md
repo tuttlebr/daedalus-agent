@@ -32,12 +32,14 @@ Daedalus supports two practical ways to run the project.
 
 | Mode                 | What it starts                                                              | Best for                                                          |
 | -------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Local Docker Compose | `frontend`, `backend`, `nginx`, `redis`, plus a `builder` utility container | Local development and validating one backend config at a time     |
+| Local Docker Compose | `frontend`, `stream-worker`, `backend`, `nginx`, `redis`, `object-store`, plus a `builder` utility container | Local development and validating one backend config at a time     |
 | Kubernetes via Helm  | Backend, frontend, nginx, Redis, autonomous worker, ingress, PVCs, policies | Persistent multi-user deployments and the full platform footprint |
 
 > [!IMPORTANT]
-> The local Compose stack does not start Milvus, NV-Ingest, or Phoenix.
-> Those integrations require external services or cluster deployment.
+> The local Compose stack does not start Milvus, NV-Ingest, Phoenix, or the
+> autonomous agent worker. Those integrations require external services or
+> cluster deployment, so the Autonomy tab stays empty under Compose.
+> Compose terminates plaintext HTTP only; the Helm chart owns TLS.
 
 ## Quick Start
 
@@ -63,8 +65,6 @@ Single-user example:
 AUTH_USERNAME=admin
 AUTH_PASSWORD=change-me
 AUTH_NAME=Administrator
-DAEDALUS_DEFAULT_USER=admin
-ADMIN_USERNAME=admin
 ```
 
 Multi-user example:
@@ -76,8 +76,6 @@ AUTH_USER_1_NAME=Alice
 AUTH_USER_2_USERNAME=bob
 AUTH_USER_2_PASSWORD=change-me
 AUTH_USER_2_NAME=Bob
-DAEDALUS_DEFAULT_USER=alice
-ADMIN_USERNAME=alice
 ```
 
 `SESSION_SECRET` must be unique for every production deployment because it signs identity cookies. Generate one with `openssl rand -base64 32`.
@@ -413,6 +411,38 @@ sequenceDiagram
 > `nginx.config.restrictedMode=false` only when you intentionally want nginx
 > to proxy `/chat/*`, `/generate/*`, and `/v1/*` directly to the backend.
 
+### Timeout Budget
+
+Every network hop has its own deadline, and the outer hop must always be a
+superset of the inner one. When they invert, the shorter hop returns a 504 while
+the inner handler keeps running, which looks like a hang rather than a failure.
+The intended ordering, outermost first:
+
+| Hop                                   | Budget | Set in                                            |
+| ------------------------------------- | ------ | ------------------------------------------------- |
+| Ingress `proxy-read-timeout`          | 900s   | `custom-values.yaml`                              |
+| nginx `location /api/chat`            | 900s   | `helm/daedalus/templates/config-nginx.yaml`       |
+| nginx `location /api/document/`       | 900s   | `helm/daedalus/templates/config-nginx.yaml`       |
+| nginx `location /api/images/`         | 360s   | `helm/daedalus/templates/config-nginx.yaml`       |
+| nginx `location /api/` (everything else) | 120s | `helm/daedalus/templates/config-nginx.yaml`       |
+| nginx `location /ws`                  | 3600s  | `helm/daedalus/templates/config-nginx.yaml`       |
+| Stream worker MCP-OAuth idle          | 660s   | `MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS`                |
+| Backend interactive OAuth deadline    | 600s   | `DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS`              |
+| Stream worker backend SSE idle        | 300s   | `STREAM_READ_IDLE_TIMEOUT_MS`                     |
+
+Long chat answers are not bounded by the proxy hops above. Tokens reach the
+browser over the WebSocket sidecar (`/ws`, 3600s) while the stream worker holds
+the backend connection, so the effective limit on a chat turn is
+`STREAM_READ_IDLE_TIMEOUT_MS` of *silence* from the backend, not total duration.
+
+That has a consequence worth remembering when tuning tools: any single tool call
+that can run longer than `STREAM_READ_IDLE_TIMEOUT_MS` without emitting an
+intermediate step will trip the idle deadline. `visual_media_tool` is the
+closest case in the shipped config, with `image_timeout` and
+`comprehension_timeout` both at 300s against a 300s idle budget. Raise
+`STREAM_READ_IDLE_TIMEOUT_MS` above the slowest tool timeout before increasing a
+tool's own budget.
+
 ### Document Ingestion and Milvus Collections
 
 Uploaded-document ingestion can target either user-scoped collections or
@@ -568,8 +598,8 @@ The frontend includes:
 - Durable, authenticated downloads for files created in the Bubblewrap sandbox
 - Direct document ingestion with streamed progress
 - Doc-to-Markdown: download an entire uploaded document as a Markdown file (`POST /v1/documents/markdown`)
-- Conversation folders, export and import, and search
-- Real-time sync and usage tracking APIs
+- Conversation export, import, and search
+- Real-time cross-device sync over the WebSocket sidecar
 - PWA support and offline assets
 - A built-in Help dialog for end users
 
@@ -788,7 +818,8 @@ Make sure you defined either:
 - `AUTH_USERNAME` and `AUTH_PASSWORD`, or
 - `AUTH_USER_1_USERNAME`, `AUTH_USER_1_PASSWORD`, and related numbered variables
 
-Also set `DAEDALUS_DEFAULT_USER` to a real configured username if you want memory and background-agent activity associated with that user.
+To associate autonomous-worker memory and dashboard activity with a specific
+account, set `autonomousAgent.userId` in your Helm values to that login name.
 
 ### Local Compose Cannot Reach Milvus or NV-Ingest
 

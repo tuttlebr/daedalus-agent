@@ -1,11 +1,5 @@
 name: daedalus
 volumes:
-  ssl_certs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: nginx/ssl
   generated_images:
     driver: local
   document_objects:
@@ -88,17 +82,26 @@ services:
 
   nginx:
     image: nginx:alpine@sha256:7068961d45b07b2af510ac002e9daa63a1d3eba2111202d6768798690800fffd
+    # TLS termination for Compose is out of scope; the Helm chart owns HTTPS
+    # (nginx.https.enabled). Only the plaintext listener is published here.
     ports:
       - '${NGINX_HTTP_PORT:-80}:80'
-      - '${NGINX_HTTPS_PORT:-443}:443'
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/logs:/var/log/nginx
-      - ssl_certs:/etc/nginx/ssl:ro
       - generated_images:/tmp/generated_images:ro
     restart: unless-stopped
     networks:
       - ${NETWORK_NAME:-daedalus-network}
+    # `upstream frontend { server frontend:3000 }` is resolved once at config
+    # load; the resolver directive only applies to variable proxy_pass. Starting
+    # nginx first made it crash-loop on "host not found in upstream" until the
+    # restart policy happened to catch it after the backend health check.
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
   frontend:
     build:
@@ -147,8 +150,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      nginx:
-        condition: service_started
       redis:
         condition: service_healthy
       stream-worker:
@@ -159,6 +160,12 @@ services:
   stream-worker:
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:frontend-${DAEDALUS_VERSION:-0.1.0}
     command: ['node', 'stream-worker.js']
+    # The worker owns finalization, push notifications, and memory retention, so
+    # it needs the same .env the frontend gets. Without this it silently runs
+    # without VAPID keys and without the NAT retry/abort tuning, which is
+    # exactly the code path least likely to be exercised before production.
+    env_file:
+      - .env
     environment:
       - DEPLOYMENT_MODE=local
       - BACKEND_HOST=${BACKEND_HOST:-backend}
@@ -204,6 +211,16 @@ services:
     environment:
       - REDIS_USERNAME=${REDIS_USERNAME:-default}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-local-compose-redis-password-change-me}
+    # `--user default reset` disables the internal ACL user that Redis replays
+    # AOF transactions as, which makes EXEC reject replayed Stream PEL updates.
+    # It only appears to work here because REDIS_USERNAME defaults to `default`
+    # and is immediately recreated below; setting it to anything else (the
+    # chart uses `daedalus`) would drop stream state on every restart. Keep the
+    # default user permission-complete but unusable over the network, matching
+    # helm/daedalus/templates/redis-init-configmap.yaml.
+    #
+    # maxmemory keeps Redis evicting instead of being OOMKilled; volatile-lru
+    # only evicts keys that carry a TTL.
     command:
       [
         'redis-server',
@@ -212,9 +229,17 @@ services:
         '1',
         '--appendonly',
         'yes',
+        '--maxmemory',
+        '${REDIS_MAXMEMORY:-1gb}',
+        '--maxmemory-policy',
+        'volatile-lru',
         '--user',
         'default',
-        'reset',
+        'on',
+        'nopass',
+        '~*',
+        '&*',
+        '+@all',
         '--user',
         '${REDIS_USERNAME:-default}',
         'on',

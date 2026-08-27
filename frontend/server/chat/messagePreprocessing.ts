@@ -62,6 +62,12 @@ async function validateDocumentAttachmentsForMessage(
   message: any,
   currentSessionId: string,
   verifiedUsername: string,
+  // The turn being submitted must fail loudly when its own attachment is gone.
+  // Replayed history must not: documents carry their own upload-time TTL while
+  // a conversation's TTL is refreshed every turn, so an older attachment can
+  // expire while its conversation is still active. Failing the request there
+  // would make every later message in that conversation return 404 forever.
+  { isCurrentTurn }: { isCurrentTurn: boolean },
 ): Promise<any> {
   if (!message.attachments || !Array.isArray(message.attachments)) {
     return message;
@@ -91,6 +97,11 @@ async function validateDocumentAttachmentsForMessage(
       });
     } catch (error) {
       if (error instanceof DocumentRefAccessError) {
+        // Ownership and shape violations stay fatal on every message; only an
+        // expired reference on replayed history is dropped.
+        if (!isCurrentTurn && error.reason === 'document_ref_not_found') {
+          continue;
+        }
         throw new ApiRouteError(error.status, error.message, error.reason);
       }
       throw error;
@@ -287,6 +298,8 @@ export async function processMessages(
   privateCollectionName?: string,
   databaseName?: string,
 ): Promise<any[]> {
+  const currentTurn = getLastUserMessage(messages);
+
   return Promise.all(
     (messages || []).map(async (message: any) => {
       let cleanedMessage = { ...message };
@@ -299,6 +312,7 @@ export async function processMessages(
           cleanedMessage,
           currentSessionId,
           verifiedUsername,
+          { isCurrentTurn: message === currentTurn },
         );
 
         // Image references

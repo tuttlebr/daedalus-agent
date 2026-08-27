@@ -5,6 +5,7 @@ import {
   getDocumentObjectConfig,
   isExpectedDocumentObjectKey,
   putDocumentObject,
+  sha256,
 } from '@/server/documentObjectStore';
 import {
   getRedis,
@@ -12,7 +13,6 @@ import {
   jsonSetWithExpiry,
   sessionKey,
 } from '@/server/session/redis';
-import crypto from 'node:crypto';
 import path from 'node:path';
 
 const SANDBOX_SERVICE_MAX_COLLECTED_BYTES = 6_291_456;
@@ -80,9 +80,6 @@ export interface PublishedSandboxArtifact {
   downloadUrl: string;
 }
 
-function sha256(value: string | Buffer): string {
-  return crypto.createHash('sha256').update(value).digest('hex');
-}
 
 function normalizedArtifactPath(value: string): string {
   if (

@@ -531,6 +531,51 @@ def _copy_message_with_content(message: Any, content: str) -> Any:
     return copied
 
 
+class OptimizationCache:
+    """Bounded memo of optimization results for one workflow instance.
+
+    The agent node runs once per iteration (up to ``max_iterations``) against a
+    message list that only grows, so without this every prior tool result is
+    re-parsed, re-serialized three times, re-hashed, re-compressed, and written
+    back to Redis on every iteration. All of that is synchronous CPU on the
+    event loop shared with other users' streams, and the Redis write is
+    byte-identical to the one already stored.
+
+    Keyed by content, tool, and query because the preview is query-aware; a new
+    user turn legitimately produces a different preview for the same result.
+    """
+
+    __slots__ = ("_entries", "_max_entries")
+
+    def __init__(self, max_entries: int = 256) -> None:
+        self._entries: dict[str, OptimizedToolContent] = {}
+        self._max_entries = max_entries
+
+    @staticmethod
+    def _key(content: str, tool_name: str, query: str) -> str:
+        digest = hashlib.sha256()
+        for part in (tool_name, query, content):
+            digest.update(part.encode("utf-8", "replace"))
+            digest.update(b"\0")
+        return digest.hexdigest()
+
+    def get(
+        self, content: str, tool_name: str, query: str
+    ) -> OptimizedToolContent | None:
+        return self._entries.get(self._key(content, tool_name, query))
+
+    def put(
+        self,
+        content: str,
+        tool_name: str,
+        query: str,
+        result: OptimizedToolContent,
+    ) -> None:
+        if len(self._entries) >= self._max_entries:
+            self._entries.clear()
+        self._entries[self._key(content, tool_name, query)] = result
+
+
 async def optimize_tool_messages(
     messages: list[Any],
     *,
@@ -538,10 +583,12 @@ async def optimize_tool_messages(
     store: ToolOutputStore,
     settings: CompactionSettings,
     exempt_tools: frozenset[str] = frozenset({"tool_output_retriever_tool"}),
+    cache: OptimizationCache | None = None,
 ) -> list[Any]:
     """Return model-facing copies with eligible ToolMessage content optimized."""
 
     query = latest_user_query(messages)
+    cached_by_index: dict[int, OptimizedToolContent] = {}
     task_by_index: dict[int, asyncio.Task[OptimizedToolContent]] = {}
     for index, message in enumerate(messages):
         if getattr(message, "type", "") != "tool":
@@ -552,6 +599,11 @@ async def optimize_tool_messages(
         content = getattr(message, "content", None)
         if not isinstance(content, str):
             continue
+        if cache is not None:
+            hit = cache.get(content, tool_name, query)
+            if hit is not None:
+                cached_by_index[index] = hit
+                continue
         task_by_index[index] = asyncio.create_task(
             optimize_tool_content(
                 content,
@@ -563,9 +615,16 @@ async def optimize_tool_messages(
             )
         )
 
-    if not task_by_index:
+    if not task_by_index and not cached_by_index:
         return messages
     optimized_messages = list(messages)
+    for index, hit in cached_by_index.items():
+        if hit.content != getattr(messages[index], "content", None):
+            optimized_messages[index] = _copy_message_with_content(
+                messages[index], hit.content
+            )
+    if not task_by_index:
+        return optimized_messages
     results = await asyncio.gather(
         *task_by_index.values(),
         return_exceptions=True,
@@ -579,6 +638,11 @@ async def optimize_tool_messages(
                 type(result).__name__,
             )
             continue
+        if cache is not None:
+            original = getattr(messages[index], "content", None)
+            tool_name = str(getattr(messages[index], "name", "") or "")
+            if isinstance(original, str):
+                cache.put(original, tool_name, query, result)
         if result.content != getattr(messages[index], "content", None):
             optimized_messages[index] = _copy_message_with_content(
                 messages[index], result.content

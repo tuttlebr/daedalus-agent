@@ -256,8 +256,9 @@ nginx:
     # If useTemplate is false, rawConf is used
     rawConf: |
       # Provide nginx conf if not using template
+  # See helm/daedalus/values.yaml: nothing writes to this volume.
   imageVolume:
-    enabled: true
+    enabled: false
     storageClassName: ''
     create: true
     existingClaimName: ''

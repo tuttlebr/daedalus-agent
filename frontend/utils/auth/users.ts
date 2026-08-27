@@ -1,10 +1,4 @@
-import {
-  getRedis,
-  sessionKey,
-  jsonGet,
-  jsonSet,
-  jsonMGet,
-} from '@/server/session/redis';
+import { sessionKey, jsonGet, jsonSet } from '@/server/session/redis';
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
@@ -185,83 +179,4 @@ export async function verifyCredentials(
   // Return user without password hash
   const { passwordHash, ...userWithoutPassword } = user;
   return userWithoutPassword;
-}
-
-// Create a new user (admin function)
-export async function createUser(
-  username: string,
-  password: string,
-  name: string,
-): Promise<User> {
-  const redis = getRedis();
-  const userKey = sessionKey(['user', username]);
-
-  // Check if user already exists
-  const exists = await redis.exists(userKey);
-  if (exists) {
-    throw new Error('User already exists');
-  }
-
-  const passwordHash = await bcrypt.hash(password, 10);
-  const user: User = {
-    id: Date.now().toString(),
-    username,
-    passwordHash,
-    name,
-    createdAt: Date.now(),
-  };
-
-  await jsonSet(userKey, '.', user);
-  return user;
-}
-
-// Update user password
-export async function updateUserPassword(
-  username: string,
-  newPassword: string,
-): Promise<boolean> {
-  const user = await getUserByUsername(username);
-  if (!user) return false;
-
-  const userKey = sessionKey(['user', username]);
-
-  user.passwordHash = await bcrypt.hash(newPassword, 10);
-  await jsonSet(userKey, '.', user);
-
-  return true;
-}
-
-// List all users (admin function)
-export async function listUsers(): Promise<Omit<User, 'passwordHash'>[]> {
-  const redis = getRedis();
-  const pattern = sessionKey(['user', '*']);
-
-  const keys: string[] = [];
-  let cursor = '0';
-  do {
-    const [nextCursor, batch] = await redis.scan(
-      cursor,
-      'MATCH',
-      pattern,
-      'COUNT',
-      100,
-    );
-    cursor = nextCursor;
-    keys.push(...batch);
-  } while (cursor !== '0');
-
-  const users: Omit<User, 'passwordHash'>[] = [];
-
-  if (keys.length > 0) {
-    const userDataArray = await jsonMGet(keys);
-    for (const userData of userDataArray) {
-      if (userData) {
-        const user = userData as User;
-        const { passwordHash, ...userWithoutPassword } = user;
-        users.push(userWithoutPassword);
-      }
-    }
-  }
-
-  return users;
 }

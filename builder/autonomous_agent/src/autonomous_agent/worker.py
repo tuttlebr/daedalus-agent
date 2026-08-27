@@ -12,9 +12,8 @@ import time
 import traceback
 from typing import Any
 
-from user_interaction.approval_tokens import DEFAULT_MCP_RECEIPT_TTL_SECONDS
 
-from .backend_client import BackendClient, OAuthRequiredError
+from .backend_client import BackendClient, OAuthRequiredError, RunAbortedError
 from .models import new_run, now_ms
 from .prompt import (
     build_messages,
@@ -22,7 +21,6 @@ from .prompt import (
     load_workspace,
     output_requests_approval,
     parse_structured_output,
-    request_approval_key,
     workspace_key,
 )
 from .store import RedisStore
@@ -30,14 +28,11 @@ from .store import RedisStore
 STOP = False
 _CADENCE_TAG_RE = re.compile(r"^cadence:(\d+)([hd])$", re.IGNORECASE)
 
-# A receipt can be created before the backend finishes the approved run. Keep
-# a fixed recovery window after the HTTP deadline so the worker can consume
-# that proof before it expires. Configuration that violates this relationship
-# fails at worker startup instead of silently weakening duplicate prevention.
-MCP_RECEIPT_RECOVERY_MARGIN_SECONDS = 5 * 60
-MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS = (
-    DEFAULT_MCP_RECEIPT_TTL_SECONDS - MCP_RECEIPT_RECOVERY_MARGIN_SECONDS
-)
+# Hard ceiling on a single autonomous run. A worker blocked on one backend
+# request cannot drain its queue, and the run outlives any operator's ability
+# to reason about it. Configuration above this fails at worker startup rather
+# than wedging the single replica for hours.
+MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS = 6900
 
 
 def log(message: str) -> None:
@@ -57,44 +52,6 @@ def _request_summary(request: dict[str, Any] | None) -> str:
         f"createdAt={request.get('createdAt') or 'unknown'} "
         f"prompt={prompt!r}"
     )
-
-
-def _approved_execution_prompt(
-    request: dict[str, Any], execution: dict[str, Any]
-) -> str:
-    """Build worker-only resume context without exposing credentials to the UI."""
-
-    original_prompt = str(execution.get("originalPrompt") or "").strip()
-    action = str(execution.get("action") or "the pending action").strip()
-    action_type = str(execution.get("actionType") or "").strip()
-    base = str(request.get("prompt") or "").strip()
-    parts = [base] if base else []
-    if original_prompt:
-        parts.append(f"Original user prompt: {original_prompt}")
-
-    if action_type == "mcp_mutation":
-        server_name = str(execution.get("serverName") or "").strip()
-        tool_name = str(execution.get("toolName") or "").strip()
-        canonical_arguments = str(execution.get("canonicalArguments") or "").strip()
-        if not server_name or not tool_name or not canonical_arguments:
-            raise ValueError("approved MCP execution context is incomplete")
-        parts.append(
-            "The user approved this exact action: "
-            f"{action}. Call MCP function group {server_name}, tool {tool_name}, "
-            f"with exactly this JSON argument object: {canonical_arguments}. "
-            "Do not alter the arguments and do not request confirmation again. "
-            "The execution credential is supplied out of band by the worker."
-        )
-    else:
-        token = str(execution.get("token") or "").strip()
-        if not token:
-            raise ValueError("approved execution credential is missing")
-        parts.append(
-            f"The user approved {action_type or 'the action'} for "
-            f"{execution.get('target') or 'the displayed target'}. "
-            f'Use approval_token="{token}" for this exact action only.'
-        )
-    return "\n\n".join(parts)
 
 
 def start_queue_monitor(
@@ -207,6 +164,7 @@ def run_once(
     user_id: str,
     request: dict[str, Any],
     abort: threading.Event | None = None,
+    run_id_holder: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     request = dict(request)
     goals_snapshot: list[dict[str, Any]] | None = None
@@ -224,80 +182,8 @@ def run_once(
         requested_by=str(request.get("requestedBy") or "worker"),
     )
 
-    # F-015: an approved request can be re-enqueued (UI re-click, reclaim of an
-    # in-flight job, manual replay). Re-running it would execute a possibly
-    # non-idempotent action twice. If the stable public approval id was already
-    # applied, record a skipped run and return instead of calling the backend.
-    approval_key = request_approval_key(request)
-    if approval_key and store.is_approval_applied(user_id, approval_key):
-        run["status"] = "skipped"
-        run["completedAt"] = now_ms()
-        run["summary"] = "Approval already applied; skipped duplicate execution."
-        store.upsert_run(user_id, run)
-        store.log_event(
-            user_id,
-            run["id"],
-            "approval_already_applied",
-            "Skipped duplicate execution of an already-applied approval.",
-            level="warn",
-        )
-        return run
-
-    approval_execution: dict[str, Any] | None = None
-    action_type = str(request.get("actionType") or "").strip()
-    if approval_key and action_type not in {
-        "deep_research_plan",
-        "oauth_authorization",
-    }:
-        get_execution = getattr(store, "get_approval_execution", None)
-        if callable(get_execution):
-            approval_execution = get_execution(user_id, str(request.get("id") or ""))
-        if approval_execution and (
-            str(approval_execution.get("approvalId") or "") != approval_key
-            or str(approval_execution.get("actionType") or "") != action_type
-        ):
-            approval_execution = None
-        if not approval_execution:
-            run["status"] = "failed"
-            run["completedAt"] = now_ms()
-            run["error"] = "Approved execution credential is missing or expired."
-            store.upsert_run(user_id, run)
-            store.log_event(
-                user_id,
-                run["id"],
-                "approval_credential_missing",
-                run["error"],
-                level="error",
-            )
-            return run
-
-    approval_token: str | None = None
-    mcp_receipt_checked = False
-    mcp_receipt_verified = False
-
-    def consume_mcp_success_receipt() -> bool:
-        """Consume the gate's exact-call proof and mark this approval applied."""
-
-        nonlocal mcp_receipt_checked, mcp_receipt_verified
-        if mcp_receipt_checked:
-            return mcp_receipt_verified
-        mcp_receipt_checked = True
-        if (
-            action_type != "mcp_mutation"
-            or not approval_key
-            or not approval_token
-            or approval_execution is None
-        ):
-            return False
-        consume_receipt = getattr(store, "consume_mcp_execution_receipt", None)
-        if not callable(consume_receipt):
-            raise ValueError("MCP execution receipt verifier is unavailable")
-        mcp_receipt_verified = bool(
-            consume_receipt(user_id, approval_token, approval_execution)
-        )
-        if mcp_receipt_verified:
-            store.mark_approval_applied(user_id, approval_key)
-        return mcp_receipt_verified
+    if run_id_holder is not None:
+        run_id_holder["id"] = run["id"]
 
     run["status"] = "running"
     run["startedAt"] = now_ms()
@@ -320,23 +206,6 @@ def run_once(
             if existing.get("id") != run["id"]
         ]
         recent_feed = store.list_feed(user_id, limit=120)
-        if approval_execution is not None:
-            issue_token = getattr(store, "issue_approval_token", None)
-            if not callable(issue_token):
-                raise ValueError("approval credential issuer is unavailable")
-            approval_token = str(issue_token(user_id, approval_execution) or "").strip()
-            if not approval_token:
-                raise ValueError("approved execution credential could not be issued")
-
-        prompt_request = request
-        if approval_execution is not None:
-            prompt_request = dict(request)
-            prompt_execution = dict(approval_execution)
-            if action_type != "mcp_mutation":
-                prompt_execution["token"] = approval_token
-            prompt_request["prompt"] = _approved_execution_prompt(
-                request, prompt_execution
-            )
         messages = build_messages(
             user_id=user_id,
             config=config,
@@ -344,25 +213,13 @@ def run_once(
             goals=goals,
             recent_runs=recent_runs,
             recent_feed=recent_feed,
-            request=prompt_request,
+            request=request,
         )
         store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
         execution_id = str(request.get("id") or run["id"])
-        response = (
-            backend.call(
-                messages,
-                approval_token=approval_token,
-                execution_id=execution_id,
-            )
-            if approval_token and action_type == "mcp_mutation"
-            else backend.call(messages, execution_id=execution_id)
+        response = backend.call(
+            messages, execution_id=execution_id, abort=abort
         )
-        if approval_key and action_type == "mcp_mutation":
-            if not consume_mcp_success_receipt():
-                raise ValueError(
-                    "Approved MCP tool execution did not produce an exact "
-                    "success receipt."
-                )
         run["metrics"]["responseChars"] = len(response or "")
 
         # F-016: the lease was lost while this run was in flight, so another
@@ -429,11 +286,6 @@ def run_once(
         run["metrics"]["feedItemsStored"] = len(stored_items)
         run["metrics"]["feedItemsDeduped"] = deduped
         run["completedAt"] = now_ms()
-        # Non-MCP approvals retain their existing completion marker. MCP
-        # mutations are marked earlier only after consuming the gate's exact
-        # success receipt; a plausible model response is never sufficient.
-        if approval_key and action_type != "mcp_mutation":
-            store.mark_approval_applied(user_id, approval_key)
         store.upsert_run(user_id, run)
         store.log_event(
             user_id,
@@ -446,6 +298,27 @@ def run_once(
                 "workspaceUpdated": changed,
             },
         )
+        return run
+    except RunAbortedError as exc:
+        # The stream was stopped mid-flight. A user cancellation and a lost
+        # lease are both legitimate; anything else is a run that outran its
+        # wall-clock budget or response cap.
+        if store.cancel_requested(user_id, run["id"]):
+            run["status"] = "cancelled"
+            run["summary"] = "Run cancelled while the backend request was open."
+            event, level = "run_cancelled", "warn"
+        elif abort is not None and abort.is_set():
+            run["status"] = "aborted"
+            run["summary"] = "Run aborted after losing the worker lease."
+            event, level = "run_aborted", "warn"
+        else:
+            run["status"] = "failed"
+            run["error"] = str(exc)
+            run["summary"] = "Run stopped before the backend produced an answer."
+            event, level = "run_failed", "error"
+        run["completedAt"] = now_ms()
+        store.upsert_run(user_id, run)
+        store.log_event(user_id, run["id"], event, run["summary"], level=level)
         return run
     except OAuthRequiredError:
         # OAuth always requires interactive browser state. Treat an attempted
@@ -478,23 +351,6 @@ def run_once(
             level="error",
         )
         return run
-    finally:
-        # The overall backend request can fail after the exact MCP call already
-        # succeeded (for example during a later LLM turn). Consume any receipt
-        # before revoking the token so a retry cannot duplicate that mutation.
-        if (
-            approval_token
-            and approval_key
-            and action_type == "mcp_mutation"
-            and not mcp_receipt_checked
-        ):
-            with contextlib.suppress(Exception):
-                consume_mcp_success_receipt()
-        if approval_token:
-            revoke_token = getattr(store, "revoke_approval_token", None)
-            if callable(revoke_token):
-                with contextlib.suppress(Exception):
-                    revoke_token(user_id, approval_token)
 
 
 def _request_timeout_seconds() -> int:
@@ -510,9 +366,8 @@ def _request_timeout_seconds() -> int:
     if request_timeout > MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS:
         raise ValueError(
             "REQUEST_TIMEOUT must be at most "
-            f"{MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS} seconds so the "
-            f"{DEFAULT_MCP_RECEIPT_TTL_SECONDS}-second MCP execution receipt "
-            "retains its recovery margin"
+            f"{MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS} seconds so one run "
+            "cannot wedge the worker queue"
         )
     return request_timeout
 
@@ -539,6 +394,8 @@ def run_with_lease_heartbeat(
     # worker may start the same user concurrently, racing the non-atomic shared
     # state. Signal the in-progress run to abort instead of ignoring the error.
     abort = threading.Event()
+    # run_once mints the run id, so the heartbeat learns it through this holder.
+    run_id_holder: dict[str, str] = {}
     heartbeat_interval = max(1, min(20, lease_ttl // 3 or 1))
 
     def heartbeat() -> None:
@@ -552,6 +409,18 @@ def run_with_lease_heartbeat(
                 log(f"lease heartbeat failed; aborting current run: {exc}")
                 abort.set()
                 return
+            # Cancellation used to be read only after the backend call
+            # returned, so cancelling a long run did nothing until it finished
+            # on its own. Poll here so the abort reaches the open stream.
+            run_id = run_id_holder.get("id") or ""
+            if run_id:
+                try:
+                    if store.cancel_requested(user_id, run_id):
+                        abort.set()
+                        log(f"cancellation requested; aborting run {run_id}")
+                        return
+                except Exception as exc:
+                    log(f"cancellation check failed: {exc}")
 
     if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
         raise RuntimeError("worker lease was lost before the run started")
@@ -566,6 +435,7 @@ def run_with_lease_heartbeat(
             user_id=user_id,
             request=request,
             abort=abort,
+            run_id_holder=run_id_holder,
         )
     finally:
         stop.set()

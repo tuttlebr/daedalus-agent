@@ -1,7 +1,7 @@
 {{- if .Values.autonomousAgent.enabled }}
 {{- $requestTimeout := int .Values.autonomousAgent.requestTimeout }}
 {{- if or (le $requestTimeout 0) (gt $requestTimeout 6900) }}
-{{- fail "autonomousAgent.requestTimeout must be between 1 and 6900 seconds so the two-hour MCP execution receipt retains a five-minute recovery margin" }}
+{{- fail "autonomousAgent.requestTimeout must be between 1 and 6900 seconds so a single run cannot wedge the worker queue" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment

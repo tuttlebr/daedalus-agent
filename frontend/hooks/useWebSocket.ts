@@ -35,7 +35,6 @@ export interface UseWebSocketCallbacks {
   onAutonomyStatus?: (data: any) => void;
   onAutonomyRunEvent?: (data: any) => void;
   onAutonomyFeedUpdated?: (data: any) => void;
-  onAutonomyApprovalRequested?: (data: any) => void;
   onConnected?: (streamingStates: Record<string, StreamingStateInfo>) => void;
   onDisconnected?: () => void;
 }
@@ -249,12 +248,6 @@ export const useWebSocket = (
     unsubs.push(
       manager.on('autonomy_feed_updated', (data: any) => {
         callbacksRef.current.onAutonomyFeedUpdated?.(data);
-      }),
-    );
-
-    unsubs.push(
-      manager.on('autonomy_approval_requested', (data: any) => {
-        callbacksRef.current.onAutonomyApprovalRequested?.(data);
       }),
     );
 

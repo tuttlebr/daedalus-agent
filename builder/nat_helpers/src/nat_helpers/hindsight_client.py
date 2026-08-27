@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import uuid
+from functools import lru_cache
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -35,10 +36,6 @@ def memory_mode() -> MemoryMode:
     if mode not in _VALID_MODES:
         raise ValueError("DAEDALUS_MEMORY_MODE must be disabled or hindsight")
     return mode  # type: ignore[return-value]
-
-
-def hindsight_enabled() -> bool:
-    return memory_mode() == "hindsight"
 
 
 def derive_bank_id(user_id: str) -> str:
@@ -128,10 +125,33 @@ class HindsightClient:
             or str(_DEFAULT_API_TIMEOUT_SECONDS)
         )
         self._transport = transport
+        # One pooled client per instance. Building an httpx.AsyncClient per
+        # request means every memory call pays a fresh TCP (and TLS) handshake,
+        # and a chat turn makes several of them before the first token.
+        self._client: httpx.AsyncClient | None = None
         if not self._base_url.startswith(("http://", "https://")):
             raise ValueError("HINDSIGHT_API_URL must use http:// or https://")
         if not self._api_key:
             raise ValueError("HINDSIGHT_API_KEY is required")
+
+    def _ensure_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self._base_url,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Accept": "application/json",
+                },
+                timeout=httpx.Timeout(self._timeout),
+                follow_redirects=False,
+                transport=self._transport,
+            )
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
 
     def _bank_path(self, user_id: str, suffix: str) -> str:
         bank_id = quote(derive_bank_id(user_id), safe="")
@@ -146,26 +166,18 @@ class HindsightClient:
         params: dict[str, Any] | None = None,
         timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Accept": "application/json",
-        }
-        if json_body is not None:
-            headers["Content-Type"] = "application/json"
+        headers = (
+            {"Content-Type": "application/json"} if json_body is not None else None
+        )
         try:
-            async with httpx.AsyncClient(
-                base_url=self._base_url,
+            response = await self._ensure_client().request(
+                method,
+                path,
+                json=json_body,
+                params=params,
                 headers=headers,
                 timeout=httpx.Timeout(timeout_seconds or self._timeout),
-                follow_redirects=False,
-                transport=self._transport,
-            ) as client:
-                response = await client.request(
-                    method,
-                    path,
-                    json=json_body,
-                    params=params,
-                )
+            )
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             raise HindsightError("Hindsight is unavailable") from exc
         if response.status_code >= 400:
@@ -613,5 +625,16 @@ class HindsightClient:
         )
 
 
-def client_from_env() -> HindsightClient:
+@lru_cache(maxsize=1)
+def _cached_client_from_env() -> HindsightClient:
     return HindsightClient()
+
+
+def client_from_env() -> HindsightClient:
+    """Return the shared client so its connection pool is actually reused.
+
+    Every call site previously constructed a new client, which discarded the
+    pool along with it. Configuration is read from the environment once at
+    process start, so a single instance is correct.
+    """
+    return _cached_client_from_env()

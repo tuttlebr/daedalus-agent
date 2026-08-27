@@ -11,7 +11,15 @@ import {
   IconMinimize,
   IconAlertCircle,
 } from '@tabler/icons-react';
-import { memo, useState, useRef, useEffect, lazy, Suspense } from 'react';
+import {
+  memo,
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  lazy,
+  Suspense,
+} from 'react';
 
 import { isAutonomousFeedHtmlMessage } from '@/utils/app/htmlResponse';
 
@@ -69,9 +77,12 @@ export const AssistantMessage = memo(
     const errorMessages = message.errorMessages;
     const hasError = Boolean(errorMessages?.message);
     const isRecoverable = errorMessages?.recoverable === true;
-    const responseDocument = classifyResponseContent(
-      content,
-      !isStreaming && !isAutonomousFeedHtml,
+    // classifyResponseContent returns a fresh object literal, so without this
+    // ResponseDocument's shallow memo never bails and re-renders per token.
+    const responseDocument = useMemo(
+      () =>
+        classifyResponseContent(content, !isStreaming && !isAutonomousFeedHtml),
+      [content, isStreaming, isAutonomousFeedHtml],
     );
 
     // After render, check if the actual rendered height exceeds the threshold
@@ -233,6 +244,7 @@ export const AssistantMessage = memo(
                       document={responseDocument}
                       messageIndex={messageIndex}
                       messageId={message.id}
+                      isStreaming={isStreaming}
                       className={
                         isAutonomousFeedHtml
                           ? feedClasses

@@ -58,6 +58,13 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+            # The route budgets FRONTEND_READY_TIMEOUT_MS (1s) per dependency
+            # and degrades on its own. Leave headroom above that so kubelet's
+            # 1s default does not cut the probe first and make the route's
+            # degradation logic unreachable. nginx fronts the ingress, so a
+            # single slow Redis ping must not empty the backend pool.
+            timeoutSeconds: 5
+            failureThreshold: 3
           {{- with .Values.nginx.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

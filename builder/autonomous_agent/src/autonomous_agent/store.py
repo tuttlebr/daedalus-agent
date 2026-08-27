@@ -132,7 +132,7 @@ class RedisStore:
     def atomic_update(self, redis_key: str, mutate: Any, *, retries: int = 5) -> Any:
         """Optimistically read-modify-write a JSON value under WATCH/MULTI.
 
-        F-016: shared per-user state (runs/feed/approvals) is read-modify-written
+        F-016: shared per-user state (runs/feed/goals) is read-modify-written
         from the worker, and a lease that expires lets a second worker run
         concurrently. A plain ``json_get`` + ``json_set`` would then let one
         writer clobber the other's update. ``atomic_update`` guards the key with
@@ -350,96 +350,6 @@ class RedisStore:
             self.publish(user_id, "autonomy_feed_updated", {"items": stored})
         return stored
 
-    def get_approval_execution(
-        self, user_id: str, request_id: str
-    ) -> dict[str, Any] | None:
-        """Load the server-only credential/context for an approved queue item."""
-
-        if not request_id:
-            return None
-        execution_key = key(user_id, f"approval-execution:{request_id}")
-        getdel = getattr(self.redis, "getdel", None)
-        if callable(getdel):
-            raw = getdel(execution_key)
-        else:
-            raw = self.redis.eval(
-                "local v=redis.call('GET',KEYS[1]); "
-                "if v then redis.call('DEL',KEYS[1]) end; return v",
-                1,
-                execution_key,
-            )
-        if not raw:
-            return None
-        try:
-            execution = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return None
-        if not isinstance(execution, dict):
-            return None
-        return execution
-
-    def issue_approval_token(
-        self,
-        user_id: str,
-        execution: dict[str, Any],
-        *,
-        ttl_seconds: int = 300,
-    ) -> str:
-        """Mint a short-lived one-use credential only when work is dequeued."""
-
-        from user_interaction.approval_tokens import (
-            ApprovalRequest,
-            issue_approval_token,
-        )
-
-        action_type = str(execution.get("actionType") or "").strip()
-        target = str(execution.get("target") or "").strip()
-        canonical_arguments = str(execution.get("canonicalArguments") or "").strip()
-        arguments_sha256 = str(execution.get("argumentsSha256") or "").strip()
-        return issue_approval_token(
-            self.redis,
-            ApprovalRequest(
-                user_id=user_id,
-                action_type=action_type,
-                target=target,
-                server_name=str(execution.get("serverName") or "").strip(),
-                tool_name=str(execution.get("toolName") or "").strip(),
-                arguments_sha256=arguments_sha256,
-                canonical_arguments=canonical_arguments,
-            ),
-            ttl_seconds=ttl_seconds,
-        )
-
-    def revoke_approval_token(self, user_id: str, token: str) -> None:
-        """Revoke an unspent credential after any completed worker attempt."""
-
-        if not token:
-            return
-        from user_interaction.approval_tokens import approval_token_key
-
-        self.redis.delete(approval_token_key(user_id, token))
-
-    def consume_mcp_execution_receipt(
-        self,
-        user_id: str,
-        token: str,
-        execution: dict[str, Any],
-    ) -> bool:
-        """Consume proof that the gate ran the exact approved MCP mutation."""
-
-        if str(execution.get("actionType") or "").strip() != "mcp_mutation":
-            return False
-        from user_interaction.approval_tokens import consume_mcp_execution_receipt
-
-        return consume_mcp_execution_receipt(
-            self.redis,
-            user_id=user_id,
-            token=token,
-            server_name=str(execution.get("serverName") or "").strip(),
-            tool_name=str(execution.get("toolName") or "").strip(),
-            arguments_sha256=str(execution.get("argumentsSha256") or "").strip(),
-        )
-
     def enqueue(self, user_id: str, request: dict[str, Any]) -> None:
         self.redis.lpush(key(user_id, "queue"), json.dumps(request))
         self.publish(user_id, "autonomy_status", {"queued": request})
@@ -629,30 +539,6 @@ class RedisStore:
 
     def cancel_requested(self, user_id: str, run_id: str) -> bool:
         return bool(self.redis.get(key(user_id, f"cancel:{run_id}")))
-
-    def is_approval_applied(self, user_id: str, approval_key: str) -> bool:
-        """F-015: report whether an approval has already been executed.
-
-        Guards against an approved-then-re-enqueued request running a
-        non-idempotent action twice. ``approval_key`` is the stable public
-        approval id carried by the re-enqueued request; it is not a credential.
-        """
-        if not approval_key:
-            return False
-        return bool(
-            self.redis.sismember(key(user_id, "applied_approvals"), approval_key)
-        )
-
-    def mark_approval_applied(
-        self, user_id: str, approval_key: str, *, ttl_seconds: int = 7 * 24 * 3600
-    ) -> None:
-        """F-015: record that an approval has been executed so re-runs skip it."""
-        if not approval_key:
-            return
-        applied_key = key(user_id, "applied_approvals")
-        self.redis.sadd(applied_key, approval_key)
-        with contextlib.suppress(Exception):
-            self.redis.expire(applied_key, ttl_seconds)
 
     def maybe_enqueue_scheduled(self, user_id: str) -> dict[str, Any] | None:
         config = self.get_config(user_id)

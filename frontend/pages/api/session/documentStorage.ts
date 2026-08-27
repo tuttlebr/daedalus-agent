@@ -181,28 +181,6 @@ async function deleteStoredObject(document: StoredDocument): Promise<void> {
   await deleteDocumentObject(objectKey);
 }
 
-export async function cleanupSessionDocuments(
-  sessionId: string,
-  currentUserId: string,
-): Promise<number> {
-  const redis = getRedis();
-  const sessionDocumentsKey = sessionKey(['session-documents', sessionId]);
-  const documentIds = await redis.smembers(sessionDocumentsKey);
-  let deletedCount = 0;
-
-  for (const documentId of documentIds) {
-    const document = await getDocument(sessionId, documentId);
-    if (!document) {
-      await redis.srem(sessionDocumentsKey, documentId);
-      continue;
-    }
-    if (!canAccessStoredDocument(document, sessionId, currentUserId)) continue;
-    await deleteStoredObject(document);
-    if (await deleteDocumentMetadata(sessionId, documentId)) deletedCount++;
-  }
-  return deletedCount;
-}
-
 const DOC_UPLOAD_RATE_LIMIT = ruleFromEnv(
   'document-upload',
   'RATE_LIMIT_DOC_UPLOAD',

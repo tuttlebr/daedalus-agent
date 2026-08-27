@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import { imageHistoryKey } from '@/server/images/requestHelpers';
+
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
@@ -9,7 +11,6 @@ import {
   jsonDel,
   jsonGet,
   jsonSetWithExpiry,
-  sessionKey,
 } from '@/server/session/redis';
 
 const IMAGE_HISTORY_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -48,12 +49,6 @@ interface GeneratedImageRecord {
   sessionId?: string;
 }
 
-function historyKey(userId: string, sessionId: string): string {
-  if (userId && userId !== 'anon') {
-    return sessionKey(['user', userId, 'imagePanelHistory']);
-  }
-  return sessionKey(['session', sessionId, 'imagePanelHistory']);
-}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -260,7 +255,7 @@ export default async function handler(
 
   const sessionId = getOrSetSessionId(req, res);
   const userId = session.username;
-  const key = historyKey(userId, sessionId);
+  const key = imageHistoryKey(userId, sessionId);
 
   if (req.method === 'GET') {
     try {

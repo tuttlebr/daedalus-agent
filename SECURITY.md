@@ -58,8 +58,6 @@ sandbox services form additional trust boundaries.
 - The deployment operator and changes to workflow, Helm, secret, ingress,
   network-policy, and MCP authorization configuration are trusted
   administrative actions.
-- The username selected by `ADMIN_USERNAME` is trusted with user-management and
-  cross-user administrative capabilities exposed by the frontend.
 - External model, MCP, search, retrieval, image, sandbox, and observability
   providers receive the content necessary for their configured operations and
   are separate data processors and security boundaries.

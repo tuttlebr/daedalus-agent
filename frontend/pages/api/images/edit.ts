@@ -1,5 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
+import { isBackendUnavailable, removeUnsafeBrowserKeys } from '@/server/images/requestHelpers';
+
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
 import {
   cleanImageParamsForModel,
@@ -34,34 +36,8 @@ export const config = {
 
 const EDIT_TIMEOUT_MS = 330_000;
 const STREAM_PARTIAL_IMAGES = 2;
-const UNSAFE_BROWSER_KEYS = [
-  'apiKey',
-  'openaiApiKey',
-  'openai_api_key',
-  'OPENAI_API_KEY',
-  'authorization',
-  'Authorization',
-];
 
-function isBackendUnavailable(message: string): boolean {
-  return (
-    message.includes('ECONNREFUSED') ||
-    message.includes('ENOTFOUND') ||
-    message.includes('EAI_AGAIN') ||
-    message.includes('ECONNRESET') ||
-    message.includes('socket hang up')
-  );
-}
 
-function removeUnsafeBrowserKeys(
-  body: Record<string, unknown>,
-): Record<string, unknown> {
-  const next = { ...body };
-  for (const key of UNSAFE_BROWSER_KEYS) {
-    delete next[key];
-  }
-  return next;
-}
 
 export default async function handler(
   req: NextApiRequest,

@@ -14,6 +14,25 @@ from urllib.parse import urlparse
 DEFAULT_REDIS_URL = "redis://daedalus-redis.daedalus.svc.cluster.local"
 
 
+def redis_client(*, timeout_seconds: float = 5.0):
+    """Return an async Redis client for the configured URL.
+
+    Callers differ only in how long they are willing to block, so that is the
+    single parameter. Previously each module carried its own copy of this
+    four-line constructor, which is how two of them ended up with different
+    ``decode_responses`` expectations waiting to happen.
+    """
+
+    from redis.asyncio import Redis
+
+    return Redis.from_url(
+        redis_url_from_env(),
+        decode_responses=True,
+        socket_connect_timeout=timeout_seconds,
+        socket_timeout=timeout_seconds,
+    )
+
+
 async def close_redis_client(client) -> None:
     """Close Redis clients across the pinned 4.x and newer async APIs."""
 

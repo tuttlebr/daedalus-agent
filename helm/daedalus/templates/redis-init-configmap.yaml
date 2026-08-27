@@ -75,11 +75,18 @@ data:
 
     # Start Redis in the background with all required modules.
     # --dir /data ensures RDB and AOF are written to the PVC mount.
+    # Without maxmemory Redis grows to the container limit and is OOMKilled
+    # rather than evicting. With replicas: 1 and strategy Recreate that is a
+    # full outage plus an AOF replay. volatile-lru evicts only keys that carry
+    # a TTL (job state, sessions, conversations, uploads); durable records such
+    # as autonomy goals and user accounts have none and are never evicted.
     redis-server \
       --dir /data \
       --save 60 1 \
       --appendonly yes \
       --protected-mode yes \
+      --maxmemory {{ .Values.redis.maxmemory | default "6gb" }} \
+      --maxmemory-policy {{ .Values.redis.maxmemoryPolicy | default "volatile-lru" }} \
       "${AUTH_ARGS[@]}" \
       "${TLS_ARGS[@]}" \
       --loadmodule /opt/redis-stack/lib/rejson.so \

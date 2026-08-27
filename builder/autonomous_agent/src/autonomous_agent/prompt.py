@@ -556,20 +556,6 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
     return result
 
 
-def request_approval_key(request: dict[str, Any] | None) -> str:
-    """F-015: stable idempotency key for an approved, re-enqueued request.
-
-    The authenticated approval route places the public approval id (never the
-    credential) on the private worker queue record. Returns "" for ordinary
-    requests so they are never treated as approval replays.
-    """
-    if not isinstance(request, dict):
-        return ""
-    if str(request.get("trigger") or "") != "approval":
-        return ""
-    return str(request.get("approvalId") or "").strip()
-
-
 def output_requests_approval(text: str) -> bool:
     # F-011: require the structured approval marker, not any advisory phrase.
     # This keeps the worker-side pause aligned with the backend approval gate.
