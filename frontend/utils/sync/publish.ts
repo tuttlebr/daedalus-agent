@@ -12,7 +12,6 @@ export type SyncEventType =
   | 'autonomy_status'
   | 'autonomy_run_event'
   | 'autonomy_feed_updated'
-  | 'autonomy_approval_requested'
   | 'heartbeat'
   | 'session_registered'
   | 'session_unregistered';

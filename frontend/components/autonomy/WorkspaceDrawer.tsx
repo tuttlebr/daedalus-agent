@@ -48,6 +48,7 @@ interface WorkspaceDrawerProps {
   onEnqueueRun: (prompt: string) => void;
   onRunActiveGoals: (prompt: string) => void;
   onCancelActiveRun: () => void;
+  onCancelQueuedRequest: (id: string) => void;
   onUpdateInterval: (hours: number) => void;
   onCreateGoal: (title: string, description: string) => void;
   onImportGoals: (payload: unknown) => void | Promise<void>;
@@ -69,6 +70,7 @@ export function WorkspaceDrawer({
   onEnqueueRun,
   onRunActiveGoals,
   onCancelActiveRun,
+  onCancelQueuedRequest,
   onUpdateInterval,
   onCreateGoal,
   onImportGoals,
@@ -517,9 +519,19 @@ export function WorkspaceDrawer({
                         Goal: {resolveGoalTitle(request.goalId)}
                       </p>
                     )}
-                    <p className="mt-1 truncate font-mono text-[10px] text-dark-text-subtle">
-                      {request.id} · {request.requestedBy}
-                    </p>
+                    <div className="mt-1 flex items-baseline justify-between gap-3">
+                      <p className="truncate font-mono text-[10px] text-dark-text-subtle">
+                        {request.id} · {request.requestedBy}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => onCancelQueuedRequest(request.id)}
+                        disabled={busy === request.id}
+                        className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-dark-text-subtle transition-colors hover:text-nvidia-red/80 disabled:opacity-40"
+                      >
+                        {busy === request.id ? 'cancelling' : 'cancel'}
+                      </button>
+                    </div>
                   </article>
                 ))
               )}
@@ -661,9 +673,9 @@ function Collapsible({
 
 function runStatusTone(status: string): string {
   if (status === 'completed') return 'text-emerald-400/80';
-  if (status === 'failed' || status === 'cancelled')
+  if (status === 'failed' || status === 'cancelled' || status === 'aborted')
     return 'text-nvidia-red/80';
-  if (status === 'waiting_approval') return 'text-amber-300/80';
+  if (status === 'skipped') return 'text-amber-300/80';
   if (status === 'running') return 'text-nvidia-green/80';
   return 'text-dark-text-subtle';
 }

@@ -12,7 +12,6 @@ import toast from 'react-hot-toast';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 import type {
-  AutonomyApproval,
   AutonomyConfig,
   AutonomyEvent,
   AutonomyFeedItem,
@@ -21,7 +20,6 @@ import type {
   AutonomyRun,
 } from '@/types/autonomy';
 
-import { ApprovalBanner } from './ApprovalBanner';
 import { AutonomyFeed } from './AutonomyFeed';
 import { StatusStrip } from './StatusStrip';
 import { WorkspaceDrawer } from './WorkspaceDrawer';
@@ -33,7 +31,6 @@ interface DashboardState {
   runs: AutonomyRun[];
   queue: AutonomyQueuedRequest[];
   feed: AutonomyFeedItem[];
-  approvals: AutonomyApproval[];
   events: AutonomyEvent[];
 }
 
@@ -43,7 +40,6 @@ const emptyState: DashboardState = {
   runs: [],
   queue: [],
   feed: [],
-  approvals: [],
   events: [],
 };
 
@@ -56,7 +52,6 @@ type DashboardResource =
   | 'runs'
   | 'queue'
   | 'feed'
-  | 'approvals'
   | 'events';
 
 const ALL_RESOURCES: readonly DashboardResource[] = [
@@ -65,7 +60,6 @@ const ALL_RESOURCES: readonly DashboardResource[] = [
   'runs',
   'queue',
   'feed',
-  'approvals',
   'events',
 ];
 
@@ -83,7 +77,6 @@ export function AutonomyDashboard() {
   const [busy, setBusy] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
-  const titleRestoreRef = useRef<string | null>(null);
   const stateRef = useRef(state);
   const pendingResourcesRef = useRef<Set<DashboardResource>>(new Set());
   const scheduledRefreshRef = useRef<number | null>(null);
@@ -91,10 +84,6 @@ export function AutonomyDashboard() {
   const hasConnectedRef = useRef(false);
 
   const activeRun = useMemo(() => state.runs.find(isActiveRun), [state.runs]);
-  const pendingApprovals = useMemo(
-    () => state.approvals.filter((approval) => approval.status === 'pending'),
-    [state.approvals],
-  );
   const feedSorted = useMemo(
     () => [...state.feed].sort((a, b) => b.createdAt - a.createdAt),
     [state.feed],
@@ -111,7 +100,7 @@ export function AutonomyDashboard() {
       eventRunId?: string | null,
     ) => {
       const requested = new Set(resources);
-      const [config, goals, runs, queue, feed, approvals] = await Promise.all([
+      const [config, goals, runs, queue, feed] = await Promise.all([
         requested.has('config')
           ? fetchJson<AutonomyConfig>('/api/autonomy/config')
           : undefined,
@@ -127,9 +116,6 @@ export function AutonomyDashboard() {
         requested.has('feed')
           ? fetchJson<AutonomyFeedItem[]>('/api/autonomy/feed')
           : undefined,
-        requested.has('approvals')
-          ? fetchJson<AutonomyApproval[]>('/api/autonomy/approvals')
-          : undefined,
       ]);
 
       const patch: Partial<DashboardState> = {};
@@ -138,7 +124,6 @@ export function AutonomyDashboard() {
       if (runs !== undefined) patch.runs = runs;
       if (queue !== undefined) patch.queue = queue;
       if (feed !== undefined) patch.feed = feed;
-      if (approvals !== undefined) patch.approvals = approvals;
 
       if (requested.has('events')) {
         const currentRuns = runs ?? stateRef.current.runs;
@@ -204,7 +189,6 @@ export function AutonomyDashboard() {
       if (data?.goals) resources.push('goals');
       if (data?.run || data?.runId || data?.status) resources.push('runs');
       if (data?.queued || data?.queuedBatch) resources.push('queue');
-      if (data?.approval) resources.push('approvals');
       scheduleRefresh(resources.length ? resources : ALL_RESOURCES);
     },
     [scheduleRefresh],
@@ -216,7 +200,6 @@ export function AutonomyDashboard() {
     onAutonomyRunEvent: (event) =>
       scheduleRefresh(['runs', 'events'], event?.runId),
     onAutonomyFeedUpdated: () => scheduleRefresh(['feed']),
-    onAutonomyApprovalRequested: () => scheduleRefresh(['approvals']),
     onConnected: () => {
       if (hasConnectedRef.current) scheduleRefresh(ALL_RESOURCES);
       hasConnectedRef.current = true;
@@ -272,32 +255,6 @@ export function AutonomyDashboard() {
     },
     [],
   );
-
-  // Document title alert when approvals are pending and tab is unfocused
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    if (titleRestoreRef.current === null)
-      titleRestoreRef.current = document.title;
-    const baseTitle = titleRestoreRef.current
-      .replace(/^\(\d+\)\s+/, '')
-      .replace(/\s+— Pending$/, '');
-    const updateTitle = () => {
-      const hidden = document.visibilityState !== 'visible';
-      if (hidden && pendingApprovals.length > 0) {
-        document.title = `(${pendingApprovals.length}) ${baseTitle} — Pending`;
-      } else {
-        document.title = baseTitle;
-      }
-    };
-    updateTitle();
-    document.addEventListener('visibilitychange', updateTitle);
-    window.addEventListener('focus', updateTitle);
-    return () => {
-      document.removeEventListener('visibilitychange', updateTitle);
-      window.removeEventListener('focus', updateTitle);
-      document.title = baseTitle;
-    };
-  }, [pendingApprovals.length]);
 
   const updateConfig = useCallback(
     async (patch: Partial<AutonomyConfig>) => {
@@ -459,30 +416,6 @@ export function AutonomyDashboard() {
     [refresh],
   );
 
-  const resolveApproval = useCallback(
-    async (id: string, decision: 'approved' | 'denied') => {
-      setBusy(id);
-      try {
-        const response = await fetch('/api/autonomy/approvals', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, decision }),
-        });
-        if (!response.ok) throw new Error('Failed to resolve approval');
-        await refresh();
-      } catch (err) {
-        console.error(err);
-        toast.error(
-          decision === 'approved'
-            ? 'Could not approve the request. It is still pending.'
-            : 'Could not deny the request. It is still pending.',
-        );
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
 
   const cancelActiveRun = useCallback(async () => {
     if (!activeRun) return;
@@ -499,6 +432,28 @@ export function AutonomyDashboard() {
       setBusy(null);
     }
   }, [activeRun, refresh]);
+
+  const cancelQueuedRequest = useCallback(
+    async (requestId: string) => {
+      setBusy(requestId);
+      try {
+        const response = await fetch(
+          `/api/autonomy/queue?id=${encodeURIComponent(requestId)}`,
+          { method: 'DELETE' },
+        );
+        if (!response.ok && response.status !== 404) {
+          throw new Error('Failed to cancel queued request');
+        }
+        await refresh();
+      } catch (err) {
+        console.error(err);
+        toast.error('Could not cancel the queued request. Try again.');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh],
+  );
 
   const togglePause = useCallback(() => {
     void updateConfig({ enabled: !state.config?.enabled });
@@ -559,17 +514,11 @@ export function AutonomyDashboard() {
           config={state.config}
           activeRun={activeRun}
           lastRunAt={lastRunAt}
-          pendingApprovals={pendingApprovals.length}
           queuedRequests={state.queue.length}
           onOpenWorkspace={() => setDrawerOpen(true)}
           onRefresh={() => refresh()}
           refreshing={refreshing}
           wsConnected={wsConnected}
-        />
-        <ApprovalBanner
-          approvals={pendingApprovals}
-          busyId={busy}
-          onResolve={resolveApproval}
         />
         <AutonomyFeed items={feedSorted} config={state.config} />
       </div>
@@ -587,6 +536,7 @@ export function AutonomyDashboard() {
         onEnqueueRun={enqueueRun}
         onRunActiveGoals={runActiveGoals}
         onCancelActiveRun={cancelActiveRun}
+        onCancelQueuedRequest={cancelQueuedRequest}
         onUpdateInterval={updateInterval}
         onCreateGoal={createGoal}
         onImportGoals={importGoals}

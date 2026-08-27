@@ -45,7 +45,6 @@ export type ServerMessage =
   | { type: 'autonomy_status'; data: any }
   | { type: 'autonomy_run_event'; data: any }
   | { type: 'autonomy_feed_updated'; data: any }
-  | { type: 'autonomy_approval_requested'; data: any }
   | {
       type: 'chat_token';
       conversationId: string;

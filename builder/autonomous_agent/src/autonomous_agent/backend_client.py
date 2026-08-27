@@ -5,13 +5,20 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+import time
 from typing import Any
 from urllib.parse import quote
 
 import requests
 
 _AUTH_URL_RE = re.compile(r"https?://[^\s<>\")]+")
+MAX_RESPONSE_CHARS = 4 * 1024 * 1024
 DEFAULT_TIMEZONE = "America/New_York"
+
+
+class RunAbortedError(RuntimeError):
+    """The in-flight backend request was stopped before it produced an answer."""
 
 
 class OAuthRequiredError(RuntimeError):
@@ -140,18 +147,16 @@ class BackendClient:
         self,
         messages: list[dict[str, str]],
         *,
-        approval_token: str = "",
         execution_id: str = "",
+        abort: threading.Event | None = None,
     ) -> str:
         return self._call_stream(
             messages,
-            approval_token=approval_token,
             execution_id=execution_id,
+            abort=abort,
         )
 
-    def _headers(
-        self, *, approval_token: str = "", execution_id: str = ""
-    ) -> dict[str, str]:
+    def _headers(self, *, execution_id: str = "") -> dict[str, str]:
         headers = {
             "x-user-id": self.user_id,
             "x-timezone": DEFAULT_TIMEZONE,
@@ -164,8 +169,6 @@ class BackendClient:
         token = os.getenv("DAEDALUS_INTERNAL_API_TOKEN", "").strip()
         if token:
             headers["x-daedalus-internal-token"] = token
-        if approval_token.strip():
-            headers["x-daedalus-approval-token"] = approval_token.strip()
         if execution_id.strip():
             headers["x-daedalus-execution-id"] = execution_id.strip()
         return headers
@@ -174,8 +177,8 @@ class BackendClient:
         self,
         messages: list[dict[str, str]],
         *,
-        approval_token: str = "",
         execution_id: str = "",
+        abort: threading.Event | None = None,
     ) -> str:
         url = f"{self.base_url}{self.api_path}"
         payload = {
@@ -185,18 +188,32 @@ class BackendClient:
         }
         full = ""
         current_sse_event: str | None = None
+        # request_timeout is a per-read inactivity bound, not a total budget: a
+        # backend that emits one frame every 59 minutes would keep iter_lines
+        # blocked forever. Track the wall clock separately.
+        deadline = time.monotonic() + self.request_timeout
         with requests.post(
             url,
             json=payload,
-            headers=self._headers(
-                approval_token=approval_token,
-                execution_id=execution_id,
-            ),
+            headers=self._headers(execution_id=execution_id),
             stream=True,
             timeout=self.request_timeout,
         ) as resp:
             resp.raise_for_status()
+            # Without an explicit charset requests falls back to ISO-8859-1 for
+            # text/* responses, which mangles non-ASCII feed content.
+            resp.encoding = "utf-8"
             for line in resp.iter_lines(decode_unicode=True):
+                if abort is not None and abort.is_set():
+                    raise RunAbortedError("backend request aborted")
+                if time.monotonic() > deadline:
+                    raise RunAbortedError(
+                        f"backend request exceeded {self.request_timeout}s"
+                    )
+                if len(full) > MAX_RESPONSE_CHARS:
+                    raise RunAbortedError(
+                        f"backend response exceeded {MAX_RESPONSE_CHARS} characters"
+                    )
                 if not line:
                     current_sse_event = None
                     continue

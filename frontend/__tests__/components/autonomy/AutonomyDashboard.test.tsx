@@ -27,9 +27,6 @@ vi.mock('@/hooks/useWebSocket', () => ({
   }),
 }));
 
-vi.mock('@/components/autonomy/ApprovalBanner', () => ({
-  ApprovalBanner: () => <div data-testid="approvals" />,
-}));
 
 vi.mock('@/components/autonomy/AutonomyFeed', () => ({
   AutonomyFeed: () => <div data-testid="feed" />,
@@ -110,7 +107,6 @@ describe('AutonomyDashboard refresh strategy', () => {
     act(() => {
       mocks.wsOptions.onAutonomyFeedUpdated({});
       mocks.wsOptions.onAutonomyFeedUpdated({});
-      mocks.wsOptions.onAutonomyApprovalRequested({});
     });
     await act(async () => {
       vi.advanceTimersByTime(50);
@@ -118,9 +114,7 @@ describe('AutonomyDashboard refresh strategy', () => {
       await Promise.resolve();
     });
 
-    expect(requestedUrls().sort()).toEqual(
-      ['/api/autonomy/approvals', '/api/autonomy/feed'].sort(),
-    );
+    expect(requestedUrls().sort()).toEqual(['/api/autonomy/feed']);
 
     act(() => root.unmount());
   });
@@ -139,7 +133,6 @@ describe('AutonomyDashboard refresh strategy', () => {
 
     expect(requestedUrls().sort()).toEqual(
       [
-        '/api/autonomy/approvals',
         '/api/autonomy/config',
         '/api/autonomy/feed',
         '/api/autonomy/goals',

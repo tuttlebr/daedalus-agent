@@ -14,7 +14,6 @@ from autonomous_agent.prompt import (
     load_workspace,
     output_requests_approval,
     parse_structured_output,
-    request_approval_key,
 )
 from autonomous_agent.worker import (
     MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS,
@@ -41,11 +40,7 @@ class FakeStore:
         self.runs = []
         self.events = []
         self.feed = []
-        self.applied_approvals = set()
-        self.approval_executions = {}
-        self.revoked_approval_tokens = []
-        self.mcp_receipt_valid = False
-        self.receipt_consumptions = []
+        self.cancelled_run_ids = set()
 
     def get_config(self, user_id):
         return self.config
@@ -85,27 +80,8 @@ class FakeStore:
             if goal.get("id") == goal_id:
                 goal["lastRunAt"] = timestamp
 
-    def get_approval_execution(self, user_id, request_id):
-        return self.approval_executions.pop(request_id, None)
-
-    def issue_approval_token(self, user_id, execution, **kwargs):
-        return "secret-mcp-token"
-
-    def revoke_approval_token(self, user_id, token):
-        self.revoked_approval_tokens.append(token)
-
-    def consume_mcp_execution_receipt(self, user_id, token, execution):
-        self.receipt_consumptions.append((user_id, token, dict(execution)))
-        return self.mcp_receipt_valid
-
     def cancel_requested(self, user_id, run_id):
-        return False
-
-    def is_approval_applied(self, user_id, approval_key):
-        return approval_key in self.applied_approvals
-
-    def mark_approval_applied(self, user_id, approval_key, **kwargs):
-        self.applied_approvals.add(approval_key)
+        return self.cancelled_run_ids and run_id in self.cancelled_run_ids
 
     def get_text(self, key):
         return self.text.get(key)
@@ -118,13 +94,13 @@ class FakeBackend:
     def __init__(self, response):
         self.response = response
         self.messages = None
-        self.approval_token = ""
         self.execution_id = ""
+        self.abort = None
 
-    def call(self, messages, *, approval_token="", execution_id=""):
+    def call(self, messages, *, execution_id="", abort=None):
         self.messages = messages
-        self.approval_token = approval_token
         self.execution_id = execution_id
+        self.abort = abort
         return self.response
 
 
@@ -667,7 +643,7 @@ def test_build_messages_includes_sanitized_source_policy_message():
 
 def test_run_once_rejects_backend_oauth_request():
     class OAuthBackend:
-        def call(self, messages, *, execution_id=""):
+        def call(self, messages, *, execution_id="", abort=None):
             raise OAuthRequiredError(
                 "OAuth authorization is required.",
                 auth_url="https://accounts.google.com/o/oauth2/v2/auth?state=abc",
@@ -738,7 +714,6 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
     assert (
         backend.call(
             [{"role": "user", "content": "go"}],
-            approval_token="approved-secret",
             execution_id="request-123",
         )
         == "done"
@@ -754,9 +729,8 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
     }
     assert kwargs["headers"]["x-user-id"] == "test-user"
     assert kwargs["headers"]["x-daedalus-execution-scope"] == "autonomy"
-    assert kwargs["headers"]["x-daedalus-approval-token"] == "approved-secret"
+    assert "x-daedalus-approval-token" not in kwargs["headers"]
     assert kwargs["headers"]["x-daedalus-execution-id"] == "request-123"
-    assert "approved-secret" not in json.dumps(kwargs["json"])
 
 
 def test_make_backend_uses_canonical_base_url_env(monkeypatch):
@@ -777,16 +751,16 @@ def test_make_backend_rejects_invalid_request_timeout(monkeypatch, request_timeo
         make_backend("test-user")
 
 
-def test_make_backend_rejects_timeout_that_can_outlive_mcp_receipt(monkeypatch):
+def test_make_backend_rejects_timeout_that_could_wedge_the_queue(monkeypatch):
     monkeypatch.setenv(
         "REQUEST_TIMEOUT", str(MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS + 1)
     )
 
-    with pytest.raises(ValueError, match="MCP execution receipt"):
+    with pytest.raises(ValueError, match="cannot wedge the worker queue"):
         make_backend("test-user")
 
 
-def test_make_backend_accepts_maximum_receipt_safe_timeout(monkeypatch):
+def test_make_backend_accepts_the_maximum_permitted_timeout(monkeypatch):
     monkeypatch.setenv("REQUEST_TIMEOUT", str(MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS))
 
     backend = make_backend("test-user")
@@ -849,133 +823,6 @@ def test_run_once_does_not_store_raw_approval_response():
     assert run["status"] == "failed"
     assert "SECRET INTERNAL CHAIN OF THOUGHT" not in json.dumps(run)
     assert "SECRET INTERNAL CHAIN OF THOUGHT" not in json.dumps(store.events)
-
-
-def test_request_approval_key_only_for_approval_follow_ups():
-    # F-015: the public approval id is stable; the secret never enters prompts.
-    assert (
-        request_approval_key({"trigger": "approval", "approvalId": "approval-abc"})
-        == "approval-abc"
-    )
-    # A normal manual/scheduled request is never treated as a rerun.
-    assert (
-        request_approval_key({"trigger": "manual", "approvalId": "approval-abc"}) == ""
-    )
-    assert request_approval_key({"trigger": "approval", "prompt": "no token"}) == ""
-
-
-def test_run_once_skips_already_applied_approval():
-    # F-015: an approved-then-re-enqueued request must not execute twice.
-    store = FakeStore()
-    response = json.dumps(
-        {
-            "summary": "Sent the email.",
-            "feed_items": [{"title": "Done", "bluf": "Email sent."}],
-        }
-    )
-    backend = FakeBackend(response)
-    request = {
-        "id": "request-send",
-        "trigger": "approval",
-        "approvalId": "approval-send",
-        "actionType": "delete_memory",
-        "prompt": "Continue the approved action.",
-    }
-    store.approval_executions["request-send"] = {
-        "token": "tok_send",
-        "approvalId": "approval-send",
-        "actionType": "delete_memory",
-        "action": "Delete memory",
-        "target": "test-user",
-    }
-
-    first = run_once(store=store, backend=backend, user_id="test-user", request=request)
-    assert first["status"] == "completed"
-    assert "approval-send" in store.applied_approvals
-    assert "secret-mcp-token" in backend.messages[-1]["content"]
-
-    # A re-enqueue of the same approved request is skipped, not re-run.
-    second_backend = FakeBackend(response)
-    second = run_once(
-        store=store,
-        backend=second_backend,
-        user_id="test-user",
-        request=dict(request),
-    )
-    assert second["status"] == "skipped"
-    assert second_backend.messages is None  # backend was never called again
-    # The feed did not grow from a duplicate execution.
-    assert len(store.feed) == 1
-
-
-def test_mcp_approval_credential_is_header_only_and_exact_context_is_private():
-    store = FakeStore()
-    store.mcp_receipt_valid = True
-    request = {
-        "id": "request-scale",
-        "trigger": "approval",
-        "approvalId": "approval-scale",
-        "actionType": "mcp_mutation",
-        "prompt": "Continue the approved action.",
-    }
-    store.approval_executions["request-scale"] = {
-        "approvalId": "approval-scale",
-        "actionType": "mcp_mutation",
-        "action": "Scale API to three replicas",
-        "target": "production/api",
-        "serverName": "k8s_mcp_server",
-        "toolName": "scale_deployment",
-        "canonicalArguments": ('{"name":"api","namespace":"production","replicas":3}'),
-        "argumentsSha256": "0" * 64,
-        "originalPrompt": "Scale the production API to three replicas.",
-    }
-    backend = FakeBackend(json.dumps({"summary": "Scaled", "feed_items": []}))
-
-    run = run_once(store=store, backend=backend, user_id="test-user", request=request)
-
-    assert run["status"] == "completed"
-    assert backend.approval_token == "secret-mcp-token"
-    assert store.revoked_approval_tokens == ["secret-mcp-token"]
-    assert "approval-scale" in store.applied_approvals
-    assert len(store.receipt_consumptions) == 1
-    rendered_messages = json.dumps(backend.messages)
-    assert "secret-mcp-token" not in rendered_messages
-    assert any(
-        "replicas" in message["content"] and "production" in message["content"]
-        for message in backend.messages
-    )
-
-
-def test_mcp_approval_is_not_applied_when_backend_never_proves_tool_success():
-    store = FakeStore()
-    request = {
-        "id": "request-scale",
-        "trigger": "approval",
-        "approvalId": "approval-scale",
-        "actionType": "mcp_mutation",
-        "prompt": "Continue the approved action.",
-    }
-    store.approval_executions["request-scale"] = {
-        "approvalId": "approval-scale",
-        "actionType": "mcp_mutation",
-        "action": "Scale API to three replicas",
-        "target": "production/api",
-        "serverName": "k8s_mcp_server",
-        "toolName": "scale_deployment",
-        "canonicalArguments": ('{"name":"api","namespace":"production","replicas":3}'),
-        "argumentsSha256": "0" * 64,
-    }
-    # A plausible final answer is not execution evidence. This fake backend did
-    # not pass through the MCP gate, so no receipt exists.
-    backend = FakeBackend(json.dumps({"summary": "Scaled", "feed_items": []}))
-
-    run = run_once(store=store, backend=backend, user_id="test-user", request=request)
-
-    assert run["status"] == "failed"
-    assert "success receipt" in run["error"]
-    assert "approval-scale" not in store.applied_approvals
-    assert len(store.receipt_consumptions) == 1
-    assert store.revoked_approval_tokens == ["secret-mcp-token"]
 
 
 def test_run_once_aborts_when_lease_lost():
@@ -1051,13 +898,11 @@ def test_run_with_lease_heartbeat_aborts_when_refresh_loses_ownership():
             return self.refresh_calls < 2
 
     class WaitForLeaseLossBackend(FakeBackend):
-        def call(self, messages, *, approval_token="", execution_id=""):
+        def call(self, messages, *, execution_id="", abort=None):
             assert store.lease_lost.wait(timeout=2)
-            return super().call(
-                messages,
-                approval_token=approval_token,
-                execution_id=execution_id,
-            )
+            # The real client raises once abort is set; the post-return
+            # lease check still has to classify this as aborted.
+            return super().call(messages, execution_id=execution_id, abort=abort)
 
     store = SequencedLeaseStore()
     backend = WaitForLeaseLossBackend(json.dumps({"summary": "late result"}))

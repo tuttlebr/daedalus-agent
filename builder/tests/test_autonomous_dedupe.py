@@ -195,6 +195,66 @@ def test_dedupe_drops_exact_url_repeat_even_when_prior_is_outside_window():
     assert [item["id"] for item in dropped] == ["fresh"]
 
 
+def test_recurring_source_with_a_stable_title_is_not_suppressed_forever():
+    """A weekly report keeps its headline; only the body carries the news.
+
+    Keying the same-source rule on the title condemned every such source after
+    its first entry, which made the feed silently stop reporting on it.
+    """
+    existing = [
+        _item(
+            id="week-1",
+            title="Cluster status report",
+            bluf="All regions nominal.",
+            body="No incidents were recorded during the period.",
+            sourceUrl="https://status.example.com/weekly",
+            createdAt=NOW - 7 * DAY_MS,
+        )
+    ]
+    new = [
+        _item(
+            id="week-2",
+            title="Cluster status report",
+            bluf="Two regions degraded.",
+            body="A storage partition failed twice and paging was delayed.",
+            sourceUrl="https://status.example.com/weekly",
+        )
+    ]
+
+    kept, dropped = dedupe_feed_items(new, existing, now=NOW, window_ms=14 * DAY_MS)
+
+    assert dropped == []
+    assert [item["id"] for item in kept] == ["week-2"]
+    assert kept[0]["updateOfFeedItemId"] == "week-1"
+
+
+def test_recurring_source_repeating_its_body_is_still_a_duplicate():
+    existing = [
+        _item(
+            id="week-1",
+            title="Cluster status report",
+            bluf="All regions nominal.",
+            body="No incidents were recorded during the period.",
+            sourceUrl="https://status.example.com/weekly",
+            createdAt=NOW - 7 * DAY_MS,
+        )
+    ]
+    new = [
+        _item(
+            id="week-2",
+            title="Cluster status report",
+            bluf="All regions nominal.",
+            body="No incidents were recorded during the period.",
+            sourceUrl="https://status.example.com/weekly",
+        )
+    ]
+
+    kept, dropped = dedupe_feed_items(new, existing, now=NOW, window_ms=14 * DAY_MS)
+
+    assert kept == []
+    assert [item["id"] for item in dropped] == ["week-2"]
+
+
 def test_dedupe_keeps_material_same_source_update_as_linked_update():
     existing = [
         _item(

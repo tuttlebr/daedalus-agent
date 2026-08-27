@@ -76,7 +76,6 @@ describe('/api/autonomy/runs', () => {
     expect(mocks.enqueueRun).toHaveBeenCalledWith(
       'alice',
       { prompt: 'go' },
-      { enforceDepthCap: true },
     );
     expect(res.status).toHaveBeenCalledWith(202);
     expect(res.json).toHaveBeenCalledWith({ id: 'request_1', queuedAt: 1 });
@@ -101,7 +100,6 @@ describe('/api/autonomy/runs', () => {
     expect(mocks.enqueueAllActiveGoals).toHaveBeenCalledWith(
       'alice',
       { scope: 'all_active_goals', prompt: 'note' },
-      { enforceDepthCap: true },
     );
     expect(mocks.enqueueRun).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(202);

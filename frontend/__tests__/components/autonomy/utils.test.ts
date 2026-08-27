@@ -6,7 +6,8 @@ describe('autonomy active run state', () => {
   it.each([
     ['queued', true],
     ['running', true],
-    ['waiting_approval', false],
+    ['skipped', false],
+    ['aborted', false],
     ['completed', false],
     ['failed', false],
   ])('classifies %s as active=%s', (status, expected) => {

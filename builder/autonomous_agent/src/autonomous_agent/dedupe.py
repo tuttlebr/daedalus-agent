@@ -247,10 +247,19 @@ def feed_fingerprint(item: dict[str, Any]) -> str:
 def is_duplicate(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
     """True when ``candidate`` is a redundant re-report of ``existing``.
 
-    Same source URL: redundant unless BOTH the title and the body have
-    materially diverged (a genuine update the agent chose to surface). Different
-    or missing URLs: redundant only when BOTH the title and the body overlap, so
-    distinct findings — and same-title/different-body fallbacks — stay separate.
+    Explicit ``threadKey``: the model asserted this is the same story, so a
+    second take on it is redundant unless the model also claims an update.
+
+    Same source URL, or a thread derived from one: redundant when the body still
+    overlaps. The title alone does not condemn the item, because a recurring
+    source — a status page, a weekly report, a live scoreboard — keeps a stable
+    headline while its substance changes every run. Requiring the title to
+    diverge as well suppressed those sources permanently after their first entry
+    no matter how much new material each visit carried.
+
+    Different or missing URLs: redundant only when BOTH the title and the body
+    overlap, so distinct findings — and same-title/different-body fallbacks —
+    stay separate.
     """
 
     title_sim, content_sim = _similarities(candidate, existing)
@@ -265,7 +274,7 @@ def is_duplicate(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
             or content_sim >= CONTENT_SIMILARITY
         )
     if _same_source(candidate, existing) or _same_thread(candidate, existing):
-        return title_sim >= TITLE_SIMILARITY or content_sim >= CONTENT_SIMILARITY
+        return content_sim >= CONTENT_SIMILARITY
     return title_sim >= TITLE_SIMILARITY and content_sim >= CONTENT_SIMILARITY
 
 

@@ -65,8 +65,6 @@ Single-user example:
 AUTH_USERNAME=admin
 AUTH_PASSWORD=change-me
 AUTH_NAME=Administrator
-DAEDALUS_DEFAULT_USER=admin
-ADMIN_USERNAME=admin
 ```
 
 Multi-user example:
@@ -78,8 +76,6 @@ AUTH_USER_1_NAME=Alice
 AUTH_USER_2_USERNAME=bob
 AUTH_USER_2_PASSWORD=change-me
 AUTH_USER_2_NAME=Bob
-DAEDALUS_DEFAULT_USER=alice
-ADMIN_USERNAME=alice
 ```
 
 `SESSION_SECRET` must be unique for every production deployment because it signs identity cookies. Generate one with `openssl rand -base64 32`.
@@ -822,7 +818,8 @@ Make sure you defined either:
 - `AUTH_USERNAME` and `AUTH_PASSWORD`, or
 - `AUTH_USER_1_USERNAME`, `AUTH_USER_1_PASSWORD`, and related numbered variables
 
-Also set `DAEDALUS_DEFAULT_USER` to a real configured username if you want memory and background-agent activity associated with that user.
+To associate autonomous-worker memory and dashboard activity with a specific
+account, set `autonomousAgent.userId` in your Helm values to that login name.
 
 ### Local Compose Cannot Reach Milvus or NV-Ingest
 
