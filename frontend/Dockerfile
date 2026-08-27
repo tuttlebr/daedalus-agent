@@ -2,7 +2,10 @@ FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb
 
 # Set timezone to Eastern Time
 ENV TZ=America/New_York
-RUN apk add --no-cache tzdata && \
+RUN apk add --no-cache \
+        'libcrypto3>=3.5.8-r0' \
+        'libssl3>=3.5.8-r0' \
+        tzdata && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone
 # Install dependencies only when needed
