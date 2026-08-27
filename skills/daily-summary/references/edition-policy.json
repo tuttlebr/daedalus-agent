@@ -1,0 +1,157 @@
+{
+  "policy_version": "2026-08-27",
+  "edition": {
+    "title": "The Daily Daedalus",
+    "tagline": "One reader. One editor. No filler.",
+    "home_location": "Saline, Michigan",
+    "timezone": "America/Detroit",
+    "lead_desk": "cluster-infrastructure",
+    "target_read_minutes": {
+      "minimum": 5,
+      "maximum": 8
+    }
+  },
+  "desks": [
+    {
+      "key": "cluster-infrastructure",
+      "label": "Cluster & Infrastructure",
+      "cadence": "every-edition",
+      "placement": "lead",
+      "topics": [
+        "Kubernetes node health, current pod failures, and rollout state across every live namespace",
+        "GPU Operator device plugin, DCGM, NFD, driver and library compatibility, and allocation failures",
+        "Flux reconciliation, drift, and relevant recent fleet-repository changes",
+        "UniFi controller, adopted devices, active clients, WAN state, pending adoptions, and material firmware notices",
+        "Synology storage health and the rsync mirror to /volume2/daedalus/datasets/cluster-maintenance/"
+      ],
+      "rules": [
+        "Lead every normal edition with current verified state from this desk.",
+        "Prioritize active failures, degradation, rollout risk, drift, pressure, and action over routine healthy counts.",
+        "Treat cumulative events and prior failure-rate examples as history unless live resources remain degraded.",
+        "Report the current namespace count and coverage scope instead of assuming a remembered count of 25.",
+        "Never carry a previous cluster statistic, namespace count, incident, or rsync condition forward without a current check."
+      ]
+    },
+    {
+      "key": "weather",
+      "label": "Weather",
+      "cadence": "every-edition",
+      "placement": "front",
+      "topics": [
+        "Current conditions for Saline, Michigan",
+        "The next three complete calendar days"
+      ],
+      "rules": [
+        "Show today plus a three-day outlook in a compact, comparable format.",
+        "Call out only consequential precipitation, wind, temperature, visibility, or severe-weather changes."
+      ]
+    },
+    {
+      "key": "email-calendar",
+      "label": "Email & Calendar",
+      "cadence": "every-edition",
+      "placement": "front",
+      "topics": [
+        "Recent Gmail threads that require action or materially change plans",
+        "Google Calendar events for today and the next three calendar days"
+      ],
+      "rules": [
+        "Summarize only important or actionable mail; include why it matters.",
+        "Separate today's agenda from the three-day look-ahead.",
+        "Do not expose unnecessary private message or attendee details."
+      ]
+    },
+    {
+      "key": "ai-inference",
+      "label": "AI & Inference Desk",
+      "cadence": "daily-signal-check",
+      "placement": "ranked",
+      "topics": [
+        "LLM inference engineering in vLLM, SGLang, Triton, Dynamo, NIXL, benchmarks, throughput, and latency",
+        "NVIDIA NIM, NVCF, DSX, CUDA, drivers, Spectrum-X, BlueField, and the wider NVIDIA stack",
+        "GPU scheduling on Kubernetes, including HAMi, KAI Scheduler, LeaderWorkerSet, gang scheduling, and MIG",
+        "NVIDIA NeMo Agent Toolkit and the Daedalus project, including releases, relevant issues, and implementation progress"
+      ],
+      "rules": [
+        "Prefer changes that affect the reader's real build and operating work.",
+        "Do not recap unchanged product marketing or low-signal benchmark claims."
+      ]
+    },
+    {
+      "key": "science-technology",
+      "label": "Science & Technology",
+      "cadence": "daily-signal-check",
+      "placement": "ranked",
+      "topics": [
+        "Research signals in LLM training, inference, robotics, and optimization",
+        "AI infrastructure partnerships, data-center buildouts, and competing systems stacks"
+      ],
+      "rules": [
+        "Select research for practical consequence, not academic novelty alone.",
+        "Include industry moves only when they change the strategic or technical landscape."
+      ]
+    },
+    {
+      "key": "markets-finance",
+      "label": "Markets & Finance",
+      "cadence": "conditional",
+      "placement": "inside",
+      "topics": [
+        "Seasonal personal-finance fundamentals, including savings rate, tax-advantaged accounts, index mechanics, and behavioral guardrails",
+        "Occasional macro context when a structural shift affects long-term planning"
+      ],
+      "rules": [
+        "No daily market recap, ticker tape, stock tips, trading hype, or fear headline.",
+        "A quiet ledger line is the normal result when no durable or seasonal item is timely."
+      ]
+    },
+    {
+      "key": "outdoors-field",
+      "label": "Outdoors & Field",
+      "cadence": "daily-signal-check",
+      "placement": "ranked",
+      "topics": [
+        "Seasonal bird activity, migration alerts, notable sightings, and eBird trends around Saline, Ann Arbor, and Washtenaw County",
+        "Photography fieldcraft, post-processing, and seasonal outing ideas with Alicia",
+        "Southeast Michigan weather interpreted for shooting conditions, place, and timing"
+      ],
+      "rules": [
+        "Favor field usefulness and seasonal specificity over generic nature copy.",
+        "Avoid gear churn; recommend equipment only when it solves a concrete field problem.",
+        "Reuse verified forecast facts from the Weather desk instead of researching a duplicate forecast."
+      ]
+    },
+    {
+      "key": "sports",
+      "label": "Sports",
+      "cadence": "in-season-and-game-day",
+      "placement": "ranked",
+      "topics": [
+        "New York Yankees scores, standings, schedule, and an optional WFAN listen link on game days",
+        "Pittsburgh Steelers scores, standings, schedule, and material team news",
+        "Michigan State men's football",
+        "Michigan State men's basketball"
+      ],
+      "rules": [
+        "Report scores, standings, upcoming games, and genuinely consequential news without filler.",
+        "Do not manufacture offseason coverage for a team with no material update.",
+        "Include a WFAN link only when it is useful and verified for the game-day context."
+      ]
+    },
+    {
+      "key": "culture-leisure",
+      "label": "Culture & Leisure",
+      "cadence": "daily-signal-check",
+      "placement": "inside",
+      "topics": [
+        "Vegetarian recipes, cooking technique, seasonal ingredients, and exceptional Saline or Ann Arbor restaurant ideas",
+        "Electronic, rock, and classical releases or performances with the listening time commitment stated",
+        "Science fiction and media in the orbit of Star Trek and The X-Files, including shared viewing ideas with Alicia"
+      ],
+      "rules": [
+        "Choose things worth the reader's downtime, not entertainment-industry churn.",
+        "Skip broad restaurant-scene coverage outside the local area."
+      ]
+    }
+  ]
+}

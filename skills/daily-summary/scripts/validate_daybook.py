@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a Daedalus Daybook HTML document using only Python's stdlib."""
+"""Validate a Daily Daedalus HTML document using only Python's stdlib."""
 
 from __future__ import annotations
 
@@ -16,9 +16,12 @@ FONT_STYLESHEET = (
     "https://g1.nyt.com/fonts/css/"
     "web-fonts.c851560786173ad206e1f76c1901be7e096e8f8b.css"
 )
-INTEREST_KEY = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+DAYBOOK_VERSION = "3"
+DESK_KEY = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 COVERAGE_STATUSES = frozenset({"covered", "quiet", "unavailable"})
 LEAD_LAYOUTS = frozenset({"feature", "two-column", "three-column"})
+SOURCE_KINDS = frozenset({"tool", "web"})
+TOOL_SOURCE_REF = re.compile(r"^[a-z0-9_-]+(?:\s*,\s*[a-z0-9_-]+)*$")
 PLACEHOLDER_PATTERN = re.compile(
     r"(?:\bTODO\b|\bTBD\b|lorem ipsum|\[placeholder\]|\{\{[^}]+\}\})",
     re.IGNORECASE,
@@ -38,6 +41,12 @@ def _is_https(value: str) -> bool:
     return parsed.scheme == "https" and bool(parsed.netloc) and not parsed.username
 
 
+def _tool_source_refs(value: str) -> list[str]:
+    if not TOOL_SOURCE_REF.fullmatch(value):
+        return []
+    return [item.strip() for item in value.split(",")]
+
+
 @dataclass
 class FigureRecord:
     attrs: dict[str, str]
@@ -51,6 +60,22 @@ class FigureRecord:
 class CoverageRecord:
     attrs: dict[str, str]
     text: list[str] = field(default_factory=list)
+
+
+@dataclass
+class DeskManifest:
+    policy_version: str = ""
+    lead_desk: str = ""
+    desks: list[dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class EditionPolicy:
+    policy_version: str = ""
+    title: str = ""
+    tagline: str = ""
+    lead_desk: str = ""
+    desks: list[dict[str, str]] = field(default_factory=list)
 
 
 class DaybookParser(HTMLParser):
@@ -67,6 +92,8 @@ class DaybookParser(HTMLParser):
         self.header_count = 0
         self.footer_count = 0
         self.nav_labels: list[str] = []
+        self.title_count = 0
+        self.title_text: list[str] = []
         self.h1_count = 0
         self.h1_text: list[str] = []
         self.heading_levels: list[int] = []
@@ -77,7 +104,11 @@ class DaybookParser(HTMLParser):
         self.coverage: list[CoverageRecord] = []
         self._coverage_stack: list[CoverageRecord] = []
         self.story_attrs: list[dict[str, str]] = []
+        self.lead_story_attrs: list[dict[str, str]] = []
         self.edition_strap_count = 0
+        self.edition_tagline_count = 0
+        self.edition_tagline_text: list[str] = []
+        self._tagline_depth: int | None = None
         self.department_rail_count = 0
         self.lead_grid_count = 0
         self.lead_story_count = 0
@@ -97,6 +128,9 @@ class DaybookParser(HTMLParser):
             self.ids.add(element_id)
         if "data-edition-strap" in values:
             self.edition_strap_count += 1
+        if "data-edition-tagline" in values:
+            self.edition_tagline_count += 1
+            self._tagline_depth = len(self.stack)
         if "data-department-rail" in values:
             self.department_rail_count += 1
         if "data-lead-grid" in values:
@@ -125,6 +159,8 @@ class DaybookParser(HTMLParser):
             self.footer_count += 1
         elif tag == "nav":
             self.nav_labels.append(values.get("aria-label", ""))
+        elif tag == "title":
+            self.title_count += 1
         elif tag == "h1":
             self.h1_count += 1
             self.heading_levels.append(1)
@@ -140,6 +176,7 @@ class DaybookParser(HTMLParser):
             self.story_attrs.append(values)
             if "data-lead-story" in values:
                 self.lead_story_count += 1
+                self.lead_story_attrs.append(values)
         elif tag == "figure":
             record = FigureRecord(values)
             self.figures.append(record)
@@ -151,7 +188,7 @@ class DaybookParser(HTMLParser):
                 self._figure_stack[-1].images.append(values)
             else:
                 self.orphan_images.append(values)
-        elif tag == "li" and "data-interest-key" in values:
+        elif tag == "li" and "data-desk-key" in values:
             record = CoverageRecord(values)
             self.coverage.append(record)
             self._coverage_stack.append(record)
@@ -162,6 +199,11 @@ class DaybookParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
+        closes_tagline = (
+            self._tagline_depth is not None
+            and len(self.stack) >= self._tagline_depth
+            and self.stack[self._tagline_depth - 1] == tag
+        )
         if tag == "style":
             self._in_style = False
         elif tag == "figure" and self._figure_stack:
@@ -174,6 +216,8 @@ class DaybookParser(HTMLParser):
         if tag in self.stack:
             reverse_index = self.stack[::-1].index(tag)
             del self.stack[len(self.stack) - reverse_index - 1 :]
+        if closes_tagline:
+            self._tagline_depth = None
 
     def handle_data(self, data: str) -> None:
         if self._in_style:
@@ -183,8 +227,12 @@ class DaybookParser(HTMLParser):
         if not stripped:
             return
         self.text_chunks.append(stripped)
+        if "title" in self.stack:
+            self.title_text.append(stripped)
         if "h1" in self.stack:
             self.h1_text.append(stripped)
+        if self._tagline_depth is not None:
+            self.edition_tagline_text.append(stripped)
         if self._figure_stack and "figcaption" in self.stack:
             self._figure_stack[-1].caption_text.append(stripped)
         if "sources" in self._section_stack:
@@ -193,39 +241,130 @@ class DaybookParser(HTMLParser):
             record.text.append(stripped)
 
 
-def _load_manifest(path: Path, errors: list[str]) -> list[dict[str, str]]:
+def _read_json_object(path: Path, label: str, errors: list[str]) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        errors.append(f"coverage manifest is unreadable: {exc}")
-        return []
-    interests = value.get("interests") if isinstance(value, dict) else None
-    if not isinstance(interests, list) or not interests:
-        errors.append("coverage manifest must contain a non-empty interests list")
+        errors.append(f"{label} is unreadable: {exc}")
+        return {}
+    if not isinstance(value, dict):
+        errors.append(f"{label} must be a JSON object")
+        return {}
+    return value
+
+
+def _normalize_desks(
+    value: Any, collection_label: str, errors: list[str]
+) -> list[dict[str, str]]:
+    if not isinstance(value, list) or not value:
+        errors.append(f"{collection_label} must contain a non-empty desks list")
         return []
 
     normalized: list[dict[str, str]] = []
-    for index, item in enumerate(interests):
+    for index, item in enumerate(value):
         if not isinstance(item, dict):
-            errors.append(f"manifest interest {index} must be an object")
+            errors.append(f"{collection_label} desk {index} must be an object")
             continue
         key = item.get("key")
-        label = item.get("label")
-        if not isinstance(key, str) or not INTEREST_KEY.fullmatch(key):
-            errors.append(f"manifest interest {index} has an invalid key")
+        desk_label = item.get("label")
+        if not isinstance(key, str) or not DESK_KEY.fullmatch(key):
+            errors.append(f"desk {index} has an invalid key")
             continue
-        if not isinstance(label, str) or not label.strip():
-            errors.append(f"manifest interest {key} has an empty label")
+        if not isinstance(desk_label, str) or not desk_label.strip():
+            errors.append(f"desk {key} has an empty label")
             continue
-        normalized.append({"key": key, "label": label.strip()})
+        normalized.append({"key": key, "label": desk_label.strip()})
 
     keys = [item["key"] for item in normalized]
     if len(keys) != len(set(keys)):
-        errors.append("coverage manifest contains duplicate interest keys")
+        errors.append(f"{collection_label} contains duplicate desk keys")
     return normalized
 
 
-def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
+def _load_manifest(path: Path, errors: list[str]) -> DeskManifest:
+    value = _read_json_object(path, "coverage manifest", errors)
+    policy_version = value.get("policy_version", "")
+    lead_desk = value.get("lead_desk", "")
+    if not isinstance(policy_version, str) or not policy_version.strip():
+        errors.append("coverage manifest needs a non-empty policy_version")
+        policy_version = ""
+    if not isinstance(lead_desk, str) or not DESK_KEY.fullmatch(lead_desk):
+        errors.append("coverage manifest has an invalid lead_desk")
+        lead_desk = ""
+    desks = _normalize_desks(value.get("desks"), "coverage manifest", errors)
+    if lead_desk and lead_desk not in {desk["key"] for desk in desks}:
+        errors.append("coverage manifest lead_desk is missing from manifest desks")
+    return DeskManifest(policy_version.strip(), lead_desk, desks)
+
+
+def _load_policy(path: Path, errors: list[str]) -> EditionPolicy:
+    value = _read_json_object(path, "edition policy", errors)
+    policy_version = value.get("policy_version", "")
+    edition = value.get("edition")
+    if not isinstance(policy_version, str) or not policy_version.strip():
+        errors.append("edition policy needs a non-empty policy_version")
+        policy_version = ""
+    if not isinstance(edition, dict):
+        errors.append("edition policy needs an edition object")
+        edition = {}
+
+    title = edition.get("title", "")
+    tagline = edition.get("tagline", "")
+    lead_desk = edition.get("lead_desk", "")
+    for key, value_ in (("title", title), ("tagline", tagline)):
+        if not isinstance(value_, str) or not value_.strip():
+            errors.append(f"edition policy needs a non-empty {key}")
+    if not isinstance(lead_desk, str) or not DESK_KEY.fullmatch(lead_desk):
+        errors.append("edition policy has an invalid lead_desk")
+        lead_desk = ""
+
+    raw_desks = value.get("desks")
+    desks = _normalize_desks(raw_desks, "edition policy", errors)
+    if isinstance(raw_desks, list):
+        for index, desk in enumerate(raw_desks):
+            if not isinstance(desk, dict):
+                continue
+            for field_name in ("cadence", "placement"):
+                field_value = desk.get(field_name)
+                if not isinstance(field_value, str) or not field_value.strip():
+                    errors.append(f"policy desk {index} needs {field_name}")
+            for field_name in ("topics", "rules"):
+                field_value = desk.get(field_name)
+                if (
+                    not isinstance(field_value, list)
+                    or not field_value
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in field_value
+                    )
+                ):
+                    errors.append(
+                        f"policy desk {index} needs non-empty {field_name} strings"
+                    )
+
+    desk_keys = {desk["key"] for desk in desks}
+    if lead_desk and lead_desk not in desk_keys:
+        errors.append("edition policy lead_desk is missing from policy desks")
+    lead_placements = {
+        desk.get("key")
+        for desk in raw_desks or []
+        if isinstance(desk, dict) and desk.get("placement") == "lead"
+    }
+    if lead_desk and lead_placements != {lead_desk}:
+        errors.append("edition policy must mark only lead_desk with placement=lead")
+
+    return EditionPolicy(
+        policy_version.strip() if isinstance(policy_version, str) else "",
+        title.strip() if isinstance(title, str) else "",
+        tagline.strip() if isinstance(tagline, str) else "",
+        lead_desk,
+        desks,
+    )
+
+
+def validate_daybook(
+    html_path: Path, manifest_path: Path, policy_path: Path
+) -> dict[str, Any]:
     errors: list[str] = []
     try:
         document = html_path.read_text(encoding="utf-8")
@@ -233,6 +372,7 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
         return {"passed": False, "errors": [f"HTML is unreadable: {exc}"]}
 
     manifest = _load_manifest(manifest_path, errors)
+    policy = _load_policy(policy_path, errors)
     stripped = document.strip()
     if not stripped.startswith("<!DOCTYPE html>"):
         errors.append("HTML must begin with <!DOCTYPE html>")
@@ -254,24 +394,59 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
 
     if parser.html_attrs.get("lang", "").lower() != "en":
         errors.append("<html> must declare lang=en")
-    if parser.html_attrs.get("data-daybook-version") != "2":
-        errors.append("<html> must declare data-daybook-version=2")
+    if parser.html_attrs.get("data-daybook-version") != DAYBOOK_VERSION:
+        errors.append(f"<html> must declare data-daybook-version={DAYBOOK_VERSION}")
+    if parser.html_attrs.get("data-policy-version") != policy.policy_version:
+        errors.append("HTML data-policy-version must match the edition policy")
+    if manifest.policy_version != policy.policy_version:
+        errors.append("coverage manifest policy_version must match the edition policy")
+    if manifest.lead_desk != policy.lead_desk:
+        errors.append("coverage manifest lead_desk must match the edition policy")
+
+    policy_desks = {item["key"]: item["label"] for item in policy.desks}
+    manifest_desks = {item["key"]: item["label"] for item in manifest.desks}
+    missing_policy_desks = sorted(set(policy_desks) - set(manifest_desks))
+    if missing_policy_desks:
+        errors.append(
+            "coverage manifest omits required policy desks"
+            f"; missing={missing_policy_desks}"
+        )
+    changed_policy_labels = sorted(
+        key
+        for key in policy_desks.keys() & manifest_desks.keys()
+        if policy_desks[key] != manifest_desks[key]
+    )
+    if changed_policy_labels:
+        errors.append(
+            "coverage manifest changes policy desk labels"
+            f"; desks={changed_policy_labels}"
+        )
     if parser.main_count != 1 or "daybook" not in parser.ids:
         errors.append("document must contain exactly one <main id=daybook>")
     if parser.header_count < 1 or parser.footer_count < 1:
         errors.append("document must contain header and footer landmarks")
     if not parser.nav_labels or any(not value for value in parser.nav_labels):
         errors.append("every navigation landmark needs a non-empty aria-label")
+    if parser.title_count != 1 or " ".join(parser.title_text).strip() != policy.title:
+        errors.append("document title must match the edition policy title")
     if parser.h1_count != 1:
         errors.append("document must contain exactly one h1")
-    if " ".join(parser.h1_text).strip() != "Daedalus Daybook":
-        errors.append("h1 masthead must read Daedalus Daybook")
+    if " ".join(parser.h1_text).strip() != policy.title:
+        errors.append("h1 masthead must match the edition policy title")
     if parser.edition_strap_count != 1:
         errors.append("document must contain exactly one edition strap")
+    if parser.edition_tagline_count != 1:
+        errors.append("document must contain exactly one edition tagline")
+    if " ".join(parser.edition_tagline_text).strip() != policy.tagline:
+        errors.append("edition tagline must match the edition policy")
     if parser.department_rail_count != 1:
         errors.append("document must contain exactly one department rail")
     if parser.lead_grid_count != 1 or parser.lead_story_count != 1:
         errors.append("document must identify exactly one lead grid and lead story")
+    if parser.lead_story_attrs and (
+        parser.lead_story_attrs[0].get("data-desk-key") != policy.lead_desk
+    ):
+        errors.append("lead story desk must match the edition policy lead_desk")
     if parser.lead_layouts and parser.lead_layouts[0] not in LEAD_LAYOUTS:
         allowed = ", ".join(sorted(LEAD_LAYOUTS))
         errors.append(f"lead grid data-lead-layout must be one of: {allowed}")
@@ -295,8 +470,14 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
         item.get("name", "").lower() == "description" and item.get("content", "")
         for item in parser.meta
     )
-    if not charset or not viewport or not description:
-        errors.append("head must include charset, viewport, and description metadata")
+    color_scheme = any(
+        item.get("name", "").lower() == "color-scheme" and item.get("content", "")
+        for item in parser.meta
+    )
+    if not charset or not viewport or not description or not color_scheme:
+        errors.append(
+            "head must include charset, viewport, description, and color-scheme metadata"
+        )
 
     if parser.stylesheets != [FONT_STYLESHEET]:
         errors.append("document must load only the approved Cheltenham stylesheet")
@@ -333,6 +514,13 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
     )
     if "text-align: center" not in masthead_css or "clamp(" not in masthead_css:
         errors.append("CSS must center the masthead and size it fluidly with clamp")
+    tagline_css = " ".join(
+        declarations
+        for selector, declarations in css_rules
+        if ".tagline" in selector or "data-edition-tagline" in selector
+    )
+    if "text-align: center" not in tagline_css:
+        errors.append("CSS must center the edition tagline")
     department_rail_css = " ".join(
         declarations
         for selector, declarations in css_rules
@@ -362,10 +550,16 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
     if re.search(r"border-radius\s*:\s*(?!0(?:px|rem|em|%)?\b)[^;}]+", compact_css):
         errors.append("rounded editorial cards are not permitted")
 
-    expected_keys = {item["key"] for item in manifest}
-    actual_keys = [item.attrs.get("data-interest-key", "") for item in parser.coverage]
+    expected_keys = {item["key"] for item in manifest.desks}
+    actual_keys = [item.attrs.get("data-desk-key", "") for item in parser.coverage]
+    source_links = {
+        link.get("href", "")
+        for link in parser.links
+        if link.get("_section-id") == "sources"
+    }
+    source_text = " ".join(parser.source_chunks)
     if len(actual_keys) != len(set(actual_keys)):
-        errors.append("coverage ledger contains duplicate interest keys")
+        errors.append("coverage ledger contains duplicate desk keys")
     if set(actual_keys) != expected_keys:
         missing = sorted(expected_keys - set(actual_keys))
         unexpected = sorted(set(actual_keys) - expected_keys)
@@ -374,32 +568,68 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
             f"; missing={missing}; unexpected={unexpected}"
         )
     for item in parser.coverage:
-        key = item.attrs.get("data-interest-key", "")
+        key = item.attrs.get("data-desk-key", "")
         status = item.attrs.get("data-coverage-status", "")
         if status not in COVERAGE_STATUSES:
             errors.append(f"coverage item {key or '<empty>'} has invalid status")
         if len(" ".join(item.text).strip()) < 8:
             errors.append(f"coverage item {key or '<empty>'} needs visible explanation")
+        source_kind = item.attrs.get("data-source-kind", "")
         source_url = item.attrs.get("data-source-url", "")
-        if status == "covered" and not _is_https(source_url):
-            errors.append(f"covered interest {key} needs an HTTPS source URL")
+        source_ref = item.attrs.get("data-source-ref", "")
+        if status == "covered" and source_kind not in SOURCE_KINDS:
+            errors.append(f"covered desk {key} needs data-source-kind=web or tool")
+        if status == "covered" and source_kind == "web" and not _is_https(source_url):
+            errors.append(f"web-sourced desk {key} needs an HTTPS source URL")
+        if (
+            status == "covered"
+            and source_kind == "web"
+            and _is_https(source_url)
+            and source_url not in source_links
+        ):
+            errors.append(f"web-sourced desk {key} must be linked in sources")
+        if status == "covered" and source_kind == "tool":
+            refs = _tool_source_refs(source_ref)
+            if not refs:
+                errors.append(f"tool-sourced desk {key} needs a safe data-source-ref")
+            elif any(ref not in source_text for ref in refs):
+                errors.append(
+                    f"tool-sourced desk {key} must name each source in the sources section"
+                )
         if source_url and not _is_https(source_url):
             errors.append(f"coverage source for {key} must be HTTPS")
+        if source_ref and not _tool_source_refs(source_ref):
+            errors.append(f"coverage source ref for {key} is invalid")
 
     for index, attrs in enumerate(parser.story_attrs, start=1):
-        key = attrs.get("data-interest-key", "")
+        key = attrs.get("data-desk-key", "")
         if key not in expected_keys:
-            errors.append(f"story {index} references an unknown interest key")
-        if not _is_https(attrs.get("data-source-url", "")):
-            errors.append(f"story {index} needs an HTTPS data-source-url")
+            errors.append(f"story {index} references an unknown desk key")
+        source_kind = attrs.get("data-source-kind", "")
+        source_url = attrs.get("data-source-url", "")
+        source_ref = attrs.get("data-source-ref", "")
+        if source_kind not in SOURCE_KINDS:
+            errors.append(f"story {index} needs data-source-kind=web or tool")
+        if source_kind == "web" and not _is_https(source_url):
+            errors.append(f"web-sourced story {index} needs an HTTPS data-source-url")
+        if source_kind == "tool":
+            refs = _tool_source_refs(source_ref)
+            if not refs:
+                errors.append(
+                    f"tool-sourced story {index} needs a safe data-source-ref"
+                )
+            elif any(ref not in source_text for ref in refs):
+                errors.append(
+                    f"tool-sourced story {index} must name each source in the sources section"
+                )
+        if source_url and not _is_https(source_url):
+            errors.append(f"story {index} source URL must be HTTPS")
+        if source_ref and not _tool_source_refs(source_ref):
+            errors.append(f"story {index} source ref is invalid")
 
-    source_links = {
-        link.get("href", "")
-        for link in parser.links
-        if link.get("_section-id") == "sources"
-    }
     for index, attrs in enumerate(parser.story_attrs, start=1):
-        if attrs.get("data-source-url", "") not in source_links:
+        source_url = attrs.get("data-source-url", "")
+        if source_url and source_url not in source_links:
             errors.append(f"story {index} source must be linked in the sources section")
 
     if parser.orphan_images:
@@ -456,7 +686,8 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
         "passed": not errors,
         "errors": errors,
         "metrics": {
-            "manifest_interests": len(expected_keys),
+            "manifest_desks": len(expected_keys),
+            "required_policy_desks": len(policy.desks),
             "coverage_items": len(parser.coverage),
             "stories": len(parser.story_attrs),
             "source_images": len(image_urls),
@@ -466,17 +697,20 @@ def validate_daybook(html_path: Path, manifest_path: Path) -> dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 3:
+    if len(argv) != 4:
         print(
             json.dumps(
                 {
                     "passed": False,
-                    "errors": ["usage: validate_daybook.py DAYBOOK_HTML COVERAGE_JSON"],
+                    "errors": [
+                        "usage: validate_daybook.py "
+                        "DAILY_DAEDALUS_HTML COVERAGE_JSON EDITION_POLICY_JSON"
+                    ],
                 }
             )
         )
         return 2
-    result = validate_daybook(Path(argv[1]), Path(argv[2]))
+    result = validate_daybook(Path(argv[1]), Path(argv[2]), Path(argv[3]))
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["passed"] else 1
 

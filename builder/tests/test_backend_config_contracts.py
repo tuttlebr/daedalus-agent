@@ -1,6 +1,7 @@
 """Contract checks between backend YAML and custom tool signatures."""
 
 import ast
+import json
 import re
 import sys
 import tomllib
@@ -1554,6 +1555,10 @@ def test_daily_summary_contracts_structured_briefing():
         sourcing = (
             SKILLS_DIR / "daily-summary" / "references" / "research-and-sourcing.md"
         ).read_text(encoding="utf-8")
+        policy_path = (
+            SKILLS_DIR / "daily-summary" / "references" / "edition-policy.json"
+        )
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
         validator = SKILLS_DIR / "daily-summary" / "scripts" / "validate_daybook.py"
 
         assert "visual_media_tool" in tools, path
@@ -1571,6 +1576,7 @@ def test_daily_summary_contracts_structured_briefing():
         assert "current date and time" in daily_skill, path
         assert "standalone HTML document" in daily_skill, path
         assert "New York Times-inspired newspaper page" in daily_skill, path
+        assert "references/edition-policy.json" in daily_skill, path
         assert "data-lead-layout" in editorial, path
         assert "https://g1.nyt.com/fonts/css/web-fonts." in editorial, path
         assert "Every `<img>` belongs inside a `<figure>`" in editorial, path
@@ -1585,6 +1591,33 @@ def test_daily_summary_contracts_structured_briefing():
             in config["functions"]["visual_media_tool"]["description"]
         ), path
         assert validator.is_file(), path
+        assert policy["policy_version"] == "2026-08-27", path
+        assert policy["edition"] == {
+            "title": "The Daily Daedalus",
+            "tagline": "One reader. One editor. No filler.",
+            "home_location": "Saline, Michigan",
+            "timezone": "America/Detroit",
+            "lead_desk": "cluster-infrastructure",
+            "target_read_minutes": {"minimum": 5, "maximum": 8},
+        }, path
+        desks = {desk["key"]: desk for desk in policy["desks"]}
+        assert set(desks) == {
+            "cluster-infrastructure",
+            "weather",
+            "email-calendar",
+            "ai-inference",
+            "science-technology",
+            "markets-finance",
+            "outdoors-field",
+            "sports",
+            "culture-leisure",
+        }, path
+        assert desks["cluster-infrastructure"]["placement"] == "lead", path
+        assert desks["markets-finance"]["cadence"] == "conditional", path
+        assert "New York Yankees" in " ".join(desks["sports"]["topics"]), path
+        assert "Michigan State men's basketball" in " ".join(
+            desks["sports"]["topics"]
+        ), path
 
 
 def test_source_policy_metadata_is_self_describing():

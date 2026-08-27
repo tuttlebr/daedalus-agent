@@ -1,90 +1,174 @@
-# Daily-summary research and sourcing
+# Daily Daedalus research and sourcing
 
-Use this reference after the current time and personalized interest manifest are
-available.
+Use this reference after current time, the standing edition policy, and the
+merged desk manifest are available.
 
-## Source planning
+## Source planning and cadence
 
 Call `source_verifier_tool` with `operation=plan_sources` once. Describe the
-complete manifest in the research question and keep default source families
-enabled unless the user's directives exclude one. Use its recommended tool
-order as a plan, not as permission to call unrelated tools.
+complete desk manifest and distinguish every-edition checks from conditional
+signal checks. Keep default source families enabled unless a reader directive
+excludes one. Use the returned tool order as a plan, not as permission to call
+unrelated tools.
 
-Date-stamp every query about today, tonight, this week, latest results, current
-health, or schedules. Prefer primary sources and direct read-only tools. A
-search snippet is discovery evidence, not sufficient support for a precise or
-volatile final claim.
+Date-stamp queries about current health, today, tonight, this week, latest
+results, releases, or schedules. A search snippet is discovery evidence, not
+support for a precise or volatile final claim. Prefer a small number of strong,
+primary sources over broad link collection.
 
-## Tool routing
+Always check the Cluster & Infrastructure, Weather, and Email & Calendar desks.
+For other desks, use a trusted quick signal first and deepen only material
+items. The conditional finance desk normally needs no research unless a
+seasonal date or structural event makes it relevant.
 
-- **General, local, weather, sports, culture, and interests outside curated
-  feeds:** use `perplexity_search_tool` for dated discovery, then
-  `webscrape_tool` on the selected primary or authoritative page. Use the NWS
-  point forecast for US weather when available.
-- **AI, NVIDIA, computing, and trusted recent feeds:** start with
-  `curated_feed_search_tool` using the most relevant scope. Use broad search
-  only when the feeds do not cover the manifest item.
-- **Official NVIDIA product behavior:** use `nvidia_docs_tool`. For other stable
-  technical context, use `domain_retriever_tool` or the relevant official page.
-- **GitHub projects:** use read-only `github_mcp_server` operations for releases,
-  commits, issues, or pull requests relevant to a remembered project.
-- **Social signals:** use `x_mcp_server` only when a social-media beat is in the
-  manifest. Verify consequential claims against a primary non-social source.
-- **Uploaded or workspace documents:** use `user_document_tool` or read-only
-  `docs_mcp_server` only when the user's manifest or request makes them relevant.
+## Front Page — Cluster & Infrastructure
 
-## Personal desks
+### Kubernetes and GPU Operator
+
+Start with read-only `k8s_mcp_server.getClusterSummary`; call `listContexts` only
+when the target context is genuinely ambiguous. Then inspect only the live
+resources needed to explain anomalies.
+
+- Cover current node conditions, unavailable or crash-looping workloads,
+  failed or pending pods, and incomplete rollouts across all live namespaces.
+- For job health, separate currently failed or active Jobs from cumulative
+  historical failure counts. Never repeat an old failure percentage as current
+  state without recomputing it.
+- Check the GPU Operator's device plugin, DCGM exporter, GPU Feature Discovery
+  or NFD, driver components, and GPU allocation symptoms when those resources
+  exist. Report an error only when current status, scheduling, or logs support
+  it.
+- Prefer the owner chain and current condition over a noisy outer status. Name
+  the failing layer and affected workload; do not diagnose from a pod phase
+  alone.
+
+### GitOps
+
+Inspect current Flux reconciliation resources through the Kubernetes server
+when available. Use read-only `github_mcp_server` operations for recent commits,
+releases, issues, or pull requests in remembered fleet repositories. Distinguish
+source changes from applied cluster state: a recent commit is not proof that
+Flux reconciled it, and a healthy Flux object is not proof the desired commit
+contains no drift.
+
+### Home network and storage
+
+Use read-only `unifi_mcp_server` information, inventory, and status operations.
+Report controller reachability, adopted-device availability, active alarms,
+WAN state, pending adoptions, and material firmware notices only to the depth
+returned by the tool. Counts must be current.
+
+Report Synology storage health and the rsync mirror to
+`/volume2/daedalus/datasets/cluster-maintenance/` only when a connected source
+provides current evidence. Do not infer NAS health from UniFi reachability or
+reuse a remembered stalled-mirror condition. Mark this subtopic unavailable in
+the desk ledger when no live source exists.
+
+Shared-auth failures on operational tools are operator issues. Mark the
+affected source unavailable and continue; do not turn a credential failure into
+a cluster incident.
+
+## Weather, email, and calendar
+
+### Saline weather
+
+Use an authoritative forecast for Saline, Michigan; prefer the National Weather
+Service point forecast when available. Cover current conditions plus the next
+three complete calendar days. Compare high, low, precipitation, wind, and any
+alert that changes plans. Reuse these facts for field-weather interpretation
+rather than making a second forecast query.
 
 ### Gmail
 
 Use `gmail_mcp_server.search_threads` with a recent, bounded Gmail query. Read a
 thread or message only when needed to judge importance. Surface a small number
-of actionable items with sender, subject, and why each matters. Never create a
-draft or make another write during this workflow.
+of actionable items with sender, subject, and why each matters. Do not list
+routine newsletters, expose unnecessary message content, create a draft, or
+make another write.
 
 ### Calendar
 
-Use `calendar_mcp_server.list_events` for the current day's bounded interval.
-Use `get_event` or `search_events` only when needed for context or a manifest
-item. `list_calendars` is inventory, not a substitute for events. Do not call
-`suggest_time` unless the user separately asks to schedule something.
+Use `calendar_mcp_server.list_events` for a bounded interval covering the
+current local day and the next three calendar days. Use `get_event` or
+`search_events` only when needed for context. Separate today's agenda from the
+look-ahead and preserve necessary travel or preparation context without
+publishing irrelevant attendee data. `list_calendars` is inventory, not a
+substitute for events. Never call `suggest_time` during a summary.
 
-Gmail and Calendar use per-user OAuth. When the tool emits an authorization
+Gmail and Calendar use per-user OAuth. When a tool emits an authorization
 prompt, surface it and wait. Resume without repeating completed public calls.
 
-## Operational desks
+## AI, science, and industry
 
-### Kubernetes
+- For AI, NVIDIA, computing, and trusted recent feeds, start with
+  `curated_feed_search_tool` using the narrowest relevant scope. Deepen only the
+  changes that affect inference engineering, the NVIDIA stack, Kubernetes GPU
+  scheduling, NVIDIA NeMo Agent Toolkit, or the Daedalus project.
+- For official NVIDIA product behavior, use `nvidia_docs_tool`. For stable
+  technical context, use `domain_retriever_tool` or the relevant official page.
+- For GitHub projects, use read-only `github_mcp_server` release, commit, issue,
+  or pull-request operations. A release page or merged change is stronger than
+  an aggregator's summary.
+- For research, prefer the paper or lab page. State the operational consequence
+  and avoid turning a benchmark win into a general result beyond its tested
+  workload.
+- For infrastructure partnerships and data-center moves, verify the parties,
+  scope, and announced timing against primary statements. Include only moves
+  that alter the technical or strategic landscape.
 
-Use read-only `k8s_mcp_server.getClusterSummary`; call `listContexts` only when
-the target context is ambiguous. Base the verdict on current node conditions,
-control-plane reachability, and current pod phases. An old event is a current
-problem only when the live resource remains degraded. Prefer counts and current
-conditions. Never suggest or perform a destructive action.
+Use `perplexity_search_tool` for dated discovery outside the curated feeds, then
+`webscrape_tool` on the selected primary or authoritative page. Use
+`nvidia_docs_tool` for official NVIDIA product behavior and
+`domain_retriever_tool` for stable reference context.
 
-### UniFi
+## Outdoors, sports, finance, and culture
 
-Use the currently exposed read-only `unifi_mcp_server` information and site
-inventory operations, including `getInfo` and `listSites` when available. Report
-controller reachability, site/device availability, active alarms, and WAN state
-only to the depth returned. Do not infer missing fields or call a mutation.
+### Outdoors & Field
 
-For both desks, a shared-auth failure is an operator issue. Mark the desk
-unavailable and continue; do not request user confirmation as an authentication
-repair.
+For birding, prefer recent eBird data, official migration resources, or a
+credible local report for Washtenaw County. Separate observed sightings from a
+seasonal expectation. Translate the verified weather into useful shooting or
+birding windows around Saline and Ann Arbor. Photography guidance should solve
+a concrete field or post-processing problem; do not manufacture gear news.
 
-## Claims and citations
+### Sports
+
+Use official league, team, conference, or broadcaster pages for scores,
+standings, and schedules. Cover the Yankees, Steelers, Michigan State men's
+football, and Michigan State men's basketball only to their current seasonal
+relevance. Prefer the last result, next game, standing or record context, and
+one material development. A WFAN listen link is optional and must be verified
+as useful for that game-day context.
+
+### Markets & Finance
+
+Do not run a daily ticker or market search. Research this desk only for a timely
+seasonal personal-finance reminder or a verified structural macro change that
+affects long-term planning. No stock picks, trading calls, fear framing, or
+generic market-close recap.
+
+### Culture & Leisure
+
+Use primary recipes, artist or venue pages, publishers, and local sources.
+Favor vegetarian cooking, seasonal ingredients, exceptional Saline or Ann
+Arbor options, electronic/rock/classical listening with time commitment, and
+science-fiction media in the orbit of Star Trek or The X-Files. Include a
+shared idea with Alicia only when it is genuinely specific and useful.
+
+## Claims, deduplication, and citations
 
 - Verify precise scores, schedules, warnings, forecasts, releases, and other
   consequential volatile claims against the selected source. Use
-  `source_verifier_tool.verify_claim` when source support is not already exact.
+  `source_verifier_tool.verify_claim` when support is not already exact.
 - Distinguish reported facts from the editor's synthesis.
-- Link every story or brief to an HTTPS source page and list it again in the
-  sources section.
-- If two authoritative sources disagree, state the disagreement or omit the
-  claim. Never silently choose the more dramatic version.
-- If a manifest beat has no material update after a reasonable source check,
-  mark it `quiet`. Do not manufacture a story.
+- Link every public-web story or brief to its HTTPS source page. For live tool
+  or private-tool evidence, name the tool source in the sources section without
+  exposing credentials, opaque identifiers, or raw personal content. Never
+  fabricate a public URL for a Kubernetes, UniFi, Gmail, or Calendar result.
+- Use one fact in one best location. Cross-reference or reinterpret it instead
+  of repeating forecast, cluster, schedule, or release copy across desks.
+- If authoritative sources disagree, state the disagreement or omit the claim.
+- If a cadence-appropriate check has no material result, mark the desk `quiet`.
 
 ## Source-only images
 
@@ -92,10 +176,10 @@ Images are evidence-adjacent editorial assets, not decoration.
 
 1. Select a direct HTTPS raster URL published on the primary or official page
    used for the adjacent story.
-2. Confirm the image subject, event, team, place, and date match the caption.
-   Use `visual_media_tool` with `operation=analyze` when any match is uncertain.
+2. Confirm that subject, event, team, place, and date match the caption. Use
+   `visual_media_tool` with `operation=analyze` when any match is uncertain.
 3. Record the direct image URL, source page, and named photographer or publisher
-   credit. Use all three in the required figure attributes and visible caption.
+   credit. Use all three in the required figure attributes and caption.
 4. Do not put article-page URLs in `<img src>`, use generic stock as reported
    evidence, or reuse the same image URL twice.
 5. Never call `visual_media_tool` with `operation=generate` or `operation=edit`
@@ -104,9 +188,6 @@ Images are evidence-adjacent editorial assets, not decoration.
 When trustworthy source imagery is unavailable or fails analysis, omit it and
 rebalance the page with type, rules, and whitespace.
 
-## Large payloads and failures
-
-Use `content_distiller_tool` when a source result exceeds roughly 5000 tokens.
-Keep enough source identifiers and URLs to preserve provenance. Retry one
-verified transient read once. For unavailable sources, record the limitation in
-the ledger and sources section and continue with supported beats.
+Use `content_distiller_tool` when a result exceeds roughly 5000 tokens. Preserve
+source identifiers and URLs. Retry one verified transient read once. For an
+unavailable source, record the limitation and continue with supported desks.
