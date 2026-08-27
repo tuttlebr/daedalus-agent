@@ -164,9 +164,9 @@ helm upgrade --install <release> ./daedalus \
   --set-file backend.default.config.baseData=backend/tool-calling-config.yaml
 ```
 
-The canonical config uses the OpenAI-compatible Responses API. The former
-`backend/tool-calling-responses-config.yaml` path remains a NAT `base:` alias
-for deployments that already select it.
+The canonical config uses the OpenAI-compatible Responses API. Overlay configs
+that inherit it through NAT `base:` support are also honored by the backend's
+MCP authorization policy loader, which resolves the same `base:` chain.
 
 The repo-level [`../../custom-values.yaml`](../../custom-values.yaml) is the opinionated example for production-style deployments. RedisInsight isn't shipped. Use an authenticated, time-bounded local client through `kubectl port-forward` when interactive Redis inspection is required.
 
@@ -305,7 +305,7 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 
 ## NFS Ownership Runbook
 
-Before deploying workloads that write to existing `nfs-client` PVCs, run the repo-level `nfs-fix.sh` on the NFS server to audit the export policy. It is intentionally read-only and should report `all_squash,anonuid=977,anongid=988`.
+Before deploying workloads that write to existing `nfs-client` PVCs, audit the export policy on the NFS server (for example with `exportfs -v`). It should report `all_squash,anonuid=977,anongid=988`.
 
 During a maintenance window, stop affected NFS-backed workloads and normalize existing PVC directories on the NFS server:
 

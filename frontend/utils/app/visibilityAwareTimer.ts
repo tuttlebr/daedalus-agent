@@ -216,6 +216,13 @@ export function createVisibilityAwareInterval(
   };
 }
 
+// The BatteryManager is a live object; one promise can be reused for the
+// process lifetime instead of re-entering the async API on every poll tick.
+let batteryManagerPromise: Promise<{
+  level: number;
+  charging: boolean;
+}> | null = null;
+
 /**
  * Utility to check if we should run expensive operations
  * Returns false if on mobile with low battery
@@ -234,11 +241,14 @@ export async function shouldRunExpensiveOperation(): Promise<boolean> {
   // Check battery level on mobile
   if ('getBattery' in navigator) {
     try {
-      const battery = await (
-        navigator as unknown as {
-          getBattery: () => Promise<{ level: number; charging: boolean }>;
-        }
-      ).getBattery();
+      if (!batteryManagerPromise) {
+        batteryManagerPromise = (
+          navigator as unknown as {
+            getBattery: () => Promise<{ level: number; charging: boolean }>;
+          }
+        ).getBattery();
+      }
+      const battery = await batteryManagerPromise;
       const batteryLevel = battery.level * 100;
 
       // Skip expensive operations if battery is low and not charging

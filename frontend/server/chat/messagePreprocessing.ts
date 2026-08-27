@@ -219,13 +219,6 @@ function getLastUserMessage(messages: any[]): any | null {
   return null;
 }
 
-export function isDocumentIngestionRequest(messages: any[]): boolean {
-  const lastUserMessage = getLastUserMessage(messages);
-  return Boolean(
-    lastUserMessage && isDocumentIngestionMessage(lastUserMessage),
-  );
-}
-
 export function compactDocumentIngestionMessage(
   message: any,
   _verifiedUsername: string,

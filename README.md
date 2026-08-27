@@ -107,9 +107,8 @@ BACKEND_CONFIG_FILE=./backend/tool-calling-config.yaml docker compose up --build
 
 The frontend still uses the backend's OpenAI-compatible
 `/v1/chat/completions` route; Responses is the outbound model-provider API.
-The former `tool-calling-responses-config.yaml` path remains a small inherited
-compatibility alias. If you edit the canonical config, recreate the backend
-container so NAT reloads it.
+If you edit the canonical config, recreate the backend container so NAT
+reloads it.
 
 ### 3. Start the local stack
 
@@ -473,7 +472,7 @@ and [`builder/nat_nv_ingest/README.md`](builder/nat_nv_ingest/README.md).
 
 ## Backend Workflows
 
-The canonical backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), uses the Responses API by default, and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. [`backend/tool-calling-responses-config.yaml`](backend/tool-calling-responses-config.yaml) is retained as an inherited compatibility alias. The workflow includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints.
+The canonical backend configuration lives at [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml), uses the Responses API by default, and covers tool use, retrieval, memory, MCP integrations, image tooling, and reasoning. The workflow includes the custom packages from `builder/` and relies heavily on environment-variable substitution for secrets and endpoints.
 
 The workflow uses one top-level, per-user Responses API agent with a direct
 leaf-tool surface. It preserves full chat history, top-level instructions,
@@ -844,7 +843,6 @@ For an externally managed target, configure
 | [`.env.template`](.env.template)                                                           | Main environment variable template   |
 | [`docker-compose.yaml`](docker-compose.yaml)                                               | Local multi-service stack            |
 | [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml)                     | Backend workflow configuration       |
-| [`backend/tool-calling-responses-config.yaml`](backend/tool-calling-responses-config.yaml) | Legacy Responses config alias        |
 | [`frontend/env.example`](frontend/env.example)                                             | Frontend API path example            |
 | [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)                                   | Default Helm values                  |
 | [`custom-values.yaml`](custom-values.yaml)                                                 | Example production overrides         |

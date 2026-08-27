@@ -723,6 +723,80 @@ def test_per_user_oauth_registry_is_derived_from_config():
     )
 
 
+def test_approval_policy_follows_base_inheritance(tmp_path):
+    """An overlay with only `base:` must load the canonical policy, not an
+    empty one — otherwise every MCP tool silently becomes approval-gated."""
+    overlay_path = tmp_path / "overlay-config.yaml"
+    overlay_path.write_text(f"base: {CONFIG_PATH}\n", encoding="utf-8")
+
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+    canonical_state = (
+        dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
+        mcp_patches._UNRESTRICTED_MCP_GROUPS,
+        mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
+    )
+    assert canonical_state[0] or canonical_state[1], "canonical policy is empty"
+
+    mcp_patches.configure_mcp_approval_policy(overlay_path)
+    overlay_state = (
+        dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
+        mcp_patches._UNRESTRICTED_MCP_GROUPS,
+        mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
+    )
+
+    assert overlay_state == canonical_state
+
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
+def test_approval_policy_overlay_overrides_merge_over_base(tmp_path):
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text(
+        """
+function_groups:
+  inventory_mcp_server:
+    _type: mcp_client
+    include: [get_inventory]
+    tool_overrides:
+      get_inventory:
+        approval_policy: approval_required
+    server:
+      transport: streamable-http
+      url: https://inventory.example.test/mcp
+""",
+        encoding="utf-8",
+    )
+    overlay_path = tmp_path / "overlay.yaml"
+    overlay_path.write_text(
+        """
+base: base.yaml
+function_groups:
+  inventory_mcp_server:
+    tool_overrides:
+      get_inventory:
+        approval_policy: read_only
+""",
+        encoding="utf-8",
+    )
+
+    mcp_patches.configure_mcp_approval_policy(overlay_path)
+    assert mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS["inventory_mcp_server"] == frozenset(
+        {"get_inventory"}
+    )
+
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
+def test_approval_policy_rejects_circular_base_chain(tmp_path):
+    config_path = tmp_path / "self-config.yaml"
+    config_path.write_text("base: self-config.yaml\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="too deep or circular"):
+        mcp_patches.configure_mcp_approval_policy(config_path)
+
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
 def test_approval_policy_rejects_tool_outside_include(tmp_path):
     config_path = tmp_path / "bad-policy.yaml"
     config_path.write_text(

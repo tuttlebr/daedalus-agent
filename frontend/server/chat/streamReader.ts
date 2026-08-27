@@ -10,6 +10,7 @@ import { Logger } from '@/utils/logger';
 import { getNatBaseUrl } from './backendSelection';
 import {
   MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS,
+  STREAM_CONNECT_TIMEOUT_MS,
   STREAM_READ_IDLE_TIMEOUT_MS,
   STREAM_STATUS_FLUSH_INTERVAL_MS,
   STREAM_STEPS_FLUSH_INTERVAL_MS,
@@ -277,19 +278,35 @@ export async function startBackgroundStreamReader(
       throw abortReason(abortController.signal);
     }
     await control.beforeBackendRequest?.();
-    const response = await fetch(streamUrl, {
-      method: 'POST',
-      headers: buildNatRequestHeaders(
-        verifiedUsername,
-        { 'Content-Type': 'application/json' },
-        jobRequest.natSessionId,
-        jobRequest.timezone,
-        jobRequest.conversationId,
-        jobId,
-      ),
-      body: JSON.stringify(payload),
-      signal: abortController.signal,
-    });
+    // This await resolves when response headers arrive; body reads are
+    // guarded separately by the idle timeout. Bound the header wait so a
+    // wedged backend fails the job with a clear error instead of holding the
+    // worker slot open at the OS socket default.
+    const connectTimer = setTimeout(() => {
+      abortController.abort(
+        new Error(
+          `Backend did not return response headers within ${STREAM_CONNECT_TIMEOUT_MS}ms`,
+        ),
+      );
+    }, STREAM_CONNECT_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(streamUrl, {
+        method: 'POST',
+        headers: buildNatRequestHeaders(
+          verifiedUsername,
+          { 'Content-Type': 'application/json' },
+          jobRequest.natSessionId,
+          jobRequest.timezone,
+          jobRequest.conversationId,
+          jobId,
+        ),
+        body: JSON.stringify(payload),
+        signal: abortController.signal,
+      });
+    } finally {
+      clearTimeout(connectTimer);
+    }
 
     if (!response.ok || !response.body) {
       const errorText = await response.text().catch(() => '');

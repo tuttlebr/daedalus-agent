@@ -561,12 +561,16 @@ async function subscribeToJob(
 
   conn.subscribedJobs.add(jobId);
   const channel = `job:${jobId}:status`;
+  // Subscriptions to this job are validated against jobRequest.userId above,
+  // so only this user's connections can hold one. Scope the fan-out to them
+  // instead of scanning every connection of every user per status message.
+  const ownerUserId = conn.userId;
   try {
     await dependencies.retainChannel(channel, (message) => {
       try {
         const status = JSON.parse(message);
-        // Fan out to all connections subscribed to this job
-        for (const [, userConns] of connectionsByUser) {
+        const userConns = connectionsByUser.get(ownerUserId);
+        if (userConns) {
           for (const c of userConns) {
             if (c.subscribedJobs.has(jobId)) {
               sendToConnection(c, { type: 'job_status', data: status });

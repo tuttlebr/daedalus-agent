@@ -19,8 +19,6 @@ vi.mock('@/hooks/useAsyncChat', () => ({
     return {
       startAsyncJob: mocks.startAsyncJob,
       cancelJob: mocks.cancelJob,
-      clearPersistedJob: vi.fn(),
-      isPolling: false,
       jobStatusByConversationId: {},
     };
   }),

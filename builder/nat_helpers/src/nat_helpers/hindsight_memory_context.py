@@ -243,11 +243,17 @@ async def ensure_bank_initialized(client: HindsightClient, user_id: str) -> None
 
             try:
                 await _bootstrap_bank(client, user_id)
-            except Exception:
+            except BaseException:
                 # Bootstrap issues up to six serial Hindsight calls. Without a
                 # negative cache a failure re-runs the whole chain inline on
                 # every subsequent turn, so a degraded memory service turns
                 # into a per-request latency tax that never backs off.
+                # BaseException, not Exception: the caller bounds this chain
+                # with asyncio.wait_for, and its timeout surfaces here as
+                # CancelledError. Catching only Exception meant a timed-out
+                # bootstrap never populated the backoff cache, so every turn
+                # re-paid the full memory budget in dead air before the first
+                # token. The exception is always re-raised.
                 _process_bootstrap_cache[cache_id] = (
                     time.monotonic() + _BOOTSTRAP_FAILURE_BACKOFF_SECONDS
                 )

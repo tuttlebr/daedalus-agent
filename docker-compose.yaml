@@ -1,7 +1,5 @@
 name: daedalus
 volumes:
-  generated_images:
-    driver: local
   document_objects:
     driver: local
 
@@ -89,7 +87,6 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/logs:/var/log/nginx
-      - generated_images:/tmp/generated_images:ro
     restart: unless-stopped
     networks:
       - ${NETWORK_NAME:-daedalus-network}

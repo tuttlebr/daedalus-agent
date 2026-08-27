@@ -35,14 +35,18 @@ The production frontend image serves three roles:
 The normal chat path is:
 
 1. `POST /api/chat/async` authenticates the caller, validates and bounds the
-   request, writes job state, and appends the job ID to a Redis Stream.
-2. The dedicated worker claims the entry, acquires a per-job lease, selects a
-   backend pod, and opens `/v1/chat/completions` or the document-ingest stream.
+   request, probes and selects a backend pod (`GET /health`), writes job state
+   including the selected pod, and appends the job ID to a Redis Stream.
+2. The dedicated worker claims the entry, acquires a per-job lease, and opens
+   `/v1/chat/completions` or the document-ingest stream against the pod the
+   submit route selected; it re-selects a pod only when reclaiming a job.
 3. The worker persists status and publishes live events. The browser consumes
-   WebSocket events and polls `GET /api/chat/async?jobId=...` whenever the live
-   channel is unavailable or stale.
-4. `DELETE /api/chat/async?jobId=...` records a durable cancellation flag that
-   the worker observes even when the API and worker run in different pods.
+   WebSocket events as the primary channel and also polls
+   `GET /api/chat/async?jobId=...` — once at submit for immediate status, then
+   on a slow safety-net interval in case push delivery is lost.
+4. `DELETE /api/chat/async?jobId=...` finalizes a live job and records a
+   durable cancellation flag that the worker observes even when the API and
+   worker run in different pods.
 
 If a worker dies before backend execution starts, another worker may reclaim
 the entry. If it dies after backend execution starts, the replacement fails the

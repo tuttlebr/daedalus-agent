@@ -17,7 +17,6 @@ import {
   appendDocumentAttachmentContext,
   compactDocumentIngestionMessage,
   getDocumentIngestJobRequest,
-  isDocumentIngestionRequest,
 } from '@/server/chat/messagePreprocessing';
 import {
   buildBoundedMessagesForNat,
@@ -212,7 +211,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledOnce();
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       'http://10.0.2.61:8000/health',
-      expect.objectContaining({ method: 'HEAD' }),
+      expect.objectContaining({ method: 'GET' }),
       2000,
     );
   });
@@ -490,7 +489,9 @@ describe('chat/async backend pinning helpers', () => {
       ],
     };
 
-    expect(isDocumentIngestionRequest([message])).toBe(true);
+    expect(
+      getDocumentIngestJobRequest([message], 'testuser', PRIVATE_COLLECTION),
+    ).not.toBeNull();
 
     const out = compactDocumentIngestionMessage(message, 'testuser');
 
@@ -580,7 +581,6 @@ describe('chat/async backend pinning helpers', () => {
       },
     ];
 
-    expect(isDocumentIngestionRequest(messages)).toBe(false);
     expect(getDocumentIngestJobRequest(messages, 'testuser')).toBeNull();
   });
 
@@ -608,7 +608,6 @@ describe('chat/async backend pinning helpers', () => {
       },
     ];
 
-    expect(isDocumentIngestionRequest(messages)).toBe(true);
     expect(
       getDocumentIngestJobRequest(messages, 'testuser', PRIVATE_COLLECTION),
     ).toEqual(
@@ -715,7 +714,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       'http://10.0.2.61:8000/health',
       expect.objectContaining({
-        method: 'HEAD',
+        method: 'GET',
       }),
       2000,
     );
@@ -1052,7 +1051,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
       'http://10.0.2.61:8000/health',
-      expect.objectContaining({ method: 'HEAD' }),
+      expect.objectContaining({ method: 'GET' }),
       2000,
     );
     expect(fetchSpy).not.toHaveBeenCalled();
