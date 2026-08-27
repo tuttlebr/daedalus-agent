@@ -1338,7 +1338,7 @@ export const ChatView = memo(() => {
 ChatView.displayName = 'ChatView';
 
 const SUGGESTED_PROMPTS = [
-  'Fetch my daily summary.',
+  'Run my daily briefing.',
   'Generate an image of a purple duck.',
   'What will the weather be like today?',
 ];
