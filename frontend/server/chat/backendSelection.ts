@@ -25,6 +25,11 @@ const logger = new Logger('AsyncJob');
 // Node process via the module cache — same semantics as before extraction).
 let cachedStreamBackend: { baseUrl: string; expiresAt: number } | null = null;
 
+/** Drop the pinned backend so the next selection re-probes. Used by tests. */
+export function resetStreamBackendPin(): void {
+  cachedStreamBackend = null;
+}
+
 function shuffleItems<T>(items: T[]): T[] {
   const shuffled = [...items];
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
@@ -80,15 +85,21 @@ export async function selectStreamBackendBaseUrl(
 ): Promise<string> {
   const natBaseUrls = await resolveAsyncBackendBaseUrls();
   const now = Date.now();
-  const candidates =
+  const cacheIsFresh = Boolean(
     cachedStreamBackend &&
-    cachedStreamBackend.expiresAt > now &&
-    natBaseUrls.includes(cachedStreamBackend.baseUrl)
-      ? [
-          cachedStreamBackend.baseUrl,
-          ...natBaseUrls.filter((url) => url !== cachedStreamBackend!.baseUrl),
-        ]
-      : natBaseUrls;
+      cachedStreamBackend.expiresAt > now &&
+      natBaseUrls.includes(cachedStreamBackend.baseUrl),
+  );
+
+  // Reuse the pinned backend without re-probing. The probe exists to pick a
+  // reachable pod, so a fresh pin means that choice is already made; probing
+  // again only adds a synchronous round trip to every chat submit. DNS still
+  // gates the reuse above, so a pod that left the endpoint set is not pinned.
+  if (cacheIsFresh) {
+    return cachedStreamBackend!.baseUrl;
+  }
+
+  const candidates = natBaseUrls;
 
   logger.info(`Job ${jobId}: Resolved async backend candidates`, {
     candidateCount: candidates.length,
@@ -100,7 +111,12 @@ export async function selectStreamBackendBaseUrl(
 
   for (let attempt = 1; attempt <= NAT_SUBMIT_MAX_RETRIES; attempt++) {
     for (const natBaseUrl of candidates) {
-      const healthUrl = buildBackendUrlFromBase(natBaseUrl, '/docs');
+      // /health is the endpoint the Kubernetes startupProbe uses. /docs is the
+      // Swagger UI: it renders regardless of workflow health and is disabled in
+      // some deployments. /health/ready is deliberately not used here because it
+      // reports 503 for optional subsystems (RAG, memory) that chat can run
+      // without.
+      const healthUrl = buildBackendUrlFromBase(natBaseUrl, '/health');
       const streamUrl = buildBackendUrlFromBase(
         natBaseUrl,
         '/v1/chat/completions',

@@ -4,12 +4,6 @@ import { Message } from '@/types/chat';
 
 const logger = new Logger('ReplaySanitizer');
 
-const PRIOR_ASSISTANT_OMITTED_MESSAGE =
-  '[Prior assistant response omitted from this backend prompt to prevent replay. ' +
-  'Use the surrounding user messages as conversation context. Do not reproduce earlier assistant messages.]';
-
-const INTERNAL_REPLAY_MARKERS = [PRIOR_ASSISTANT_OMITTED_MESSAGE];
-
 function getAssistantContent(message: any): string {
   return message?.role === 'assistant' && typeof message?.content === 'string'
     ? message.content.trim()
@@ -216,34 +210,13 @@ function stripFuzzyReplayedAssistantBoundary(
   return rawOutput;
 }
 
-function stripInternalReplayMarkerBoundaries(rawOutput: string): string {
-  let normalized = rawOutput;
-
-  for (const marker of INTERNAL_REPLAY_MARKERS) {
-    const outputStart = normalized.trimStart();
-    if (outputStart.startsWith(marker)) {
-      normalized = stripSeparatorsAtStart(outputStart.slice(marker.length));
-    }
-
-    const outputEnd = normalized.trimEnd();
-    if (outputEnd.endsWith(marker)) {
-      normalized = stripSeparatorsAtEnd(
-        outputEnd.slice(0, outputEnd.length - marker.length),
-      );
-    }
-  }
-
-  return normalized;
-}
-
 function normalizeAssistantResponseBoundaries(
   rawOutput: string,
   priorMessages: any[] = [],
 ): string {
   if (!rawOutput) return rawOutput;
 
-  let normalized = stripInternalReplayMarkerBoundaries(rawOutput);
-  const hadInternalMarker = normalized !== rawOutput;
+  let normalized = rawOutput;
 
   if (Array.isArray(priorMessages)) {
     const previousAssistants = [...priorMessages]
@@ -279,7 +252,6 @@ function normalizeAssistantResponseBoundaries(
         : 0,
       strippedAtStart: rawTrimStart.slice(0, 50) !== normTrimStart.slice(0, 50),
       strippedAtEnd: rawTrimEnd.slice(-50) !== normTrimEnd.slice(-50),
-      hadInternalMarker,
     });
   }
 

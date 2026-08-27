@@ -613,7 +613,11 @@ export async function finalizeError(
       status: 'error',
       error: errorMessage,
       fullResponse: undefined,
-      partialResponse: responseWithArtifacts,
+      // Use the image-processed text, matching finalizeSuccess and the
+      // conversation record written from this same journal. Storing
+      // responseWithArtifacts here would keep inline base64 images in the job
+      // status that processMarkdownImages just replaced with Redis references.
+      partialResponse: processedContent,
       ...clearOAuthStatusFields(),
       intermediateSteps,
       turnId: jobRequest.turnId,

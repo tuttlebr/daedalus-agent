@@ -146,7 +146,7 @@ def test_readiness_reports_optional_mcp_degradation(monkeypatch):
     assert client.closed is True
 
 
-def test_readiness_requires_hindsight_in_hindsight_mode(monkeypatch):
+def test_readiness_degrades_rather_than_failing_on_hindsight_outage(monkeypatch):
     import mcp_patches
     from nat_helpers import hindsight_client
 
@@ -187,14 +187,32 @@ def test_readiness_requires_hindsight_in_hindsight_mode(monkeypatch):
         },
     )
 
+    # Default policy: chat completes without Hindsight (automatic recall is
+    # best-effort), so an outage must not eject the pod from its Service.
+    monkeypatch.delenv("DAEDALUS_MEMORY_READINESS_MODE", raising=False)
     response = asyncio.run(front_end.readiness_response())
 
-    assert response.status_code == 503
-    assert json.loads(response.body) == {
+    assert response.status_code == 200
+    body = json.loads(response.body)
+    assert body["status"] == "degraded"
+    assert body["memory"] == {"state": "hindsight", "hindsight": "unavailable"}
+
+    # Operators who genuinely need memory can still opt into a hard dependency.
+    monkeypatch.setenv("DAEDALUS_MEMORY_READINESS_MODE", "required")
+    strict = asyncio.run(front_end.readiness_response())
+
+    assert strict.status_code == 503
+    assert json.loads(strict.body) == {
         "status": "unready",
         "reason": "hindsight_unavailable",
         "memory": {"state": "hindsight", "hindsight": "unavailable"},
     }
+
+
+def test_readiness_rejects_invalid_memory_readiness_mode(monkeypatch):
+    monkeypatch.setenv("DAEDALUS_MEMORY_READINESS_MODE", "sometimes")
+    with pytest.raises(ValueError):
+        front_end._memory_readiness_mode()
 
 
 def test_readiness_reports_authenticated_milvus_failure(monkeypatch):

@@ -453,7 +453,7 @@ ingress:
   enabled: true
   className: ''
   annotations:
-    # Nginx Ingress Controller - Increase timeouts for long-running AI requests (comprehensive_research_agent can take up to 15 minutes)
+    # Nginx Ingress Controller - must stay above the in-cluster nginx and
     nginx.ingress.kubernetes.io/proxy-connect-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-send-timeout: '900'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '900'

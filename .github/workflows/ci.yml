@@ -159,6 +159,11 @@ jobs:
       - name: Render chart
         run: helm template daedalus helm/daedalus >/tmp/daedalus-rendered.yaml
 
+      # The chart's allowlist `fail` guards only trigger on real values, so
+      # rendering defaults alone cannot catch an override key that Helm rejects.
+      - name: Render chart with deployed values
+        run: helm template daedalus helm/daedalus -f custom-values.yaml >/tmp/daedalus-rendered-custom.yaml
+
   redis-upgrade:
     name: Persisted Redis Helm Upgrade
     runs-on: ubuntu-latest

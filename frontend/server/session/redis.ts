@@ -174,10 +174,11 @@ async function setRedisJsonRootWithExpiry(
   }
 }
 
-// Channel name helpers for real-time sync
+// Channel name helpers for real-time sync. Streaming state is carried as
+// streaming_started/streaming_ended events on userUpdates, not a separate
+// channel.
 export const channels = {
   userUpdates: (userId: string) => `user:${userId}:updates`,
-  streamingState: (userId: string) => `user:${userId}:streaming`,
 };
 
 async function ensureRedisJson(client: Redis): Promise<boolean> {

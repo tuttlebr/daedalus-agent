@@ -1,19 +1,29 @@
 import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
 
 import handler, {
+  mergeSubmittedMessagesWithStoredHistory,
+} from '@/pages/api/chat/async';
+import {
+  extractAsyncStreamContentDelta,
+  parseIntermediateDataLine,
+} from '@/utils/app/asyncStepParser';
+
+import {
+  resetStreamBackendPin,
+  resolveAsyncBackendBaseUrls,
+  selectStreamBackendBaseUrl,
+} from '@/server/chat/backendSelection';
+import {
   appendDocumentAttachmentContext,
+  compactDocumentIngestionMessage,
+  getDocumentIngestJobRequest,
+  isDocumentIngestionRequest,
+} from '@/server/chat/messagePreprocessing';
+import {
   buildBoundedMessagesForNat,
   buildNatRequestHeaders,
   buildNatSessionId,
-  compactDocumentIngestionMessage,
-  extractAsyncStreamContentDelta,
-  getDocumentIngestJobRequest,
-  isDocumentIngestionRequest,
-  mergeSubmittedMessagesWithStoredHistory,
-  parseIntermediateDataLine,
-  resolveAsyncBackendBaseUrls,
-} from '@/pages/api/chat/async';
-
+} from '@/server/chat/natMessages';
 import {
   MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS,
   STREAM_READ_IDLE_TIMEOUT_MS,
@@ -89,7 +99,6 @@ vi.mock('node:dns/promises', () => ({
 vi.mock('@/server/session/redis', () => ({
   channels: {
     userUpdates: (userId: string) => `user:${userId}:updates`,
-    streamingState: (userId: string) => `user:${userId}:streaming`,
   },
   getPublisher: vi.fn(() => mocks.publisher),
   getRedis: vi.fn(() => ({
@@ -152,6 +161,9 @@ vi.mock('web-push', () => ({
 describe('chat/async backend pinning helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The pin is per-process module state that intentionally survives requests.
+    // Clear it so each test observes a cold selection.
+    resetStreamBackendPin();
     mocks.validateDocumentRefsForUser.mockImplementation(
       async (refs: any[]) => refs,
     );
@@ -184,6 +196,37 @@ describe('chat/async backend pinning helpers', () => {
         'http://10.0.3.154:8000',
       ]),
     );
+  });
+
+  it('probes /health, then reuses the pin without re-probing', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+
+    const first = await selectStreamBackendBaseUrl('job-1', 'testuser', 'sess');
+    const second = await selectStreamBackendBaseUrl('job-2', 'testuser', 'sess');
+
+    expect(first).toBe('http://10.0.2.61:8000');
+    expect(second).toBe(first);
+    // The probe exists to pick a reachable pod. Once pinned, that choice is
+    // made, so a second submit must not pay another synchronous round trip.
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledOnce();
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      'http://10.0.2.61:8000/health',
+      expect.objectContaining({ method: 'HEAD' }),
+      2000,
+    );
+  });
+
+  it('drops the pin when DNS stops advertising that pod', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    await selectStreamBackendBaseUrl('job-1', 'testuser', 'sess');
+
+    mocks.resolve4.mockResolvedValue(['10.0.9.9']);
+    const next = await selectStreamBackendBaseUrl('job-2', 'testuser', 'sess');
+
+    expect(next).toBe('http://10.0.9.9:8000');
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(2);
   });
 
   it('sets identity and an isolated NAT session cookie on backend requests', () => {
@@ -670,7 +713,7 @@ describe('chat/async backend pinning helpers', () => {
     );
     expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/docs',
+      'http://10.0.2.61:8000/health',
       expect.objectContaining({
         method: 'HEAD',
       }),
@@ -775,6 +818,147 @@ describe('chat/async backend pinning helpers', () => {
     expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
   });
 
+  it('drops an expired attachment on replayed history instead of failing the turn', async () => {
+    // Documents carry their own upload-time TTL while a conversation's TTL is
+    // refreshed every turn, so an older attachment can expire while its
+    // conversation is still active. Failing here would make every later message
+    // in that conversation return 404 forever.
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    mocks.validateDocumentRefsForUser.mockImplementation(async (refs: any[]) => {
+      if (refs[0]?.documentId === 'expired-doc') {
+        throw new mocks.DocumentRefAccessError(
+          404,
+          'Document attachment not found. Please upload it again.',
+          'document_ref_not_found',
+        );
+      }
+      return refs;
+    });
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        messages: [
+          {
+            role: 'user',
+            content: 'Here is a paper',
+            attachments: [
+              {
+                type: 'document',
+                content: 'old.pdf',
+                documentRef: {
+                  documentId: 'expired-doc',
+                  sessionId: 'sess-1',
+                },
+              },
+            ],
+          },
+          { role: 'assistant', content: 'Summarized.' },
+          { role: 'user', content: 'thanks' },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: expect.any(String) }),
+    );
+  });
+
+  it('still rejects an expired attachment on the turn being submitted', async () => {
+    mocks.validateDocumentRefsForUser.mockRejectedValueOnce(
+      new mocks.DocumentRefAccessError(
+        404,
+        'Document attachment not found. Please upload it again.',
+        'document_ref_not_found',
+      ),
+    );
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        messages: [
+          {
+            role: 'user',
+            content: 'Summarize this',
+            attachments: [
+              {
+                type: 'document',
+                content: 'gone.pdf',
+                documentRef: { documentId: 'gone-doc', sessionId: 'sess-1' },
+              },
+            ],
+          },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Document attachment not found. Please upload it again.',
+      reason: 'document_ref_not_found',
+    });
+  });
+
+  it('rejects a forbidden attachment even on replayed history', async () => {
+    mocks.validateDocumentRefsForUser.mockRejectedValueOnce(
+      new mocks.DocumentRefAccessError(
+        403,
+        'You do not have access to one of the document attachments.',
+        'document_ref_forbidden',
+      ),
+    );
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        messages: [
+          {
+            role: 'user',
+            content: 'Here is a paper',
+            attachments: [
+              {
+                type: 'document',
+                content: 'other.pdf',
+                documentRef: { documentId: 'other-doc', sessionId: 'sess-9' },
+              },
+            ],
+          },
+          { role: 'user', content: 'thanks' },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
   it('rejects document attachments that fail server-side ref validation', async () => {
     mocks.validateDocumentRefsForUser.mockRejectedValueOnce(
       new mocks.DocumentRefAccessError(
@@ -867,7 +1051,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
-      'http://10.0.2.61:8000/docs',
+      'http://10.0.2.61:8000/health',
       expect.objectContaining({ method: 'HEAD' }),
       2000,
     );

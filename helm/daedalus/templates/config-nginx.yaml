@@ -220,10 +220,12 @@ server {
         proxy_cache off;
         proxy_set_header X-Accel-Buffering no;
 
-        # Increase timeouts for long AI requests (10 minutes)
-        proxy_connect_timeout 600s;
-        proxy_send_timeout 600s;
-        proxy_read_timeout 600s;
+        # Must be a superset of every app-level chat budget, the largest being
+        # MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS (660s). At 600s this hop expired
+        # before the interactive-OAuth deadline it is meant to outlive.
+        proxy_connect_timeout 900s;
+        proxy_send_timeout 900s;
+        proxy_read_timeout 900s;
 
         # Enable chunked responses
         chunked_transfer_encoding on;
@@ -253,6 +255,29 @@ server {
         proxy_send_timeout 360s;
         proxy_read_timeout 360s;
         chunked_transfer_encoding on;
+    }
+
+    # Document extraction and ingestion. The browser calls these directly with
+    # no client-side timeout and the handlers budget 900s (DOCUMENT_PROCESSING_
+    # TIMEOUT_MS), so the generic /api/ block's 120s would 504 a large NV-Ingest
+    # document while the handler kept running.
+    location /api/document/ {
+        proxy_pass {{ ._frontendHTTPUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        proxy_connect_timeout 900s;
+        proxy_send_timeout 900s;
+        proxy_read_timeout 900s;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_max_temp_file_size 0;
     }
 
     # Other frontend API routes

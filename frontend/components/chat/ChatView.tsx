@@ -344,8 +344,14 @@ export const ChatView = memo(() => {
       succeeded: boolean,
       keepUnopened = false,
     ) => {
-      setOauthPrompts((current) =>
-        current.flatMap((prompt) => {
+      setOauthPrompts((current) => {
+        // This runs on every streamed token. Returning a new array when nothing
+        // changed would re-render the whole chat view per token and defeat the
+        // STREAM_RENDER_INTERVAL_MS batching.
+        if (current.length === 0) return current;
+
+        let changed = false;
+        const next = current.flatMap((prompt) => {
           if (prompt.conversationId !== conversationId) return [prompt];
           if (jobId && prompt.jobId && prompt.jobId !== jobId) return [prompt];
           if (succeeded && prompt.opened) {
@@ -354,13 +360,17 @@ export const ChatView = memo(() => {
             );
             if (!prompt.succeeded) {
               scheduleOAuthPromptSuccessRemoval(oauthPromptKey(prompt));
+              changed = true;
+              return [{ ...prompt, succeeded: true }];
             }
-            return [{ ...prompt, succeeded: true }];
+            return [prompt];
           }
           if (keepUnopened) return [prompt];
+          changed = true;
           return [];
-        }),
-      );
+        });
+        return changed ? next : current;
+      });
     },
     [scheduleOAuthPromptSuccessRemoval],
   );

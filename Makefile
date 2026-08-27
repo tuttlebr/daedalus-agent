@@ -65,6 +65,7 @@ frontend-e2e: ## real-browser frontend workflows  (CI job: frontend-e2e)
 helm: ## helm lint + template render  (CI job: helm)
 	helm lint helm/daedalus
 	helm template daedalus helm/daedalus >/tmp/daedalus-rendered.yaml
+	helm template daedalus helm/daedalus -f custom-values.yaml >/tmp/daedalus-rendered-custom.yaml
 
 redis-upgrade: ## persisted Redis Helm upgrade, ACL, and TLS rotation  (CI job: redis-upgrade)
 	bash scripts/test_redis_helm_upgrade.sh

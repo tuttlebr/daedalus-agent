@@ -1,16 +1,14 @@
-"""Per-user forms of NAT's pinned OpenAI agent workflows.
+"""Per-user form of NAT's pinned Responses API agent workflow.
 
 NAT 1.8 ships a per-user MCP function group, but only registers a per-user
-ReAct workflow. Daedalus uses the tool-calling workflow for chat-completions
-streaming, so this adapter registers the same upstream implementation at the
-supported per-user workflow boundary. NAT then builds OAuth-backed MCP groups
-with the authenticated request context and caches the complete user workflow
-for the configured idle window.
+ReAct workflow. Daedalus registers its Responses agent at the supported
+per-user workflow boundary so NAT builds OAuth-backed MCP groups with the
+authenticated request context and caches the complete user workflow for the
+configured idle window.
 
-Responses uses NAT's Responses agent configuration contract rather than the
-Chat Completions tool-agent contract. The Daedalus Responses adapter preserves
-that contract while adding per-user construction, full inbound history, and
-stream serialization for the existing Chat Completions-compatible front end.
+The adapter follows NAT's Responses agent configuration contract while adding
+per-user construction, full inbound history, and stream serialization for the
+existing Chat Completions-compatible front end.
 """
 
 import datetime
@@ -36,21 +34,10 @@ from nat.data_models.api_server import (
 from nat.plugins.langchain.agent.responses_api_agent.register import (
     ResponsesAPIAgentWorkflowConfig,
 )
-from nat.plugins.langchain.agent.tool_calling_agent.register import (
-    ToolCallAgentWorkflowConfig,
-    tool_calling_agent_workflow,
-)
 from nat.utils.type_converter import GlobalTypeConverter
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
-
-
-class DaedalusPerUserToolCallAgentWorkflowConfig(
-    ToolCallAgentWorkflowConfig,
-    name="daedalus_per_user_tool_calling_agent",
-):
-    """Tool-calling agent built and cached independently for each user."""
 
 
 class DaedalusPerUserResponsesAPIAgentWorkflowConfig(
@@ -448,23 +435,6 @@ async def _responses_api_agent_workflow(
         )
     finally:
         await tool_output_store.close()
-
-
-@register_per_user_function(
-    config_type=DaedalusPerUserToolCallAgentWorkflowConfig,
-    input_type=ChatRequest,
-    single_output_type=str,
-    streaming_output_type=ChatResponseChunk,
-    framework_wrappers=[LLMFrameworkEnum.LANGCHAIN],
-)
-async def daedalus_per_user_tool_calling_agent(
-    config: DaedalusPerUserToolCallAgentWorkflowConfig,
-    builder: Builder,
-):
-    """Build the legacy Chat Completions tool agent for one user."""
-    upstream_config = ToolCallAgentWorkflowConfig.model_validate(config.model_dump())
-    async with tool_calling_agent_workflow(upstream_config, builder) as function_info:
-        yield function_info
 
 
 @register_per_user_function(

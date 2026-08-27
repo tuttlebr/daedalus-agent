@@ -6,7 +6,6 @@
  *
  * @requires zustand - Run: npm install zustand
  */
-import { FolderInterface } from '@/types/folder';
 import { IntermediateStepCategory } from '@/types/intermediateSteps';
 
 import { create } from 'zustand';
@@ -38,9 +37,6 @@ export interface UISettingsState {
   intermediateStepsView: 'timeline' | 'category';
   intermediateStepsFilter: IntermediateStepCategory[];
 
-  // Folders
-  folders: FolderInterface[];
-  currentFolder: FolderInterface | undefined;
 
   // Search
   searchTerm: string;
@@ -72,12 +68,6 @@ export interface UISettingsActions {
   setIntermediateStepsFilter: (filter: IntermediateStepCategory[]) => void;
   toggleIntermediateStepCategory: (category: IntermediateStepCategory) => void;
 
-  // Folders
-  setFolders: (folders: FolderInterface[]) => void;
-  addFolder: (folder: FolderInterface) => void;
-  updateFolder: (id: string, updates: Partial<FolderInterface>) => void;
-  deleteFolder: (id: string) => void;
-  setCurrentFolder: (folder: FolderInterface | undefined) => void;
 
   // Search
   setSearchTerm: (term: string) => void;
@@ -109,8 +99,6 @@ const initialState: UISettingsState = {
   intermediateStepOverride: true,
   intermediateStepsView: 'timeline',
   intermediateStepsFilter: [],
-  folders: [],
-  currentFolder: undefined,
   searchTerm: '',
   autonomyLaneFilter: 'all',
 };
@@ -187,31 +175,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
               intermediateStepsFilter: [...current, category],
             };
           }),
-
-        // ======================================================================
-        // Folders
-        // ======================================================================
-
-        setFolders: (folders) => set({ folders }),
-
-        addFolder: (folder) =>
-          set((state) => ({ folders: [...state.folders, folder] })),
-
-        updateFolder: (id, updates) =>
-          set((state) => ({
-            folders: state.folders.map((f) =>
-              f.id === id ? { ...f, ...updates } : f,
-            ),
-          })),
-
-        deleteFolder: (id) =>
-          set((state) => ({
-            folders: state.folders.filter((f) => f.id !== id),
-            currentFolder:
-              state.currentFolder?.id === id ? undefined : state.currentFolder,
-          })),
-
-        setCurrentFolder: (folder) => set({ currentFolder: folder }),
 
         // ======================================================================
         // Search

@@ -208,13 +208,6 @@ const Home = () => {
 
   // Initial data load
   useEffect(() => {
-    const folders = getUserSessionItem('folders');
-    if (folders) {
-      try {
-        useUISettingsStore.getState().setFolders(JSON.parse(folders));
-      } catch {}
-    }
-
     const savedWidth = getUserSessionItem('chatbarWidth');
     if (savedWidth) {
       const parsed = parseInt(savedWidth, 10);

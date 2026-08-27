@@ -37,10 +37,6 @@ def memory_mode() -> MemoryMode:
     return mode  # type: ignore[return-value]
 
 
-def hindsight_enabled() -> bool:
-    return memory_mode() == "hindsight"
-
-
 def derive_bank_id(user_id: str) -> str:
     """Derive a stable opaque bank ID from a trusted authenticated user ID."""
 

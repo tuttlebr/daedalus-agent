@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 import { getWebSocketManager } from '@/services/websocket';
 
+import { isStaleCumulativeSnapshot } from '@/utils/app/streamingBuffer';
 import { applyStreamingContentDelta } from '@/utils/app/streamingContent';
 import { shouldRunExpensiveOperation } from '@/utils/app/visibilityAwareTimer';
 import { fetchWithTimeout, FetchTimeoutError } from '@/utils/fetchWithTimeout';
@@ -498,12 +499,24 @@ export const useAsyncChat = (
       // Skip if already completed
       if (completedJobsRef.current.has(jobId)) return;
 
+      // A snapshot travels on a different channel than the per-token stream and
+      // can land behind it. Keep the accumulated text when the snapshot is only
+      // a stale prefix of it, otherwise the next token's responseStart lands
+      // past the end and is dropped until the following snapshot arrives.
+      const accumulated = jobStatusByJobIdRef.current[jobId]?.partialResponse;
+      const merged: AsyncJobStatus =
+        accumulated &&
+        typeof status.partialResponse === 'string' &&
+        isStaleCumulativeSnapshot(accumulated, status.partialResponse)
+          ? { ...status, partialResponse: accumulated }
+          : status;
+
       // Update state
-      jobStatusByJobIdRef.current[jobId] = status;
+      jobStatusByJobIdRef.current[jobId] = merged;
       if (conversationId) {
         setJobStatusByConversationId((prev) => ({
           ...prev,
-          [conversationId]: status,
+          [conversationId]: merged,
         }));
       }
 
@@ -528,7 +541,7 @@ export const useAsyncChat = (
           status.status === 'oauth_required' ||
           isUiTerminalStatus)
       ) {
-        onProgress(status);
+        onProgress(merged);
       }
 
       if (
@@ -558,7 +571,7 @@ export const useAsyncChat = (
       } else if (status.status === 'error') {
         if (onError) {
           onError(status.error || 'Unknown error', {
-            partialResponse: status.partialResponse,
+            partialResponse: merged.partialResponse,
             intermediateSteps: status.intermediateSteps,
             jobId,
             conversationId,
@@ -963,7 +976,11 @@ export const useAsyncChat = (
         );
         pollErrorCountRef.current[jobId] = 0;
         pollCountByJobRef.current[jobId] = 0;
-        const lastKnownStatus = jobStatusByConversationId[conversationId || ''];
+        // Read from the ref, not the state map. Depending on the state map here
+        // would rebuild pollJobStatus on every status change, which cascades
+        // into startAsyncJob, ChatView's handleSend, and the visibilitychange
+        // listener several times a second for the whole turn.
+        const lastKnownStatus = jobStatusByJobIdRef.current[jobId];
         if (onError) {
           onError(error instanceof Error ? error.message : 'Unknown error', {
             partialResponse: lastKnownStatus?.partialResponse,
@@ -978,15 +995,7 @@ export const useAsyncChat = (
         return null;
       }
     },
-    [
-      onProgress,
-      onComplete,
-      onError,
-      userId,
-      scheduleNextPoll,
-      removeActiveJob,
-      jobStatusByConversationId,
-    ],
+    [onProgress, onComplete, onError, userId, scheduleNextPoll, removeActiveJob],
   );
 
   const cancelJob = useCallback(

@@ -41,24 +41,6 @@ describe('conversation replay sanitization', () => {
     ).toBe(next);
   });
 
-  it('strips leaked internal prompt markers from the start of a response', () => {
-    const marker =
-      '[Prior assistant response omitted from this backend prompt to prevent replay. ' +
-      'Use the surrounding user messages as conversation context. Do not reproduce earlier assistant messages.]';
-    const next = 'It first appeared in v1.0.0rc5.';
-
-    expect(stripReplayedAssistantPrefix(`${marker}${next}`, [])).toBe(next);
-  });
-
-  it('strips leaked internal prompt markers from the end of a response', () => {
-    const marker =
-      '[Prior assistant response omitted from this backend prompt to prevent replay. ' +
-      'Use the surrounding user messages as conversation context. Do not reproduce earlier assistant messages.]';
-    const next = 'It first appeared in v1.0.0rc5.';
-
-    expect(stripReplayedAssistantPrefix(`${next}${marker}`, [])).toBe(next);
-  });
-
   it('strips separator rules before an appended prior assistant replay', () => {
     const prior = 'Previous answer.';
     const next = 'Current answer.';

@@ -130,12 +130,6 @@ _process_bootstrap_cache: dict[str, float] = {}
 _process_bootstrap_locks: dict[str, asyncio.Lock] = {}
 
 
-def knowledge_page_specs() -> tuple[tuple[str, str], ...]:
-    """Expose immutable managed-page specifications to APIs and tests."""
-
-    return _KNOWLEDGE_PAGES
-
-
 def _digest(*parts: str) -> str:
     digest = hashlib.sha256()
     for part in parts:

@@ -470,59 +470,6 @@ export async function deleteImage(
   return result > 0;
 }
 
-// Get all images for a session
-export async function getSessionImages(sessionId: string): Promise<string[]> {
-  const redis = getRedis();
-  const sessionImagesKey = sessionKey(['session-images', sessionId]);
-
-  return await redis.smembers(sessionImagesKey);
-}
-
-// Get all images for a user
-export async function getUserImages(userId: string): Promise<string[]> {
-  const redis = getRedis();
-  const userImagesKey = sessionKey(['user', userId, 'images']);
-
-  return await redis.smembers(userImagesKey);
-}
-
-// Clean up all images for a session
-export async function cleanupSessionImages(
-  sessionId: string,
-  userId?: string,
-): Promise<number> {
-  const redis = getRedis();
-  let deletedCount = 0;
-
-  // Clean up user images if userId is provided
-  if (userId) {
-    const userImageIds = await getUserImages(userId);
-    for (const imageId of userImageIds) {
-      const key = sessionKey(['user', userId, 'image', imageId]);
-      const result = await redis.del(key);
-      if (result > 0) {
-        deletedCount++;
-      }
-    }
-    // Clean up the user images set
-    const userImagesKey = sessionKey(['user', userId, 'images']);
-    await redis.del(userImagesKey);
-  }
-
-  // Also clean up session images (for anonymous users or backward compatibility)
-  const imageIds = await getSessionImages(sessionId);
-  for (const imageId of imageIds) {
-    const deleted = await deleteImage(sessionId, imageId, userId);
-    if (deleted) deletedCount++;
-  }
-
-  // Delete the session images set
-  const sessionImagesKey = sessionKey(['session-images', sessionId]);
-  await redis.del(sessionImagesKey);
-
-  return deletedCount;
-}
-
 // Touch image to refresh its TTL (extend expiry when image is still in use)
 export async function touchImage(
   imageId: string,

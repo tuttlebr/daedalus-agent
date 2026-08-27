@@ -54,25 +54,6 @@ import {
 } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
-// Re-exported to preserve the historical public surface of this route module
-// (the test suite imports these from '@/pages/api/chat/async').
-export {
-  extractAsyncStreamContentDelta,
-  parseIntermediateDataLine,
-} from '@/utils/app/asyncStepParser';
-export {
-  appendDocumentAttachmentContext,
-  compactDocumentIngestionMessage,
-  getDocumentIngestJobRequest,
-  isDocumentIngestionRequest,
-} from '@/server/chat/messagePreprocessing';
-export {
-  buildBoundedMessagesForNat,
-  buildNatRequestHeaders,
-  buildNatSessionId,
-} from '@/server/chat/natMessages';
-export { resolveAsyncBackendBaseUrls } from '@/server/chat/backendSelection';
-
 const logger = new Logger('AsyncJob');
 
 // Per-user throttle on the (LLM-cost-bearing) async chat submit path. Generous
