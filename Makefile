@@ -28,10 +28,13 @@ TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES := /workspace/.venv/lib/python3.12/site-package
 
 .DEFAULT_GOAL := help
 
-.PHONY: help ci builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
+.PHONY: help deploy ci builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
 
 help: ## show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+
+deploy: ## deploy unsigned development images without MCP preflight
+	./deploy.sh --skip-mcp-preflight --allow-unsigned-images
 
 ci: tools-check builder test-integration frontend frontend-e2e helm redis-upgrade docker security ## run every CI job sequentially
 
