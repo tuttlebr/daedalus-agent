@@ -298,6 +298,7 @@ redis:
       drop: [ALL]
   persistence:
     enabled: true
+    storageClassName: local-fast
   service:
     type: ClusterIP
     port: 6379
