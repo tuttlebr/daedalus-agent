@@ -8,11 +8,20 @@
  * Port: 3001 (internal only, proxied via NGINX at /ws)
  */
 import { positiveIntegerFromEnv } from './server/config/env';
-import { primeDns, getCachedIp } from './server/session/dns-cache';
+import { primeDns } from './server/session/dns-cache';
+import {
+  DEFAULT_REDIS_URL,
+  REDIS_CLIENT_OPTIONS,
+  channels,
+  createRedisErrorThrottle,
+  redisErrorMessage,
+  resolveRedisUrl,
+  sessionKey,
+} from './server/session/redisShared';
 
 import { parse as parseCookie } from 'cookie';
 import { createServer, IncomingMessage } from 'http';
-import Redis, { RedisOptions } from 'ioredis';
+import Redis from 'ioredis';
 import dns from 'node:dns';
 import { WebSocketServer, WebSocket } from 'ws';
 
@@ -23,7 +32,7 @@ dns.setDefaultResultOrder('ipv4first');
 // ---------- Configuration ----------
 
 const PORT = parseInt(process.env.WS_PORT || '3001', 10);
-const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
+const REDIS_URL = process.env.REDIS_URL || DEFAULT_REDIS_URL;
 const HEARTBEAT_INTERVAL = 45_000; // Server sends pong every 45s
 const CLIENT_TIMEOUT = 90_000; // Close if no ping received in 90s
 // Re-check the session key on a live socket so logout / TTL expiry / sid
@@ -44,87 +53,15 @@ const MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION = positiveIntegerFromEnv(
   'WS_MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION',
   50,
 );
-const REDIS_MAX_RETRIES_PER_REQUEST = positiveIntegerFromEnv(
-  'REDIS_MAX_RETRIES_PER_REQUEST',
-  3,
-);
-const REDIS_COMMAND_TIMEOUT_MS = positiveIntegerFromEnv(
-  'REDIS_COMMAND_TIMEOUT_MS',
-  10_000,
-);
-
-function resolveRedisUrl(): string {
-  try {
-    const parsed = new URL(REDIS_URL);
-    const cachedIp = getCachedIp(parsed.hostname);
-    if (cachedIp && cachedIp !== parsed.hostname) {
-      parsed.hostname = cachedIp;
-      return parsed.toString();
-    }
-  } catch {
-    // Fall through to raw URL
-  }
-  return REDIS_URL;
-}
-
 try {
   void primeDns(new URL(REDIS_URL).hostname);
 } catch {
   // Ignore unparseable URL — connection will fail later with a clearer error.
 }
 
-// Collapse repeated transient errors (EAI_AGAIN, ECONNRESET, etc.) into a
-// single log line per (label, code) every 30 s so logs are scannable.
-type ThrottleState = { count: number; firstSeen: number };
-const errorThrottle = new Map<string, ThrottleState>();
-const ERROR_LOG_INTERVAL_MS = 30_000;
-
-function logRedisErrorThrottled(label: string, error: unknown): void {
-  const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
-  const key = `${label}:${code}`;
-  const now = Date.now();
-  const state = errorThrottle.get(key);
-  if (!state) {
-    console.error(`[WS] Redis ${label} error (${code}):`, error);
-    errorThrottle.set(key, { count: 1, firstSeen: now });
-    return;
-  }
-  if (now - state.firstSeen > ERROR_LOG_INTERVAL_MS) {
-    console.error(
-      `[WS] Redis ${label} error (${code}) repeated ${
-        state.count
-      }x in last ${Math.round((now - state.firstSeen) / 1000)}s`,
-      error,
-    );
-    errorThrottle.set(key, { count: 1, firstSeen: now });
-    return;
-  }
-  state.count += 1;
-}
+const logRedisErrorThrottled = createRedisErrorThrottle('[WS] ');
 
 // ---------- Redis Helpers ----------
-
-const channels = {
-  userUpdates: (userId: string) => `user:${userId}:updates`,
-};
-
-function sessionKey(parts: string[]): string {
-  return parts.filter(Boolean).join(':');
-}
-
-// Bound per-command retries and timeouts so Redis outages cannot leave socket
-// subscription requests pending indefinitely.
-const REDIS_CLIENT_OPTIONS: RedisOptions = {
-  lazyConnect: true,
-  maxRetriesPerRequest: REDIS_MAX_RETRIES_PER_REQUEST,
-  enableOfflineQueue: true,
-  autoResubscribe: true,
-  reconnectOnError: () => true,
-  connectTimeout: 10_000,
-  commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
-  retryStrategy: (times) => Math.min(times * 200, 2_000),
-  family: 4,
-};
 
 function createRedisClient(label: string): Redis {
   const client = new Redis(resolveRedisUrl(), REDIS_CLIENT_OPTIONS);
@@ -284,13 +221,6 @@ function getRedisSubscriber(): SharedRedisSubscriber {
     );
   }
   return sharedRedisSubscriber;
-}
-
-function redisErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
 }
 
 function isRedisJsonUnavailableForRead(error: unknown): boolean {

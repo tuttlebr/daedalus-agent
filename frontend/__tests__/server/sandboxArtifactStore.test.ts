@@ -1,4 +1,6 @@
 import { storeSandboxArtifact } from '@/server/sandboxArtifactStore';
+
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +14,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/server/documentObjectStore', () => ({
+  sha256: (value: string | Buffer) =>
+    createHash('sha256').update(value).digest('hex'),
   buildDocumentObjectKey: vi.fn(
     (_owner: string, sessionId: string, documentId: string) =>
       `documents/owner/${sessionId}/${documentId}`,

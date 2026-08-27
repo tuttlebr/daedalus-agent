@@ -13,6 +13,7 @@ import {
   jsonSetWithExpiry,
   jsonDel,
 } from '@/server/session/redis';
+import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
 import { clampConversations } from '@/server/session/sanitize';
 
 export const config = {
@@ -23,18 +24,6 @@ export const config = {
   },
 };
 
-/**
- * Verify that a user owns a conversation by checking if the conversation ID
- * exists in the user's conversations set in Redis.
- */
-async function verifyConversationOwnership(
-  username: string,
-  conversationId: string,
-): Promise<boolean> {
-  const redis = getRedis();
-  const userConversationsKey = sessionKey(['user', username, 'conversations']);
-  return (await redis.sismember(userConversationsKey, conversationId)) === 1;
-}
 
 /**
  * Endpoint for conversation operations:

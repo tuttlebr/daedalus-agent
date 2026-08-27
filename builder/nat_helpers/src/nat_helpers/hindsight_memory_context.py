@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 from nat_helpers.hindsight_client import HindsightClient, derive_bank_id
-from nat_helpers.redis_url import close_redis_client, redis_url_from_env
+from nat_helpers.redis_url import close_redis_client, redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -139,14 +139,7 @@ def _digest(*parts: str) -> str:
 
 
 async def _redis_client():
-    from redis.asyncio import Redis
-
-    return Redis.from_url(
-        redis_url_from_env(),
-        decode_responses=True,
-        socket_connect_timeout=2,
-        socket_timeout=2,
-    )
+    return redis_client(timeout_seconds=2)
 
 
 def _bootstrap_cache_id(user_id: str) -> str:

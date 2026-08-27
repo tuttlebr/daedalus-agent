@@ -34,7 +34,7 @@ vi.mock('@/server/session/documentRefs', () => ({
   DocumentRefAccessError: mocks.DocumentRefAccessError,
 }));
 
-vi.mock('@/server/backend/postToBackend', () => ({
+vi.mock('@/utils/server/httpProxy', () => ({
   postToBackend: mocks.postToBackend,
 }));
 

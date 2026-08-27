@@ -1,8 +1,19 @@
-import { positiveIntegerFromEnv } from '../config/env';
-import { primeDns, getCachedIp } from './dns-cache';
+import { primeDns } from './dns-cache';
+import {
+  DEFAULT_REDIS_URL,
+  REDIS_CLIENT_OPTIONS,
+  channels,
+  createRedisErrorThrottle,
+  parseRedisJsonResult,
+  redisErrorMessage,
+  resolveRedisUrl,
+  sessionKey,
+} from './redisShared';
 
-import Redis, { RedisOptions } from 'ioredis';
+import Redis from 'ioredis';
 import dns from 'node:dns';
+
+export { channels, sessionKey };
 
 // Prefer IPv4 — Node ≥17 defaults to 'verbatim' which can return AAAA
 // records first and stall DNS resolution against Kubernetes CoreDNS.
@@ -14,87 +25,15 @@ let redisJsonSupported: boolean | null = null;
 // Dedicated publisher client (cannot reuse the main connection for pub/sub)
 let publisher: Redis | null = null;
 
-const REDIS_MAX_RETRIES_PER_REQUEST = positiveIntegerFromEnv(
-  'REDIS_MAX_RETRIES_PER_REQUEST',
-  3,
-);
-const REDIS_COMMAND_TIMEOUT_MS = positiveIntegerFromEnv(
-  'REDIS_COMMAND_TIMEOUT_MS',
-  10_000,
-);
-
-// Bound per-command retries and timeouts so failed Redis connectivity does not
-// leave API requests pending indefinitely.
-const REDIS_CLIENT_OPTIONS: RedisOptions = {
-  lazyConnect: true,
-  maxRetriesPerRequest: REDIS_MAX_RETRIES_PER_REQUEST,
-  enableOfflineQueue: true,
-  reconnectOnError: () => true,
-  connectTimeout: 10_000,
-  commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
-  retryStrategy: (times) => Math.min(times * 200, 2_000),
-  family: 4,
-};
-
-function resolveRedisUrl(): string {
-  const raw = process.env.REDIS_URL || 'redis://redis:6379';
-  try {
-    const parsed = new URL(raw);
-    const cachedIp = getCachedIp(parsed.hostname);
-    if (cachedIp && cachedIp !== parsed.hostname) {
-      parsed.hostname = cachedIp;
-      return parsed.toString();
-    }
-  } catch {
-    // Fall through to raw URL
-  }
-  return raw;
-}
-
 // Fire-and-forget: prime cache for the configured Redis host at module load.
 try {
-  const seedHost = new URL(process.env.REDIS_URL || 'redis://redis:6379')
-    .hostname;
+  const seedHost = new URL(process.env.REDIS_URL || DEFAULT_REDIS_URL).hostname;
   void primeDns(seedHost);
 } catch {
   // Ignore unparseable URL — connection will fail later with a clearer error.
 }
 
-// Collapse repeated transient errors (EAI_AGAIN, ECONNRESET, etc.) into a
-// single log line per (label, code) every 30 s so logs are scannable.
-type ThrottleState = { count: number; firstSeen: number };
-const errorThrottle = new Map<string, ThrottleState>();
-const ERROR_LOG_INTERVAL_MS = 30_000;
-
-function logRedisErrorThrottled(label: string, error: unknown): void {
-  const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
-  const key = `${label}:${code}`;
-  const now = Date.now();
-  const state = errorThrottle.get(key);
-  if (!state) {
-    console.error(`Redis ${label} error (${code}):`, error);
-    errorThrottle.set(key, { count: 1, firstSeen: now });
-    return;
-  }
-  if (now - state.firstSeen > ERROR_LOG_INTERVAL_MS) {
-    console.error(
-      `Redis ${label} error (${code}) repeated ${
-        state.count
-      }x in last ${Math.round((now - state.firstSeen) / 1000)}s`,
-      error,
-    );
-    errorThrottle.set(key, { count: 1, firstSeen: now });
-    return;
-  }
-  state.count += 1;
-}
-
-function redisErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
+const logRedisErrorThrottled = createRedisErrorThrottle();
 
 function isRedisJsonUnsupportedError(error: unknown): boolean {
   const message = redisErrorMessage(error).toLowerCase();
@@ -118,12 +57,6 @@ function isWrongTypeError(error: unknown): boolean {
     // deployment instead of rethrowing.
     message.includes('wrong redis type')
   );
-}
-
-function parseRedisJsonResult(result: string | null, path: string): any {
-  if (!result) return null;
-  const parsed = JSON.parse(result);
-  return path.startsWith('$') && Array.isArray(parsed) ? parsed[0] : parsed;
 }
 
 async function getPlainJson(client: Redis, key: string): Promise<any> {
@@ -173,13 +106,6 @@ async function setRedisJsonRootWithExpiry(
     await client.eval(JSON_SET_WITH_EXPIRY_LUA, 1, key, serialized, ttl);
   }
 }
-
-// Channel name helpers for real-time sync. Streaming state is carried as
-// streaming_started/streaming_ended events on userUpdates, not a separate
-// channel.
-export const channels = {
-  userUpdates: (userId: string) => `user:${userId}:updates`,
-};
 
 async function ensureRedisJson(client: Redis): Promise<boolean> {
   if (redisJsonSupported !== null) {
@@ -237,10 +163,6 @@ export function getRedis(): Redis {
 function isRedisConnectionStale(client: Redis): boolean {
   // 'reconnecting' means the client is actively recovering — keep it.
   return ['end', 'close'].includes(client.status);
-}
-
-export function sessionKey(parts: Array<string | undefined | null>): string {
-  return parts.filter(Boolean).join(':');
 }
 
 // JSON operation helpers using RedisJSON commands

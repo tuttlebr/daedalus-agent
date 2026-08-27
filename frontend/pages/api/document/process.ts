@@ -12,7 +12,7 @@ import {
   withTimezoneHeader,
 } from '@/utils/server/backendAuth';
 
-import { postToBackend } from '@/server/backend/postToBackend';
+import { postToBackend } from '@/utils/server/httpProxy';
 import { getMilvusMetadata } from '@/server/milvusMetadata';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
