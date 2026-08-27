@@ -16,14 +16,15 @@ FONT_STYLESHEET = (
     "https://g1.nyt.com/fonts/css/"
     "web-fonts.c851560786173ad206e1f76c1901be7e096e8f8b.css"
 )
-DAYBOOK_VERSION = "3"
+DAYBOOK_VERSION = "4"
+TEMPLATE_VERSION = "daybook-v4"
 DESK_KEY = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 COVERAGE_STATUSES = frozenset({"covered", "quiet", "unavailable"})
-LEAD_LAYOUTS = frozenset({"feature", "two-column", "three-column"})
+LEAD_LAYOUTS = frozenset({"split"})
 SOURCE_KINDS = frozenset({"tool", "web"})
 TOOL_SOURCE_REF = re.compile(r"^[a-z0-9_-]+(?:\s*,\s*[a-z0-9_-]+)*$")
 PLACEHOLDER_PATTERN = re.compile(
-    r"(?:\bTODO\b|\bTBD\b|lorem ipsum|\[placeholder\]|\{\{[^}]+\}\})",
+    r"(?:\bTODO\b|\bTBD\b|lorem ipsum|\[placeholder\]|\{\{[^}]+\}\}|@@[A-Z_]+@@)",
     re.IGNORECASE,
 )
 BANNED_IMAGE_PATTERN = re.compile(
@@ -106,13 +107,25 @@ class DaybookParser(HTMLParser):
         self.story_attrs: list[dict[str, str]] = []
         self.lead_story_attrs: list[dict[str, str]] = []
         self.edition_strap_count = 0
+        self.edition_strap_classes: list[set[str]] = []
         self.edition_tagline_count = 0
         self.edition_tagline_text: list[str] = []
         self._tagline_depth: int | None = None
         self.department_rail_count = 0
+        self.department_rail_classes: list[set[str]] = []
         self.lead_grid_count = 0
+        self.lead_grid_classes: list[set[str]] = []
         self.lead_story_count = 0
         self.lead_layouts: list[str] = []
+        self.lead_story_classes: list[set[str]] = []
+        self.lead_story_inside_grid = False
+        self.lead_story_text: list[str] = []
+        self.lead_continuation_count = 0
+        self.lead_continuation_inside_grid = False
+        self.day_ahead_count = 0
+        self.day_ahead_inside_grid = False
+        self._lead_grid_depth: int | None = None
+        self._lead_story_depth: int | None = None
         self.department_count = 0
         self.ids: set[str] = set()
         self.text_chunks: list[str] = []
@@ -128,14 +141,26 @@ class DaybookParser(HTMLParser):
             self.ids.add(element_id)
         if "data-edition-strap" in values:
             self.edition_strap_count += 1
+            self.edition_strap_classes.append(set(values.get("class", "").split()))
         if "data-edition-tagline" in values:
             self.edition_tagline_count += 1
             self._tagline_depth = len(self.stack)
         if "data-department-rail" in values:
             self.department_rail_count += 1
+            self.department_rail_classes.append(set(values.get("class", "").split()))
         if "data-lead-grid" in values:
             self.lead_grid_count += 1
             self.lead_layouts.append(values.get("data-lead-layout", ""))
+            self.lead_grid_classes.append(set(values.get("class", "").split()))
+            self._lead_grid_depth = len(self.stack)
+        if "data-lead-continuation" in values:
+            self.lead_continuation_count += 1
+            if self._lead_grid_depth is not None:
+                self.lead_continuation_inside_grid = True
+        if "data-day-ahead" in values:
+            self.day_ahead_count += 1
+            if self._lead_grid_depth is not None:
+                self.day_ahead_inside_grid = True
         if tag == "section":
             self._section_stack.append(element_id or "")
             if "data-department" in values:
@@ -177,6 +202,10 @@ class DaybookParser(HTMLParser):
             if "data-lead-story" in values:
                 self.lead_story_count += 1
                 self.lead_story_attrs.append(values)
+                self.lead_story_classes.append(set(values.get("class", "").split()))
+                self._lead_story_depth = len(self.stack)
+                if self._lead_grid_depth is not None:
+                    self.lead_story_inside_grid = True
         elif tag == "figure":
             record = FigureRecord(values)
             self.figures.append(record)
@@ -204,6 +233,16 @@ class DaybookParser(HTMLParser):
             and len(self.stack) >= self._tagline_depth
             and self.stack[self._tagline_depth - 1] == tag
         )
+        closes_lead_grid = (
+            self._lead_grid_depth is not None
+            and len(self.stack) >= self._lead_grid_depth
+            and self.stack[self._lead_grid_depth - 1] == tag
+        )
+        closes_lead_story = (
+            self._lead_story_depth is not None
+            and len(self.stack) >= self._lead_story_depth
+            and self.stack[self._lead_story_depth - 1] == tag
+        )
         if tag == "style":
             self._in_style = False
         elif tag == "figure" and self._figure_stack:
@@ -218,6 +257,10 @@ class DaybookParser(HTMLParser):
             del self.stack[len(self.stack) - reverse_index - 1 :]
         if closes_tagline:
             self._tagline_depth = None
+        if closes_lead_grid:
+            self._lead_grid_depth = None
+        if closes_lead_story:
+            self._lead_story_depth = None
 
     def handle_data(self, data: str) -> None:
         if self._in_style:
@@ -233,6 +276,8 @@ class DaybookParser(HTMLParser):
             self.h1_text.append(stripped)
         if self._tagline_depth is not None:
             self.edition_tagline_text.append(stripped)
+        if self._lead_story_depth is not None:
+            self.lead_story_text.append(stripped)
         if self._figure_stack and "figcaption" in self.stack:
             self._figure_stack[-1].caption_text.append(stripped)
         if "sources" in self._section_stack:
@@ -396,6 +441,8 @@ def validate_daybook(
         errors.append("<html> must declare lang=en")
     if parser.html_attrs.get("data-daybook-version") != DAYBOOK_VERSION:
         errors.append(f"<html> must declare data-daybook-version={DAYBOOK_VERSION}")
+    if parser.html_attrs.get("data-template-version") != TEMPLATE_VERSION:
+        errors.append(f"<html> must declare data-template-version={TEMPLATE_VERSION}")
     if parser.html_attrs.get("data-policy-version") != policy.policy_version:
         errors.append("HTML data-policy-version must match the edition policy")
     if manifest.policy_version != policy.policy_version:
@@ -435,23 +482,44 @@ def validate_daybook(
         errors.append("h1 masthead must match the edition policy title")
     if parser.edition_strap_count != 1:
         errors.append("document must contain exactly one edition strap")
+    elif "edition-strap" not in parser.edition_strap_classes[0]:
+        errors.append("edition strap must use the canonical edition-strap class")
     if parser.edition_tagline_count != 1:
         errors.append("document must contain exactly one edition tagline")
     if " ".join(parser.edition_tagline_text).strip() != policy.tagline:
         errors.append("edition tagline must match the edition policy")
     if parser.department_rail_count != 1:
         errors.append("document must contain exactly one department rail")
+    elif "departments" not in parser.department_rail_classes[0]:
+        errors.append("department rail must use the canonical departments class")
     if parser.lead_grid_count != 1 or parser.lead_story_count != 1:
         errors.append("document must identify exactly one lead grid and lead story")
+    if parser.lead_grid_count == 1 and "front-page" not in parser.lead_grid_classes[0]:
+        errors.append("lead grid must use the canonical front-page class")
+    if (
+        parser.lead_story_count == 1
+        and "lead-story" not in parser.lead_story_classes[0]
+    ):
+        errors.append("lead story must use the canonical lead-story class")
+    if parser.lead_story_count == 1 and not parser.lead_story_inside_grid:
+        errors.append("lead story must be inside the lead grid")
+    if parser.day_ahead_count != 1 or not parser.day_ahead_inside_grid:
+        errors.append(
+            "document must place exactly one day-ahead rail inside the lead grid"
+        )
+    if parser.lead_continuation_count != 1:
+        errors.append("document must contain exactly one operations lead continuation")
+    elif parser.lead_continuation_inside_grid:
+        errors.append("operations lead continuation must be outside the lead grid")
     if parser.lead_story_attrs and (
         parser.lead_story_attrs[0].get("data-desk-key") != policy.lead_desk
     ):
         errors.append("lead story desk must match the edition policy lead_desk")
     if parser.lead_layouts and parser.lead_layouts[0] not in LEAD_LAYOUTS:
-        allowed = ", ".join(sorted(LEAD_LAYOUTS))
-        errors.append(f"lead grid data-lead-layout must be one of: {allowed}")
-    if parser.department_count < 1:
-        errors.append("document must contain at least one department section")
+        errors.append("lead grid data-lead-layout must be split")
+    lead_words = re.findall(r"\b[\w'’-]+\b", " ".join(parser.lead_story_text))
+    if len(lead_words) > 340:
+        errors.append("lead story exceeds the bounded opening package")
     for previous, current in zip(parser.heading_levels, parser.heading_levels[1:]):
         if current > previous + 1:
             errors.append("heading levels must not skip")
@@ -487,6 +555,7 @@ def validate_daybook(
         "Cheltenham font family": "nyt-cheltenham",
         "1200px page width": "max-width: 1200px",
         "lead story grid": "grid-template-columns",
+        "balanced operations continuation": "columns: 2 24rem",
         "740px responsive breakpoint": "740px",
         "print stylesheet": "@media print",
         "global border-box sizing": "box-sizing: border-box",
@@ -495,6 +564,11 @@ def validate_daybook(
     for label, token in css_requirements.items():
         if token not in compact_css:
             errors.append(f"CSS is missing {label}")
+    if not re.search(
+        r"grid-template-columns\s*:\s*minmax\(0\s*,\s*7fr\)\s+minmax\(19rem\s*,\s*5fr\)",
+        compact_css,
+    ):
+        errors.append("CSS must use the canonical 7/5 front-page split")
     font_declarations = re.findall(r"font-family\s*:\s*([^;}]+)", compact_css)
     if not font_declarations:
         errors.append("CSS must declare a Cheltenham font family")

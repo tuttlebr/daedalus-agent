@@ -1,0 +1,515 @@
+{
+  "format": "daily-daedalus/v1",
+  "policy_version": "2026-08-27",
+  "generated_at": {
+    "iso": "2026-08-27T08:11:00-04:00",
+    "display": "Thursday, August 27, 2026 · 8:11 a.m. EDT",
+    "issue_label": "Morning Edition"
+  },
+  "description": "The Daily Daedalus, a current personalized daily briefing for August 27, 2026.",
+  "lead": {
+    "headline": "Cluster Returns to Steady State After a Brief Restart Wave",
+    "dek": "All five nodes are Ready. Four application pods restarted during a short dependency race, then recovered without intervention.",
+    "verdict": {
+      "label": "Stable, watching",
+      "tone": "watch"
+    },
+    "paragraphs": [
+      "The current control plane is healthy across 26 namespaces. The restart wave remained isolated to one application namespace and ended within two minutes. No active rollout, storage, scheduling, or network failure remains, although the startup sequence deserves a follow-up after the morning edition.",
+      "GPU services, GitOps controllers, and the adopted network fleet are available. The practical watch item is version skew on one GPU node; it is not disrupting allocation now, but it should be resolved before the next driver-dependent deployment."
+    ],
+    "snapshot": {
+      "columns": ["Scope", "Current state", "Watch"],
+      "rows": [
+        ["Nodes", "5 of 5 Ready", "None"],
+        ["Application pods", "All Ready", "Four recent restarts"],
+        ["GPU allocation", "6 allocatable, 2 allocated", "Driver skew"],
+        ["GitOps", "Reconciling", "No drift"],
+        ["Network", "5 devices online", "No pending adoption"]
+      ]
+    },
+    "source": {
+      "kind": "tool",
+      "label": "Live Kubernetes and UniFi reads",
+      "refs": ["k8s_mcp_server", "unifi_mcp_server"]
+    }
+  },
+  "day_ahead": {
+    "weather": {
+      "status": "covered",
+      "title": "Saline Weather",
+      "rows": [
+        {
+          "day": "Thu 8/27",
+          "conditions": "Partly cloudy",
+          "high": "81°F",
+          "low": "63°F",
+          "wind": "NW 10–15",
+          "precip": "20%"
+        },
+        {
+          "day": "Fri 8/28",
+          "conditions": "Mostly sunny",
+          "high": "80°F",
+          "low": "61°F",
+          "wind": "NNE 5–10",
+          "precip": "0%"
+        },
+        {
+          "day": "Sat 8/29",
+          "conditions": "Partly cloudy",
+          "high": "84°F",
+          "low": "66°F",
+          "wind": "SW 10",
+          "precip": "10%"
+        },
+        {
+          "day": "Sun 8/30",
+          "conditions": "Showers late",
+          "high": "87°F",
+          "low": "71°F",
+          "wind": "SW 15–25",
+          "precip": "30%"
+        }
+      ],
+      "note": "A comfortable start gives way to warmer, more humid conditions late in the weekend.",
+      "source": {
+        "kind": "web",
+        "label": "National Weather Service Detroit/Pontiac",
+        "url": "https://www.weather.gov/dtx/"
+      }
+    },
+    "email_calendar": {
+      "status": "covered",
+      "agenda": [
+        { "time": "7:30–9:00 a.m.", "event": "Gym", "location": "Saline" },
+        {
+          "time": "10:00–10:30 a.m.",
+          "event": "Project review",
+          "location": "Video call"
+        },
+        {
+          "time": "1:00–2:00 p.m.",
+          "event": "Infrastructure planning",
+          "location": "Home office"
+        },
+        {
+          "time": "6:00–9:00 p.m.",
+          "event": "Softball",
+          "location": "Bicentennial Park"
+        },
+        {
+          "time": "9:15–9:30 p.m.",
+          "event": "Travel checklist",
+          "location": "Home"
+        },
+        {
+          "time": "9:30–10:00 p.m.",
+          "event": "Camera batteries",
+          "location": "Home"
+        }
+      ],
+      "actions": [
+        {
+          "title": "Model endpoint changes",
+          "body": "Confirm that active deployments do not use the retiring endpoint family."
+        },
+        {
+          "title": "New-device alert",
+          "body": "Review the sign-in notification and dismiss it only if the device is recognized."
+        },
+        {
+          "title": "Repository access review",
+          "body": "Approve or decline the pending access request before tomorrow afternoon."
+        },
+        {
+          "title": "Travel document reminder",
+          "body": "Move the final itinerary copy to the offline folder."
+        }
+      ],
+      "lookahead": [
+        "Friday: evening departure; allow extra time for construction near the airport.",
+        "Saturday: morning transfer followed by embarkation.",
+        "Sunday: early field-weather window before afternoon showers become possible."
+      ],
+      "source": {
+        "kind": "tool",
+        "label": "Live Gmail and Google Calendar reads",
+        "refs": ["gmail_mcp_server", "calendar_mcp_server"]
+      }
+    }
+  },
+  "operations_details": [
+    {
+      "title": "Restart timeline",
+      "source": {
+        "kind": "tool",
+        "label": "Live Kubernetes read",
+        "refs": ["k8s_mcp_server"]
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The stream worker restarted three times while its backend dependency was still starting. The backend restarted once, then remained Ready. Restart counters stayed unchanged during the verification window."
+        },
+        {
+          "type": "table",
+          "columns": ["Workload", "Recent restarts", "Current state"],
+          "rows": [
+            ["Stream worker", "3", "Ready"],
+            ["Backend", "1", "Ready"],
+            ["Autonomous agent", "2", "Ready"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "GPU stack",
+      "source": {
+        "kind": "tool",
+        "label": "Live Kubernetes GPU resources",
+        "refs": ["k8s_mcp_server"]
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The device plugin is available on all four GPU nodes. Six accelerators are allocatable and two are assigned to retrieval services."
+        },
+        {
+          "type": "list",
+          "items": [
+            "No pending GPU workloads",
+            "DCGM exporters available",
+            "One node remains on an older driver branch"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "GitOps and network",
+      "source": {
+        "kind": "tool",
+        "label": "Live Kubernetes and UniFi reads",
+        "refs": ["k8s_mcp_server", "unifi_mcp_server"]
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Flux controllers are available and the checked resources report no active drift. All five adopted network devices are online, both WAN paths are active, and no adoption request is pending."
+        },
+        { "type": "subhead", "text": "Next check" },
+        {
+          "type": "paragraph",
+          "text": "Confirm the older driver node before scheduling the next compatibility-sensitive inference deployment."
+        }
+      ]
+    },
+    {
+      "title": "Storage mirror",
+      "source": {
+        "kind": "tool",
+        "label": "Live network inventory",
+        "refs": ["unifi_mcp_server"]
+      },
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "The storage appliance is visible on the network. Array health and mirror progress require a dedicated storage read and are therefore marked unavailable rather than inferred."
+        }
+      ]
+    }
+  ],
+  "departments": [
+    {
+      "desk_key": "ai-inference",
+      "title": "AI & Inference",
+      "stories": [
+        {
+          "headline": "Faster Recovery Moves Into the Serving Layer",
+          "dek": "Pre-warmed engines narrow the gap between process failure and restored token service.",
+          "source": {
+            "kind": "web",
+            "label": "NVIDIA Developer Blog",
+            "url": "https://developer.nvidia.com/blog/"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "A new recovery design keeps initialized capacity ready to take over without repeating the full model startup path. The operational value is predictable failover rather than another peak-throughput claim."
+            },
+            {
+              "type": "briefs",
+              "items": [
+                {
+                  "title": "Serving release",
+                  "body": "The newest release reduces cold-start time and moves compiled caches under one configurable directory.",
+                  "source": {
+                    "kind": "web",
+                    "label": "SGLang releases",
+                    "url": "https://github.com/sgl-project/sglang/releases"
+                  }
+                },
+                {
+                  "title": "Security watch",
+                  "body": "Tool-calling deployments should remain current and keep model-supplied arguments away from dynamic evaluation.",
+                  "source": {
+                    "kind": "web",
+                    "label": "vLLM security advisories",
+                    "url": "https://github.com/vllm-project/vllm/security/advisories"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "headline": "Scheduler Work Shifts Toward Failure Domains",
+          "source": {
+            "kind": "web",
+            "label": "Kubernetes blog",
+            "url": "https://kubernetes.io/blog/"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Recent scheduler work emphasizes topology-aware placement and coordinated lifecycle behavior for distributed inference workers."
+            }
+          ]
+        },
+        {
+          "headline": "Agent Evaluation Gets More Operational",
+          "source": {
+            "kind": "web",
+            "label": "NVIDIA NeMo Agent Toolkit documentation",
+            "url": "https://docs.nvidia.com/nemo/agent-toolkit/latest/"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Evaluation guidance increasingly connects answer quality with trajectories, latency, and repeatable regression gates."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "desk_key": "science-technology",
+      "title": "Science & Technology",
+      "stories": [
+        {
+          "headline": "Small Harness Changes Produce Large Agent Gains",
+          "source": {
+            "kind": "web",
+            "label": "Microsoft Research",
+            "url": "https://www.microsoft.com/en-us/research/"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "A practical research line is isolating the orchestration layer from the model so production traces can improve training without rebuilding the deployed agent loop."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "desk_key": "outdoors-field",
+      "title": "Outdoors & Field",
+      "stories": [
+        {
+          "headline": "A Clear Morning Window Favors Local Migration Checks",
+          "source": {
+            "kind": "web",
+            "label": "BirdCast migration dashboard",
+            "url": "https://birdcast.info/"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Use the lower-wind morning period for a short field loop. Favor shoreline and open-edge stops, and keep the photography plan light enough to move when activity shifts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "desk_key": "sports",
+      "title": "Sports",
+      "stories": [
+        {
+          "headline": "Yankees Continue the Homestand Tonight",
+          "source": {
+            "kind": "web",
+            "label": "MLB Yankees schedule",
+            "url": "https://www.mlb.com/yankees/schedule"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "First pitch is scheduled for 7:05 p.m. Eastern. The standings race remains close enough that the next series has direct wild-card consequence."
+            }
+          ]
+        },
+        {
+          "headline": "Steelers Reach the Final Roster Window",
+          "source": {
+            "kind": "web",
+            "label": "Pittsburgh Steelers",
+            "url": "https://www.steelers.com/"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "The preseason finale is the last broad evaluation before the roster contracts to 53 players."
+            }
+          ]
+        },
+        {
+          "headline": "Michigan State Turns to Opening-Week Preparation",
+          "source": {
+            "kind": "web",
+            "label": "Michigan State Athletics",
+            "url": "https://msuspartans.com/"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Camp is giving way to opponent-specific work as the opening Friday approaches."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "desk_key": "culture-leisure",
+      "title": "Culture & Leisure",
+      "stories": [
+        {
+          "headline": "A Fast Late-Summer Dinner Before Packing",
+          "source": {
+            "kind": "web",
+            "label": "The Guardian vegetarian recipes",
+            "url": "https://www.theguardian.com/food/vegetarian"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "A cucumber, yoghurt, and toasted-spice curry fits the warm evening and stays within a thirty-minute cooking window."
+            }
+          ]
+        },
+        {
+          "headline": "One Focused Listening Hour",
+          "source": {
+            "kind": "web",
+            "label": "NPR Music",
+            "url": "https://www.npr.org/music/"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Choose one full electronic or classical release rather than a release-roundup playlist; the intended commitment is about sixty minutes."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "editors_note": "The immediate priority is a calm final day before travel: finish the two account checks, keep the evening calendar intact, and leave the recovered cluster alone unless restart counters move again.",
+  "coverage": [
+    {
+      "desk_key": "cluster-infrastructure",
+      "label": "Cluster & Infrastructure",
+      "status": "covered",
+      "explanation": "Current cluster, GPU, GitOps, network, and storage signals lead the edition.",
+      "source": {
+        "kind": "tool",
+        "label": "Live Kubernetes and UniFi reads",
+        "refs": ["k8s_mcp_server", "unifi_mcp_server"]
+      }
+    },
+    {
+      "desk_key": "weather",
+      "label": "Weather",
+      "status": "covered",
+      "explanation": "Current conditions and the next three days are included.",
+      "source": {
+        "kind": "web",
+        "label": "National Weather Service Detroit/Pontiac",
+        "url": "https://www.weather.gov/dtx/"
+      }
+    },
+    {
+      "desk_key": "email-calendar",
+      "label": "Email & Calendar",
+      "status": "covered",
+      "explanation": "Today’s agenda, action mail, and three-day look-ahead are included.",
+      "source": {
+        "kind": "tool",
+        "label": "Live Gmail and Google Calendar reads",
+        "refs": ["gmail_mcp_server", "calendar_mcp_server"]
+      }
+    },
+    {
+      "desk_key": "ai-inference",
+      "label": "AI & Inference Desk",
+      "status": "covered",
+      "explanation": "Serving recovery, scheduling, and agent evaluation are material today.",
+      "source": {
+        "kind": "web",
+        "label": "NVIDIA Developer Blog",
+        "url": "https://developer.nvidia.com/blog/"
+      }
+    },
+    {
+      "desk_key": "science-technology",
+      "label": "Science & Technology",
+      "status": "covered",
+      "explanation": "One practical agent-training research signal is included.",
+      "source": {
+        "kind": "web",
+        "label": "Microsoft Research",
+        "url": "https://www.microsoft.com/en-us/research/"
+      }
+    },
+    {
+      "desk_key": "markets-finance",
+      "label": "Markets & Finance",
+      "status": "quiet",
+      "explanation": "No durable or seasonal item warrants space today."
+    },
+    {
+      "desk_key": "outdoors-field",
+      "label": "Outdoors & Field",
+      "status": "covered",
+      "explanation": "The morning field window and migration conditions are useful today.",
+      "source": {
+        "kind": "web",
+        "label": "BirdCast migration dashboard",
+        "url": "https://birdcast.info/"
+      }
+    },
+    {
+      "desk_key": "sports",
+      "label": "Sports",
+      "status": "covered",
+      "explanation": "Yankees, Steelers, and Michigan State schedules have timely updates.",
+      "source": {
+        "kind": "web",
+        "label": "MLB Yankees schedule",
+        "url": "https://www.mlb.com/yankees/schedule"
+      }
+    },
+    {
+      "desk_key": "culture-leisure",
+      "label": "Culture & Leisure",
+      "status": "covered",
+      "explanation": "A practical dinner and one bounded listening idea are included.",
+      "source": {
+        "kind": "web",
+        "label": "The Guardian vegetarian recipes",
+        "url": "https://www.theguardian.com/food/vegetarian"
+      }
+    }
+  ]
+}

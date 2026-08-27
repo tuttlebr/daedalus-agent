@@ -1555,10 +1555,15 @@ def test_daily_summary_contracts_structured_briefing():
         sourcing = (
             SKILLS_DIR / "daily-summary" / "references" / "research-and-sourcing.md"
         ).read_text(encoding="utf-8")
+        edition_format = (
+            SKILLS_DIR / "daily-summary" / "references" / "edition-format.md"
+        ).read_text(encoding="utf-8")
         policy_path = (
             SKILLS_DIR / "daily-summary" / "references" / "edition-policy.json"
         )
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        template = SKILLS_DIR / "daily-summary" / "assets" / "daybook-v4.html"
+        renderer = SKILLS_DIR / "daily-summary" / "scripts" / "render_daybook.py"
         validator = SKILLS_DIR / "daily-summary" / "scripts" / "validate_daybook.py"
 
         assert "visual_media_tool" in tools, path
@@ -1577,7 +1582,12 @@ def test_daily_summary_contracts_structured_briefing():
         assert "standalone HTML document" in daily_skill, path
         assert "New York Times-inspired newspaper page" in daily_skill, path
         assert "references/edition-policy.json" in daily_skill, path
+        assert "references/edition-format.md" in daily_skill, path
+        assert "scripts/render_daybook.py" in daily_skill, path
+        assert "daily-daedalus/v1" in edition_format, path
         assert "data-lead-layout" in editorial, path
+        assert 'data-lead-layout="split"' in editorial, path
+        assert 'data-daybook-version="4"' in editorial, path
         assert "https://g1.nyt.com/fonts/css/web-fonts." in editorial, path
         assert "Every `<img>` belongs inside a `<figure>`" in editorial, path
         assert "data-coverage-status" in editorial, path
@@ -1591,6 +1601,8 @@ def test_daily_summary_contracts_structured_briefing():
             in config["functions"]["visual_media_tool"]["description"]
         ), path
         assert validator.is_file(), path
+        assert renderer.is_file(), path
+        assert template.is_file(), path
         assert policy["policy_version"] == "2026-08-27", path
         assert policy["edition"] == {
             "title": "The Daily Daedalus",
