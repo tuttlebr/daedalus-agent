@@ -236,7 +236,7 @@ spec:
             {{- end }}
             {{- with .Values.backend.default.env.overrides }}
             {{- range $k, $v := . }}
-            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (ne $k "DAEDALUS_ARTIFACT_PUBLISH_URL") (ne $k "REDIS_HOST") (ne $k "REDIS_PORT") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "REDIS_TLS_CA_FILE") (ne $k "REDIS_URL") (or (not $.Values.retrieval.enabled) (not (has $k (list "MILVUS_URI" "MILVUS_DATABASE" "MILVUS_METADATA_TIMEOUT_SECONDS" "MILVUS_SEARCH_TIMEOUT_SECONDS" "MILVUS_USERNAME" "MILVUS_USER" "MILVUS_PASSWORD" "MILVUS_TOKEN" "MINIO_ENDPOINT" "MINIO_BUCKET" "MINIO_ACCESS_KEY" "MINIO_SECRET_KEY" "DAEDALUS_RAG_READINESS_ENABLED" "DAEDALUS_RAG_READINESS_MODE" "DAEDALUS_REQUIRED_COLLECTIONS")))) (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
+            {{- if and (ne $k "DAEDALUS_INTERNAL_API_TOKEN") (ne $k "DAEDALUS_ARTIFACT_PUBLISH_URL") (ne $k "REDIS_HOST") (ne $k "REDIS_PORT") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "REDIS_TLS_CA_FILE") (ne $k "REDIS_URL") (or (not $.Values.retrieval.enabled) (not (has $k (list "MILVUS_URI" "MILVUS_DATABASE" "MILVUS_METADATA_TIMEOUT_SECONDS" "MILVUS_SEARCH_TIMEOUT_SECONDS" "MILVUS_USERNAME" "MILVUS_USER" "MILVUS_PASSWORD" "MILVUS_TOKEN" "MINIO_ENDPOINT" "MINIO_BUCKET" "MINIO_ACCESS_KEY" "MINIO_SECRET_KEY" "DAEDALUS_RAG_READINESS_MODE" "DAEDALUS_REQUIRED_COLLECTIONS")))) (or (not $.Values.backend.default.config.enabled) (ne $k "NAT_CONFIG_FILE")) }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}

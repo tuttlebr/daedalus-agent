@@ -1,3 +1,0 @@
-# Backward-compatible alias for deployments that selected this file before the
-# canonical backend configuration adopted the Responses API by default.
-base: tool-calling-config.yaml

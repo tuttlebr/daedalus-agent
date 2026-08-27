@@ -20,20 +20,16 @@ logger = logging.getLogger("daedalus.http_api")
 DRAINING_MARKER_PATH = os.path.join(tempfile.gettempdir(), "daedalus-draining")
 
 
-def _env_enabled(name: str) -> bool:
-    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _rag_readiness_mode() -> str:
-    """Return the explicit RAG dependency policy with legacy compatibility."""
+    """Return the explicit RAG dependency policy."""
     configured = (os.getenv("DAEDALUS_RAG_READINESS_MODE") or "").strip().lower()
-    if configured:
-        if configured not in {"disabled", "degraded", "required"}:
-            raise ValueError(
-                "DAEDALUS_RAG_READINESS_MODE must be disabled, degraded, or required"
-            )
-        return configured
-    return "required" if _env_enabled("DAEDALUS_RAG_READINESS_ENABLED") else "disabled"
+    if not configured:
+        return "disabled"
+    if configured not in {"disabled", "degraded", "required"}:
+        raise ValueError(
+            "DAEDALUS_RAG_READINESS_MODE must be disabled, degraded, or required"
+        )
+    return configured
 
 
 def _memory_readiness_mode() -> str:

@@ -180,9 +180,7 @@ interface UseAsyncChatReturn {
     assistantMessageId?: string,
   ) => Promise<string>;
   jobStatusByConversationId: Record<string, AsyncJobStatus>;
-  isPolling: boolean;
   cancelJob: (conversationId?: string) => Promise<void>;
-  clearPersistedJob: (conversationId?: string) => void;
 }
 
 // Helper functions for job persistence
@@ -248,7 +246,6 @@ export const useAsyncChat = (
   const [jobStatusByConversationId, setJobStatusByConversationId] = useState<
     Record<string, AsyncJobStatus>
   >({});
-  const [isPolling, setIsPolling] = useState(false);
   const pollingTimersRef = useRef<
     Record<string, ReturnType<typeof setTimeout> | null>
   >({});
@@ -321,8 +318,6 @@ export const useAsyncChat = (
           return next;
         });
       }
-
-      setIsPolling(Object.keys(activeJobsRef.current).length > 0);
     },
     [],
   );
@@ -697,8 +692,18 @@ export const useAsyncChat = (
         // The push channel decided at submit time is gone. Nothing re-routed
         // the job, so it would otherwise advance in 15s jumps for the rest of
         // the turn with no indication anything was wrong. Drop to the ordinary
-        // polling cadence instead.
+        // polling cadence instead. Unsubscribe explicitly: removeActiveJob
+        // only unsubscribes jobs still in wsActiveJobsRef, so deleting the
+        // entry without unsubscribing would leave the manager re-sending this
+        // subscription on every reconnect and holding the server-side channel
+        // refcount for the life of the socket.
         if (intervalMs > pollingInterval) {
+          wsManager.unsubscribeFromJob(jobId);
+          const trackedConversationId =
+            activeJobsRef.current[jobId]?.conversationId;
+          if (trackedConversationId) {
+            wsManager.unsubscribeFromChat(trackedConversationId);
+          }
           wsActiveJobsRef.current.delete(jobId);
           logger.info(
             `Job ${jobId}: WebSocket delivery lost, falling back to ${pollingInterval}ms polling`,
@@ -741,7 +746,7 @@ export const useAsyncChat = (
       const baseInterval = pollingInterval;
       const pollCount = pollCountByJobRef.current[jobId] ?? 0;
 
-      // Exponential backoff: double interval every 10 polls, max 4x base
+      // Gentle backoff: +10% every 10 polls, capped at 4x the base interval
       const backoffMultiplier = Math.min(
         4,
         Math.pow(1.1, Math.floor(pollCount / 10)),
@@ -1133,12 +1138,10 @@ export const useAsyncChat = (
 
         if (!usingWs) {
           // Fallback: use HTTP polling
-          setIsPolling(true);
           pollCountByJobRef.current[jobId] = 0;
           await pollJobStatus(jobId);
         } else {
           // With WebSocket, do one initial poll to get immediate status
-          setIsPolling(true);
           try {
             const initialResponse = await fetchWithTimeout(
               `/api/chat/async?jobId=${jobId}`,
@@ -1243,8 +1246,6 @@ export const useAsyncChat = (
     if (jobsToResume.length === 0) {
       return;
     }
-
-    setIsPolling(true);
 
     for (const job of jobsToResume) {
       logger.info('Resuming job tracking', job.jobId);
@@ -1431,9 +1432,6 @@ export const useAsyncChat = (
   return {
     startAsyncJob,
     jobStatusByConversationId,
-    isPolling,
     cancelJob,
-    clearPersistedJob: (conversationId?: string) =>
-      clearPersistedJobs(userId, conversationId),
   };
 };

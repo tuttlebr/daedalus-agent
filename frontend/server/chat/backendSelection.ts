@@ -115,7 +115,9 @@ export async function selectStreamBackendBaseUrl(
       // Swagger UI: it renders regardless of workflow health and is disabled in
       // some deployments. /health/ready is deliberately not used here because it
       // reports 503 for optional subsystems (RAG, memory) that chat can run
-      // without.
+      // without. The probe must use GET: the backend is FastAPI, which does not
+      // register HEAD handlers for GET-only routes, so HEAD /health returns 405
+      // and would mark every healthy pod unreachable.
       const healthUrl = buildBackendUrlFromBase(natBaseUrl, '/health');
       const streamUrl = buildBackendUrlFromBase(
         natBaseUrl,
@@ -132,7 +134,7 @@ export async function selectStreamBackendBaseUrl(
         const healthResponse = await fetchWithTimeout(
           healthUrl,
           {
-            method: 'HEAD',
+            method: 'GET',
             headers: buildNatRequestHeaders(
               verifiedUsername,
               {},

@@ -51,6 +51,7 @@ import {
   jsonSetWithExpiry,
   jsonDel,
   setStreamingState,
+  clearStreamingState,
 } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -494,12 +495,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         : {}),
     };
 
-    await jsonSetWithExpiry(
-      sessionKey(['async-job-request', jobId]),
-      jobRequest,
-      JOB_EXPIRY_SECONDS,
-    );
-
     // Initialize job status. Direct document ingestion starts as streaming so
     // the first client status read can render progress immediately.
     const initialIngestProgress: DocumentIngestProgress | undefined =
@@ -535,11 +530,27 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ? { assistantMessageId }
         : {}),
     };
-    await jsonSetWithExpiry(
-      sessionKey(['async-job-status', jobId]),
-      jobStatus,
-      JOB_EXPIRY_SECONDS,
-    );
+    // The request/status writes are independent; the streaming-state write for
+    // cross-session UI must also land before the job is enqueued — a fast
+    // worker can otherwise finalize and clear streaming state before the
+    // submit route sets it, leaving an orphan key that feeds WS chat
+    // subscription auth and the connect-time streamingStates payload.
+    const effectiveUserId = verifiedUsername;
+    await Promise.all([
+      jsonSetWithExpiry(
+        sessionKey(['async-job-request', jobId]),
+        jobRequest,
+        JOB_EXPIRY_SECONDS,
+      ),
+      jsonSetWithExpiry(
+        sessionKey(['async-job-status', jobId]),
+        jobStatus,
+        JOB_EXPIRY_SECONDS,
+      ),
+      ...(conversationId
+        ? [setStreamingState(effectiveUserId, conversationId, jobId)]
+        : []),
+    ]);
 
     await enqueueStreamJob(jobId, {
       messagesForNat: messagesWithIdentity,
@@ -547,10 +558,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     });
     jobEnqueued = true;
 
-    // Set streaming state for cross-session UI
-    const effectiveUserId = verifiedUsername;
     if (conversationId) {
-      await setStreamingState(effectiveUserId, conversationId, jobId);
       await publishStreamingState(effectiveUserId, conversationId, true, jobId);
     }
 
@@ -567,6 +575,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
                 acquiredConversationGuard.userId,
                 acquiredConversationGuard.conversationId,
                 acquiredConversationGuard.jobId,
+              ),
+              // Streaming state is written before enqueue; holding the
+              // conversation guard means no other job owns this key.
+              clearStreamingState(
+                acquiredConversationGuard.userId,
+                acquiredConversationGuard.conversationId,
               ),
             ]
           : []),
@@ -703,6 +717,9 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
 
     let canceled = false;
     if (currentStatus && !isTerminalJobStatus(currentStatus.status)) {
+      // finalizeError also records the durable abort flag that lets the stream
+      // worker stop backend work even when the API and worker run in
+      // different processes.
       canceled = await finalizeError(jobId, jobRequest, 'Job canceled by user');
     }
 
@@ -712,9 +729,6 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
         jsonDel(streamPayloadKey(jobId)),
       ]);
     }
-
-    // The durable abort flag lets the stream worker stop backend work even when
-    // the API and worker run in different processes.
 
     return res.status(200).json({ success: true, canceled });
   } catch (error) {

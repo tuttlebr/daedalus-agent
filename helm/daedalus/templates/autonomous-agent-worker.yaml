@@ -50,7 +50,11 @@ spec:
               import time
               import urllib.request
 
-              url = os.environ["BACKEND_BASE_URL"].rstrip("/") + "/docs"
+              # /health is NAT's liveness endpoint and the same one the backend
+              # startupProbe uses. /docs (the Swagger UI) is disabled in some
+              # deployments, so gating on it would crash-loop this worker while
+              # every other layer reported the backend healthy.
+              url = os.environ["BACKEND_BASE_URL"].rstrip("/") + "/health"
               for attempt in range(60):
                   try:
                       with urllib.request.urlopen(url, timeout=5) as response:

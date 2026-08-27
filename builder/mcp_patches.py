@@ -287,8 +287,54 @@ def _bind_configured_mcp_endpoint(
     endpoint_map[physical_name] = logical_name
 
 
+# NAT resolves `base:` config inheritance before building the workflow, so an
+# overlay file (Helm's backend.default.config.baseData mechanism) may carry
+# only overrides. The policy loader must resolve the same chain: reading the
+# overlay alone would silently produce an empty function_groups mapping, which
+# fail-closed approval gating then treats as "no MCP tool is ever authorized".
+_MAX_POLICY_BASE_DEPTH = 5
+
+
+def _deep_merge_policy_mapping(base_value: dict, override_value: dict) -> dict:
+    result = dict(base_value)
+    for key, value in override_value.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge_policy_mapping(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _load_policy_config(
+    path: Path, _seen: frozenset[Path] = frozenset()
+) -> dict:
+    resolved = path.resolve()
+    if resolved in _seen or len(_seen) >= _MAX_POLICY_BASE_DEPTH:
+        raise RuntimeError(
+            f"MCP approval policy `base:` chain too deep or circular at {resolved}"
+        )
+    try:
+        raw_config = yaml.safe_load(resolved.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise RuntimeError(
+            f"Unable to load MCP approval policy from {resolved}"
+        ) from exc
+    if not isinstance(raw_config, dict):
+        raise RuntimeError(f"MCP approval policy config is not a mapping: {resolved}")
+    base = raw_config.pop("base", None)
+    if not base:
+        return raw_config
+    base_config = _load_policy_config(
+        resolved.parent / str(base), _seen | {resolved}
+    )
+    return _deep_merge_policy_mapping(base_config, raw_config)
+
+
 def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
     """Load exact MCP authorization declarations from the deployed YAML.
+
+    Follows NAT ``base:`` inheritance with the same child-over-base deep-merge
+    semantics, so overlay configs keep the canonical authorization policy.
 
     A group without a non-empty ``include`` list authorizes every tool exposed
     by the MCP server. For an allowlisted group, ``approval_policy: read_only``
@@ -304,12 +350,7 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
     global _approval_policy_configured
 
     path = Path(config_path)
-    try:
-        raw_config = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
-        raise RuntimeError(f"Unable to load MCP approval policy from {path}") from exc
-    if not isinstance(raw_config, dict):
-        raise RuntimeError(f"MCP approval policy config is not a mapping: {path}")
+    raw_config = _load_policy_config(path)
 
     function_groups = raw_config.get("function_groups", {})
     if not isinstance(function_groups, dict):

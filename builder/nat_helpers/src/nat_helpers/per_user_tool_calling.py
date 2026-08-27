@@ -447,7 +447,6 @@ async def _responses_api_agent_workflow(
                             getattr(llm, "model_name", "unknown-model"),
                         )
                         return
-                    final_answer_started = False
         except GraphRecursionError:
             yield ChatResponseChunk.create_streaming_chunk(
                 _iteration_limit_message(),

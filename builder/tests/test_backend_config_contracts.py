@@ -12,11 +12,6 @@ import yaml
 from autonomous_agent.prompt import COMMUNICATION_STYLE_GUIDANCE
 
 CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.yaml"
-RESPONSES_CONFIG = (
-    Path(__file__).resolve().parents[2]
-    / "backend"
-    / "tool-calling-responses-config.yaml"
-)
 ENV_TEMPLATE = Path(__file__).resolve().parents[2] / ".env.template"
 DOCKER_COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yaml"
 DEPLOY_SCRIPT = Path(__file__).resolve().parents[2] / "deploy.sh"
@@ -150,7 +145,7 @@ AUTONOMOUS_AGENT_DEPLOYMENT_TEMPLATE = (
 )
 HELM_VALUES = Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "values.yaml"
 CUSTOM_VALUES = Path(__file__).resolve().parents[2] / "custom-values.yaml"
-DEPLOYED_CONFIGS = (CONFIG, RESPONSES_CONFIG)
+DEPLOYED_CONFIGS = (CONFIG,)
 PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
     "workflow",
 }
@@ -633,13 +628,6 @@ def test_routed_llm_uses_one_provider_neutral_transport():
         assert llm["truncation"] == "auto", path
         assert llm["max_retries"] == "${DAEDALUS_LLM_MAX_RETRIES:-3}", path
         assert llm["request_timeout"] == "${DAEDALUS_LLM_TIMEOUT:-60.0}", path
-
-
-def test_responses_config_is_a_backward_compatible_alias():
-    overlay = yaml.safe_load(RESPONSES_CONFIG.read_text(encoding="utf-8"))
-    assert overlay == {"base": "tool-calling-config.yaml"}
-
-    assert _config(RESPONSES_CONFIG) == _config(CONFIG)
 
 
 def test_backend_config_inheritance_files_are_deployed_together():

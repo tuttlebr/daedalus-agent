@@ -333,7 +333,6 @@ export class WebSocketManager {
       logger.warn(
         `Max reconnection attempts reached (${MAX_RECONNECT_ATTEMPTS}) - stopping auto-reconnect`,
       );
-      this.emit('max_reconnect_reached', { attempts: this.reconnectAttempts });
       return;
     }
 
