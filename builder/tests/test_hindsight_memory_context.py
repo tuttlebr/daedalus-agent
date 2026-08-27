@@ -120,6 +120,89 @@ def test_layered_context_uses_pages_first_and_raw_recall_for_past_lookup(monkeyp
     assert client.recall_queries == ["What exactly did I decide last time?"]
 
 
+def test_context_free_greeting_skips_memory_io(monkeypatch):
+    client = FakeContextClient()
+    calls = []
+
+    async def unexpected(*_args, **_kwargs):
+        calls.append(True)
+        raise AssertionError("context-free chat must not call memory services")
+
+    monkeypatch.setattr(context, "ensure_bank_initialized", unexpected)
+    monkeypatch.setattr(context, "_session_brief", unexpected)
+    monkeypatch.setattr(context, "_relevant_pages", unexpected)
+
+    result = run(
+        context.build_automatic_memory_context(
+            client,
+            user_id="alice",
+            conversation_id="conversation-1",
+            query="Hey!",
+        )
+    )
+
+    assert result == ""
+    assert calls == []
+    assert client.recall_queries == []
+
+
+def test_session_brief_reflects_only_for_explicit_synthesis(monkeypatch):
+    class FakeRedis:
+        def __init__(self):
+            self.values = {}
+
+        async def get(self, key):
+            return self.values.get(key)
+
+        async def set(self, key, value, **_kwargs):
+            self.values[key] = value
+            return True
+
+        async def delete(self, key):
+            self.values.pop(key, None)
+
+    class FakeClient:
+        def __init__(self):
+            self.queries = []
+
+        async def reflect(self, **kwargs):
+            self.queries.append(kwargs["query"])
+            return "Synthesized memory brief"
+
+    redis = FakeRedis()
+    client = FakeClient()
+
+    async def fake_redis_client():
+        return redis
+
+    async def closed(_redis):
+        return None
+
+    monkeypatch.setattr(context, "_redis_client", fake_redis_client)
+    monkeypatch.setattr(context, "close_redis_client", closed)
+
+    routine = run(
+        context._session_brief(
+            client,
+            user_id="alice",
+            conversation_id="routine-conversation",
+            query="Help me plan this project",
+        )
+    )
+    synthesized = run(
+        context._session_brief(
+            client,
+            user_id="alice",
+            conversation_id="synthesis-conversation",
+            query="Summarize my memory",
+        )
+    )
+
+    assert routine == ""
+    assert synthesized == "Synthesized memory brief"
+    assert len(client.queries) == 1
+
+
 def test_clear_user_memory_caches_removes_bootstrap_and_all_user_sessions(monkeypatch):
     deleted = []
     patterns = []

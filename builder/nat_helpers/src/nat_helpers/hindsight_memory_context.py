@@ -106,6 +106,26 @@ _PAST_LOOKUP_QUERY = re.compile(
     re.IGNORECASE,
 )
 
+# Greetings and acknowledgements have no memory-dependent meaning. Avoid even
+# the sub-second knowledge-page lookup for these turns so the common UI smoke
+# path reaches the serving model immediately.
+_CONTEXT_FREE_QUERIES = frozenset(
+    {
+        "good afternoon",
+        "good evening",
+        "good morning",
+        "got it",
+        "hello",
+        "hey",
+        "hi",
+        "ok",
+        "okay",
+        "thanks",
+        "thank you",
+        "yo",
+    }
+)
+
 _process_bootstrap_cache: dict[str, float] = {}
 _process_bootstrap_locks: dict[str, asyncio.Lock] = {}
 
@@ -259,13 +279,19 @@ async def _session_brief(
             except json.JSONDecodeError:
                 cached = {}
 
+        # Hindsight reflection is LLM-backed and can take tens of seconds. A
+        # new conversation previously paid that cost before its first token,
+        # even for a greeting. Knowledge pages already provide fast automatic
+        # context, so only refresh the synthesized brief when the user asks for
+        # an across-memory synthesis. Reuse an existing brief at no extra cost.
+        if not _SYNTHESIS_QUERY.search(query):
+            return str(cached.get("text") or "")
+
         now = time.time()
-        should_refresh = not bool(cached.get("reflected_at"))
-        if _SYNTHESIS_QUERY.search(query):
-            should_refresh = should_refresh or (
-                now - float(cached.get("reflected_at") or 0)
-                >= _SYNTHESIS_MIN_INTERVAL_SECONDS
-            )
+        should_refresh = not bool(cached.get("reflected_at")) or (
+            now - float(cached.get("reflected_at") or 0)
+            >= _SYNTHESIS_MIN_INTERVAL_SECONDS
+        )
         if not should_refresh:
             return str(cached.get("text") or "")
         owns_lock = bool(await redis.set(lock_key, "1", nx=True, ex=60))
@@ -381,6 +407,9 @@ async def build_automatic_memory_context(
 
     clean_query = (query or "").strip()
     if not clean_query:
+        return ""
+    normalized_query = re.sub(r"[\s.!?]+", " ", clean_query.casefold()).strip()
+    if normalized_query in _CONTEXT_FREE_QUERIES:
         return ""
     await ensure_bank_initialized(client, user_id)
 
