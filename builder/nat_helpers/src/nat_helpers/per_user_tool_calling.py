@@ -11,9 +11,11 @@ per-user construction, full inbound history, and stream serialization for the
 existing Chat Completions-compatible front end.
 """
 
+import asyncio
 import datetime
 import json
 import logging
+import os
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -142,6 +144,17 @@ def _terminal_stream_chunk(chunk_id: str, model_name: str) -> ChatResponseChunk:
     )
 
 
+def _memory_context_budget_seconds() -> float:
+    """Wall-clock budget for pre-turn memory enrichment."""
+
+    raw = (os.getenv("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS") or "").strip()
+    try:
+        budget = float(raw) if raw else 2.5
+    except ValueError:
+        return 2.5
+    return budget if budget > 0 else 2.5
+
+
 def _has_final_answer_phase(content: object) -> bool:
     """Identify the Responses message item that owns the user-facing answer."""
     return isinstance(content, list) and any(
@@ -212,6 +225,7 @@ async def _responses_api_agent_workflow(
     )
     from nat_helpers.tool_output_compaction import (
         CompactionSettings,
+        OptimizationCache,
         ToolOutputStore,
         optimize_tool_messages,
     )
@@ -225,6 +239,8 @@ async def _responses_api_agent_workflow(
         max_original_chars=config.tool_output_compaction_max_original_chars,
         cache_ttl_seconds=config.tool_output_cache_ttl_seconds,
     )
+    # Scoped to this per-user workflow, which NAT reclaims on idle.
+    tool_output_cache = OptimizationCache()
     tool_output_store = ToolOutputStore(
         ttl_seconds=config.tool_output_cache_ttl_seconds,
     )
@@ -246,6 +262,7 @@ async def _responses_api_agent_workflow(
             user_id=user_id,
             store=tool_output_store,
             settings=tool_output_settings,
+            cache=tool_output_cache,
         )
 
     # Binding the instructions after the tools retains both sets of invocation
@@ -307,17 +324,31 @@ async def _responses_api_agent_workflow(
                         break
                 if latest_user_text.strip() and latest_user_index is not None:
                     user_id = authenticated_user_id_from_context()
-                    memory_context = await build_automatic_memory_context(
-                        client_from_env(),
-                        user_id=user_id,
-                        conversation_id=conversation_id_from_context_or_none(),
-                        query=latest_user_text,
+                    # This runs before the first token. The chain behind it can
+                    # issue several serial Hindsight calls, each with its own
+                    # per-request timeout, so an unbounded await here lets a
+                    # degraded memory service add minutes of dead air to a turn
+                    # that does not need memory to answer. Recall is
+                    # best-effort by design; ship the turn without it rather
+                    # than hold the user.
+                    memory_context = await asyncio.wait_for(
+                        build_automatic_memory_context(
+                            client_from_env(),
+                            user_id=user_id,
+                            conversation_id=conversation_id_from_context_or_none(),
+                            query=latest_user_text,
+                        ),
+                        timeout=_memory_context_budget_seconds(),
                     )
                     if memory_context:
                         messages.insert(
                             latest_user_index,
                             HumanMessage(content=memory_context),
                         )
+        except TimeoutError:
+            logger.warning(
+                "Automatic Hindsight recall exceeded its budget; continuing without it"
+            )
         except Exception:
             # Memory enrichment must not turn a healthy chat path into an outage.
             logger.warning("Automatic Hindsight recall unavailable", exc_info=True)

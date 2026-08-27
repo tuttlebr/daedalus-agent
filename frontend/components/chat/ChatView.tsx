@@ -52,7 +52,11 @@ const INITIAL_VISIBLE_MESSAGES = 80;
 const LOAD_OLDER_MESSAGES_STEP = 40;
 const OAUTH_SUCCESS_VISIBLE_MS = 3000;
 const AT_BOTTOM_THRESHOLD_PX = 32;
-const STREAM_RENDER_INTERVAL_MS = 50;
+// Each flush re-runs the whole remark/rehype pipeline over the entire answer
+// so far, which is O(n^2) across a turn. At 50ms that is up to 20 full parses
+// a second, and the cost grows with the response. 120ms reads identically for
+// streamed text and cuts the parse count by more than half.
+const STREAM_RENDER_INTERVAL_MS = 120;
 
 type OAuthPromptState = OAuthPrompt & {
   opened?: boolean;

@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _BOOTSTRAP_VERSION = "v1"
 _BOOTSTRAP_TTL_SECONDS = 3600
+_BOOTSTRAP_FAILURE_BACKOFF_SECONDS = 60
 _SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 _SYNTHESIS_MIN_INTERVAL_SECONDS = 10 * 60
 _MAX_CONTEXT_CHARS = 6000
@@ -126,8 +127,23 @@ _CONTEXT_FREE_QUERIES = frozenset(
     }
 )
 
+# One entry and one lock per distinct user, retained for the process lifetime.
+# Prune expired entries past a bound so a long-lived worker serving many users
+# does not accumulate them without limit.
+_MAX_BOOTSTRAP_CACHE_ENTRIES = 4096
 _process_bootstrap_cache: dict[str, float] = {}
 _process_bootstrap_locks: dict[str, asyncio.Lock] = {}
+
+
+def _prune_bootstrap_cache(now: float) -> None:
+    if len(_process_bootstrap_cache) <= _MAX_BOOTSTRAP_CACHE_ENTRIES:
+        return
+    expired = [key for key, until in _process_bootstrap_cache.items() if until <= now]
+    for key in expired:
+        _process_bootstrap_cache.pop(key, None)
+        lock = _process_bootstrap_locks.get(key)
+        if lock is not None and not lock.locked():
+            _process_bootstrap_locks.pop(key, None)
 
 
 def _digest(*parts: str) -> str:
@@ -189,6 +205,7 @@ async def ensure_bank_initialized(client: HindsightClient, user_id: str) -> None
     now = time.monotonic()
     if _process_bootstrap_cache.get(cache_id, 0) > now:
         return
+    _prune_bootstrap_cache(now)
 
     lock = _process_bootstrap_locks.setdefault(cache_id, asyncio.Lock())
     async with lock:
@@ -224,7 +241,17 @@ async def ensure_bank_initialized(client: HindsightClient, user_id: str) -> None
                     await close_redis_client(redis)
                 redis = None
 
-            await _bootstrap_bank(client, user_id)
+            try:
+                await _bootstrap_bank(client, user_id)
+            except Exception:
+                # Bootstrap issues up to six serial Hindsight calls. Without a
+                # negative cache a failure re-runs the whole chain inline on
+                # every subsequent turn, so a degraded memory service turns
+                # into a per-request latency tax that never backs off.
+                _process_bootstrap_cache[cache_id] = (
+                    time.monotonic() + _BOOTSTRAP_FAILURE_BACKOFF_SECONDS
+                )
+                raise
             _process_bootstrap_cache[cache_id] = (
                 time.monotonic() + _BOOTSTRAP_TTL_SECONDS
             )

@@ -13,6 +13,7 @@ from nat_helpers import tool_output_retriever as retriever_module
 from nat_helpers.tool_output_compaction import (
     COMPACTION_MARKER,
     CompactionSettings,
+    OptimizationCache,
     ToolOutputStore,
     _estimate_tokens,
     optimize_tool_content,
@@ -31,7 +32,10 @@ class MemoryStore:
         self.accept = accept
         self.values: dict[tuple[str, str], str] = {}
 
+        self.put_calls = 0
+
     async def put(self, user_id: str, content: str, reference: str) -> bool:
+        self.put_calls += 1
         if not self.accept:
             return False
         self.values[(user_id, reference)] = content
@@ -214,6 +218,83 @@ def test_only_model_facing_tool_message_copy_is_changed():
     assert messages[1].content == original  # graph state retains exact content
     assert COMPACTION_MARKER in optimized[1].content
     assert optimized[2] is messages[2]  # retrieval output is never re-compacted
+
+
+def test_optimization_cache_avoids_repeating_work_each_agent_iteration():
+    """The agent node re-runs on a growing message list once per iteration.
+
+    Without a memo, every prior tool result is re-parsed, re-serialized,
+    re-hashed, re-compressed, and written back to Redis on each pass — up to
+    max_iterations times per turn, synchronously on the shared event loop.
+    """
+    original = json.dumps(_large_rows(), indent=2)
+    store = MemoryStore()
+    cache = OptimizationCache()
+    messages = [
+        FakeMessage("human", "Find the database timeout"),
+        FakeMessage("tool", original, "list_workers"),
+    ]
+
+    first = _run(
+        optimize_tool_messages(
+            messages,
+            user_id="user-a",
+            store=store,  # type: ignore[arg-type]
+            settings=_settings(),
+            cache=cache,
+        )
+    )
+    after_first = store.put_calls
+    assert after_first == 1
+    assert COMPACTION_MARKER in first[1].content
+
+    second = _run(
+        optimize_tool_messages(
+            messages,
+            user_id="user-a",
+            store=store,  # type: ignore[arg-type]
+            settings=_settings(),
+            cache=cache,
+        )
+    )
+
+    assert store.put_calls == after_first  # no redundant re-store
+    assert second[1].content == first[1].content
+
+
+def test_optimization_cache_recomputes_when_the_user_query_changes():
+    """The preview is query-aware, so a new turn must not reuse the old one."""
+    original = json.dumps(_large_rows(), indent=2)
+    store = MemoryStore()
+    cache = OptimizationCache()
+
+    _run(
+        optimize_tool_messages(
+            [
+                FakeMessage("human", "Find the database timeout"),
+                FakeMessage("tool", original, "list_workers"),
+            ],
+            user_id="user-a",
+            store=store,  # type: ignore[arg-type]
+            settings=_settings(),
+            cache=cache,
+        )
+    )
+    assert store.put_calls == 1
+
+    _run(
+        optimize_tool_messages(
+            [
+                FakeMessage("human", "Which workers are draining?"),
+                FakeMessage("tool", original, "list_workers"),
+            ],
+            user_id="user-a",
+            store=store,  # type: ignore[arg-type]
+            settings=_settings(),
+            cache=cache,
+        )
+    )
+    assert store.put_calls == 2
 
 
 def test_responses_user_blocks_protect_exhaustive_queries():

@@ -267,6 +267,11 @@ export const useAsyncChat = (
     Record<string, ReturnType<typeof setInterval> | null>
   >({}); // WS safety-net polling
   const lastWsEventByJobRef = useRef<Record<string, number>>({}); // Last WS message timestamp per job
+  // Lets the fallback poller restart itself at a faster cadence without a
+  // forward reference to a callback declared later in this hook.
+  const startWsFallbackPollingRef = useRef<
+    ((jobId: string, intervalMs?: number) => void) | null
+  >(null);
 
   const removeActiveJob = useCallback(
     (jobId: string, conversationId?: string, clearStatus: boolean = true) => {
@@ -664,7 +669,7 @@ export const useAsyncChat = (
   // Start a safety-net HTTP poll alongside WebSocket to catch silent disconnects.
   // Skips the poll when WS has recently delivered an event for the job.
   const startWsFallbackPolling = useCallback(
-    (jobId: string) => {
+    (jobId: string, intervalMs: number = WS_FALLBACK_POLL_INTERVAL) => {
       if (wsFallbackTimersRef.current[jobId]) {
         clearInterval(wsFallbackTimersRef.current[jobId]!);
       }
@@ -689,6 +694,20 @@ export const useAsyncChat = (
         if (wsIsHealthy) {
           return;
         }
+        // The push channel decided at submit time is gone. Nothing re-routed
+        // the job, so it would otherwise advance in 15s jumps for the rest of
+        // the turn with no indication anything was wrong. Drop to the ordinary
+        // polling cadence instead.
+        if (intervalMs > pollingInterval) {
+          wsActiveJobsRef.current.delete(jobId);
+          logger.info(
+            `Job ${jobId}: WebSocket delivery lost, falling back to ${pollingInterval}ms polling`,
+          );
+          clearInterval(timer);
+          delete wsFallbackTimersRef.current[jobId];
+          startWsFallbackPollingRef.current?.(jobId, pollingInterval);
+          return;
+        }
         try {
           const response = await fetchWithTimeout(
             `/api/chat/async?jobId=${jobId}`,
@@ -708,11 +727,12 @@ export const useAsyncChat = (
         } catch {
           // Network/timeout error — will retry on next interval
         }
-      }, WS_FALLBACK_POLL_INTERVAL);
+      }, intervalMs);
       wsFallbackTimersRef.current[jobId] = timer;
     },
-    [handleWsJobStatus, removeActiveJob],
+    [handleWsJobStatus, removeActiveJob, pollingInterval],
   );
+  startWsFallbackPollingRef.current = startWsFallbackPolling;
 
   // Calculate adaptive polling interval with exponential backoff
   // Starts fast, slows down over time to save battery
