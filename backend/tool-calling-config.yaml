@@ -832,16 +832,13 @@ general:
         project: ${PHOENIX_PROJECT_NAME}
 llms:
   tool_calling_llm:
-    _type: daedalus_fireworks
+    _type: openai
     api_type: responses
-    use_previous_response_id: false
     api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
     base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
     max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
     model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
-    prompt_cache_isolation: false
-    session_affinity_scope: conversation
     truncation: auto
 workflow:
   _type: daedalus_per_user_responses_api_agent

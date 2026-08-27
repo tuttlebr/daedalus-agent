@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import secrets
-import warnings
 from importlib.metadata import version
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -50,6 +49,7 @@ def main() -> None:
     from nat.llm.openai_llm import OpenAIModelConfig
 
     native_openai_config = OpenAIModelConfig(
+        api_type="responses",
         model_name="runtime-contract",
         max_retries=3,
         request_timeout=60.0,
@@ -57,8 +57,9 @@ def main() -> None:
     if (
         native_openai_config.max_retries != 3
         or native_openai_config.request_timeout != 60.0
+        or native_openai_config.api_type.value != "responses"
     ):
-        raise RuntimeError("NAT OpenAI timeout/retry fields are not available")
+        raise RuntimeError("NAT OpenAI Responses configuration is not available")
 
     for distribution, (minimum, maximum) in SECURITY_DEPENDENCY_RANGES.items():
         installed = Version(version(distribution))
@@ -201,8 +202,6 @@ def main() -> None:
     import nat_helpers.register  # noqa: F401
     from nat.builder.framework_enum import LLMFrameworkEnum
     from nat.cli.type_registry import GlobalTypeRegistry
-    from nat_helpers.fireworks_llm import DaedalusFireworksModelConfig
-    from nat_helpers.fireworks_prompt_cache import FireworksPromptCacheHeaderHook
     from nat_helpers.secure_redis_object_store import (
         DaedalusRedisObjectStoreClientConfig,
     )
@@ -215,170 +214,6 @@ def main() -> None:
     )
     if registered_oauth_store.config_type is not DaedalusRedisObjectStoreClientConfig:
         raise RuntimeError("Daedalus OAuth token store wasn't registered")
-
-    registered_fireworks = GlobalTypeRegistry.get().get_llm_provider(
-        DaedalusFireworksModelConfig
-    )
-    if registered_fireworks.config_type is not DaedalusFireworksModelConfig:
-        raise RuntimeError("Daedalus Fireworks LLM provider wasn't registered")
-    registered_fireworks_client = GlobalTypeRegistry.get().get_llm_client(
-        DaedalusFireworksModelConfig,
-        LLMFrameworkEnum.LANGCHAIN,
-    )
-    if registered_fireworks_client.config_type is not DaedalusFireworksModelConfig:
-        raise RuntimeError("Daedalus Fireworks LangChain client wasn't registered")
-
-    async def assert_fireworks_header_contract() -> None:
-        config = DaedalusFireworksModelConfig(
-            api_key="runtime-contract-key",
-            api_type="responses",
-            base_url="https://api.fireworks.ai/inference/v1",
-            model_name="runtime-contract-model",
-            prompt_cache_isolation=True,
-            session_affinity_scope="conversation",
-        )
-        if config.use_previous_response_id:
-            raise RuntimeError(
-                "Daedalus Fireworks Responses client no longer defaults to full-history replay"
-            )
-        with warnings.catch_warnings(record=True) as captured:
-            warnings.simplefilter("always")
-            async with registered_fireworks_client.build_fn(
-                config,
-                SimpleNamespace(),
-            ) as llm:
-                if not llm.use_responses_api:
-                    raise RuntimeError("Fireworks client lost Responses API mode")
-                if llm.use_previous_response_id:
-                    raise RuntimeError(
-                        "Fireworks client still enables unsupported response-ID continuation"
-                    )
-                if "extra_headers" in llm.model_kwargs:
-                    raise RuntimeError(
-                        "Fireworks headers leaked into LangChain model_kwargs"
-                    )
-                from langchain_core.messages import AIMessage, ToolMessage
-
-                replay_payload = llm._get_request_payload(
-                    [
-                        AIMessage(
-                            content=[
-                                {
-                                    "type": "reasoning",
-                                    "id": "rs_contract",
-                                    "summary": [],
-                                    "status": "completed",
-                                },
-                                {
-                                    "type": "function_call",
-                                    "id": "fc_contract",
-                                    "call_id": "call_contract",
-                                    "name": "contract_lookup",
-                                    "arguments": "{}",
-                                    "status": "completed",
-                                },
-                            ]
-                        ),
-                        ToolMessage(
-                            content="contract result",
-                            tool_call_id="call_contract",
-                        ),
-                    ]
-                )
-                replay_items = replay_payload.get("input", [])
-                if not replay_items or any(
-                    "id" in item or "status" in item
-                    for item in replay_items
-                    if isinstance(item, dict)
-                ):
-                    raise RuntimeError(
-                        "Responses replay retained server-owned output metadata"
-                    )
-                if not any(
-                    item.get("type") == "function_call"
-                    and item.get("call_id") == "call_contract"
-                    for item in replay_items
-                    if isinstance(item, dict)
-                ):
-                    raise RuntimeError(
-                        "Responses replay normalization dropped the tool call"
-                    )
-                if not any(
-                    item.get("type") == "function_call_output"
-                    and item.get("call_id") == "call_contract"
-                    for item in replay_items
-                    if isinstance(item, dict)
-                ):
-                    raise RuntimeError(
-                        "Responses replay normalization dropped the tool output"
-                    )
-                header_hooks = llm.http_async_client.event_hooks.get("request", [])
-                hook = next(
-                    (
-                        candidate
-                        for candidate in header_hooks
-                        if isinstance(candidate, FireworksPromptCacheHeaderHook)
-                    ),
-                    None,
-                )
-                if hook is None:
-                    raise RuntimeError("Fireworks request header hook wasn't installed")
-
-                internal_token = secrets.token_hex(16)
-                previous_internal_token = os.environ.get("DAEDALUS_INTERNAL_API_TOKEN")
-                os.environ["DAEDALUS_INTERNAL_API_TOKEN"] = internal_token
-                try:
-                    metadata = RequestAttributes()
-                    metadata._request.headers = Headers(
-                        {
-                            "x-daedalus-internal-token": internal_token,
-                            "x-user-id": "runtime-user",
-                            "x-conversation-id": "runtime-conversation",
-                        }
-                    )
-                    import httpx
-                    from nat.builder.context import Context
-
-                    request = httpx.Request(
-                        "POST",
-                        "https://api.fireworks.ai/inference/v1/responses",
-                    )
-                    with Context.scope(
-                        metadata=metadata,
-                        user_id="runtime-user-session",
-                    ):
-                        await hook(request)
-                    if not request.headers.get("x-session-affinity"):
-                        raise RuntimeError("Fireworks session affinity wasn't injected")
-                    if not request.headers.get("x-prompt-cache-isolation-key"):
-                        raise RuntimeError("Fireworks user isolation wasn't injected")
-                    if "runtime-" in " ".join(request.headers.values()):
-                        raise RuntimeError("Raw Fireworks cache identity leaked")
-                finally:
-                    if previous_internal_token is None:
-                        os.environ.pop("DAEDALUS_INTERNAL_API_TOKEN", None)
-                    else:
-                        os.environ["DAEDALUS_INTERNAL_API_TOKEN"] = (
-                            previous_internal_token
-                        )
-
-            opt_in_config = config.model_copy(update={"use_previous_response_id": True})
-            async with registered_fireworks_client.build_fn(
-                opt_in_config,
-                SimpleNamespace(),
-            ) as opt_in_llm:
-                if not opt_in_llm.use_previous_response_id:
-                    raise RuntimeError(
-                        "Fireworks client lost explicit response-ID continuation opt-in"
-                    )
-
-        if any(
-            "extra_headers is not default parameter" in str(item.message)
-            for item in captured
-        ):
-            raise RuntimeError("Fireworks client still emits extra_headers warning")
-
-    asyncio.run(assert_fireworks_header_contract())
 
     # Retrieval models served by vLLM require query/document chat roles rather
     # than the NIM-only input_type field. Keep both the provider and its

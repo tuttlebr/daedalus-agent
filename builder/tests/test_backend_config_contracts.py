@@ -590,27 +590,16 @@ def test_workflow_uses_responses_api_agent_schema():
         assert not set(removed_agent_names) & set(config["functions"]), path
 
 
-def test_routed_responses_llms_replay_full_history():
-    for path in DEPLOYED_CONFIGS:
-        config = _config(path)
-        for llm_name, llm in config["llms"].items():
-            if llm["api_type"] != "responses":
-                continue
-            assert llm["use_previous_response_id"] is False, (path, llm_name)
-
-
-def test_routed_llm_uses_one_provider_neutral_transport():
+def test_routed_llm_uses_builtin_provider_neutral_transport():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         assert set(config["llms"]) == {"tool_calling_llm"}, path
         llm = config["llms"]["tool_calling_llm"]
-        assert llm["_type"] == "daedalus_fireworks", path
+        assert llm["_type"] == "openai", path
         assert llm["api_type"] == "responses", path
         assert llm["api_key"] == "${TOOL_CALLING_LLM_MODEL_API_KEY}", path
         assert llm["base_url"] == "${TOOL_CALLING_LLM_MODEL_BASE_URL}", path
         assert llm["model_name"] == "${TOOL_CALLING_LLM_MODEL_MODEL}", path
-        assert llm["session_affinity_scope"] == "conversation", path
-        assert llm["prompt_cache_isolation"] is False, path
         # Switchyard owns target-specific reasoning policy. The agent transport
         # must not inject reasoning fields that a routed provider may reject.
         for provider_specific_key in (
@@ -623,6 +612,9 @@ def test_routed_llm_uses_one_provider_neutral_transport():
             "extra_headers",
             "default_headers",
             "user",
+            "use_previous_response_id",
+            "prompt_cache_isolation",
+            "session_affinity_scope",
         ):
             assert provider_specific_key not in llm, (path, provider_specific_key)
         assert llm["truncation"] == "auto", path
@@ -985,7 +977,6 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         assert allowlist.fullmatch(active_name), active_name
 
     for stale_name in (
-        "FIREWORKS_API_KEY",
         "REASONING_LLM_MODEL_API_KEY",
         "REACT_LLM_MODEL_API_KEY",
         "DISTILL_LLM_MODEL_API_KEY",

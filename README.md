@@ -30,10 +30,10 @@ What separates Daedalus from a typical chat wrapper:
 
 Daedalus supports two practical ways to run the project.
 
-| Mode                 | What it starts                                                              | Best for                                                          |
-| -------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Mode                 | What it starts                                                                                               | Best for                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | Local Docker Compose | `frontend`, `stream-worker`, `backend`, `nginx`, `redis`, `object-store`, plus a `builder` utility container | Local development and validating one backend config at a time     |
-| Kubernetes via Helm  | Backend, frontend, nginx, Redis, autonomous worker, ingress, PVCs, policies | Persistent multi-user deployments and the full platform footprint |
+| Kubernetes via Helm  | Backend, frontend, nginx, Redis, autonomous worker, ingress, PVCs, policies                                  | Persistent multi-user deployments and the full platform footprint |
 
 > [!IMPORTANT]
 > The local Compose stack does not start Milvus, NV-Ingest, Phoenix, or the
@@ -417,22 +417,22 @@ superset of the inner one. When they invert, the shorter hop returns a 504 while
 the inner handler keeps running, which looks like a hang rather than a failure.
 The intended ordering, outermost first:
 
-| Hop                                   | Budget | Set in                                            |
-| ------------------------------------- | ------ | ------------------------------------------------- |
-| Ingress `proxy-read-timeout`          | 900s   | `custom-values.yaml`                              |
-| nginx `location /api/chat`            | 900s   | `helm/daedalus/templates/config-nginx.yaml`       |
-| nginx `location /api/document/`       | 900s   | `helm/daedalus/templates/config-nginx.yaml`       |
-| nginx `location /api/images/`         | 360s   | `helm/daedalus/templates/config-nginx.yaml`       |
-| nginx `location /api/` (everything else) | 120s | `helm/daedalus/templates/config-nginx.yaml`       |
-| nginx `location /ws`                  | 3600s  | `helm/daedalus/templates/config-nginx.yaml`       |
-| Stream worker MCP-OAuth idle          | 660s   | `MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS`                |
-| Backend interactive OAuth deadline    | 600s   | `DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS`              |
-| Stream worker backend SSE idle        | 300s   | `STREAM_READ_IDLE_TIMEOUT_MS`                     |
+| Hop                                      | Budget | Set in                                      |
+| ---------------------------------------- | ------ | ------------------------------------------- |
+| Ingress `proxy-read-timeout`             | 900s   | `custom-values.yaml`                        |
+| nginx `location /api/chat`               | 900s   | `helm/daedalus/templates/config-nginx.yaml` |
+| nginx `location /api/document/`          | 900s   | `helm/daedalus/templates/config-nginx.yaml` |
+| nginx `location /api/images/`            | 360s   | `helm/daedalus/templates/config-nginx.yaml` |
+| nginx `location /api/` (everything else) | 120s   | `helm/daedalus/templates/config-nginx.yaml` |
+| nginx `location /ws`                     | 3600s  | `helm/daedalus/templates/config-nginx.yaml` |
+| Stream worker MCP-OAuth idle             | 660s   | `MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS`          |
+| Backend interactive OAuth deadline       | 600s   | `DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS`        |
+| Stream worker backend SSE idle           | 300s   | `STREAM_READ_IDLE_TIMEOUT_MS`               |
 
 Long chat answers are not bounded by the proxy hops above. Tokens reach the
 browser over the WebSocket sidecar (`/ws`, 3600s) while the stream worker holds
 the backend connection, so the effective limit on a chat turn is
-`STREAM_READ_IDLE_TIMEOUT_MS` of *silence* from the backend, not total duration.
+`STREAM_READ_IDLE_TIMEOUT_MS` of _silence_ from the backend, not total duration.
 
 That has a consequence worth remembering when tuning tools: any single tool call
 that can run longer than `STREAM_READ_IDLE_TIMEOUT_MS` without emitting an
@@ -484,78 +484,6 @@ claim verification, and citation auditing before returning a report. The
 frontend can pass per-message `sourcePolicy` metadata that becomes a hidden
 `[SOURCE_POLICY]` control message for source inclusion/exclusion, retrieval
 budget, and plan-approval requirements.
-
-### LLM Prompt-cache Management
-
-Provider-side prompt caching can reduce latency and input-token cost when
-requests begin with the same instructions and tool definitions. It is separate
-from Daedalus's Redis-backed chat history, job state, and OAuth tokens, and from
-Hindsight-backed durable memory. It is also separate from Responses API
-continuation through `previous_response_id`. Daedalus does not use provider
-prompt caches as durable application storage or as a source of conversation
-history.
-
-Daedalus models that support request-scoped cache routing expose two settings:
-
-```yaml
-llms:
-  default_llm:
-    # Other provider and model settings are omitted.
-    prompt_cache_isolation: true
-    session_affinity_scope: conversation
-```
-
-- `prompt_cache_isolation: true` gives each authenticated user a stable,
-  opaque cache namespace. Users cannot share provider cache entries, while one
-  user can reuse eligible prefixes across conversations. This is the preferred
-  setting when users do not share one trust boundary.
-- `prompt_cache_isolation: false` leaves cache separation to the provider's
-  account or deployment boundary. Use it only for a single-user installation
-  or a trusted tenant where cross-user reuse of identical static prefixes is
-  intentional. It can improve cache utilization, but it is not a security
-  boundary.
-- `session_affinity_scope: conversation` keeps requests from one conversation
-  on the same provider route when supported. `user` uses one route key for all
-  of a user's conversations. Affinity can improve cache locality, but it does
-  not replace cache isolation.
-
-These are Daedalus adapter fields, not model request-body properties. Do not
-put cache headers in `extra_headers`, `default_headers`, or `model_kwargs`.
-The backend derives them immediately before each outbound request from trusted
-authentication and conversation context. It sends opaque identifiers rather
-than raw usernames or conversation IDs, and it overwrites conflicting values
-supplied by a caller. A provider integration that does not support these fields
-needs an equivalent adapter or must rely on that provider's default cache
-behavior.
-
-Use these operational practices:
-
-- Keep static instructions, tool definitions, and their ordering stable and at
-  the beginning of the prompt. Put request-specific data, timestamps, user
-  preferences, retrieved documents, and conversation turns after the reusable
-  prefix. Small early changes can prevent reuse of everything that follows.
-- Set the same `DAEDALUS_INTERNAL_API_TOKEN` on every backend replica and the
-  autonomous worker. Production uses it to derive consistent opaque cache and
-  affinity identifiers. Helm manages this shared token; tokenless behavior is
-  for local development only.
-- Treat rotation of `DAEDALUS_INTERNAL_API_TOKEN`, a model or deployment
-  change, and edits to system instructions or tool schemas as cache-cold
-  events. Daedalus does not provide a provider-cache purge operation; changed
-  prefixes naturally stop matching, and expiration or eviction remains
-  provider-managed.
-- Apply the same cache settings to every LLM role that handles user requests,
-  including the default, tool-calling, reasoning, and verifier models. Review
-  exceptions explicitly instead of allowing roles to inherit different tenant
-  boundaries by accident.
-- Validate with provider-reported cached-input-token metrics, latency, and
-  billing for repeated representative requests. Latency alone is not proof of
-  a cache hit. Logs and traces should record whether cache routing is enabled,
-  but must not record raw identities, derived keys, authorization headers, or
-  full sensitive prompts.
-
-Changing cache isolation affects only future provider requests. It does not
-delete Redis application data, conversation history, Hindsight memory, or
-already-created provider cache entries.
 
 ### Tool-output context compaction
 
@@ -837,18 +765,18 @@ For an externally managed target, configure
 
 ## Key Configuration Files
 
-| File                                                                                       | Purpose                              |
-| ------------------------------------------------------------------------------------------ | ------------------------------------ |
-| [`README.md`](README.md)                                                                   | Top-level setup and deployment guide |
-| [`.env.template`](.env.template)                                                           | Main environment variable template   |
-| [`docker-compose.yaml`](docker-compose.yaml)                                               | Local multi-service stack            |
-| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml)                     | Backend workflow configuration       |
-| [`frontend/env.example`](frontend/env.example)                                             | Frontend API path example            |
-| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)                                   | Default Helm values                  |
-| [`custom-values.yaml`](custom-values.yaml)                                                 | Example production overrides         |
-| [`docs/hindsight-memory-integration.md`](docs/hindsight-memory-integration.md)             | Hindsight integration and rollout    |
-| [`deploy.sh`](deploy.sh)                                                                   | Build, push, and deploy helper       |
-| [`Makefile`](Makefile)                                                                     | Local mirror of CI workflow jobs     |
+| File                                                                           | Purpose                              |
+| ------------------------------------------------------------------------------ | ------------------------------------ |
+| [`README.md`](README.md)                                                       | Top-level setup and deployment guide |
+| [`.env.template`](.env.template)                                               | Main environment variable template   |
+| [`docker-compose.yaml`](docker-compose.yaml)                                   | Local multi-service stack            |
+| [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml)         | Backend workflow configuration       |
+| [`frontend/env.example`](frontend/env.example)                                 | Frontend API path example            |
+| [`helm/daedalus/values.yaml`](helm/daedalus/values.yaml)                       | Default Helm values                  |
+| [`custom-values.yaml`](custom-values.yaml)                                     | Example production overrides         |
+| [`docs/hindsight-memory-integration.md`](docs/hindsight-memory-integration.md) | Hindsight integration and rollout    |
+| [`deploy.sh`](deploy.sh)                                                       | Build, push, and deploy helper       |
+| [`Makefile`](Makefile)                                                         | Local mirror of CI workflow jobs     |
 
 ## Documentation Map
 
