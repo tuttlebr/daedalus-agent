@@ -4,6 +4,8 @@ import { createHash, randomBytes } from 'node:crypto';
 
 const APPROVAL_REQUEST_PATTERN =
   /approval_request_id=`([A-Za-z0-9_-]{12,128})`/g;
+const APPROVAL_REQUEST_SINGLE_PATTERN =
+  /approval_request_id=`([A-Za-z0-9_-]{12,128})`/;
 const APPROVAL_TTL_SECONDS = 300;
 
 const APPROVE_REPLIES = new Set([
@@ -11,12 +13,27 @@ const APPROVE_REPLIES = new Set([
   'approved',
   'confirm',
   'confirmed',
+  'go ahead',
+  'please approve',
+  'please go ahead',
+  'please proceed',
   'proceed',
   'yes',
+  'yes please',
+  'yes, please',
   'yes proceed',
   'yes, proceed',
 ]);
-const DENY_REPLIES = new Set(['cancel', 'deny', 'denied', 'no', 'stop']);
+const DENY_REPLIES = new Set([
+  'cancel',
+  'deny',
+  'denied',
+  'do not proceed',
+  "don't proceed",
+  'no',
+  'please cancel',
+  'stop',
+]);
 
 interface PendingMcpApproval {
   request_id: string;
@@ -45,6 +62,23 @@ export class McpApprovalReplyError extends Error {
     super(message);
     this.name = 'McpApprovalReplyError';
   }
+}
+
+export function mcpApprovalReviewRequestId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const requiredReviewMarkers = [
+    'Approval scope: action_type=`mcp_mutation`',
+    'target=`',
+    'server_name=`',
+    'tool_name=`',
+    'arguments_sha256=`',
+    'Arguments for review',
+    'Proceed? (yes/no)',
+  ];
+  if (requiredReviewMarkers.some((marker) => !value.includes(marker))) {
+    return null;
+  }
+  return value.match(APPROVAL_REQUEST_SINGLE_PATTERN)?.[1] ?? null;
 }
 
 function safeUserPrefix(userId: string): string {
@@ -247,7 +281,8 @@ export async function resolveMcpApprovalReply(
       requestId: reply.requestId,
       trustedInstruction:
         '[APPROVAL] The authenticated user denied the pending MCP mutation. ' +
-        'Do not execute it. Confirm that no external change was made.',
+        'Do not execute it. Do not call user_interaction_tool or ask for ' +
+        'confirmation again. Confirm that no external change was made.',
     };
   }
 
@@ -285,6 +320,7 @@ export async function resolveMcpApprovalReply(
       '[APPROVAL] The authenticated user approved exactly one MCP mutation. ' +
       `Call ${pending.server_name}.${pending.tool_name} once with exactly these ` +
       `canonical arguments: ${pending.canonical_arguments}. ` +
+      'Do not call user_interaction_tool or ask for confirmation again. ' +
       'Do not change the arguments or call a different mutation. The one-time ' +
       'execution credential is present only in trusted request metadata.',
   };

@@ -1729,6 +1729,17 @@ def test_workspace_writes_request_exact_approval_before_mutation():
         assert "the very next tool call" in interaction_desc, path
 
 
+def test_approval_flow_cannot_loop_back_through_clarification():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        interaction_desc = config["functions"]["user_interaction_tool"]["description"]
+        prompt = config["workflow"]["instructions"]
+
+        assert "never use it to request or reconfirm approval" in interaction_desc, path
+        assert "never follow it with clarify" in interaction_desc, path
+        assert "Never reconfirm a clear user approval decision" in prompt, path
+
+
 def test_explicit_memory_writes_do_not_require_confirmation():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)

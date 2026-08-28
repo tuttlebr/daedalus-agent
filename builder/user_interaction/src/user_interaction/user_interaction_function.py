@@ -40,6 +40,60 @@ from user_interaction.approval_tokens import (
 
 logger = logging.getLogger(__name__)
 
+_APPROVAL_ONLY_OPTIONS = {
+    "approve",
+    "approved",
+    "confirm",
+    "confirmed",
+    "go ahead",
+    "no",
+    "please approve",
+    "please go ahead",
+    "please proceed",
+    "proceed",
+    "yes",
+    "yes please",
+    "yes, please",
+    "yes proceed",
+    "yes, proceed",
+}
+
+
+def _is_action_confirmation_clarification(
+    question: str,
+    options: str,
+    context: str,
+    why_asking: str,
+) -> bool:
+    """Reject attempts to use clarification as a second approval mechanism."""
+
+    normalized_options = [
+        option.strip().casefold().rstrip(".!")
+        for option in options.split("|")
+        if option.strip()
+    ]
+    if normalized_options and all(
+        option in _APPROVAL_ONLY_OPTIONS for option in normalized_options
+    ):
+        return True
+
+    combined = " ".join((question, context, why_asking)).casefold()
+    return any(
+        phrase in combined
+        for phrase in (
+            "already approved",
+            "already confirmed",
+            "ask for approval",
+            "ask for confirmation",
+            "confirm the action",
+            "confirm the update",
+            "confirm whether to proceed",
+            "reconfirm",
+            "shall i proceed",
+            "should i proceed",
+        )
+    )
+
 
 class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
     """Configuration for the user_interaction function."""
@@ -99,6 +153,11 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         request is ambiguous or could be interpreted in multiple ways.
         It is much better to clarify than to guess wrong and waste effort.
 
+        Never use this tool to request or reconfirm approval, permission, or
+        whether to proceed. If the user has already said yes, approve, or
+        proceed, do not ask again. Use confirm_action only when a protected
+        action requires an exact pending approval.
+
         This tool formats your question clearly for the user and returns
         the formatted output. The user will respond in their next message.
 
@@ -120,6 +179,23 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         Returns:
             Formatted clarification question to present to the user.
         """
+        if _is_action_confirmation_clarification(
+            question,
+            options,
+            context,
+            why_asking,
+        ):
+            return (
+                "Invalid clarification request: clarify cannot request or "
+                "reconfirm action approval. Do not ask the user again. If an "
+                "MCP mutation requires an execution credential and no exact "
+                "pending approval exists, call confirm_action once with "
+                "action_type='mcp_mutation' plus the exact target, server_name, "
+                "tool_name, and arguments_json. If approval was already resolved "
+                "by a trusted [APPROVAL] instruction, execute that exact action "
+                "once without calling any user-interaction tool."
+            )
+
         parts = [f"**Clarification needed:** {question}"]
 
         if context:
@@ -271,7 +347,10 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 )
                 return "Error: unable to create a protected pending approval."
 
-        parts.append("\nProceed? (yes/no)")
+        parts.append(
+            "\nProceed? (yes/no)\nReply with `approve` or `deny`. "
+            "`Please proceed` is also accepted."
+        )
         if resolved_user_id and normalized_action_type != "unspecified":
             parts.append(
                 "\nNo executable credential has been created. The authenticated "
@@ -518,7 +597,10 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                     "Ask the user a structured clarification question with suggested "
                     "options. Use BEFORE committing to an action when the request is "
                     "ambiguous. Reduces wasted effort from misunderstood requests. "
-                    "Formats the question with context, options, and rationale."
+                    "Formats the question with context, options, and rationale. Never "
+                    "use clarify to request or reconfirm approval, permission, or "
+                    "whether to proceed; never call it after the user has already "
+                    "approved."
                 ),
             )
 
@@ -533,7 +615,9 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                     "do not infer an approval requirement merely because it changes "
                     "external state. Do not use for add_memory or memory_update. "
                     "MCP approvals must include exact tool_name, target, and "
-                    "arguments_json; this tool never returns a live credential."
+                    "arguments_json; this tool never returns a live credential. "
+                    "After presenting the pending approval, stop and wait for the "
+                    "user's reply. Never call clarify to reconfirm it."
                 ),
             )
 

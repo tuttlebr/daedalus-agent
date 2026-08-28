@@ -229,6 +229,29 @@ class TestClarify:
 
         run(_run())
 
+    def test_rejects_reconfirming_an_action_the_user_already_approved(self):
+        async def _run():
+            items = await _get_tools()
+            clarify_fn = items[0].fn
+            return await clarify_fn(
+                question=(
+                    'The user said "Please proceed" - let me confirm the '
+                    "Google Doc update."
+                ),
+                why_asking=(
+                    'User already confirmed "Please proceed" in their previous message'
+                ),
+                context="User wants the Google Doc updated",
+                options="Yes, proceed",
+            )
+
+        result = run(_run())
+
+        assert result.startswith("Invalid clarification request")
+        assert "Do not ask the user again" in result
+        assert "call confirm_action once" in result
+        assert "Clarification needed" not in result
+
 
 class TestConfirmAction:
     def test_basic_confirmation(self):
@@ -242,6 +265,7 @@ class TestConfirmAction:
             assert "Delete all memories" in result
             assert "Reason" in result
             assert "Proceed?" in result
+            assert "`Please proceed` is also accepted" in result
 
         run(_run())
 

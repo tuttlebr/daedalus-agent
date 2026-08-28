@@ -2365,6 +2365,42 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.fullResponse).toBe('The answer is 42.');
   });
 
+  it('makes an exact approval review visible when the model only paraphrases it', async () => {
+    const requestId = 'approval_request_12345';
+    const hash = 'a'.repeat(64);
+    const review =
+      '**Action requiring confirmation:**\n\nUpdate doc-1\n\n' +
+      '**Reason:** The user requested it\n\n' +
+      'Proceed? (yes/no)\nReply with `approve` or `deny`. ' +
+      '`Please proceed` is also accepted.\n\n' +
+      'Approval scope: action_type=`mcp_mutation`, ' +
+      'target=`document/doc-1`, server_name=`docs_mcp_server`, ' +
+      `tool_name=\`update_doc\`, approval_request_id=\`${requestId}\`, ` +
+      `arguments_sha256=\`${hash}\`.\n\n` +
+      'Arguments for review (sensitive values redacted):\n\n' +
+      '```json\n{"document_id":"doc-1","text":"hello"}\n```';
+    const toolPayload =
+      'Preamble\n**Function Output:**\n```\n' + review + '\n```';
+    const toolEvent = `intermediate_data: ${JSON.stringify({
+      name: 'Function Complete: <user_interaction_tool>',
+      id: 'approval-tool-1',
+      parent_id: 'root',
+      payload: toolPayload,
+    })}\n`;
+
+    const { statusKey, store } = await runStreamTurn([
+      toolEvent,
+      'data: {"choices":[{"delta":{"content":"I will wait for your confirmation."}}]}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const fullResponse = store.get(statusKey)?.fullResponse;
+    expect(fullResponse).toBe(
+      `I will wait for your confirmation.\n\n${review}`,
+    );
+    expect(fullResponse.match(/approval_request_id=/g)).toHaveLength(1);
+  });
+
   it('fails an explicit backend error without promoting the last tool output', async () => {
     const { statusKey, store } = await runStreamTurn([
       'intermediate_data: {"name":"Function Complete: <agent_skills_tool>","id":"t1","parent_id":"root","payload":"Preamble\\n**Function Output:**\\n```\\n{\\"skills\\":[{\\"name\\":\\"daily-summary\\"}]}\\n```"}\n',

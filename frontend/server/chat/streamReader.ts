@@ -25,6 +25,7 @@ import {
 } from './debugReplay';
 import { finalizeError, finalizeSuccess } from './finalization';
 import { clearOAuthStatusFields, updateJobStatus } from './jobState';
+import { mcpApprovalReviewRequestId } from './mcpApproval';
 import { buildNatRequestHeaders } from './natMessages';
 import { sanitizeSandboxArtifactStep } from './sandboxArtifacts';
 import {
@@ -206,6 +207,8 @@ export async function startBackgroundStreamReader(
   let partialResponse = '';
   let pendingResponseDelta = '';
   let lastToolOutput = '';
+  let pendingApprovalReview: { requestId: string; content: string } | null =
+    null;
   let streamDone = false;
   // Once this backend stream has requested interactive authorization, keep its
   // longer idle budget for the rest of the turn. Parallel Google tool calls
@@ -493,6 +496,14 @@ export async function startBackgroundStreamReader(
                   if (lastFence !== -1) output = output.slice(0, lastFence);
                   if (output.trim() && output.trim() !== '[]') {
                     lastToolOutput = output.trim();
+                    const approvalRequestId =
+                      mcpApprovalReviewRequestId(lastToolOutput);
+                    if (approvalRequestId) {
+                      pendingApprovalReview = {
+                        requestId: approvalRequestId,
+                        content: lastToolOutput,
+                      };
+                    }
                     const recoveryMessage =
                       googleWorkspaceAuthRecoveryMessage(lastToolOutput);
                     if (recoveryMessage) {
@@ -640,6 +651,25 @@ export async function startBackgroundStreamReader(
       }
 
       if (streamDone) break;
+    }
+
+    // The exact protected-action review must be visible in assistant content.
+    // A model may paraphrase it as "I'll wait for confirmation," but approval
+    // resolution deliberately refuses hidden tool traces. Append the redacted
+    // review unless the model already rendered this exact request id.
+    if (pendingApprovalReview) {
+      const requestIdMarker = `approval_request_id=\`${pendingApprovalReview.requestId}\``;
+      if (!partialResponse.includes(requestIdMarker)) {
+        const visibleReview = stripReplayedAssistantPrefix(
+          pendingApprovalReview.content,
+          jobRequest.messages || [],
+        );
+        const reviewDelta = `${
+          partialResponse.trim() ? '\n\n' : ''
+        }${visibleReview}`;
+        partialResponse += reviewDelta;
+        pendingResponseDelta += reviewDelta;
+      }
     }
 
     // A cleanly completed tool-only workflow may intentionally return its final

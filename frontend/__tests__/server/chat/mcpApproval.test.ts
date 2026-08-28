@@ -1,6 +1,7 @@
 import {
   McpApprovalReplyError,
   findMcpApprovalReply,
+  mcpApprovalReviewRequestId,
   resolveMcpApprovalReply,
 } from '@/server/chat/mcpApproval';
 import { createHash } from 'node:crypto';
@@ -103,6 +104,41 @@ describe('interactive MCP approval handoff', () => {
     );
   });
 
+  it('recognizes explicit polite approval and denial replies', () => {
+    for (const reply of [
+      'Please proceed',
+      'Please proceed!',
+      'Please approve',
+      'Go ahead',
+      'Yes, please',
+    ]) {
+      expect(findMcpApprovalReply(conversation(reply))).toEqual({
+        decision: 'approved',
+        requestId,
+      });
+    }
+    for (const reply of ['Please cancel', 'Do not proceed', "Don't proceed"]) {
+      expect(findMcpApprovalReply(conversation(reply))).toEqual({
+        decision: 'denied',
+        requestId,
+      });
+    }
+  });
+
+  it('recognizes only fully rendered exact-action approval reviews', () => {
+    expect(mcpApprovalReviewRequestId(conversation()[1].content)).toBe(
+      requestId,
+    );
+    expect(
+      mcpApprovalReviewRequestId('I will wait for your confirmation.'),
+    ).toBeNull();
+    expect(
+      mcpApprovalReviewRequestId(
+        `approval_request_id=\`${requestId}\` Proceed? (yes/no)`,
+      ),
+    ).toBeNull();
+  });
+
   it('does not approve an id that was hidden in a tool trace', () => {
     const messages = conversation();
     messages[1] = {
@@ -144,6 +180,9 @@ describe('interactive MCP approval handoff', () => {
       decision: 'approved',
       requestId,
     });
+    expect(result?.trustedInstruction).toContain(
+      'Do not call user_interaction_tool',
+    );
     expect(result?.approvalToken).toMatch(/^[A-Za-z0-9_-]{24}$/);
     expect(redis.store.has(pendingKey)).toBe(false);
 
