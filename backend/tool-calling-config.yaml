@@ -626,9 +626,11 @@ functions:
       Structured user I/O. clarify (ask with selectable options),
       confirm_action (pending approval request before destructive or
       irreversible actions: memory delete or an explicitly approval-gated MCP
-      mutation; call the MCP tool directly first and use confirm_action only if
-      it reports approval is required; then pass the exact function-group name,
-      remote tool name, and final JSON arguments),
+      mutation; before Docs update_doc or Calendar create_event, update_event,
+      delete_event, or respond_to_event, call confirm_action first with the
+      exact function-group name, remote tool name, target, and final JSON
+      arguments; if a gate reports approval is required, call confirm_action as
+      the very next tool call with the same exact arguments),
       confirm_research_plan (approve expensive deep research),
       delete_memory_guarded (requires approval_token). Args depend on
       operation. Returns: formatted prompt or guarded action result.

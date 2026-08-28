@@ -4,6 +4,7 @@ import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 
 import handler from '@/pages/api/auth/redirect';
 
+import { completeOAuthJobRequest } from '@/server/chat/jobState';
 import {
   deleteOAuthCallbackTarget,
   loadOAuthCallbackTarget,
@@ -13,6 +14,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/server/mcpOAuth', () => ({
   deleteOAuthCallbackTarget: vi.fn(),
   loadOAuthCallbackTarget: vi.fn(),
+}));
+
+vi.mock('@/server/chat/jobState', () => ({
+  completeOAuthJobRequest: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('@/utils/fetchWithTimeout', () => ({
@@ -49,6 +54,7 @@ describe('MCP OAuth redirect API', () => {
   it('proxies the callback to the exact backend pod and consumes the route', async () => {
     vi.mocked(loadOAuthCallbackTarget).mockResolvedValue({
       backendBaseUrl: 'http://10.1.2.3:8000',
+      jobId: 'job-123',
       createdAt: Date.now(),
     });
     vi.mocked(fetchWithTimeout).mockResolvedValue(
@@ -79,6 +85,10 @@ describe('MCP OAuth redirect API', () => {
       60000,
     );
     expect(deleteOAuthCallbackTarget).toHaveBeenCalledWith('oauth-state');
+    expect(completeOAuthJobRequest).toHaveBeenCalledWith(
+      'job-123',
+      'oauth-state',
+    );
     expect(res.setHeader).toHaveBeenCalledWith(
       'Content-Type',
       'text/html; charset=utf-8',
@@ -91,6 +101,7 @@ describe('MCP OAuth redirect API', () => {
   it('renders the callback inline when the backend omits a content type', async () => {
     vi.mocked(loadOAuthCallbackTarget).mockResolvedValue({
       backendBaseUrl: 'http://10.1.2.3:8000',
+      jobId: 'job-123',
       createdAt: Date.now(),
     });
     vi.mocked(fetchWithTimeout).mockResolvedValue({
@@ -138,6 +149,7 @@ describe('MCP OAuth redirect API', () => {
   it('retains the target after a transient backend network failure', async () => {
     vi.mocked(loadOAuthCallbackTarget).mockResolvedValue({
       backendBaseUrl: 'http://10.1.2.3:8000',
+      jobId: 'job-123',
       createdAt: Date.now(),
     });
     vi.mocked(fetchWithTimeout).mockRejectedValue(
@@ -154,5 +166,27 @@ describe('MCP OAuth redirect API', () => {
     );
     expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', 'inline');
     expect(deleteOAuthCallbackTarget).not.toHaveBeenCalled();
+    expect(completeOAuthJobRequest).not.toHaveBeenCalled();
+  });
+
+  it('does not report OAuth completion for a rejected backend callback', async () => {
+    vi.mocked(loadOAuthCallbackTarget).mockResolvedValue({
+      backendBaseUrl: 'http://10.1.2.3:8000',
+      jobId: 'job-123',
+      createdAt: Date.now(),
+    });
+    vi.mocked(fetchWithTimeout).mockResolvedValue(
+      new Response('authorization denied', { status: 400 }),
+    );
+    const { req, res } = createMockReqRes('GET', {
+      state: 'oauth-state',
+      error: 'access_denied',
+    });
+
+    await handler(req, res);
+
+    expect(completeOAuthJobRequest).not.toHaveBeenCalled();
+    expect(deleteOAuthCallbackTarget).toHaveBeenCalledWith('oauth-state');
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 });

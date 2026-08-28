@@ -523,6 +523,7 @@ export async function startBackgroundStreamReader(
                 await saveOAuthCallbackTarget(
                   oauthPayload.oauthState,
                   getNatBaseUrl(jobRequest),
+                  jobId,
                 );
               }
               const currentStatus = (await jsonGet(

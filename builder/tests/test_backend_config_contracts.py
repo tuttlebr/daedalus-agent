@@ -1718,6 +1718,17 @@ def test_workflow_prompt_limits_failed_retries():
         assert "Continue until complete" in prompt, path
 
 
+def test_workspace_writes_request_exact_approval_before_mutation():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        interaction_desc = config["functions"]["user_interaction_tool"]["description"]
+
+        assert "Docs update_doc" in interaction_desc, path
+        assert "Calendar create_event" in interaction_desc, path
+        assert "call confirm_action first" in interaction_desc, path
+        assert "the very next tool call" in interaction_desc, path
+
+
 def test_explicit_memory_writes_do_not_require_confirmation():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)

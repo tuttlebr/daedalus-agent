@@ -1,5 +1,6 @@
 import {
   claimTerminalJobStatus,
+  completeOAuthJobRequest,
   updateJobStatus,
 } from '@/server/chat/jobState';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -210,5 +211,79 @@ describe('terminal job state', () => {
       ),
     ).resolves.toBe(false);
     expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+  });
+
+  it('clears the completed OAuth request and publishes streaming status', async () => {
+    const statusKey = 'daedalus:async-job-status:job-oauth';
+    mocks.store.set(statusKey, {
+      jobId: 'job-oauth',
+      status: 'oauth_required',
+      authUrl: 'https://accounts.google.com/authorize',
+      oauthState: 'docs-state',
+      oauthRequests: [
+        {
+          id: 'docs-state:url',
+          authUrl: 'https://accounts.google.com/authorize',
+          oauthState: 'docs-state',
+          service: 'Google Docs',
+        },
+      ],
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    await expect(
+      completeOAuthJobRequest('job-oauth', 'docs-state'),
+    ).resolves.toBe(true);
+
+    const stored = mocks.store.get(statusKey);
+    expect(stored.status).toBe('streaming');
+    expect(stored.authUrl).toBeUndefined();
+    expect(stored.oauthState).toBeUndefined();
+    expect(stored.oauthRequests).toBeUndefined();
+    expect(mocks.publisher.publish).toHaveBeenCalledWith(
+      'job:job-oauth:status',
+      expect.stringContaining('"status":"streaming"'),
+    );
+  });
+
+  it('keeps another OAuth request visible after one callback completes', async () => {
+    const statusKey = 'daedalus:async-job-status:job-multi-oauth';
+    const calendarRequest = {
+      id: 'calendar-state:url',
+      authUrl: 'https://accounts.google.com/calendar',
+      oauthState: 'calendar-state',
+      service: 'Google Calendar',
+    };
+    mocks.store.set(statusKey, {
+      jobId: 'job-multi-oauth',
+      status: 'oauth_required',
+      authUrl: 'https://accounts.google.com/docs',
+      oauthState: 'docs-state',
+      oauthRequests: [
+        {
+          id: 'docs-state:url',
+          authUrl: 'https://accounts.google.com/docs',
+          oauthState: 'docs-state',
+          service: 'Google Docs',
+        },
+        calendarRequest,
+      ],
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    await expect(
+      completeOAuthJobRequest('job-multi-oauth', 'docs-state'),
+    ).resolves.toBe(true);
+
+    expect(mocks.store.get(statusKey)).toEqual(
+      expect.objectContaining({
+        status: 'oauth_required',
+        authUrl: calendarRequest.authUrl,
+        oauthState: calendarRequest.oauthState,
+        oauthRequests: [calendarRequest],
+      }),
+    );
   });
 });

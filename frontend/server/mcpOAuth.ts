@@ -13,6 +13,7 @@ const OAUTH_CALLBACK_TARGET_TTL_SECONDS = 11 * 60;
 
 export interface OAuthCallbackTarget {
   backendBaseUrl: string;
+  jobId: string;
   createdAt: number;
 }
 
@@ -61,16 +62,24 @@ export function isAllowedOAuthBackendBaseUrl(value: string): boolean {
 export async function saveOAuthCallbackTarget(
   state: string,
   backendBaseUrl: string,
+  jobId: string,
 ): Promise<void> {
   if (!state || state.length > 512) {
     throw new Error('OAuth state is missing or too long');
+  }
+  if (!jobId || jobId.length > 128) {
+    throw new Error('OAuth callback job is missing or too long');
   }
   if (!isAllowedOAuthBackendBaseUrl(backendBaseUrl)) {
     throw new Error('OAuth callback backend is not allowed');
   }
   await jsonSetWithExpiry(
     callbackTargetKey(state),
-    { backendBaseUrl, createdAt: Date.now() } satisfies OAuthCallbackTarget,
+    {
+      backendBaseUrl,
+      jobId,
+      createdAt: Date.now(),
+    } satisfies OAuthCallbackTarget,
     OAUTH_CALLBACK_TARGET_TTL_SECONDS,
   );
 }
@@ -85,6 +94,9 @@ export async function loadOAuthCallbackTarget(
   if (
     !target ||
     typeof target.backendBaseUrl !== 'string' ||
+    typeof target.jobId !== 'string' ||
+    !target.jobId ||
+    target.jobId.length > 128 ||
     typeof target.createdAt !== 'number' ||
     !isAllowedOAuthBackendBaseUrl(target.backendBaseUrl)
   ) {

@@ -499,6 +499,20 @@ def test_additional_destructive_verbs_require_token(tool_name):
     assert "execution credential" in reason
 
 
+def test_blocked_workspace_write_requires_exact_immediate_confirmation():
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "update_doc",
+        {"documentId": "doc-123", "requests": []},
+        server_name="docs_mcp_server",
+    )
+
+    assert ok is False
+    assert "Your next tool call must be confirm_action" in reason
+    assert "server_name='docs_mcp_server'" in reason
+    assert "tool_name='update_doc'" in reason
+    assert "unchanged arguments" in reason
+
+
 @pytest.mark.parametrize(
     "server_name,tool_name,payload,expected_reason",
     [

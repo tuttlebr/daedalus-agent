@@ -23,13 +23,17 @@ describe('MCP OAuth callback routing', () => {
     await saveOAuthCallbackTarget(
       'browser-state-secret',
       'http://10.2.3.4:8000',
+      'job-123',
     );
 
     expect(jsonSetWithExpiry).toHaveBeenCalledTimes(1);
     const [key, target, ttl] = vi.mocked(jsonSetWithExpiry).mock.calls[0];
     expect(key).toMatch(/^mcp-oauth-callback:[a-f0-9]{64}$/);
     expect(key).not.toContain('browser-state-secret');
-    expect(target).toMatchObject({ backendBaseUrl: 'http://10.2.3.4:8000' });
+    expect(target).toMatchObject({
+      backendBaseUrl: 'http://10.2.3.4:8000',
+      jobId: 'job-123',
+    });
     expect(ttl).toBe(660);
   });
 
@@ -48,11 +52,13 @@ describe('MCP OAuth callback routing', () => {
   it('loads only a valid stored target and deletes it by hashed state', async () => {
     vi.mocked(jsonGet).mockResolvedValue({
       backendBaseUrl: 'http://172.20.4.9:8000',
+      jobId: 'job-123',
       createdAt: 123,
     });
 
     await expect(loadOAuthCallbackTarget('state-a')).resolves.toEqual({
       backendBaseUrl: 'http://172.20.4.9:8000',
+      jobId: 'job-123',
       createdAt: 123,
     });
     await deleteOAuthCallbackTarget('state-a');
@@ -65,6 +71,7 @@ describe('MCP OAuth callback routing', () => {
   it('fails closed for a corrupted Redis callback target', async () => {
     vi.mocked(jsonGet).mockResolvedValue({
       backendBaseUrl: 'http://169.254.169.254:8000',
+      jobId: 'job-123',
       createdAt: 123,
     });
 

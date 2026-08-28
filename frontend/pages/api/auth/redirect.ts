@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { buildBackendUrlFromBase } from '@/utils/app/backendApi';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 
+import { completeOAuthJobRequest } from '@/server/chat/jobState';
 import {
   deleteOAuthCallbackTarget,
   loadOAuthCallbackTarget,
@@ -89,6 +90,11 @@ export default async function handler(
       OAUTH_CALLBACK_TIMEOUT_MS,
     );
     const body = await response.text();
+    if (response.ok) {
+      // OAuth itself has already succeeded at the backend. UI reconciliation
+      // is best effort and must never turn that success into a retryable 502.
+      await completeOAuthJobRequest(target.jobId, state).catch(() => false);
+    }
     await deleteOAuthCallbackTarget(state);
 
     const contentType = response.headers.get('content-type');

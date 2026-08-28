@@ -101,6 +101,66 @@ export function clearOAuthStatusFields(): Pick<
   };
 }
 
+/**
+ * Reflect one successful browser OAuth callback in the durable job status.
+ * The state value is already bound to this job by the trusted stream worker.
+ * Remove only that request so parallel service authorizations remain visible.
+ */
+export async function completeOAuthJobRequest(
+  jobId: string,
+  oauthState: string,
+): Promise<boolean> {
+  if (!jobId || !oauthState) return false;
+  const statusKey = sessionKey(['async-job-status', jobId]);
+  const completed = await withRedisLock(
+    statusLockKey(jobId),
+    STATUS_UPDATE_LOCK_TTL_MS,
+    async () => {
+      const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
+      if (
+        !currentStatus ||
+        currentStatus.finalizedAt ||
+        isTerminalJobStatus(currentStatus.status)
+      ) {
+        return false;
+      }
+
+      const requests = Array.isArray(currentStatus.oauthRequests)
+        ? currentStatus.oauthRequests
+        : [];
+      const matched =
+        currentStatus.oauthState === oauthState ||
+        requests.some((request) => request.oauthState === oauthState);
+      if (!matched) return false;
+
+      const remaining = requests.filter(
+        (request) => request.oauthState !== oauthState,
+      );
+      const nextRequest = remaining[0];
+      const updatedStatus: AsyncJobStatus = {
+        ...currentStatus,
+        status: nextRequest ? 'oauth_required' : 'streaming',
+        authUrl: nextRequest?.authUrl,
+        oauthState: nextRequest?.oauthState,
+        oauthRequests: remaining.length ? remaining : undefined,
+        updatedAt: Date.now(),
+      };
+      await jsonSetWithExpiry(statusKey, updatedStatus, JOB_EXPIRY_SECONDS);
+      try {
+        await getPublisher().publish(
+          `job:${jobId}:status`,
+          JSON.stringify(updatedStatus),
+        );
+      } catch (err) {
+        logger.error(`Failed to publish OAuth completion for ${jobId}`, err);
+      }
+      return true;
+    },
+    { retries: 4, retryDelayMs: 25 },
+  );
+  return completed === true;
+}
+
 async function withRedisLock<T>(
   key: string,
   ttlMs: number,

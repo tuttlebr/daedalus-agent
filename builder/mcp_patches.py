@@ -647,8 +647,13 @@ def _validate_mcp_approval(
     if not token:
         return False, (
             f"MCP tool '{tool_name}' isn't authorized as read-only and "
-            "requires a human-approved execution credential. Call "
-            "confirm_action with the exact server, tool, and arguments."
+            "requires a human-approved execution credential. Your next tool "
+            "call must be "
+            "confirm_action with action_type='mcp_mutation', the exact "
+            f"server_name='{server_name}', tool_name='{tool_name}', an exact "
+            "target, and arguments_json containing the unchanged arguments "
+            "from this blocked call. Do not retry the MCP tool until the user "
+            "reviews the exact action and approves it in their next message."
         )
 
     try:
