@@ -4,7 +4,9 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 import yaml
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "check_rag_backend.py"
@@ -89,6 +91,87 @@ def test_probe_uses_secret_refs_and_backend_policy_labels():
     assert "affinity" not in overrides["spec"]
     code = command[command.index("-c") + 1]
     assert '("EMBEDDING_BASE_URL", "RERANKER_BASE_URL")' in code
+
+
+def test_unstarted_image_pull_probe_warns_and_does_not_block(monkeypatch, capsys):
+    config = check_rag.config_from_manifest(MANIFEST)
+    assert config is not None
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if "run" in command:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="error: timed out waiting for the condition",
+            )
+        if "get" in command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "status": {
+                            "phase": "Pending",
+                            "containerStatuses": [
+                                {
+                                    "state": {
+                                        "waiting": {
+                                            "reason": "ImagePullBackOff",
+                                            "message": "no match for platform",
+                                        }
+                                    }
+                                }
+                            ],
+                        }
+                    }
+                ),
+                stderr="",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(check_rag.subprocess, "run", fake_run)
+
+    check_rag.check(config, "daedalus", "backend@sha256:test", 10)
+
+    warning = capsys.readouterr().err
+    assert "WARNING: RAG dependency probe did not start" in warning
+    assert "ImagePullBackOff: no match for platform" in warning
+    assert any("delete" in command for command in calls)
+
+
+def test_executed_rag_probe_failure_remains_fatal(monkeypatch):
+    config = check_rag.config_from_manifest(MANIFEST)
+    assert config is not None
+
+    def fake_run(command, **kwargs):
+        if "run" in command:
+            return SimpleNamespace(
+                returncode=20,
+                stdout="",
+                stderr="Milvus preflight failed: MilvusException",
+            )
+        if "get" in command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "status": {
+                            "phase": "Failed",
+                            "containerStatuses": [
+                                {"state": {"terminated": {"exitCode": 20}}}
+                            ],
+                        }
+                    }
+                ),
+                stderr="",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(check_rag.subprocess, "run", fake_run)
+
+    with pytest.raises(check_rag.CheckError, match="Milvus preflight failed"):
+        check_rag.check(config, "daedalus", "backend@sha256:test", 10)
 
 
 def test_deploy_runs_rag_preflight_before_helm():

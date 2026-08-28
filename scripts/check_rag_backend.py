@@ -292,17 +292,109 @@ for dependency in ("EMBEDDING_BASE_URL", "RERANKER_BASE_URL"):
     ]
 
 
-def check(config: RagConfig, namespace: str, image: str, timeout: int) -> None:
-    # probe_command returns a fixed kubectl argv; subprocess does not invoke a shell.
-    completed = subprocess.run(  # nosec B603
-        probe_command(config, namespace, image, timeout),
+def _unstarted_probe_reason(namespace: str, pod_name: str) -> str | None:
+    """Describe a probe pod that never reached container execution."""
+
+    completed = subprocess.run(  # nosec B603 B607
+        [
+            "kubectl",
+            "-n",
+            namespace,
+            "get",
+            "pod",
+            pod_name,
+            "-o",
+            "json",
+        ],
         text=True,
         capture_output=True,
-        timeout=max(timeout * 3 + 90, 120),
+        timeout=20,
         check=False,
     )
     if completed.returncode != 0:
+        return None
+    try:
+        pod = json.loads(completed.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    status = pod.get("status") or {}
+    if status.get("phase") != "Pending":
+        return None
+    for container_status in status.get("containerStatuses") or []:
+        waiting = (container_status.get("state") or {}).get("waiting") or {}
+        reason = str(waiting.get("reason") or "").strip()
+        message = str(waiting.get("message") or "").strip()
+        if reason:
+            return f"{reason}{f': {message}' if message else ''}"
+    for condition in status.get("conditions") or []:
+        if (
+            condition.get("type") == "PodScheduled"
+            and condition.get("status") == "False"
+        ):
+            reason = str(condition.get("reason") or "Unschedulable").strip()
+            message = str(condition.get("message") or "").strip()
+            return f"{reason}{f': {message}' if message else ''}"
+    return "probe pod remained Pending and never executed"
+
+
+def _delete_probe_pod(namespace: str, pod_name: str) -> None:
+    try:
+        subprocess.run(  # nosec B603 B607
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "delete",
+                "pod",
+                pod_name,
+                "--ignore-not-found=true",
+                "--wait=false",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        # Cleanup is best effort and must not turn an advisory probe into a failure.
+        pass
+
+
+def check(config: RagConfig, namespace: str, image: str, timeout: int) -> None:
+    command = probe_command(config, namespace, image, timeout)
+    pod_name = command[command.index("run") + 1]
+    # probe_command returns a fixed kubectl argv; subprocess does not invoke a shell.
+    try:
+        completed = subprocess.run(  # nosec B603
+            command,
+            text=True,
+            capture_output=True,
+            timeout=max(timeout * 3 + 90, 120),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        reason = _unstarted_probe_reason(namespace, pod_name)
+        _delete_probe_pod(namespace, pod_name)
+        if reason:
+            print(
+                "WARNING: RAG dependency probe did not start; continuing without "
+                f"this advisory check: {reason}",
+                file=sys.stderr,
+            )
+            return
+        raise
+    if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()[:800]
+        reason = _unstarted_probe_reason(namespace, pod_name)
+        _delete_probe_pod(namespace, pod_name)
+        if reason:
+            print(
+                "WARNING: RAG dependency probe did not start; continuing without "
+                f"this advisory check: {reason}",
+                file=sys.stderr,
+            )
+            return
         raise CheckError(f"RAG dependency probe failed: {detail or 'unknown error'}")
 
 
