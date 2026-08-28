@@ -36,6 +36,7 @@ from mcp_patches import (  # noqa: E402
     _McpAppError,
     _McpAuthFailureLevelFilter,
     _patch_google_docs_oauth_authorization_parameters,
+    _patch_google_docs_oauth_discovery,
     _patch_mcp_auth_context_propagation,
     _patch_mcp_auth_transport_timeout,
     _patch_mcp_http_auth_timeout,
@@ -357,6 +358,72 @@ def test_google_docs_oauth_requests_offline_incremental_consent(monkeypatch):
     assert calendar_result["authorization_kwargs"] == {
         "resource": "https://calendarmcp.googleapis.com/mcp/v1"
     }
+
+
+def test_google_docs_uses_documented_oauth_endpoints_without_discovery(monkeypatch):
+    """Docs auth remains usable when its protected resource omits metadata."""
+
+    class FakeEndpoints:
+        def __init__(self, authorization_url, token_url):
+            self.authorization_url = authorization_url
+            self.token_url = token_url
+
+        def model_dump(self):
+            return {
+                "authorization_url": self.authorization_url,
+                "token_url": self.token_url,
+            }
+
+    class FakeDiscoverOAuth2Endpoints:
+        def __init__(self, server_url):
+            self.config = types.SimpleNamespace(server_url=server_url)
+            self._cached_endpoints = None
+            self._resource_from_metadata = None
+            self.original_calls = 0
+
+        async def discover(self, response=None):
+            self.original_calls += 1
+            return "discovered", False
+
+    provider_module = types.ModuleType("nat.plugins.mcp.auth.auth_provider")
+    provider_module.DiscoverOAuth2Endpoints = FakeDiscoverOAuth2Endpoints
+    provider_module.OAuth2Endpoints = FakeEndpoints
+    for module_name in (
+        "nat",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.auth",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.auth.auth_provider",
+        provider_module,
+    )
+
+    _patch_google_docs_oauth_discovery()
+
+    docs = FakeDiscoverOAuth2Endpoints("https://docsmcp.googleapis.com/mcp/v1")
+    endpoints, changed = run(
+        docs.discover(response=types.SimpleNamespace(status_code=401))
+    )
+    assert endpoints.authorization_url == (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+    )
+    assert endpoints.token_url == "https://oauth2.googleapis.com/token"
+    assert docs._resource_from_metadata == "https://docsmcp.googleapis.com/mcp/v1"
+    assert changed is True
+    assert docs.original_calls == 0
+
+    _, changed_again = run(docs.discover())
+    assert changed_again is False
+    assert docs.original_calls == 0
+
+    calendar = FakeDiscoverOAuth2Endpoints("https://calendarmcp.googleapis.com/mcp")
+    assert run(calendar.discover()) == ("discovered", False)
+    assert calendar.original_calls == 1
 
 
 def test_non_401_authentication_does_not_invalidate_cached_token(monkeypatch):

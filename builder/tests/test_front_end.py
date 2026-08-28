@@ -42,7 +42,10 @@ def test_daedalus_routes_attach_to_only_the_selected_app():
     assert attach_daedalus_routes(app) is app
     assert len(app.included_routers) == 5
     assert len(app.middleware) == 1
-    assert [path for path, _endpoint, _kwargs in app.routes] == ["/health/ready"]
+    assert [path for path, _endpoint, _kwargs in app.routes] == [
+        "/health/ready",
+        "/v1/google-workspace/connections/{service_id}",
+    ]
     assert app._daedalus_routes_attached is True
     assert unrelated_app.included_routers == []
     assert unrelated_app.middleware == []
@@ -57,7 +60,7 @@ def test_daedalus_routes_attach_only_once():
 
     assert len(app.included_routers) == 5
     assert len(app.middleware) == 1
-    assert len(app.routes) == 1
+    assert len(app.routes) == 2
 
 
 def test_runner_composes_superclass_app():

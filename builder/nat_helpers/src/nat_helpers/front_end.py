@@ -8,7 +8,7 @@ import logging
 import os
 import tempfile
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
     FastApiFrontEndPluginWorker,
@@ -199,7 +199,11 @@ async def readiness_response() -> JSONResponse:
     )
 
 
-def attach_daedalus_routes(app: FastAPI) -> FastAPI:
+def attach_daedalus_routes(
+    app: FastAPI,
+    *,
+    session_managers: list[object] | None = None,
+) -> FastAPI:
     """Attach the repository-owned API surface to one NAT application."""
     if getattr(app, "_daedalus_routes_attached", False):
         return app
@@ -210,14 +214,33 @@ def attach_daedalus_routes(app: FastAPI) -> FastAPI:
     from document_ingest_api import router as document_ingest_router
     from image_api import router as image_router
     from memory_api import router as memory_router
+    from nat_helpers.google_workspace_auth import reset_google_workspace_authorization
     from nat_helpers.internal_auth import DaedalusInternalAuthMiddleware
     from profile_import_api import router as profile_import_router
+
+    active_session_managers = session_managers if session_managers is not None else []
+
+    async def reset_google_workspace_connection(
+        service_id: str,
+        request: Request,
+    ):
+        return await reset_google_workspace_authorization(
+            service_id,
+            request,
+            active_session_managers,
+        )
 
     app.add_middleware(DaedalusInternalAuthMiddleware)
     app.add_api_route(
         "/health/ready",
         readiness_response,
         methods=["GET"],
+        include_in_schema=False,
+    )
+    app.add_api_route(
+        "/v1/google-workspace/connections/{service_id}",
+        reset_google_workspace_connection,
+        methods=["DELETE"],
         include_in_schema=False,
     )
     app.include_router(image_router)
@@ -234,4 +257,7 @@ class DaedalusFastApiFrontEndPluginWorker(FastApiFrontEndPluginWorker):
     """NAT FastAPI worker composed through ``runner_class`` configuration."""
 
     def build_app(self) -> FastAPI:
-        return attach_daedalus_routes(super().build_app())
+        return attach_daedalus_routes(
+            super().build_app(),
+            session_managers=getattr(self, "_session_managers", []),
+        )

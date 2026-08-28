@@ -51,3 +51,29 @@ export function inferGoogleWorkspaceService(authUrl: string): string {
   }
   return 'Google Workspace';
 }
+
+const MCP_SERVER_SERVICES: Record<string, string> = {
+  gmail_mcp_server: 'Gmail',
+  calendar_mcp_server: 'Google Calendar',
+  docs_mcp_server: 'Google Docs',
+};
+
+export function googleWorkspaceAuthRecoveryMessage(
+  toolOutput: string,
+): string | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(toolOutput);
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  if (record.error !== 'mcp_user_authentication_required') return null;
+  const service =
+    typeof record.server === 'string'
+      ? MCP_SERVER_SERVICES[record.server]
+      : undefined;
+  if (!service) return null;
+  return `${service} authorization needs attention. Open Connections, choose Reconnect for ${service}, then retry your request.`;
+}

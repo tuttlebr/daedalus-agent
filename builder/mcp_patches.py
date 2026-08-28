@@ -96,6 +96,8 @@ _MCP_STARTUP_GROUP_TIMEOUT = 15.0
 _MCP_RECOVERY_TOTAL_TIMEOUT = 5.0
 _DEFAULT_MCP_OAUTH_TIMEOUT_SECONDS = 600.0
 _GOOGLE_DOCS_MCP_RESOURCE = "https://docsmcp.googleapis.com/mcp/v1"
+_GOOGLE_OAUTH_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"  # nosec B105
 _GOOGLE_DOCS_AUTHORIZATION_KWARGS = {
     "access_type": "offline",
     "include_granted_scopes": "true",
@@ -1543,6 +1545,60 @@ def _patch_google_docs_oauth_authorization_parameters():
         )
 
 
+def _patch_google_docs_oauth_discovery():
+    """Use Google's documented endpoints when Docs omits RFC 9728 metadata."""
+    try:
+        import functools
+
+        from nat.plugins.mcp.auth.auth_provider import (
+            DiscoverOAuth2Endpoints,
+            OAuth2Endpoints,
+        )
+
+        original_discover = DiscoverOAuth2Endpoints.discover
+        if getattr(original_discover, "_daedalus_google_docs_endpoints", False):
+            return
+
+        signature = inspect.signature(original_discover)
+        if list(signature.parameters) != ["self", "response"]:
+            raise RuntimeError(
+                "Unexpected DiscoverOAuth2Endpoints.discover signature: " f"{signature}"
+            )
+
+        @functools.wraps(original_discover)
+        async def wrapped(self, response=None):
+            resource = str(getattr(self.config, "server_url", "")).rstrip("/")
+            if resource != _GOOGLE_DOCS_MCP_RESOURCE:
+                return await original_discover(self, response=response)
+
+            previous_endpoints = getattr(self, "_cached_endpoints", None)
+            previous_resource = getattr(self, "_resource_from_metadata", None)
+            endpoints = OAuth2Endpoints(
+                authorization_url=_GOOGLE_OAUTH_AUTHORIZATION_URL,
+                token_url=_GOOGLE_OAUTH_TOKEN_URL,
+            )
+            self._cached_endpoints = endpoints
+            # Docs' protected-resource response does not consistently include
+            # a resource_metadata hint. Retain the MCP resource indicator that
+            # Google expects on the authorization request.
+            self._resource_from_metadata = _GOOGLE_DOCS_MCP_RESOURCE
+            changed = (
+                previous_endpoints is None
+                or endpoints.model_dump() != previous_endpoints.model_dump()
+                or previous_resource != _GOOGLE_DOCS_MCP_RESOURCE
+            )
+            logger.info("Using documented Google OAuth endpoints for Docs MCP")
+            return endpoints, changed
+
+        wrapped._daedalus_google_docs_endpoints = True
+        DiscoverOAuth2Endpoints.discover = wrapped
+        logger.info("Google Docs OAuth endpoint fallback applied")
+    except ImportError as exc:
+        logger.warning("Could not patch Google Docs OAuth discovery: %s", exc)
+    except Exception as exc:
+        logger.warning("Unexpected error patching Google Docs OAuth discovery: %s", exc)
+
+
 def _patch_mcp_auth_transport_timeout():
     """Keep enough transport time for a cached credential's 401 replacement."""
     try:
@@ -1749,13 +1805,28 @@ def _mcp_tool_error_payload(exc, *, server_name: str, tool_name: str) -> str:
                 ),
             }
         elif server_name in _PER_USER_MCP_OAUTH_SERVERS:
+            service = {
+                "gmail_mcp_server": "gmail",
+                "calendar_mcp_server": "calendar",
+                "docs_mcp_server": "docs",
+            }.get(server_name)
             payload = {
                 **base,
                 "error": "mcp_user_authentication_required",
                 "auth_scope": "user",
                 "message": (
-                    "This user must connect or reconnect the service in the "
-                    "authorization prompt; do not retry this tool in the same turn."
+                    "This service needs a fresh user authorization. Open "
+                    "Connections, reconnect it, then retry in a new turn."
+                ),
+                **(
+                    {
+                        "recovery": {
+                            "action": "reconnect_google_workspace",
+                            "service": service,
+                        }
+                    }
+                    if service
+                    else {}
                 ),
             }
         else:
@@ -2002,6 +2073,7 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     _log_static_mcp_api_key_configuration()
     _patch_mcp_auth_log_levels()
     _patch_mcp_http_auth_timeout()
+    _patch_google_docs_oauth_discovery()
     _patch_google_docs_oauth_authorization_parameters()
     _patch_mcp_request_auth_binding()
 

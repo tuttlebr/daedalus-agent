@@ -4,7 +4,10 @@ import {
 } from '@/utils/app/asyncStepParser';
 import { buildBackendUrlFromBase } from '@/utils/app/backendApi';
 import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
-import { inferGoogleWorkspaceService } from '@/utils/app/googleWorkspace';
+import {
+  googleWorkspaceAuthRecoveryMessage,
+  inferGoogleWorkspaceService,
+} from '@/utils/app/googleWorkspace';
 import { Logger } from '@/utils/logger';
 
 import { getNatBaseUrl } from './backendSelection';
@@ -490,6 +493,11 @@ export async function startBackgroundStreamReader(
                   if (lastFence !== -1) output = output.slice(0, lastFence);
                   if (output.trim() && output.trim() !== '[]') {
                     lastToolOutput = output.trim();
+                    const recoveryMessage =
+                      googleWorkspaceAuthRecoveryMessage(lastToolOutput);
+                    if (recoveryMessage) {
+                      throw new Error(recoveryMessage);
+                    }
                   }
                 }
               }

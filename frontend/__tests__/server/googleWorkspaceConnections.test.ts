@@ -1,6 +1,7 @@
 import {
   getGoogleWorkspaceConnections,
   googleWorkspaceTokenKey,
+  resetGoogleWorkspaceConnection,
 } from '@/server/googleWorkspaceConnections';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -66,5 +67,35 @@ describe('Google Workspace connection state', () => {
       { id: 'calendar', authorizationSaved: false },
       { id: 'docs', authorizationSaved: true },
     ]);
+  });
+
+  it('resets through the trusted backend using the stable NAT identity', async () => {
+    process.env.DAEDALUS_INTERNAL_API_TOKEN = 'internal-test-token';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          service: 'docs',
+          authorizationCleared: true,
+          savedTokenDeleted: true,
+          cachedWorkflowsInvalidated: 2,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await resetGoogleWorkspaceConnection('docs', 'alice');
+
+    expect(result.cachedWorkflowsInvalidated).toBe(2);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain('/v1/google-workspace/connections/docs');
+    expect(options.method).toBe('DELETE');
+    expect(options.headers['x-user-id']).toBe('alice');
+    expect(options.headers['x-daedalus-internal-token']).toBe(
+      'internal-test-token',
+    );
+    expect(options.headers.Cookie).toBe(
+      'nat-session=daedalus-user-2bd806c97f0e00af1a1fc3328fa763a9',
+    );
   });
 });

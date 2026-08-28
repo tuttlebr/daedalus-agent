@@ -8,11 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  apiDelete: vi.fn(),
   setActiveView: vi.fn(),
 }));
 
 vi.mock('@/utils/app/api', () => ({
   apiGet: mocks.apiGet,
+  apiDelete: mocks.apiDelete,
 }));
 
 vi.mock('@/state/uiSettingsStore', () => ({
@@ -66,6 +68,27 @@ describe('ConnectionsView authorization semantics', () => {
         },
       ],
     });
+    mocks.apiDelete.mockResolvedValue({
+      reset: {
+        service: 'gmail',
+        authorizationCleared: true,
+      },
+      connections: [
+        {
+          id: 'gmail',
+          label: 'Gmail',
+          description: 'Search mail.',
+          authorizationSaved: false,
+        },
+        {
+          id: 'calendar',
+          label: 'Google Calendar',
+          description: 'Read calendars.',
+          authorizationSaved: false,
+        },
+      ],
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -83,8 +106,39 @@ describe('ConnectionsView authorization semantics', () => {
     expect(container.textContent).toContain(
       'A saved record does not mean Google will still accept it.',
     );
+    expect(container.textContent).toContain('Reconnect');
+    expect(container.textContent).toContain('Start fresh');
     expect(container.textContent).not.toContain('services authorized');
     expect(container.textContent).not.toContain('Authorization saved');
+
+    act(() => root.unmount());
+  });
+
+  it('clears one service and tells the user how to reauthorize', async () => {
+    const { root, container } = await renderView();
+    const reconnect = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Reconnect',
+    );
+    expect(reconnect).toBeTruthy();
+
+    await act(async () => {
+      reconnect?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(window.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('Reconnect Gmail?'),
+    );
+    expect(mocks.apiDelete).toHaveBeenCalledWith(
+      '/api/google-workspace/connections?service=gmail',
+    );
+    expect(container.textContent).toContain(
+      'Gmail authorization cleared. Go to Chat and retry the request',
+    );
+    expect(container.textContent).toContain(
+      '0 of 2 services have saved authorization',
+    );
 
     act(() => root.unmount());
   });
