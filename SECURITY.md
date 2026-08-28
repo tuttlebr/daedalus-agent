@@ -33,7 +33,7 @@ claim that every deployment is regulated.
 | Next.js frontend to FastAPI/NAT backend                   | Server-derived user identity, agent requests, document references, image operations, and streamed responses              | `DAEDALUS_INTERNAL_API_TOKEN`, `x-user-id`, default-deny backend middleware, and restricted nginx routing                                  |
 | Backend to models, MCP, sandbox, and retrieval services   | Prompts, retrieved content, tool and sandbox arguments, OAuth flows, and remote results                                  | MCP allowlists, exact single-use approvals, authenticated sandbox capability discovery, bounded clients, and provider credentials          |
 | Application to Redis, object storage, Milvus, and tracing | Sessions, password hashes, conversations, memories, OAuth tokens, uploads, collection metadata, job state, and telemetry | Per-user keys and ownership checks, TTLs, scoped credentials, optional TLS, and deployment network policy                                  |
-| Autonomous worker to backend and Redis                    | Scheduled goals, queued work, approvals, execution state, and results                                                    | Dedicated execution scope, per-user queues, leases, approval-bound resume flow, and narrowly scoped workload secrets                       |
+| Autonomous worker to backend and Redis                    | Scheduled goals, queued work, execution state, and results                                                               | Dedicated non-interactive execution scope, per-user queues, leases, cancellation, and narrowly scoped workload secrets                     |
 | Deployment operator to cluster and registry               | Builds, image publishing, Kubernetes Secrets, Helm releases, and service policy                                          | Workload-specific Secrets, non-root containers, network policies, image scanning, signing, and release provenance                          |
 
 The normal public request path is ingress to nginx to the authenticated Next.js
@@ -75,7 +75,10 @@ ordered by expected impact and likelihood.
    to invoke an MCP operation, alter memory, execute a sandbox command, or
    redirect autonomous work. `builder/mcp_patches.py`, the
    `tool_overrides.approval_policy` declarations, and `builder/user_interaction`
-   bind consequential operations to exact, single-use approvals. The
+   bind consequential operations to exact, single-use approvals. Interactive
+   Chat derives approval only from the authenticated user's strict reply to a
+   persisted exact intent, and transports the credential in trusted request
+   metadata. Autonomous runs remain non-interactive. The
    `llm_sandbox` client separately authenticates command discovery, bounds
    command size and time, restricts environment-loader variables, and treats
    output as untrusted. Incorrect tool policy or weakened adapters could cross

@@ -446,15 +446,14 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
 @pytest.mark.parametrize(
     "server_name,tool_name,payload",
     [
-        (
-            "gmail_mcp_server",
-            "create_draft",
-            {"to": "user@example.com", "subject": "Hello", "body": "Draft"},
-        ),
         ("docs_mcp_server", "update_doc", {"document_id": "doc-1"}),
+        ("calendar_mcp_server", "create_event", {"calendar_id": "primary"}),
+        ("calendar_mcp_server", "update_event", {"event_id": "event-1"}),
+        ("calendar_mcp_server", "delete_event", {"event_id": "event-1"}),
+        ("calendar_mcp_server", "respond_to_event", {"event_id": "event-1"}),
     ],
 )
-def test_google_workspace_writes_require_exact_approval(
+def test_docs_and_calendar_writes_require_exact_approval(
     server_name, tool_name, payload
 ):
     for qualified_tool_name in (tool_name, f"{server_name}.{tool_name}"):

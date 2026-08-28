@@ -71,11 +71,13 @@ export interface AsyncJobStatus {
 export interface BackgroundExecutionControl {
   signal?: AbortSignal;
   beforeBackendRequest?: () => Promise<void>;
+  approvalToken?: string;
 }
 
 export interface StreamQueuePayload {
   messagesForNat: any[];
   verifiedUsername: string;
+  approvalToken?: string;
 }
 
 export class ApiRouteError extends Error {

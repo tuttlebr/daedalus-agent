@@ -2,13 +2,13 @@ export const GOOGLE_WORKSPACE_SERVICES = [
   {
     id: 'gmail',
     label: 'Gmail',
-    description: 'Search mail, read threads, and create approved drafts.',
+    description: 'Search mail and read messages, threads, labels, and drafts.',
     authSignals: ['gmail.'],
   },
   {
     id: 'calendar',
     label: 'Google Calendar',
-    description: 'Read calendars, events, availability, and suggested times.',
+    description: 'Read calendars and make approved event changes.',
     authSignals: ['calendar.'],
   },
   {

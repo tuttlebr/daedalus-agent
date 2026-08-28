@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import http from 'node:http';
 
 const port = Number(process.env.E2E_MOCK_BACKEND_PORT || 18000);
@@ -68,6 +69,38 @@ async function streamChat(req, res) {
     connection: 'keep-alive',
   });
   res.flushHeaders();
+
+  if (prompt.startsWith('[APPROVAL]')) {
+    const credential = req.headers['x-daedalus-approval-token'];
+    await wait(300);
+    sendToken(
+      res,
+      credential
+        ? 'E2E approved credential received'
+        : 'E2E approval credential missing',
+    );
+    res.end('data: [DONE]\n\n');
+    return;
+  }
+
+  if (prompt.includes('E2E_APPROVAL_REQUEST')) {
+    const canonicalArguments = '{"document_id":"doc-e2e","text":"hello"}';
+    const argumentsSha256 = createHash('sha256')
+      .update(canonicalArguments)
+      .digest('hex');
+    sendToken(
+      res,
+      'Exact action ready. Approval scope: action_type=`mcp_mutation`, ' +
+        'target=`document/doc-e2e`, server_name=`docs_mcp_server`, ' +
+        'tool_name=`update_doc`, ' +
+        'approval_request_id=`e2e_approval_request_123`, ' +
+        `arguments_sha256=\`${argumentsSha256}\`.\n\n` +
+        `Arguments for review:\n\n\`\`\`json\n${canonicalArguments}\n\`\`\`` +
+        '\n\nProceed? (yes/no)',
+    );
+    res.end('data: [DONE]\n\n');
+    return;
+  }
 
   if (prompt.includes('E2E_CANCEL')) {
     sendToken(res, 'E2E cancellation pending');

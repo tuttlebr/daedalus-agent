@@ -295,7 +295,11 @@ export async function processStreamQueueEntry(
         jobRequest,
         payload!.messagesForNat,
         payload!.verifiedUsername,
-        { signal: controller.signal, beforeBackendRequest },
+        {
+          signal: controller.signal,
+          beforeBackendRequest,
+          approvalToken: payload!.approvalToken,
+        },
       );
     }
 

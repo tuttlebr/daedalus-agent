@@ -15,9 +15,9 @@ import { v5 as uuidv5 } from 'uuid';
 const NAT_USER_ID_NAMESPACE = uuidv5('nemo-agent-toolkit', uuidv5.DNS);
 
 const TOKEN_BUCKETS: Record<GoogleWorkspaceServiceId, string> = {
-  gmail: 'gmail-mcp-oauth',
-  calendar: 'calendar-mcp-oauth',
-  docs: 'docs-mcp-oauth',
+  gmail: 'gmail-mcp-oauth-ro',
+  calendar: 'calendar-mcp-oauth-rw',
+  docs: 'docs-mcp-oauth-drive',
 };
 
 export function googleWorkspaceTokenKey(

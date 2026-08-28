@@ -25,6 +25,11 @@ import {
   updateJobStatus,
 } from '@/server/chat/jobState';
 import {
+  McpApprovalReplyError,
+  resolveMcpApprovalReply,
+  revokeMcpApprovalToken,
+} from '@/server/chat/mcpApproval';
+import {
   getDocumentIngestJobRequest,
   processMessages,
 } from '@/server/chat/messagePreprocessing';
@@ -296,6 +301,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     jobId: string;
   } | null = null;
   let jobEnqueued = false;
+  let issuedApprovalToken: string | null = null;
+  let approvalTokenUserId: string | null = null;
 
   try {
     const {
@@ -338,6 +345,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       storedMessages,
       messages,
     );
+    let approvalResolution: Awaited<
+      ReturnType<typeof resolveMcpApprovalReply>
+    > = null;
+    try {
+      approvalResolution = await resolveMcpApprovalReply(
+        effectiveMessages,
+        verifiedUsername,
+      );
+    } catch (error) {
+      if (error instanceof McpApprovalReplyError) {
+        throw new ApiRouteError(409, error.message, 'approval_not_resolvable');
+      }
+      throw error;
+    }
+    if (approvalResolution?.approvalToken) {
+      issuedApprovalToken = approvalResolution.approvalToken;
+      approvalTokenUserId = verifiedUsername;
+    }
 
     // Overwrite client-sent identity fields with verified values
     if (additionalProps) {
@@ -463,6 +488,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       },
       ...(sourcePolicyMessage ? [sourcePolicyMessage] : []),
       ...messagesForNat,
+      ...(approvalResolution
+        ? [
+            {
+              role: 'user',
+              content: approvalResolution.trustedInstruction,
+            },
+          ]
+        : []),
     ];
     const selectedNatBaseUrl = await selectStreamBackendBaseUrl(
       jobId,
@@ -555,6 +588,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     await enqueueStreamJob(jobId, {
       messagesForNat: messagesWithIdentity,
       verifiedUsername,
+      ...(approvalResolution?.approvalToken
+        ? { approvalToken: approvalResolution.approvalToken }
+        : {}),
     });
     jobEnqueued = true;
 
@@ -564,6 +600,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     return res.status(200).json({ jobId, status: jobStatus.status });
   } catch (error) {
+    if (!jobEnqueued && issuedApprovalToken && approvalTokenUserId) {
+      await revokeMcpApprovalToken(
+        approvalTokenUserId,
+        issuedApprovalToken,
+      ).catch(() => {});
+    }
     if (!jobEnqueued && createdJobId) {
       await Promise.all([
         jsonDel(sessionKey(['async-job-request', createdJobId])),

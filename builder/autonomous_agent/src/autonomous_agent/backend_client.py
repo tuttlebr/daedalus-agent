@@ -160,9 +160,8 @@ class BackendClient:
         headers = {
             "x-user-id": self.user_id,
             "x-timezone": DEFAULT_TIMEZONE,
-            # Mutating MCP approvals are intentionally scoped to this durable,
-            # UI-mediated worker flow. Interactive chat has no approval/resume
-            # state machine and therefore cannot create executable intents.
+            # Mark background work so interactive approval tools reject it.
+            # Human-approved MCP mutations are handled only by interactive chat.
             "x-daedalus-execution-scope": "autonomy",
             "Cookie": f"nat-session={quote(self.user_id, safe='')}",
         }

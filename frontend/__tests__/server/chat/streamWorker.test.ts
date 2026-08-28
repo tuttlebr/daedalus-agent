@@ -174,6 +174,30 @@ describe('durable stream worker entry processing', () => {
     expect(mocks.releaseStreamLease).toHaveBeenCalledWith('job-1', 'owner-1');
   });
 
+  it('carries an approved execution credential only in stream control', async () => {
+    mocks.loadStreamQueuePayload.mockResolvedValue({
+      messagesForNat: [{ role: 'user', content: 'approved exact action' }],
+      verifiedUsername: 'testuser',
+      approvalToken: 'abcdefghijklmnopqrstuvwx',
+    });
+
+    await expect(
+      processStreamQueueEntry(entry, options, undefined, 'owner-approved'),
+    ).resolves.toBe('completed');
+
+    expect(mocks.startBackgroundStreamReader).toHaveBeenCalledWith(
+      'job-1',
+      expect.not.objectContaining({
+        approvalToken: expect.anything(),
+      }),
+      expect.any(Array),
+      'testuser',
+      expect.objectContaining({
+        approvalToken: 'abcdefghijklmnopqrstuvwx',
+      }),
+    );
+  });
+
   it('releases the conversation guard after acknowledging an OAuth handoff', async () => {
     mocks.startBackgroundStreamReader.mockImplementation(
       async (jobId: string, ...args: any[]) => {

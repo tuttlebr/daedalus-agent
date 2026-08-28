@@ -241,12 +241,11 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             from nat_helpers.identity import execution_scope_from_context_or_none
 
             execution_scope = execution_scope_from_context_or_none()
-            if execution_scope is not None and execution_scope != "autonomy":
+            if execution_scope == "autonomy":
                 return (
-                    "Error: mutating MCP actions are available only through the "
-                    "Autonomy dashboard, which provides the authenticated "
-                    "approval and resume workflow. Interactive chat remains "
-                    "read-only for these tools."
+                    "Error: autonomous work is non-interactive and cannot request "
+                    "approval for an MCP mutation. Ask the user to perform this "
+                    "action in interactive chat."
                 )
             if not resolved_target or resolved_target == "*":
                 return "Error: MCP approval requires an exact, non-wildcard target."

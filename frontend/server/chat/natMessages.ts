@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 
 const CONVERSATION_SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const REQUEST_SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{20,128}$/;
 
 // Normalize messages for the OpenAI-compatible /v1/chat/completions backend.
 // Preserves the full conversation history (both user and assistant turns) so
@@ -58,6 +59,7 @@ export function buildNatRequestHeaders(
   timezone?: string,
   conversationId?: string,
   requestId?: string,
+  approvalToken?: string,
 ): Record<string, string> {
   const {
     Cookie: existingCookie,
@@ -79,6 +81,11 @@ export function buildNatRequestHeaders(
     requestCandidate && REQUEST_SCOPE_PATTERN.test(requestCandidate)
       ? requestCandidate
       : undefined;
+  const approvalCandidate = approvalToken?.trim();
+  const trustedApprovalToken =
+    approvalCandidate && APPROVAL_TOKEN_PATTERN.test(approvalCandidate)
+      ? approvalCandidate
+      : undefined;
 
   return withInternalBackendAuth(
     withTimezoneHeader(
@@ -90,6 +97,9 @@ export function buildNatRequestHeaders(
           : {}),
         ...(trustedRequestId
           ? { 'x-daedalus-request-id': trustedRequestId }
+          : {}),
+        ...(trustedApprovalToken
+          ? { 'x-daedalus-approval-token': trustedApprovalToken }
           : {}),
         Cookie: cookieHeader ? `${cookieHeader}; ${natCookie}` : natCookie,
       },

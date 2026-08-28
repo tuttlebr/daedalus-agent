@@ -338,7 +338,7 @@ class TestConfirmAction:
         assert pending["canonical_arguments"].endswith('"replicas":3}')
         assert pending["arguments_preview"].startswith('{"api_token":"[REDACTED]"')
 
-    def test_interactive_chat_cannot_create_mcp_mutation_intent(self):
+    def test_interactive_chat_creates_exact_mcp_mutation_intent(self):
         async def _run():
             fake_redis = FakeRedis()
             import sys
@@ -387,7 +387,59 @@ class TestConfirmAction:
             return result, fake_redis
 
         result, fake_redis = run(_run())
-        assert "only through the Autonomy dashboard" in result
+        assert "approval_request_id=`" in result
+        assert "server_name=`k8s_mcp_server`" in result
+        assert len(fake_redis.store) == 1
+
+    def test_autonomy_cannot_create_mcp_mutation_intent(self):
+        async def _run():
+            fake_redis = FakeRedis()
+            import sys
+            from types import SimpleNamespace
+
+            import user_interaction.user_interaction_function as mod
+
+            class _AutonomyContext:
+                @staticmethod
+                def get():
+                    return SimpleNamespace(
+                        metadata=SimpleNamespace(
+                            headers={
+                                "x-user-id": "brandon",
+                                "x-daedalus-execution-scope": "autonomy",
+                            }
+                        )
+                    )
+
+            with (
+                patch.object(mod, "make_redis_client", return_value=fake_redis),
+                patch.object(
+                    mod,
+                    "_authenticated_user_or_fallback",
+                    return_value="brandon",
+                ),
+                patch.dict(
+                    sys.modules,
+                    {"nat.builder.context": SimpleNamespace(Context=_AutonomyContext)},
+                ),
+            ):
+                items = await _get_tools()
+                confirm_fn = next(
+                    i.fn for i in items if i.fn.__name__ == "confirm_action"
+                )
+                result = await confirm_fn(
+                    action="Scale the production API",
+                    reason="Requested by an autonomous run",
+                    action_type="mcp_mutation",
+                    target="production/api",
+                    server_name="k8s_mcp_server",
+                    tool_name="scale_deployment",
+                    arguments_json='{"replicas":3}',
+                )
+            return result, fake_redis
+
+        result, fake_redis = run(_run())
+        assert "autonomous work is non-interactive" in result
         assert fake_redis.store == {}
 
     def test_memory_update_redirects_to_add_memory_without_confirmation(self):

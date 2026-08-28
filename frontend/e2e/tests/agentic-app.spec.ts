@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Response } from '@playwright/test';
 import Redis from 'ioredis';
+import { createHash } from 'node:crypto';
 
 const controlUrl = 'http://127.0.0.1:15099';
 const redisUrl =
@@ -227,68 +228,57 @@ test('streams a multipart document to S3 storage and reads the stored bytes', as
   expect(stored.body).toBe(contents);
 });
 
-test('reviews an exact MCP action and records a denial', async ({ page }) => {
+test('approves one exact MCP action through interactive chat', async ({
+  page,
+}) => {
   await login(page);
   const redis = new Redis(redisUrl);
+  const requestId = 'e2e_approval_request_123';
+  const canonicalArguments = '{"document_id":"doc-e2e","text":"hello"}';
+  const safeUser = createHash('sha256')
+    .update('e2e-user')
+    .digest('hex')
+    .slice(0, 16);
+  const pendingKey = `approval-pending:${safeUser}:${requestId}`;
   const approval = {
-    id: 'e2e-approval-deny',
-    runId: 'e2e-run',
-    status: 'pending',
-    action: 'Delete the selected external record',
-    reason: 'This mutation needs an explicit human decision.',
-    actionType: 'mcp_mutation',
-    target: 'record/e2e-42',
-    serverName: 'e2e-mcp',
-    toolName: 'delete_record',
-    approvalRequestId: 'e2e-request',
-    argumentsPreview: '{"record_id":"e2e-42","token":"[REDACTED]"}',
-    argumentsSha256: 'not-used-for-denial',
-    risk: 'high',
-    createdAt: Date.now(),
-    resolvedAt: null,
+    request_id: requestId,
+    user_id: 'e2e-user',
+    action_type: 'mcp_mutation',
+    action: 'Update the selected Google document',
+    reason: 'This document mutation needs an explicit human decision.',
+    target: 'document/doc-e2e',
+    server_name: 'docs_mcp_server',
+    tool_name: 'update_doc',
+    canonical_arguments: canonicalArguments,
+    arguments_preview: canonicalArguments,
+    arguments_sha256: createHash('sha256')
+      .update(canonicalArguments)
+      .digest('hex'),
+    created_at: Math.floor(Date.now() / 1000),
   };
-  await redis.del('autonomy:e2e-user:approvals');
-  await redis.call(
-    'JSON.SET',
-    'autonomy:e2e-user:approvals',
-    '$',
-    JSON.stringify([approval]),
-  );
+  await redis.setex(pendingKey, 300, JSON.stringify(approval));
+
+  await sendMessage(page, 'E2E_APPROVAL_REQUEST');
+  await expect(
+    page.getByText('e2e_approval_request_123', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Stop generating' }),
+  ).toBeHidden();
+
+  await sendMessage(page, 'yes');
+  await expect(
+    page.getByText('E2E approved credential received', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Stop generating' }),
+  ).toBeHidden();
+
+  expect(await redis.exists(pendingKey)).toBe(0);
+  const tokenKeys = await redis.keys(`approval:${safeUser}:*`);
+  expect(tokenKeys).toHaveLength(1);
+  await redis.del(...tokenKeys);
   await redis.quit();
-
-  await page.getByRole('tab', { name: 'Autonomy' }).click();
-  const pending = page.getByRole('region', { name: '1 pending approval' });
-  await expect(pending).toBeVisible();
-  await expect(
-    pending.getByText('Delete the selected external record'),
-  ).toBeVisible();
-  await expect(
-    pending.getByText('record/e2e-42', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    pending.getByText('delete_record', { exact: true }),
-  ).toBeVisible();
-  await expect(pending.getByText(/\[REDACTED\]/)).toBeVisible();
-
-  const decision = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' &&
-      response.url().endsWith('/api/autonomy/approvals'),
-  );
-  await pending.getByRole('button', { name: 'Deny' }).click();
-  const denied = await decision;
-  expect(denied.ok()).toBeTruthy();
-  expect(await denied.json()).toMatchObject({
-    id: approval.id,
-    status: 'denied',
-  });
-  await expect(pending).toBeHidden();
-
-  const approvals = await browserGet(page, '/api/autonomy/approvals');
-  expect(approvals.ok).toBeTruthy();
-  expect(JSON.parse(approvals.body)).toContainEqual(
-    expect.objectContaining({ id: approval.id, status: 'denied' }),
-  );
 });
 
 test('falls back to polling when WebSocket is unavailable', async ({

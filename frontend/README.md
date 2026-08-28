@@ -131,6 +131,7 @@ the top-level [`../README.md`](../README.md) for the complete deployment setup.
 | `server/chat/streamQueue.ts`           | Redis Stream enqueue, claim, lease, and acknowledgement primitives  |
 | `server/chat/streamWorker.ts`          | Durable execution, reclaim policy, cancellation, and drain          |
 | `server/chat/streamReader.ts`          | Bounded backend stream parsing and live-event persistence           |
+| `server/chat/mcpApproval.ts`           | Exact interactive MCP approval exchange and credential issuance     |
 | `server/chat/streamState.ts`           | Append-only response deltas and normalized intermediate-step state  |
 | `server/documentObjectStore.ts`        | Signed S3-compatible object operations                              |
 | `server/multipartDocument.ts`          | Bounded streaming multipart parser                                  |

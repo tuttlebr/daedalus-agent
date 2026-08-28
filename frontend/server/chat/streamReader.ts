@@ -300,6 +300,7 @@ export async function startBackgroundStreamReader(
           jobRequest.timezone,
           jobRequest.conversationId,
           jobId,
+          control.approvalToken,
         ),
         body: JSON.stringify(payload),
         signal: abortController.signal,

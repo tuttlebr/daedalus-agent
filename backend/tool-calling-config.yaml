@@ -37,7 +37,6 @@ authentication:
     token_endpoint_auth_method: client_secret_post
     scopes:
       - https://www.googleapis.com/auth/gmail.readonly
-      - https://www.googleapis.com/auth/gmail.compose
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
     token_storage_object_store: gmail_mcp_oauth_tokens
@@ -53,9 +52,7 @@ authentication:
     redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
     token_endpoint_auth_method: client_secret_post
     scopes:
-      - https://www.googleapis.com/auth/calendar.calendarlist.readonly
-      - https://www.googleapis.com/auth/calendar.events.readonly
-      - https://www.googleapis.com/auth/calendar.events.freebusy
+      - https://www.googleapis.com/auth/calendar
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
     token_storage_object_store: calendar_mcp_oauth_tokens
@@ -68,13 +65,10 @@ authentication:
     client_name: Daedalus Docs MCP
     redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
     token_endpoint_auth_method: client_secret_post
-    # Google documents all four scopes for its hosted Docs MCP server. Keep the
-    # exact set aligned with the Google Auth Platform consent configuration.
+    # Keep this request aligned with the authoritative Google Auth Platform
+    # consent configuration. The drive scope covers both hosted MCP tools.
     scopes:
-      - https://www.googleapis.com/auth/drive.readonly
-      - https://www.googleapis.com/auth/drive.file
-      - https://www.googleapis.com/auth/documents.readonly
-      - https://www.googleapis.com/auth/documents
+      - https://www.googleapis.com/auth/drive
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
     token_storage_object_store: docs_mcp_oauth_tokens
@@ -85,15 +79,22 @@ object_stores:
   gmail_mcp_oauth_tokens:
     _type: daedalus_redis_object_store
     redis_url: ${REDIS_URL}
-    bucket_name: gmail-mcp-oauth
+    # The previous bucket can contain grants with gmail.compose. Use a new
+    # bucket so Gmail reconnects once with the read-only scope above.
+    bucket_name: gmail-mcp-oauth-ro
   calendar_mcp_oauth_tokens:
     _type: daedalus_redis_object_store
     redis_url: ${REDIS_URL}
-    bucket_name: calendar-mcp-oauth
+    # The previous bucket contains read-only grants. Use a new bucket so the
+    # first Calendar write requests fresh consent for the full calendar scope
+    # instead of repeatedly presenting a valid but under-scoped cached token.
+    bucket_name: calendar-mcp-oauth-rw
   docs_mcp_oauth_tokens:
     _type: daedalus_redis_object_store
     redis_url: ${REDIS_URL}
-    bucket_name: docs-mcp-oauth
+    # The previous bucket can contain a different four-scope grant. Use a new
+    # bucket so Docs reconnects once with the authoritative drive scope above.
+    bucket_name: docs-mcp-oauth-drive
 embedders:
   milvus_embedder:
     _type: daedalus_vllm
@@ -228,7 +229,6 @@ function_groups:
       - get_message
       - list_labels
       - list_drafts
-      - create_draft
     tool_call_timeout: 120
     auth_flow_timeout: 600
     reconnect_enabled: true
@@ -253,11 +253,6 @@ function_groups:
         approval_policy: read_only
       list_drafts:
         approval_policy: read_only
-      create_draft:
-        approval_policy: approval_required
-        description: >-
-          After the user approves the exact recipients, subject, body, and
-          reply target, create a Gmail draft. Do not send it.
     server:
       auth_provider: gmail_mcp_server
       transport: streamable-http
@@ -270,6 +265,10 @@ function_groups:
       - list_calendars
       - suggest_time
       - search_events
+      - create_event
+      - update_event
+      - delete_event
+      - respond_to_event
     tool_call_timeout: 120
     auth_flow_timeout: 600
     reconnect_enabled: true
@@ -288,6 +287,14 @@ function_groups:
         approval_policy: read_only
       search_events:
         approval_policy: read_only
+      create_event:
+        approval_policy: approval_required
+      update_event:
+        approval_policy: approval_required
+      delete_event:
+        approval_policy: approval_required
+      respond_to_event:
+        approval_policy: approval_required
     server:
       auth_provider: calendar_mcp_server
       transport: streamable-http

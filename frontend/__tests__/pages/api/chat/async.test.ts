@@ -1,18 +1,24 @@
+import {
+  extractAsyncStreamContentDelta,
+  parseIntermediateDataLine,
+} from '@/utils/app/asyncStepParser';
 import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
 
 import handler, {
   mergeSubmittedMessagesWithStoredHistory,
 } from '@/pages/api/chat/async';
-import {
-  extractAsyncStreamContentDelta,
-  parseIntermediateDataLine,
-} from '@/utils/app/asyncStepParser';
 
 import {
   resetStreamBackendPin,
   resolveAsyncBackendBaseUrls,
   selectStreamBackendBaseUrl,
 } from '@/server/chat/backendSelection';
+import {
+  MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS,
+  STREAM_READ_IDLE_TIMEOUT_MS,
+} from '@/server/chat/constants';
+import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
+import { finalizeSuccess } from '@/server/chat/finalization';
 import {
   appendDocumentAttachmentContext,
   compactDocumentIngestionMessage,
@@ -23,12 +29,6 @@ import {
   buildNatRequestHeaders,
   buildNatSessionId,
 } from '@/server/chat/natMessages';
-import {
-  MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS,
-  STREAM_READ_IDLE_TIMEOUT_MS,
-} from '@/server/chat/constants';
-import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
-import { finalizeSuccess } from '@/server/chat/finalization';
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import {
   clearStreamingState,
@@ -202,7 +202,11 @@ describe('chat/async backend pinning helpers', () => {
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
 
     const first = await selectStreamBackendBaseUrl('job-1', 'testuser', 'sess');
-    const second = await selectStreamBackendBaseUrl('job-2', 'testuser', 'sess');
+    const second = await selectStreamBackendBaseUrl(
+      'job-2',
+      'testuser',
+      'sess',
+    );
 
     expect(first).toBe('http://10.0.2.61:8000');
     expect(second).toBe(first);
@@ -298,6 +302,35 @@ describe('chat/async backend pinning helpers', () => {
         'invalid/request',
       ),
     ).not.toHaveProperty('x-daedalus-request-id');
+  });
+
+  it('forwards only a validated server-generated approval credential', () => {
+    expect(
+      buildNatRequestHeaders(
+        'testuser',
+        {},
+        undefined,
+        undefined,
+        'conversation-123',
+        'job-123',
+        'abcdefghijklmnopqrstuvwx',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        'x-daedalus-approval-token': 'abcdefghijklmnopqrstuvwx',
+      }),
+    );
+    expect(
+      buildNatRequestHeaders(
+        'testuser',
+        {},
+        undefined,
+        undefined,
+        'conversation-123',
+        'job-123',
+        'invalid credential',
+      ),
+    ).not.toHaveProperty('x-daedalus-approval-token');
   });
 
   it('adds the internal API token to backend requests when configured', () => {
@@ -824,16 +857,18 @@ describe('chat/async backend pinning helpers', () => {
     // in that conversation return 404 forever.
     mocks.resolve4.mockResolvedValue(['10.0.2.61']);
     mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
-    mocks.validateDocumentRefsForUser.mockImplementation(async (refs: any[]) => {
-      if (refs[0]?.documentId === 'expired-doc') {
-        throw new mocks.DocumentRefAccessError(
-          404,
-          'Document attachment not found. Please upload it again.',
-          'document_ref_not_found',
-        );
-      }
-      return refs;
-    });
+    mocks.validateDocumentRefsForUser.mockImplementation(
+      async (refs: any[]) => {
+        if (refs[0]?.documentId === 'expired-doc') {
+          throw new mocks.DocumentRefAccessError(
+            404,
+            'Document attachment not found. Please upload it again.',
+            'document_ref_not_found',
+          );
+        }
+        return refs;
+      },
+    );
 
     const req = {
       method: 'POST',

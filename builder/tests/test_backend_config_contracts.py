@@ -701,13 +701,13 @@ def test_visual_media_tool_is_top_level():
         assert "visual_media_tool" in workflow_tools, path
 
 
-def test_workflow_exposes_only_the_configured_gmail_write():
+def test_workflow_exposes_gmail_as_read_only():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         exposed_ops = set(_effective_operations(config, "gmail_mcp_server"))
         text = config["workflow"]["instructions"].lower()
 
-        assert "create_draft" in exposed_ops, path
+        assert "create_draft" not in exposed_ops, path
         assert "send_message" not in exposed_ops, path
         assert "send_draft" not in exposed_ops, path
         assert "create draft" not in text, path
@@ -720,7 +720,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             "auth_server_url": "https://gmailmcp.googleapis.com/mcp",
             "scopes": {
                 "https://www.googleapis.com/auth/gmail.readonly",
-                "https://www.googleapis.com/auth/gmail.compose",
             },
             "include": [
                 "search_threads",
@@ -728,16 +727,14 @@ def test_google_workspace_mcp_uses_per_user_oauth():
                 "get_message",
                 "list_labels",
                 "list_drafts",
-                "create_draft",
             ],
+            "bucket_name": "gmail-mcp-oauth-ro",
         },
         "calendar_mcp_server": {
             "server_url": "https://calendarmcp.googleapis.com/mcp/v1",
             "auth_server_url": "https://calendarmcp.googleapis.com/mcp",
             "scopes": {
-                "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-                "https://www.googleapis.com/auth/calendar.events.readonly",
-                "https://www.googleapis.com/auth/calendar.events.freebusy",
+                "https://www.googleapis.com/auth/calendar",
             },
             "include": [
                 "list_events",
@@ -745,18 +742,21 @@ def test_google_workspace_mcp_uses_per_user_oauth():
                 "list_calendars",
                 "suggest_time",
                 "search_events",
+                "create_event",
+                "update_event",
+                "delete_event",
+                "respond_to_event",
             ],
+            "bucket_name": "calendar-mcp-oauth-rw",
         },
         "docs_mcp_server": {
             "server_url": "https://docsmcp.googleapis.com/mcp/v1",
             "auth_server_url": "https://docsmcp.googleapis.com/mcp/v1",
             "scopes": {
-                "https://www.googleapis.com/auth/drive.readonly",
-                "https://www.googleapis.com/auth/drive.file",
-                "https://www.googleapis.com/auth/documents.readonly",
-                "https://www.googleapis.com/auth/documents",
+                "https://www.googleapis.com/auth/drive",
             },
             "include": ["read_doc", "update_doc"],
+            "bucket_name": "docs-mcp-oauth-drive",
         },
     }
 
@@ -805,7 +805,7 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             assert token_store == {
                 "_type": "daedalus_redis_object_store",
                 "redis_url": "${REDIS_URL}",
-                "bucket_name": name.replace("_mcp_server", "-mcp-oauth"),
+                "bucket_name": values["bucket_name"],
             }, path
 
             group = function_groups[name]
@@ -896,7 +896,6 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "get_message",
             "list_labels",
             "list_drafts",
-            "create_draft",
         },
         "calendar_mcp_server": {
             "list_events",
@@ -904,11 +903,20 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "list_calendars",
             "suggest_time",
             "search_events",
+            "create_event",
+            "update_event",
+            "delete_event",
+            "respond_to_event",
         },
         "docs_mcp_server": {"read_doc", "update_doc"},
     }
     approval_required = {
-        "gmail_mcp_server": {"create_draft"},
+        "calendar_mcp_server": {
+            "create_event",
+            "update_event",
+            "delete_event",
+            "respond_to_event",
+        },
         "docs_mcp_server": {"update_doc"},
     }
     unrestricted = {"k8s_mcp_server", "unifi_mcp_server"}

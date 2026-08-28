@@ -266,9 +266,11 @@ MCP exposure and approval follow one configuration rule:
   `read_only`. Omit `approval_policy`, or use
   `approval_policy: approval_required` when an explicit marker improves
   clarity. The call remains fail-closed until
-  `confirm_action` issues a credential bound to the exact server, tool, and
-  final arguments. Unknown policy values and policy entries outside `include`
-  fail backend startup.
+  `confirm_action` records an intent bound to the exact server, tool, and final
+  arguments. In interactive Chat, a strict next-message approval atomically
+  creates one short-lived credential in trusted request metadata. The browser
+  and model never receive it. Unknown policy values and policy entries outside
+  `include` fail backend startup. Autonomous runs cannot request approvals.
 - For static API-key MCP providers, backend startup logs only whether the
   required environment variable is non-empty (`configured=True|False`), never
   the value. This verifies deployment injection, not upstream acceptance; a
@@ -519,7 +521,7 @@ do not record result content or cache references.
 The frontend includes:
 
 - Frontend-managed async chat with pinned backend streaming
-- Autonomy dashboard for worker status, goals, runs, feed items, and approvals
+- Autonomy dashboard for worker status, goals, runs, and feed items
 - Authentication backed by Redis
 - File attachments for images, documents, and videos
 - Durable, authenticated downloads for files created in the Bubblewrap sandbox
@@ -579,7 +581,7 @@ specific claim issues. Its reported confidence is explicitly uncalibrated.
 
 ## Autonomous Agent
 
-The Helm chart enables an autonomous background agent by default. It runs as a dedicated worker Deployment, using Redis as its control plane: the UI stores config, goals, queued runs, events, feed items, approvals, and cancellation flags, while the worker consumes the queue and publishes updates back through the existing WebSocket sync channel.
+The Helm chart enables an autonomous background agent by default. It runs as a dedicated worker Deployment, using Redis as its control plane: the UI stores config, goals, queued runs, events, feed items, and cancellation flags, while the worker consumes the queue and publishes updates back through the existing WebSocket sync channel.
 
 The design follows the useful parts of Hermes-style autonomy: a persistent agent loop, stable identity and memory context, explicit goals, and structured run output. Daedalus intentionally keeps background work non-interactive and the UI as the control point; there are no Slack, Discord, or other third-party messaging surfaces.
 
