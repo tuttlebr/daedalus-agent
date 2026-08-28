@@ -89,10 +89,14 @@ For Google Workspace MCP, the backend secret must include
 Google OAuth client and should point at the public nginx backend redirect
 path, for example `https://daedalus.ddns.me/auth/redirect`. One OAuth client is
 shared by Gmail, Calendar, and Docs. Add the scope union
-listed in `.env.template` to the consent configuration. Google exposes each MCP
-as a separate protected resource, so each service can require one initial
-authorization; the resulting per-user tokens are stored in separate Redis
-object-store buckets and remain usable across chats, restarts, and replicas.
+listed in `.env.template` to the consent configuration. Before deployment,
+enable both `docs.googleapis.com` and `docsmcp.googleapis.com` in that OAuth
+client's Google Cloud project. Google exposes each MCP as a separate protected
+resource, so each service can require one initial authorization; the resulting
+per-user tokens are stored in separate Redis object-store buckets and remain
+usable across chats, restarts, and replicas. The Docs flow requests offline,
+incremental authorization so Google can issue a refresh token for durable
+access.
 
 ### Redis ACL, TLS, And Rotation
 

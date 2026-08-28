@@ -35,6 +35,7 @@ from mcp_patches import (  # noqa: E402
     _mcp_recovery_attempted,
     _McpAppError,
     _McpAuthFailureLevelFilter,
+    _patch_google_docs_oauth_authorization_parameters,
     _patch_mcp_auth_context_propagation,
     _patch_mcp_auth_transport_timeout,
     _patch_mcp_http_auth_timeout,
@@ -222,12 +223,140 @@ def test_protected_resource_401_invalidates_cached_token_before_reauthentication
     credentials_ready = asyncio.Event()
     adapter._daedalus_credentials_ready_event = credentials_ready
 
+    request = httpx.Request(
+        "POST",
+        "https://docsmcp.googleapis.com/mcp/v1",
+        headers={"Authorization": "Bearer rejected"},
+    )
     response = types.SimpleNamespace(status_code=401)
-    assert run(adapter._get_auth_headers(response=response)) == {
+    assert run(adapter._get_auth_headers(request=request, response=response)) == {
         "Authorization": "Bearer replacement"
     }
     assert events == [("delete", "opaque-user-id"), ("authenticate", 401)]
     assert credentials_ready.is_set()
+
+
+def test_anonymous_discovery_401_preserves_saved_token(monkeypatch):
+    """A new transport's anonymous OAuth discovery must not delete its token."""
+    events = []
+
+    class FakeContext:
+        @staticmethod
+        def scope(**_kwargs):
+            class Scope:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *_args):
+                    return None
+
+            return Scope()
+
+    class FakeStorage:
+        async def delete(self, user_id):
+            events.append(("delete", user_id))
+
+    class FakeAuthAdapter:
+        def __init__(self):
+            self.user_id = "opaque-user-id"
+            self.auth_provider = types.SimpleNamespace(_token_storage=FakeStorage())
+
+        async def _get_auth_headers(self, request=None, response=None):
+            events.append(("authenticate", getattr(response, "status_code", None)))
+            return {"Authorization": "Bearer saved"}
+
+    context_module = types.ModuleType("nat.builder.context")
+    context_module.Context = FakeContext
+    client_module = types.ModuleType("nat.plugins.mcp.client.client_base")
+    client_module.AuthAdapter = FakeAuthAdapter
+    for module_name in (
+        "nat",
+        "nat.builder",
+        "nat.plugins",
+        "nat.plugins.mcp",
+        "nat.plugins.mcp.client",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(sys.modules, "nat.builder.context", context_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.plugins.mcp.client.client_base",
+        client_module,
+    )
+
+    _patch_mcp_auth_context_propagation()
+    adapter = FakeAuthAdapter()
+    adapter._daedalus_user_auth_callback = object()
+    request = httpx.Request(
+        "POST",
+        "https://docsmcp.googleapis.com/mcp/v1",
+    )
+
+    assert run(
+        adapter._get_auth_headers(
+            request=request,
+            response=types.SimpleNamespace(status_code=401),
+        )
+    ) == {"Authorization": "Bearer saved"}
+    assert events == [("authenticate", 401)]
+
+
+def test_google_docs_oauth_requests_offline_incremental_consent(monkeypatch):
+    """Docs OAuth follows Google's durable web-server authorization guidance."""
+
+    class FakeOAuth2AuthCodeFlowProvider:
+        def __init__(self, resource):
+            self.config = types.SimpleNamespace(
+                authorization_kwargs={"resource": resource}
+            )
+
+        async def authenticate(self, user_id=None, **kwargs):
+            return {
+                "user_id": user_id,
+                "kwargs": kwargs,
+                "authorization_kwargs": self.config.authorization_kwargs,
+            }
+
+    provider_module = types.ModuleType(
+        "nat.authentication.oauth2.oauth2_auth_code_flow_provider"
+    )
+    provider_module.OAuth2AuthCodeFlowProvider = FakeOAuth2AuthCodeFlowProvider
+    for module_name in (
+        "nat",
+        "nat.authentication",
+        "nat.authentication.oauth2",
+    ):
+        module = types.ModuleType(module_name)
+        module.__path__ = []
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setitem(
+        sys.modules,
+        "nat.authentication.oauth2.oauth2_auth_code_flow_provider",
+        provider_module,
+    )
+
+    _patch_google_docs_oauth_authorization_parameters()
+
+    docs_provider = FakeOAuth2AuthCodeFlowProvider(
+        "https://docsmcp.googleapis.com/mcp/v1"
+    )
+    result = run(docs_provider.authenticate(user_id="opaque-user"))
+    assert result["authorization_kwargs"] == {
+        "resource": "https://docsmcp.googleapis.com/mcp/v1",
+        "access_type": "offline",
+        "include_granted_scopes": "true",
+        "prompt": "consent",
+    }
+
+    calendar_provider = FakeOAuth2AuthCodeFlowProvider(
+        "https://calendarmcp.googleapis.com/mcp/v1"
+    )
+    calendar_result = run(calendar_provider.authenticate(user_id="opaque-user"))
+    assert calendar_result["authorization_kwargs"] == {
+        "resource": "https://calendarmcp.googleapis.com/mcp/v1"
+    }
 
 
 def test_non_401_authentication_does_not_invalidate_cached_token(monkeypatch):

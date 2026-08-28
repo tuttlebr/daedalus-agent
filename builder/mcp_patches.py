@@ -9,6 +9,8 @@ hooks:
   only verified teardown cancellation after a successful session yield;
 * discard a cached OAuth token after a protected-resource 401 and separate the
   browser-auth timeout from the ordinary tool response timeout;
+* keep Google Docs authorization durable by requesting offline, incremental
+  consent from Google's web-server OAuth flow;
 * promote terminal OAuth refresh failures to error-level operational logs;
 * bind each HTTP request's OAuth callback before entering a cached per-user
   workflow, so tool tasks cannot recover a callback from an older request;
@@ -93,6 +95,14 @@ _SUPPORTED_APPROVAL_POLICIES = frozenset(
 _MCP_STARTUP_GROUP_TIMEOUT = 15.0
 _MCP_RECOVERY_TOTAL_TIMEOUT = 5.0
 _DEFAULT_MCP_OAUTH_TIMEOUT_SECONDS = 600.0
+_GOOGLE_DOCS_MCP_RESOURCE = "https://docsmcp.googleapis.com/mcp/v1"
+_GOOGLE_DOCS_AUTHORIZATION_KWARGS = {
+    "access_type": "offline",
+    "include_granted_scopes": "true",
+    # The callback is invoked only when no usable token remains. Explicit
+    # consent guarantees that a replacement flow can return a refresh token.
+    "prompt": "consent",
+}
 
 _STARTUP_RESILIENCE_EXCEPTIONS = (
     Exception,
@@ -305,9 +315,7 @@ def _deep_merge_policy_mapping(base_value: dict, override_value: dict) -> dict:
     return result
 
 
-def _load_policy_config(
-    path: Path, _seen: frozenset[Path] = frozenset()
-) -> dict:
+def _load_policy_config(path: Path, _seen: frozenset[Path] = frozenset()) -> dict:
     resolved = path.resolve()
     if resolved in _seen or len(_seen) >= _MAX_POLICY_BASE_DEPTH:
         raise RuntimeError(
@@ -324,9 +332,7 @@ def _load_policy_config(
     base = raw_config.pop("base", None)
     if not base:
         return raw_config
-    base_config = _load_policy_config(
-        resolved.parent / str(base), _seen | {resolved}
-    )
+    base_config = _load_policy_config(resolved.parent / str(base), _seen | {resolved})
     return _deep_merge_policy_mapping(base_config, raw_config)
 
 
@@ -1239,6 +1245,18 @@ async def _invalidate_rejected_mcp_oauth_token(auth_adapter) -> bool:
     return True
 
 
+def _request_sent_bearer_credential(request) -> bool:
+    """Return whether the rejected protected-resource request used Bearer auth."""
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return False
+    try:
+        authorization = headers.get("Authorization", "")
+    except (AttributeError, TypeError):
+        return False
+    return str(authorization).strip().casefold().startswith("bearer ")
+
+
 async def _call_with_current_mcp_oauth_callback(
     parent_client,
     callback,
@@ -1420,11 +1438,15 @@ def _patch_mcp_auth_context_propagation():
                     response=response,
                 )
 
-            if getattr(response, "status_code", None) == 401:
+            if getattr(
+                response, "status_code", None
+            ) == 401 and _request_sent_bearer_credential(request):
                 # NAT's auth-code provider returns any unexpired token from its
                 # object store. A protected resource can reject that token
                 # before its local expiry, so remove it before NAT retries or
                 # the same rejected credential will be returned indefinitely.
+                # Do not delete a good saved token for the expected anonymous
+                # 401 that bootstraps OAuth endpoint discovery on a new client.
                 await _invalidate_rejected_mcp_oauth_token(self)
 
             # The HTTP request is executed by the cached transport task, whose
@@ -1461,6 +1483,58 @@ def _patch_mcp_auth_context_propagation():
         logger.warning(
             "Unexpected error patching MCP AuthAdapter context propagation: %s",
             exc,
+        )
+
+
+def _patch_google_docs_oauth_authorization_parameters():
+    """Apply Google's durable web-server authorization parameters to Docs MCP."""
+    try:
+        import functools
+
+        from nat.authentication.oauth2.oauth2_auth_code_flow_provider import (
+            OAuth2AuthCodeFlowProvider,
+        )
+
+        original_authenticate = OAuth2AuthCodeFlowProvider.authenticate
+        if getattr(
+            original_authenticate,
+            "_daedalus_google_docs_authorization_parameters",
+            False,
+        ):
+            return
+
+        signature = inspect.signature(original_authenticate)
+        parameters = list(signature.parameters.values())
+        if [parameter.name for parameter in parameters] != [
+            "self",
+            "user_id",
+            "kwargs",
+        ] or parameters[-1].kind is not inspect.Parameter.VAR_KEYWORD:
+            raise RuntimeError(
+                "Unexpected OAuth2AuthCodeFlowProvider.authenticate signature: "
+                f"{signature}"
+            )
+
+        @functools.wraps(original_authenticate)
+        async def wrapped(self, user_id=None, **kwargs):
+            config = getattr(self, "config", None)
+            authorization_kwargs = dict(
+                getattr(config, "authorization_kwargs", None) or {}
+            )
+            resource = str(authorization_kwargs.get("resource") or "").rstrip("/")
+            if resource == _GOOGLE_DOCS_MCP_RESOURCE:
+                authorization_kwargs.update(_GOOGLE_DOCS_AUTHORIZATION_KWARGS)
+                config.authorization_kwargs = authorization_kwargs
+            return await original_authenticate(self, user_id=user_id, **kwargs)
+
+        wrapped._daedalus_google_docs_authorization_parameters = True
+        OAuth2AuthCodeFlowProvider.authenticate = wrapped
+        logger.info("Google Docs durable OAuth authorization parameters applied")
+    except ImportError as exc:
+        logger.warning("Could not patch Google Docs OAuth parameters: %s", exc)
+    except Exception as exc:
+        logger.warning(
+            "Unexpected error patching Google Docs OAuth parameters: %s", exc
         )
 
 
@@ -1923,6 +1997,7 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     _log_static_mcp_api_key_configuration()
     _patch_mcp_auth_log_levels()
     _patch_mcp_http_auth_timeout()
+    _patch_google_docs_oauth_authorization_parameters()
     _patch_mcp_request_auth_binding()
 
     try:

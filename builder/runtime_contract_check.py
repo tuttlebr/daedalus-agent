@@ -556,6 +556,9 @@ def main() -> None:
     if request_payload.get("truncation") != "auto":
         raise RuntimeError("Responses truncation schema was not preserved")
 
+    from nat.authentication.oauth2.oauth2_auth_code_flow_provider import (
+        OAuth2AuthCodeFlowProvider,
+    )
     from nat.front_ends.fastapi.auth_flow_handlers.http_flow_handler import (
         HTTPAuthenticationFlowHandler,
     )
@@ -586,6 +589,12 @@ def main() -> None:
         False,
     ):
         raise RuntimeError("MCP OAuth retry wrapper did not attach")
+    if not getattr(
+        OAuth2AuthCodeFlowProvider.authenticate,
+        "_daedalus_google_docs_authorization_parameters",
+        False,
+    ):
+        raise RuntimeError("Google Docs durable OAuth parameters did not attach")
     if not getattr(
         MCPBaseClient._get_tool_call_timeout,
         "_daedalus_interactive_auth_transport_timeout",

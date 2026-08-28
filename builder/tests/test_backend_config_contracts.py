@@ -752,6 +752,8 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             "auth_server_url": "https://docsmcp.googleapis.com/mcp/v1",
             "scopes": {
                 "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/drive.file",
+                "https://www.googleapis.com/auth/documents.readonly",
                 "https://www.googleapis.com/auth/documents",
             },
             "include": ["read_doc", "update_doc"],

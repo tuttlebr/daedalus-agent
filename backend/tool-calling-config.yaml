@@ -68,10 +68,12 @@ authentication:
     client_name: Daedalus Docs MCP
     redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
     token_endpoint_auth_method: client_secret_post
-    # documents includes read access. drive.readonly is retained so the user
-    # can locate documents across Drive without granting full Drive writes.
+    # Google documents all four scopes for its hosted Docs MCP server. Keep the
+    # exact set aligned with the Google Auth Platform consent configuration.
     scopes:
       - https://www.googleapis.com/auth/drive.readonly
+      - https://www.googleapis.com/auth/drive.file
+      - https://www.googleapis.com/auth/documents.readonly
       - https://www.googleapis.com/auth/documents
     use_pkce: true
     allow_default_user_id_for_tool_calls: false
