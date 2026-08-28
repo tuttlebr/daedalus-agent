@@ -207,14 +207,15 @@ def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
     assert overrides["spec"]["containers"][0]["envFrom"] == [
         {"secretRef": {"name": "daedalus-backend-env"}}
     ]
-    expressions = overrides["spec"]["affinity"]["nodeAffinity"][
-        "requiredDuringSchedulingIgnoredDuringExecution"
-    ]["nodeSelectorTerms"][0]["matchExpressions"]
-    assert {
-        "key": "kubernetes.io/hostname",
-        "operator": "NotIn",
-        "values": ["daedalus-06"],
-    } in expressions
+    assert overrides["spec"]["tolerations"] == [
+        {
+            "key": "nvidia.com/gpu",
+            "operator": "Equal",
+            "value": "true",
+            "effect": "NoSchedule",
+        }
+    ]
+    assert "affinity" not in overrides["spec"]
 
 
 def test_authenticated_cluster_probe_requires_kubernetes_secret():

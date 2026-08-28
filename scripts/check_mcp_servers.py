@@ -529,23 +529,14 @@ printf '\\n__MCP_TOOLS_BODY_END__\\n'
         image,
     ]
     pod_spec = {
-        "affinity": {
-            "nodeAffinity": {
-                "requiredDuringSchedulingIgnoredDuringExecution": {
-                    "nodeSelectorTerms": [
-                        {
-                            "matchExpressions": [
-                                {
-                                    "key": "kubernetes.io/hostname",
-                                    "operator": "NotIn",
-                                    "values": ["daedalus-06"],
-                                }
-                            ]
-                        }
-                    ]
-                }
+        "tolerations": [
+            {
+                "key": "nvidia.com/gpu",
+                "operator": "Equal",
+                "value": "true",
+                "effect": "NoSchedule",
             }
-        }
+        ]
     }
     if auth_environment_name:
         pod_spec["containers"] = [

@@ -85,7 +85,8 @@ def test_probe_uses_secret_refs_and_backend_policy_labels():
         == "backend-default"
     )
     assert overrides["spec"]["automountServiceAccountToken"] is False
-    assert overrides["spec"]["affinity"] == check_rag.PREFLIGHT_AFFINITY
+    assert overrides["spec"]["tolerations"] == check_rag.PREFLIGHT_TOLERATIONS
+    assert "affinity" not in overrides["spec"]
     code = command[command.index("-c") + 1]
     assert '("EMBEDDING_BASE_URL", "RERANKER_BASE_URL")' in code
 

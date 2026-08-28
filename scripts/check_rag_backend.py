@@ -13,23 +13,14 @@ import sys
 import uuid
 from dataclasses import dataclass
 
-PREFLIGHT_AFFINITY = {
-    "nodeAffinity": {
-        "requiredDuringSchedulingIgnoredDuringExecution": {
-            "nodeSelectorTerms": [
-                {
-                    "matchExpressions": [
-                        {
-                            "key": "kubernetes.io/hostname",
-                            "operator": "NotIn",
-                            "values": ["daedalus-06"],
-                        }
-                    ]
-                }
-            ]
-        }
+PREFLIGHT_TOLERATIONS = [
+    {
+        "key": "nvidia.com/gpu",
+        "operator": "Equal",
+        "value": "true",
+        "effect": "NoSchedule",
     }
-}
+]
 
 
 class CheckError(RuntimeError):
@@ -271,10 +262,10 @@ for dependency in ("EMBEDDING_BASE_URL", "RERANKER_BASE_URL"):
     overrides = {
         "metadata": {"labels": config.labels},
         "spec": {
-            "affinity": PREFLIGHT_AFFINITY,
             "automountServiceAccountToken": False,
             "containers": [container],
             "restartPolicy": "Never",
+            "tolerations": PREFLIGHT_TOLERATIONS,
         },
     }
     return [

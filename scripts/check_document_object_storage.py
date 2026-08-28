@@ -33,23 +33,14 @@ REQUIRED_SECRET_NAMES = {
     "DOCUMENT_OBJECT_SECRET_KEY",
 }
 SAFE_LABEL = re.compile(r"^[A-Za-z0-9._-]+$")
-PREFLIGHT_AFFINITY = {
-    "nodeAffinity": {
-        "requiredDuringSchedulingIgnoredDuringExecution": {
-            "nodeSelectorTerms": [
-                {
-                    "matchExpressions": [
-                        {
-                            "key": "kubernetes.io/hostname",
-                            "operator": "NotIn",
-                            "values": ["daedalus-06"],
-                        }
-                    ]
-                }
-            ]
-        }
+PREFLIGHT_TOLERATIONS = [
+    {
+        "key": "nvidia.com/gpu",
+        "operator": "Equal",
+        "value": "true",
+        "effect": "NoSchedule",
     }
-}
+]
 
 
 class CheckError(RuntimeError):
@@ -318,7 +309,6 @@ esac
     overrides = {
         "metadata": {"labels": config.pod_labels},
         "spec": {
-            "affinity": PREFLIGHT_AFFINITY,
             "automountServiceAccountToken": False,
             "containers": [
                 {
@@ -334,6 +324,7 @@ esac
                     },
                 }
             ],
+            "tolerations": PREFLIGHT_TOLERATIONS,
             "restartPolicy": "Never",
         },
     }
