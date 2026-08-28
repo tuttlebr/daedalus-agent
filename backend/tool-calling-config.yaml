@@ -287,10 +287,10 @@ function_groups:
         approval_policy: read_only
       search_events:
         approval_policy: read_only
-      # create_event:
-      #   approval_policy: approval_required
-      # update_event:
-      #   approval_policy: approval_required
+      create_event:
+        approval_policy: read_only
+      update_event:
+        approval_policy: read_only
       # delete_event:
       #   approval_policy: approval_required
       # respond_to_event:
@@ -314,8 +314,8 @@ function_groups:
     tool_overrides:
       read_doc:
         approval_policy: read_only
-      # update_doc:
-      #   approval_policy: approval_required
+      update_doc:
+        approval_policy: read_only
     server:
       auth_provider: docs_mcp_server
       transport: streamable-http
