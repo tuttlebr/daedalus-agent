@@ -319,6 +319,15 @@ def test_backend_dockerfile_assigns_runtime_files_to_non_root_user():
     assert "/workspace/.tmp" not in dockerfile
 
 
+def test_backend_dockerfile_copies_mcp_approval_executor_before_runtime_check():
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+
+    approval_copy = "COPY mcp_approval_api.py /workspace/mcp_approval_api.py"
+    runtime_check = "RUN python /workspace/runtime_contract_check.py"
+    assert approval_copy in dockerfile
+    assert dockerfile.index(approval_copy) < dockerfile.index(runtime_check)
+
+
 def test_backend_build_context_excludes_local_generated_metadata():
     dockerignore = DOCKERIGNORE.read_text(encoding="utf-8")
 

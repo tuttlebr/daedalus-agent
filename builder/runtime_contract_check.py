@@ -170,6 +170,7 @@ def main() -> None:
     # NAT 1.8 exposes runner_class as its supported application-composition
     # hook. Prove the configured Daedalus worker remains a valid subclass so
     # route ownership never falls back to a process-wide FastAPI patch.
+    from mcp_approval_api import create_mcp_approval_router
     from memory_api import router as memory_router
     from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
         FastApiFrontEndPluginWorker,
@@ -178,6 +179,15 @@ def main() -> None:
 
     if not issubclass(DaedalusFastApiFrontEndPluginWorker, FastApiFrontEndPluginWorker):
         raise RuntimeError("Daedalus NAT runner no longer satisfies the pinned ABI")
+
+    approval_router = create_mcp_approval_router(
+        session_managers=[],
+        execution_store=SimpleNamespace(),
+        http_flow_handler=SimpleNamespace(),
+    )
+    approval_paths = {route.path for route in approval_router.routes}
+    if "/v1/mcp-approvals/{request_id}/execute" not in approval_paths:
+        raise RuntimeError("Daedalus MCP approval execution route is unavailable")
 
     memory_paths = {route.path for route in memory_router.routes}
     required_memory_paths = {

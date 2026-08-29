@@ -133,6 +133,7 @@ COPY image_api.py /workspace/image_api.py
 COPY collection_metadata_api.py /workspace/collection_metadata_api.py
 COPY document_ingest_api.py /workspace/document_ingest_api.py
 COPY memory_api.py /workspace/memory_api.py
+COPY mcp_approval_api.py /workspace/mcp_approval_api.py
 COPY profile_import_api.py /workspace/profile_import_api.py
 
 # Exercise the installed NAT ABI and all local plugin registrations before the
