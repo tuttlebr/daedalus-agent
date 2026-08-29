@@ -9,7 +9,7 @@ import {
   inferGoogleWorkspaceService,
 } from '@/utils/app/googleWorkspace';
 import {
-  MCP_APPROVAL_MARKER_PATTERN,
+  extractMcpApprovalMarkerText,
   parseMcpApprovalMarker,
 } from '@/utils/app/mcpApproval';
 import { Logger } from '@/utils/logger';
@@ -460,41 +460,53 @@ export async function startBackgroundStreamReader(
               }
             }
 
-            accumulatedStepCount += 1;
-            pendingSteps.push(step);
-            // Append only new events so live polling doesn't rewrite history.
-            await flushSteps();
-            await flushStreamingStatus();
-
-            if (tokenChannel) {
-              publisher
-                .publish(
-                  tokenChannel,
-                  JSON.stringify({
-                    type: 'chat_intermediate_step',
-                    conversationId,
-                    jobId,
-                    turnId: jobRequest.turnId,
-                    assistantMessageId: jobRequest.assistantMessageId,
-                    step,
-                  }),
-                )
-                .catch(() => {});
+            const raw = step.payload?.data?.output;
+            const exactApprovalMarker =
+              eventType === 'TOOL_END'
+                ? extractMcpApprovalMarkerText(raw)
+                : null;
+            if (
+              exactApprovalMarker &&
+              parseMcpApprovalMarker(exactApprovalMarker)
+            ) {
+              pendingApprovalMarker = exactApprovalMarker;
+              lastToolOutput = '';
+              streamDone = true;
             }
 
-            // Extract function output for partial response tracking
-            const raw = step.payload?.data?.output;
+            // The approval result is a terminal control event, not tool
+            // history. Never persist or publish the potentially large wrapped
+            // function output that carried it.
+            if (!streamDone) {
+              accumulatedStepCount += 1;
+              pendingSteps.push(step);
+              // Append only new events so live polling doesn't rewrite history.
+              await flushSteps();
+              await flushStreamingStatus();
+
+              if (tokenChannel) {
+                publisher
+                  .publish(
+                    tokenChannel,
+                    JSON.stringify({
+                      type: 'chat_intermediate_step',
+                      conversationId,
+                      jobId,
+                      turnId: jobRequest.turnId,
+                      assistantMessageId: jobRequest.assistantMessageId,
+                      step,
+                    }),
+                  )
+                  .catch(() => {});
+              }
+            }
+
+            // Extract ordinary function output for partial response tracking.
             if (
-              step.payload?.event_type === 'TOOL_END' &&
+              !streamDone &&
+              eventType === 'TOOL_END' &&
               typeof raw === 'string'
             ) {
-              const approvalMarker = parseMcpApprovalMarker(raw);
-              const exactMarker = raw.match(MCP_APPROVAL_MARKER_PATTERN)?.[0];
-              if (approvalMarker && exactMarker) {
-                pendingApprovalMarker = exactMarker;
-                lastToolOutput = '';
-                streamDone = true;
-              }
               const marker = '**Function Output:**\n```';
               const mIdx = raw.lastIndexOf(marker);
               if (mIdx !== -1) {
@@ -532,6 +544,16 @@ export async function startBackgroundStreamReader(
             // Non-JSON data line — skip. Processing and persistence failures
             // must escape this block so the job fails instead of hanging.
             continue;
+          }
+          if (currentSseEvent === 'mcp_approval_required') {
+            const marker = extractMcpApprovalMarkerText(parsed?.marker);
+            if (!marker || !parseMcpApprovalMarker(marker)) {
+              throw new Error('Backend sent an invalid MCP approval event');
+            }
+            pendingApprovalMarker = marker;
+            lastToolOutput = '';
+            streamDone = true;
+            break;
           }
           const oauthPayload = extractOAuthRequiredPayload(
             currentSseEvent,

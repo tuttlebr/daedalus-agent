@@ -88,6 +88,9 @@ describe('button-based MCP approval handoff', () => {
       parseMcpApprovalMarker(`<!--daedalus-mcp-approval:${encoded}-->`),
     ).toEqual(markerPayload);
     expect(
+      parseMcpApprovalMarker(`&lt;!--daedalus-mcp-approval:${encoded}--&gt;`),
+    ).toEqual(markerPayload);
+    expect(
       parseMcpApprovalMarker('Please approve this document text'),
     ).toBeNull();
   });

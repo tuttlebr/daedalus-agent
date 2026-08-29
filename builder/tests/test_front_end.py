@@ -1,6 +1,7 @@
 """Tests for the repository-owned NAT FastAPI runner composition."""
 
 import asyncio
+import base64
 import json
 import sys
 import types
@@ -9,6 +10,9 @@ import pytest
 from nat_helpers import front_end
 from nat_helpers.front_end import (
     DaedalusFastApiFrontEndPluginWorker,
+    McpApprovalTerminalMiddleware,
+    _approval_marker_from_sse_line,
+    _terminalize_mcp_approval_stream,
     attach_daedalus_routes,
 )
 
@@ -41,7 +45,7 @@ def test_daedalus_routes_attach_to_only_the_selected_app():
 
     assert attach_daedalus_routes(app) is app
     assert len(app.included_routers) == 5
-    assert len(app.middleware) == 1
+    assert len(app.middleware) == 2
     assert [path for path, _endpoint, _kwargs in app.routes] == [
         "/health/ready",
         "/v1/google-workspace/connections/{service_id}",
@@ -59,7 +63,7 @@ def test_daedalus_routes_attach_only_once():
     attach_daedalus_routes(app)
 
     assert len(app.included_routers) == 5
-    assert len(app.middleware) == 1
+    assert len(app.middleware) == 2
     assert len(app.routes) == 2
 
 
@@ -79,6 +83,128 @@ def test_daedalus_route_import_failure_is_fatal(monkeypatch):
 
     with pytest.raises(ImportError):
         attach_daedalus_routes(_FakeApp())
+
+
+def _approval_marker(*, escaped: bool = False) -> str:
+    payload = {
+        "version": 1,
+        "requestId": "approval_request_12345",
+        "serverName": "docs_mcp_server",
+        "toolName": "update_doc",
+        "target": "doc-1",
+        "summary": "Update Google document doc-1 (1 KiB payload)",
+        "argumentsSha256": "a" * 64,
+    }
+    encoded = (
+        base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode())
+        .decode()
+        .rstrip("=")
+    )
+    if escaped:
+        return f"&lt;!--daedalus-mcp-approval:{encoded}--&gt;"
+    return f"<!--daedalus-mcp-approval:{encoded}-->"
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+def test_approval_marker_is_extracted_from_completed_tool_step(escaped):
+    frame = {
+        "name": "Function Complete: <docs_mcp_server__update_doc>",
+        "id": "tool-1",
+        "parent_id": "root",
+        "payload": f"**Function Output:**\n```\n{_approval_marker(escaped=escaped)}\n```",
+    }
+
+    marker = _approval_marker_from_sse_line(
+        f"intermediate_data: {json.dumps(frame)}".encode()
+    )
+
+    assert marker == _approval_marker()
+
+
+def test_approval_terminal_event_stops_upstream_before_another_model_cycle():
+    consumed = []
+    closed = []
+    frame = {
+        "name": "Function Complete: <docs_mcp_server__update_doc>",
+        "id": "tool-1",
+        "parent_id": "root",
+        "payload": f"**Function Output:**\n```\n{_approval_marker(escaped=True)}\n```",
+    }
+
+    async def upstream():
+        try:
+            consumed.append("initial")
+            yield b'data: {"choices": [{"delta": {}}]}\n'
+            consumed.append("approval")
+            yield f"intermediate_data: {json.dumps(frame)}\n".encode()
+            consumed.append("second-model-cycle")
+            yield b'data: {"choices": [{"delta": {"content": "continued"}}]}\n'
+        finally:
+            closed.append(True)
+
+    async def collect():
+        return b"".join(
+            [chunk async for chunk in _terminalize_mcp_approval_stream(upstream())]
+        )
+
+    output = asyncio.run(collect())
+
+    assert consumed == ["initial", "approval"]
+    assert closed == [True]
+    assert b"event: mcp_approval_required\n" in output
+    assert _approval_marker().encode() in output
+    assert b"continued" not in output
+
+
+def test_approval_asgi_middleware_cancels_backend_at_the_send_boundary():
+    continued = []
+    sent = []
+    frame = {
+        "name": "Function Complete: <docs_mcp_server__update_doc>",
+        "id": "tool-1",
+        "parent_id": "root",
+        "payload": _approval_marker(escaped=True),
+    }
+
+    async def app(_scope, _receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/event-stream")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": f"intermediate_data: {json.dumps(frame)}\n".encode(),
+                "more_body": True,
+            }
+        )
+        continued.append(True)
+
+    async def receive():
+        return {"type": "http.request"}
+
+    async def send(message):
+        sent.append(message)
+
+    middleware = McpApprovalTerminalMiddleware(app)
+    asyncio.run(
+        middleware(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/v1/chat/completions",
+            },
+            receive,
+            send,
+        )
+    )
+
+    assert continued == []
+    assert sent[-1]["more_body"] is False
+    assert b"event: mcp_approval_required" in sent[-1]["body"]
 
 
 def test_readiness_fails_when_required_mcp_capability_is_missing(monkeypatch):

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import json
 import logging
 import os
+import re
 import tempfile
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -18,6 +22,186 @@ from nat_helpers.redis_url import close_redis_client, redis_url_from_env
 logger = logging.getLogger("daedalus.http_api")
 
 DRAINING_MARKER_PATH = os.path.join(tempfile.gettempdir(), "daedalus-draining")
+
+_MCP_APPROVAL_LITERAL_RE = re.compile(
+    r"<!--daedalus-mcp-approval:([A-Za-z0-9_-]+)-->",
+)
+_MCP_APPROVAL_ESCAPED_RE = re.compile(
+    r"&lt;!--daedalus-mcp-approval:([A-Za-z0-9_-]+)--&gt;",
+)
+_MCP_APPROVAL_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{12,128}$")
+_MCP_APPROVAL_ARGUMENTS_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _decode_valid_mcp_approval_marker(value: object) -> str | None:
+    """Return one canonical marker from a literal or HTML-escaped tool result."""
+
+    if not isinstance(value, str):
+        return None
+    match = _MCP_APPROVAL_LITERAL_RE.search(value)
+    if match is None:
+        match = _MCP_APPROVAL_ESCAPED_RE.search(value)
+    if match is None:
+        return None
+
+    encoded = match.group(1)
+    try:
+        padded = encoded + "=" * ((4 - len(encoded) % 4) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        return None
+    required_strings = ("serverName", "toolName", "target", "summary")
+    if any(
+        not isinstance(payload.get(field), str) or not payload[field].strip()
+        for field in required_strings
+    ):
+        return None
+    request_id = payload.get("requestId")
+    arguments_sha = payload.get("argumentsSha256")
+    if not isinstance(request_id, str) or not _MCP_APPROVAL_REQUEST_ID_RE.fullmatch(
+        request_id
+    ):
+        return None
+    if not isinstance(
+        arguments_sha, str
+    ) or not _MCP_APPROVAL_ARGUMENTS_SHA_RE.fullmatch(arguments_sha):
+        return None
+    return f"<!--daedalus-mcp-approval:{encoded}-->"
+
+
+def _approval_marker_from_sse_line(line: bytes) -> str | None:
+    """Extract a validated approval marker only from a completed NAT tool step."""
+
+    prefix = b"intermediate_data: "
+    if not line.startswith(prefix):
+        return None
+    try:
+        frame = json.loads(line[len(prefix) :])
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(frame, dict) or not str(frame.get("name", "")).startswith(
+        "Function Complete:"
+    ):
+        return None
+    return _decode_valid_mcp_approval_marker(frame.get("payload"))
+
+
+async def _terminalize_mcp_approval_stream(
+    body_iterator: AsyncIterator[bytes | str],
+) -> AsyncIterator[bytes]:
+    """Replace the first gated tool result with a typed terminal SSE event.
+
+    Returning at that yield boundary closes the upstream response iterator, so
+    NAT cannot hand the gate result back to the model for another tool cycle.
+    """
+
+    buffered = b""
+    terminated = False
+    try:
+        async for chunk in body_iterator:
+            buffered += chunk.encode("utf-8") if isinstance(chunk, str) else chunk
+            while b"\n" in buffered:
+                line, buffered = buffered.split(b"\n", 1)
+                marker = _approval_marker_from_sse_line(line)
+                if marker is not None:
+                    terminated = True
+                    event = json.dumps(
+                        {"marker": marker}, separators=(",", ":")
+                    ).encode("utf-8")
+                    logger.info("Terminating chat stream at MCP approval boundary")
+                    yield b"event: mcp_approval_required\ndata: " + event + b"\n\n"
+                    return
+                yield line + b"\n"
+        if buffered:
+            yield buffered
+    finally:
+        if terminated:
+            close = getattr(body_iterator, "aclose", None)
+            if close is not None:
+                with contextlib.suppress(Exception):
+                    await close()
+
+
+class _McpApprovalStreamTerminated(BaseException):
+    """Unwind the NAT stream immediately after its terminal event is sent."""
+
+
+class McpApprovalTerminalMiddleware:
+    """Make a gated mutation a backend-owned terminal stream event."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope.get("type") != "http"
+            or scope.get("method") != "POST"
+            or scope.get("path") != "/v1/chat/completions"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        is_event_stream = False
+        buffered = b""
+
+        async def terminal_send(message):
+            nonlocal is_event_stream, buffered
+            if message.get("type") == "http.response.start":
+                headers = message.get("headers", [])
+                is_event_stream = any(
+                    name.lower() == b"content-type"
+                    and b"text/event-stream" in value.lower()
+                    for name, value in headers
+                )
+                await send(message)
+                return
+
+            if message.get("type") != "http.response.body" or not is_event_stream:
+                await send(message)
+                return
+
+            buffered += message.get("body", b"")
+            outgoing = bytearray()
+            while b"\n" in buffered:
+                line, buffered = buffered.split(b"\n", 1)
+                marker = _approval_marker_from_sse_line(line)
+                if marker is not None:
+                    event = json.dumps(
+                        {"marker": marker}, separators=(",", ":")
+                    ).encode("utf-8")
+                    outgoing.extend(
+                        b"event: mcp_approval_required\ndata: " + event + b"\n\n"
+                    )
+                    await send(
+                        {
+                            "type": "http.response.body",
+                            "body": bytes(outgoing),
+                            "more_body": False,
+                        }
+                    )
+                    raise _McpApprovalStreamTerminated()
+                outgoing.extend(line + b"\n")
+
+            more_body = bool(message.get("more_body", False))
+            if not more_body and buffered:
+                outgoing.extend(buffered)
+                buffered = b""
+            if outgoing or not more_body:
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": bytes(outgoing),
+                        "more_body": more_body,
+                    }
+                )
+
+        try:
+            await self.app(scope, receive, terminal_send)
+        except _McpApprovalStreamTerminated:
+            logger.info("Terminated backend execution at MCP approval boundary")
 
 
 def _rag_readiness_mode() -> str:
@@ -234,6 +418,7 @@ def attach_daedalus_routes(
         )
 
     app.add_middleware(DaedalusInternalAuthMiddleware)
+    app.add_middleware(McpApprovalTerminalMiddleware)
     app.add_api_route(
         "/health/ready",
         readiness_response,

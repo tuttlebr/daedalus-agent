@@ -2293,9 +2293,9 @@ def _patch_tool_client():
             )
             if not approved:
                 logger.warning(
-                    "MCP tool call blocked by approval gate: tool=%s reason=%s",
+                    "MCP tool call blocked by approval gate: server=%s tool=%s",
+                    server_name,
                     tool_name,
-                    approval_reason,
                 )
                 raise PermissionError(approval_reason)
             _strip_approval_token((tool_args,), {})

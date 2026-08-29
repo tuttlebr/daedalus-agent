@@ -2398,6 +2398,31 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(fullResponse).toBe(marker);
     expect(fullResponse).not.toContain('I will wait');
     expect(fullResponse).not.toContain('"text":"hello"');
+    expect(store.get(statusKey)?.intermediateSteps).toEqual([]);
+  });
+
+  it('finalizes immediately on the backend-owned approval event', async () => {
+    const marker = `<!--daedalus-mcp-approval:${Buffer.from(
+      JSON.stringify({
+        version: 1,
+        requestId: 'approval_request_12345',
+        serverName: 'docs_mcp_server',
+        toolName: 'update_doc',
+        target: 'doc-1',
+        summary: 'Update Google document doc-1 (1 KiB payload)',
+        argumentsSha256: 'a'.repeat(64),
+      }),
+    ).toString('base64url')}-->`;
+
+    const { statusKey, store } = await runStreamTurn([
+      'event: mcp_approval_required\n',
+      `data: ${JSON.stringify({ marker })}\n`,
+      'data: {"choices":[{"delta":{"content":"continued"}}]}\n',
+    ]);
+
+    expect(store.get(statusKey)?.fullResponse).toBe(marker);
+    expect(store.get(statusKey)?.fullResponse).not.toContain('continued');
+    expect(store.get(statusKey)?.intermediateSteps).toEqual([]);
   });
 
   it('fails an explicit backend error without promoting the last tool output', async () => {

@@ -1,5 +1,7 @@
 export const MCP_APPROVAL_MARKER_PATTERN =
   /<!--daedalus-mcp-approval:([A-Za-z0-9_-]+)-->/;
+const MCP_APPROVAL_ESCAPED_MARKER_PATTERN =
+  /&lt;!--daedalus-mcp-approval:([A-Za-z0-9_-]+)--&gt;/;
 
 export interface McpApprovalMarker {
   version: 1;
@@ -28,7 +30,9 @@ export function parseMcpApprovalMarker(
   value: unknown,
 ): McpApprovalMarker | null {
   if (typeof value !== 'string') return null;
-  const encoded = value.match(MCP_APPROVAL_MARKER_PATTERN)?.[1];
+  const encoded = extractMcpApprovalMarkerText(value)?.match(
+    MCP_APPROVAL_MARKER_PATTERN,
+  )?.[1];
   if (encoded) {
     try {
       const parsed = JSON.parse(decodeBase64Url(encoded)) as McpApprovalMarker;
@@ -75,6 +79,14 @@ export function parseMcpApprovalMarker(
         : `Run ${serverName}.${toolName} on ${target}`,
     argumentsSha256,
   };
+}
+
+export function extractMcpApprovalMarkerText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const literal = value.match(MCP_APPROVAL_MARKER_PATTERN);
+  if (literal) return literal[0];
+  const escaped = value.match(MCP_APPROVAL_ESCAPED_MARKER_PATTERN);
+  return escaped ? `<!--daedalus-mcp-approval:${escaped[1]}-->` : null;
 }
 
 export function isMcpApprovalMarkerMessage(value: unknown): boolean {
