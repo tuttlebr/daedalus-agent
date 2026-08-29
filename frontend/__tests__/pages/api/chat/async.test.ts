@@ -2365,24 +2365,24 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.fullResponse).toBe('The answer is 42.');
   });
 
-  it('makes an exact approval review visible when the model only paraphrases it', async () => {
+  it('stops the model turn on a gate-owned approval marker', async () => {
     const requestId = 'approval_request_12345';
     const hash = 'a'.repeat(64);
-    const review =
-      '**Action requiring confirmation:**\n\nUpdate doc-1\n\n' +
-      '**Reason:** The user requested it\n\n' +
-      'Proceed? (yes/no)\nReply with `approve` or `deny`. ' +
-      '`Please proceed` is also accepted.\n\n' +
-      'Approval scope: action_type=`mcp_mutation`, ' +
-      'target=`document/doc-1`, server_name=`docs_mcp_server`, ' +
-      `tool_name=\`update_doc\`, approval_request_id=\`${requestId}\`, ` +
-      `arguments_sha256=\`${hash}\`.\n\n` +
-      'Arguments for review (sensitive values redacted):\n\n' +
-      '```json\n{"document_id":"doc-1","text":"hello"}\n```';
+    const marker = `<!--daedalus-mcp-approval:${Buffer.from(
+      JSON.stringify({
+        version: 1,
+        requestId,
+        serverName: 'docs_mcp_server',
+        toolName: 'update_doc',
+        target: 'doc-1',
+        summary: 'Update Google document doc-1 (1 KiB payload)',
+        argumentsSha256: hash,
+      }),
+    ).toString('base64url')}-->`;
     const toolPayload =
-      'Preamble\n**Function Output:**\n```\n' + review + '\n```';
+      'Preamble\n**Function Output:**\n```\n' + marker + '\n```';
     const toolEvent = `intermediate_data: ${JSON.stringify({
-      name: 'Function Complete: <user_interaction_tool>',
+      name: 'Function Complete: <docs_mcp_server__update_doc>',
       id: 'approval-tool-1',
       parent_id: 'root',
       payload: toolPayload,
@@ -2395,10 +2395,9 @@ describe('chat/async streaming + finalize (characterization)', () => {
     ]);
 
     const fullResponse = store.get(statusKey)?.fullResponse;
-    expect(fullResponse).toBe(
-      `I will wait for your confirmation.\n\n${review}`,
-    );
-    expect(fullResponse.match(/approval_request_id=/g)).toHaveLength(1);
+    expect(fullResponse).toBe(marker);
+    expect(fullResponse).not.toContain('I will wait');
+    expect(fullResponse).not.toContain('"text":"hello"');
   });
 
   it('fails an explicit backend error without promoting the last tool output', async () => {

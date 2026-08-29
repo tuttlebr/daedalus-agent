@@ -1,8 +1,8 @@
+import { parseMcpApprovalMarker } from '@/utils/app/mcpApproval';
+
 import {
-  McpApprovalReplyError,
-  findMcpApprovalReply,
-  mcpApprovalReviewRequestId,
-  resolveMcpApprovalReply,
+  McpApprovalDecisionError,
+  resolveMcpApprovalDecision,
 } from '@/server/chat/mcpApproval';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -47,42 +47,23 @@ const argumentsSha256 = createHash('sha256')
 const safeUser = createHash('sha256').update(userId).digest('hex').slice(0, 16);
 const pendingKey = `approval-pending:${safeUser}:${requestId}`;
 
-function conversation(reply = 'yes'): any[] {
-  return [
-    { role: 'user', content: 'Update the document.' },
-    {
-      role: 'assistant',
-      content:
-        'Please review this update.\n\n' +
-        'Approval scope: action_type=`mcp_mutation`, ' +
-        'target=`document/doc-1`, server_name=`docs_mcp_server`, ' +
-        `tool_name=\`update_doc\`, approval_request_id=\`${requestId}\`, ` +
-        `arguments_sha256=\`${argumentsSha256}\`.\n\n` +
-        `Arguments for review:\n\n\`\`\`json\n${canonicalArguments}\n\`\`\`` +
-        '\n\nProceed? (yes/no)',
-    },
-    { role: 'user', content: reply },
-  ];
-}
-
 function pendingPayload(): string {
   return JSON.stringify({
     request_id: requestId,
     user_id: userId,
     action_type: 'mcp_mutation',
-    action: 'Update doc-1',
-    reason: 'The user requested it',
-    target: 'document/doc-1',
+    action: 'Update Google document doc-1 (1 KiB payload)',
+    reason: 'This MCP operation changes external data.',
+    target: 'doc-1',
     server_name: 'docs_mcp_server',
     tool_name: 'update_doc',
     canonical_arguments: canonicalArguments,
-    arguments_preview: canonicalArguments,
     arguments_sha256: argumentsSha256,
     created_at: 1,
   });
 }
 
-describe('interactive MCP approval handoff', () => {
+describe('button-based MCP approval handoff', () => {
   let redis: FakeRedis;
 
   beforeEach(() => {
@@ -90,131 +71,65 @@ describe('interactive MCP approval handoff', () => {
     redis.store.set(pendingKey, pendingPayload());
   });
 
-  it('recognizes only a strict decision after an exact approval request', () => {
-    expect(findMcpApprovalReply(conversation())).toEqual({
-      decision: 'approved',
+  it('parses only the compact structured marker', () => {
+    const markerPayload = {
+      version: 1,
       requestId,
-    });
-    expect(findMcpApprovalReply(conversation('no'))).toEqual({
-      decision: 'denied',
-      requestId,
-    });
-    expect(findMcpApprovalReply(conversation('yes, but change the text'))).toBe(
-      null,
-    );
-    expect(
-      findMcpApprovalReply(conversation('confirm a different update')),
-    ).toBeNull();
-  });
-
-  it('recognizes explicit polite approval and denial replies', () => {
-    for (const reply of [
-      'Please proceed',
-      'Please proceed!',
-      'Please approve',
-      'Go ahead',
-      'Yes, please',
-      'Yes, confirm the doc update',
-      'Confirm the document update',
-      'Yes please update the doc',
-    ]) {
-      expect(findMcpApprovalReply(conversation(reply))).toEqual({
-        decision: 'approved',
-        requestId,
-      });
-    }
-    for (const reply of ['Please cancel', 'Do not proceed', "Don't proceed"]) {
-      expect(findMcpApprovalReply(conversation(reply))).toEqual({
-        decision: 'denied',
-        requestId,
-      });
-    }
-  });
-
-  it('recognizes only fully rendered exact-action approval reviews', () => {
-    expect(mcpApprovalReviewRequestId(conversation()[1].content)).toBe(
-      requestId,
-    );
-    expect(
-      mcpApprovalReviewRequestId('I will wait for your confirmation.'),
-    ).toBeNull();
-    expect(
-      mcpApprovalReviewRequestId(
-        `approval_request_id=\`${requestId}\` Proceed? (yes/no)`,
-      ),
-    ).toBeNull();
-  });
-
-  it('does not approve an id that was hidden in a tool trace', () => {
-    const messages = conversation();
-    messages[1] = {
-      role: 'assistant',
-      content: 'Please approve the exact action shown in the tool trace.',
-      intermediateSteps: [
-        {
-          payload: {
-            data: {
-              output: `approval_request_id=\`${requestId}\``,
-            },
-          },
-        },
-      ],
+      serverName: 'docs_mcp_server',
+      toolName: 'update_doc',
+      target: 'doc-1',
+      summary: 'Update Google document doc-1 (1 KiB payload)',
+      argumentsSha256,
     };
-    expect(findMcpApprovalReply(messages)).toBeNull();
-  });
-
-  it('rejects a visible request id without the exact review details', async () => {
-    const messages = conversation();
-    messages[1] = {
-      role: 'assistant',
-      content: `approval_request_id=\`${requestId}\` Proceed? (yes/no)`,
-    };
-    await expect(
-      resolveMcpApprovalReply(messages, userId, redis as any),
-    ).rejects.toThrow('not fully presented for review');
-    expect(redis.store.has(pendingKey)).toBe(true);
-  });
-
-  it('rejects a legacy pending record with an empty exact action', async () => {
-    redis.store.set(
-      pendingKey,
-      JSON.stringify({ ...JSON.parse(pendingPayload()), action: '' }),
+    const encoded = Buffer.from(JSON.stringify(markerPayload)).toString(
+      'base64url',
     );
-    await expect(
-      resolveMcpApprovalReply(
-        conversation('Yes, confirm the doc update'),
-        userId,
-        redis as any,
-      ),
-    ).rejects.toThrow('does not match the authenticated user and exact action');
-    expect(redis.store.has(pendingKey)).toBe(true);
+    expect(
+      parseMcpApprovalMarker(`<!--daedalus-mcp-approval:${encoded}-->`),
+    ).toEqual(markerPayload);
+    expect(
+      parseMcpApprovalMarker('Please approve this document text'),
+    ).toBeNull();
   });
 
-  it('atomically converts approval into an exact short-lived credential', async () => {
-    const result = await resolveMcpApprovalReply(
-      conversation(),
+  it('converts a persisted legacy review into a metadata-only card', () => {
+    const review =
+      '**Action requiring confirmation:** Update it\n\n' +
+      'Proceed? (yes/no)\n\n' +
+      'Approval scope: action_type=`mcp_mutation`, ' +
+      'target=`doc-1`, server_name=`docs_mcp_server`, ' +
+      `tool_name=\`update_doc\`, approval_request_id=\`${requestId}\`, ` +
+      `arguments_sha256=\`${argumentsSha256}\`.\n\n` +
+      `Arguments for review:\n\n\`\`\`json\n${canonicalArguments}\n\`\`\``;
+
+    expect(parseMcpApprovalMarker(review)).toEqual({
+      version: 1,
+      requestId,
+      serverName: 'docs_mcp_server',
+      toolName: 'update_doc',
+      target: 'doc-1',
+      summary: 'Update Google document doc-1',
+      argumentsSha256,
+    });
+  });
+
+  it('atomically converts an approve button decision into one exact credential', async () => {
+    const result = await resolveMcpApprovalDecision(
+      requestId,
+      'approved',
       userId,
       redis as any,
     );
 
-    expect(result).toMatchObject({
-      decision: 'approved',
-      requestId,
-    });
-    expect(result?.trustedInstruction).toContain(
-      'Do not call user_interaction_tool',
-    );
-    expect(result?.approvalToken).toMatch(/^[A-Za-z0-9_-]{24}$/);
+    expect(result).toMatchObject({ decision: 'approved', requestId });
+    expect(result.approvalToken).toMatch(/^[A-Za-z0-9_-]{24}$/);
+    expect(result.pending.canonical_arguments).toBe(canonicalArguments);
     expect(redis.store.has(pendingKey)).toBe(false);
-
     const tokenEntry = Array.from(redis.store.entries()).find(([key]) =>
       key.startsWith(`approval:${safeUser}:`),
     );
-    expect(tokenEntry).toBeDefined();
     expect(JSON.parse(tokenEntry![1])).toMatchObject({
       user_id: userId,
-      action_type: 'mcp_mutation',
-      target: 'document/doc-1',
       server_name: 'docs_mcp_server',
       tool_name: 'update_doc',
       arguments_sha256: argumentsSha256,
@@ -223,20 +138,25 @@ describe('interactive MCP approval handoff', () => {
   });
 
   it('deletes a denied intent without issuing a credential', async () => {
-    const result = await resolveMcpApprovalReply(
-      conversation('no'),
+    const result = await resolveMcpApprovalDecision(
+      requestId,
+      'denied',
       userId,
       redis as any,
     );
-
     expect(result).toMatchObject({ decision: 'denied', requestId });
     expect(redis.store.size).toBe(0);
   });
 
-  it('rejects an expired or replayed approval', async () => {
-    await resolveMcpApprovalReply(conversation(), userId, redis as any);
+  it('rejects an expired or replayed button decision', async () => {
+    await resolveMcpApprovalDecision(
+      requestId,
+      'approved',
+      userId,
+      redis as any,
+    );
     await expect(
-      resolveMcpApprovalReply(conversation(), userId, redis as any),
-    ).rejects.toBeInstanceOf(McpApprovalReplyError);
+      resolveMcpApprovalDecision(requestId, 'approved', userId, redis as any),
+    ).rejects.toBeInstanceOf(McpApprovalDecisionError);
   });
 });

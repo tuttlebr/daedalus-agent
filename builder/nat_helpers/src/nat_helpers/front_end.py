@@ -203,6 +203,8 @@ def attach_daedalus_routes(
     app: FastAPI,
     *,
     session_managers: list[object] | None = None,
+    execution_store: object | None = None,
+    http_flow_handler: object | None = None,
 ) -> FastAPI:
     """Attach the repository-owned API surface to one NAT application."""
     if getattr(app, "_daedalus_routes_attached", False):
@@ -213,6 +215,7 @@ def attach_daedalus_routes(
     from collection_metadata_api import router as collection_metadata_router
     from document_ingest_api import router as document_ingest_router
     from image_api import router as image_router
+    from mcp_approval_api import create_mcp_approval_router
     from memory_api import router as memory_router
     from nat_helpers.google_workspace_auth import reset_google_workspace_authorization
     from nat_helpers.internal_auth import DaedalusInternalAuthMiddleware
@@ -248,6 +251,14 @@ def attach_daedalus_routes(
     app.include_router(document_ingest_router)
     app.include_router(profile_import_router)
     app.include_router(memory_router)
+    if execution_store is not None and http_flow_handler is not None:
+        app.include_router(
+            create_mcp_approval_router(
+                session_managers=active_session_managers,
+                execution_store=execution_store,
+                http_flow_handler=http_flow_handler,
+            )
+        )
     app._daedalus_routes_attached = True
     logger.info("Attached Daedalus HTTP routers to NAT FastAPI app")
     return app
@@ -260,4 +271,6 @@ class DaedalusFastApiFrontEndPluginWorker(FastApiFrontEndPluginWorker):
         return attach_daedalus_routes(
             super().build_app(),
             session_managers=getattr(self, "_session_managers", []),
+            execution_store=getattr(self, "_execution_store", None),
+            http_flow_handler=getattr(self, "_http_flow_handler", None),
         )

@@ -20,11 +20,7 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel, ConfigDict, Field
-from user_interaction.approval_tokens import (
-    create_pending_mcp_approval,
-    make_redis_client,
-    validate_approval_token,
-)
+from user_interaction.approval_tokens import make_redis_client, validate_approval_token
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +119,9 @@ class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
     description: str = Field(
         default=(
             "Structured user interaction. Set operation explicitly. Use "
-            "confirm_action for an exact pending MCP mutation approval; never "
-            "substitute clarify for approval."
+            "confirm_action for memory deletion only. MCP mutation approvals "
+            "are owned by the execution gate; never serialize MCP arguments "
+            "through this tool."
         ),
         description="LLM-facing description for the unified dispatcher.",
     )
@@ -137,8 +134,8 @@ class UserInteractionInput(BaseModel):
 
     operation: UserInteractionOperation = Field(
         description=(
-            "Required operation. Use confirm_action when an MCP mutation reports "
-            "that approval is required. Never use clarify for approval."
+            "Required operation. Use confirm_action for memory deletion only. "
+            "Never use clarify for approval."
         )
     )
     question: str = Field(default="", description="Question for clarify only.")
@@ -286,14 +283,9 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         ):
             return (
                 "Invalid clarification request: clarify cannot request or "
-                "reconfirm action approval. Do not ask the user again. If an "
-                "MCP mutation requires an execution credential and no exact "
-                "pending approval exists, call user_interaction_tool once with "
-                "operation='confirm_action', "
-                "action_type='mcp_mutation' plus the exact target, server_name, "
-                "tool_name, and arguments_json. If approval was already resolved "
-                "by a trusted [APPROVAL] instruction, execute that exact action "
-                "once without calling any user-interaction tool."
+                "reconfirm action approval. Do not ask the user again. MCP "
+                "mutation approvals are created automatically by the execution "
+                "gate; stop after its approval marker without another tool call."
             )
 
         parts = [f"**Clarification needed:** {question}"]
@@ -394,60 +386,16 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         resolved_target = (target or "").strip()
         resolved_action = action.strip()
         resolved_reason = reason.strip()
-        pending_mcp_approval: dict[str, Any] | None = None
         if normalized_action_type == "delete_memory":
             if resolved_target and resolved_target != resolved_user_id:
                 return "Error: delete_memory target must match the authenticated user."
             resolved_target = resolved_user_id
         if normalized_action_type == "mcp_mutation":
-            from nat_helpers.identity import execution_scope_from_context_or_none
-
-            execution_scope = execution_scope_from_context_or_none()
-            if execution_scope == "autonomy":
-                return (
-                    "Error: autonomous work is non-interactive and cannot request "
-                    "approval for an MCP mutation. Ask the user to perform this "
-                    "action in interactive chat."
-                )
-            if not resolved_target or resolved_target == "*":
-                return "Error: MCP approval requires an exact, non-wildcard target."
-            if not server_name.strip():
-                return "Error: MCP approval requires the exact server_name."
-            if not tool_name.strip():
-                return "Error: MCP approval requires the exact tool_name."
-            # The exact server/tool/target/arguments binding is authoritative.
-            # Models can still omit descriptive fields from a multi-operation
-            # schema, so derive deterministic review text rather than persisting
-            # an approval that the frontend must reject as incomplete.
-            resolved_action = resolved_action or (
-                f"Execute {server_name.strip()}.{tool_name.strip()} on "
-                f"{resolved_target}."
+            return (
+                "Error: MCP mutation approvals are created automatically by the "
+                "execution gate. Do not serialize mutation arguments through "
+                "user_interaction_tool and do not retry the blocked tool in this turn."
             )
-            resolved_reason = resolved_reason or (
-                "The exact approval-gated MCP mutation must be reviewed before "
-                "execution."
-            )
-            try:
-                pending_mcp_approval = create_pending_mcp_approval(
-                    _get_redis(),
-                    user_id=resolved_user_id,
-                    action=resolved_action,
-                    reason=resolved_reason,
-                    target=resolved_target,
-                    server_name=server_name,
-                    tool_name=tool_name,
-                    arguments_json=arguments_json,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Unable to persist pending MCP approval: error_class=%s",
-                    type(exc).__name__,
-                )
-                return (
-                    "Error: unable to create a protected pending approval. "
-                    "Provide nonempty action and reason fields and valid "
-                    "arguments_json containing one JSON object."
-                )
 
         parts = [f"**Action requiring confirmation:**\n\n{resolved_action}"]
 
@@ -479,23 +427,7 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 f"\nApproval scope: action_type=`{normalized_action_type}`, "
                 f"target=`{resolved_target}`"
             )
-            if normalized_action_type == "mcp_mutation":
-                if pending_mcp_approval is None:
-                    raise RuntimeError("pending MCP approval was not created")
-                parts[-1] += (
-                    f", server_name=`{server_name.strip()}`, "
-                    f"tool_name=`{tool_name.strip()}`, "
-                    "approval_request_id="
-                    f"`{pending_mcp_approval['request_id']}`, "
-                    "arguments_sha256="
-                    f"`{pending_mcp_approval['arguments_sha256']}`."
-                )
-                parts.append(
-                    "\nArguments for review (sensitive values redacted):\n\n"
-                    f"```json\n{pending_mcp_approval['arguments_preview']}\n```"
-                )
-            else:
-                parts[-1] += "."
+            parts[-1] += "."
 
         return "\n".join(parts)
 

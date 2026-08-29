@@ -1723,11 +1723,11 @@ def test_workspace_writes_request_exact_approval_before_mutation():
         config = _config(path)
         interaction_desc = config["functions"]["user_interaction_tool"]["description"]
 
-        assert "Docs update_doc" in interaction_desc, path
-        assert "Calendar create_event" in interaction_desc, path
-        assert "operation=confirm_action" in interaction_desc, path
-        assert "nonempty action and reason" in interaction_desc, path
-        assert "as the very next tool" in interaction_desc, path
+        assert "approval-gated MCP mutations are captured" in interaction_desc, path
+        assert "must never be serialized through this tool" in interaction_desc, path
+        assert (
+            "stop the turn without another model or tool call" in interaction_desc
+        ), path
 
 
 def test_approval_flow_cannot_loop_back_through_clarification():
@@ -1737,7 +1737,9 @@ def test_approval_flow_cannot_loop_back_through_clarification():
         prompt = config["workflow"]["instructions"]
 
         assert "never use it to request or reconfirm approval" in interaction_desc, path
-        assert "never follow it with clarify" in interaction_desc, path
+        assert (
+            "stop the turn without another model or tool call" in interaction_desc
+        ), path
         assert "Never request or reconfirm approval in prose" in prompt, path
 
 

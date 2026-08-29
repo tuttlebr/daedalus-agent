@@ -256,7 +256,6 @@ def create_pending_mcp_approval(
         "server_name": normalized_server,
         "tool_name": normalized_tool,
         "canonical_arguments": canonical_arguments,
-        "arguments_preview": redacted_mcp_arguments(canonical_arguments),
         "arguments_sha256": arguments_sha256,
         "created_at": int(time.time()),
     }

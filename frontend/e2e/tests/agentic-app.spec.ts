@@ -228,7 +228,7 @@ test('streams a multipart document to S3 storage and reads the stored bytes', as
   expect(stored.body).toBe(contents);
 });
 
-test('approves one exact MCP action through interactive chat', async ({
+test('approves one exact MCP action without another model turn', async ({
   page,
 }) => {
   await login(page);
@@ -250,7 +250,6 @@ test('approves one exact MCP action through interactive chat', async ({
     server_name: 'docs_mcp_server',
     tool_name: 'update_doc',
     canonical_arguments: canonicalArguments,
-    arguments_preview: canonicalArguments,
     arguments_sha256: createHash('sha256')
       .update(canonicalArguments)
       .digest('hex'),
@@ -260,16 +259,21 @@ test('approves one exact MCP action through interactive chat', async ({
 
   await sendMessage(page, 'E2E_APPROVAL_REQUEST');
   await expect(
-    page.getByText('e2e_approval_request_123', { exact: true }),
+    page.getByText('Update Google document doc-e2e (1 KiB payload)', {
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Stop generating' }),
   ).toBeHidden();
 
-  await sendMessage(page, 'yes');
+  await page.getByRole('button', { name: 'Approve' }).click();
   await expect(
-    page.getByText('E2E approved credential received', { exact: true }),
+    page.getByText('Update completed', { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText('This model-generated approval prose must not be shown.'),
+  ).toBeHidden();
   await expect(
     page.getByRole('button', { name: 'Stop generating' }),
   ).toBeHidden();

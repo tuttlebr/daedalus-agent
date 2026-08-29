@@ -70,34 +70,33 @@ async function streamChat(req, res) {
   });
   res.flushHeaders();
 
-  if (prompt.startsWith('[APPROVAL]')) {
-    const credential = req.headers['x-daedalus-approval-token'];
-    await wait(300);
-    sendToken(
-      res,
-      credential
-        ? 'E2E approved credential received'
-        : 'E2E approval credential missing',
-    );
-    res.end('data: [DONE]\n\n');
-    return;
-  }
-
   if (prompt.includes('E2E_APPROVAL_REQUEST')) {
     const canonicalArguments = '{"document_id":"doc-e2e","text":"hello"}';
     const argumentsSha256 = createHash('sha256')
       .update(canonicalArguments)
       .digest('hex');
-    sendToken(
-      res,
-      'Exact action ready. Approval scope: action_type=`mcp_mutation`, ' +
-        'target=`document/doc-e2e`, server_name=`docs_mcp_server`, ' +
-        'tool_name=`update_doc`, ' +
-        'approval_request_id=`e2e_approval_request_123`, ' +
-        `arguments_sha256=\`${argumentsSha256}\`.\n\n` +
-        `Arguments for review:\n\n\`\`\`json\n${canonicalArguments}\n\`\`\`` +
-        '\n\nProceed? (yes/no)',
+    const marker = `<!--daedalus-mcp-approval:${Buffer.from(
+      JSON.stringify({
+        version: 1,
+        requestId: 'e2e_approval_request_123',
+        serverName: 'docs_mcp_server',
+        toolName: 'update_doc',
+        target: 'doc-e2e',
+        summary: 'Update Google document doc-e2e (1 KiB payload)',
+        argumentsSha256,
+      }),
+    ).toString('base64url')}-->`;
+    res.write(
+      `intermediate_data: ${JSON.stringify({
+        name: 'Function Complete: <docs_mcp_server__update_doc>',
+        id: 'approval-tool-1',
+        parent_id: 'root',
+        payload: `Preamble\n**Function Output:**\n\`\`\`\n${marker}\n\`\`\``,
+      })}\n`,
     );
+    // A real backend may begin another model iteration before HTTP
+    // cancellation arrives. The stream worker must ignore this frame.
+    sendToken(res, 'This model-generated approval prose must not be shown.');
     res.end('data: [DONE]\n\n');
     return;
   }
@@ -232,6 +231,26 @@ const server = http.createServer(async (req, res) => {
       if (!res.headersSent) return json(res, 500, { error: String(error) });
       return res.destroy(error instanceof Error ? error : undefined);
     }
+  }
+
+  if (
+    url.pathname === '/v1/mcp-approvals/e2e_approval_request_123/execute' &&
+    req.method === 'POST'
+  ) {
+    if (!hasTrustedContext(req, res)) return;
+    const body = await readJson(req);
+    if (
+      !req.headers['x-daedalus-approval-token'] ||
+      body.server_name !== 'docs_mcp_server' ||
+      body.tool_name !== 'update_doc'
+    ) {
+      return json(res, 409, { error: 'exact approval binding missing' });
+    }
+    return json(res, 200, {
+      executionId: 'e2e-execution-1',
+      status: 'completed',
+      result: { status: 'completed' },
+    });
   }
 
   if (url.pathname === '/v1/documents/ingest/stream' && req.method === 'POST') {

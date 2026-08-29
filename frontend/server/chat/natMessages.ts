@@ -1,3 +1,4 @@
+import { isMcpApprovalMarkerMessage } from '@/utils/app/mcpApproval';
 import {
   resolveTimezoneFromHeaders,
   stripTimezoneHeaders,
@@ -34,6 +35,11 @@ export function buildBoundedMessagesForNat(messages: any[]): any[] {
       // Drop assistant messages with empty content — Bedrock/Claude reject
       // ContentBlock entries whose `text` field is blank.
       if (role === 'assistant' && !content.trim()) {
+        return null;
+      }
+      // Approval cards are application state, not conversation text. Never
+      // replay their protocol marker into a later model request.
+      if (role === 'assistant' && isMcpApprovalMarkerMessage(content)) {
         return null;
       }
 

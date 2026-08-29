@@ -126,8 +126,8 @@ function_groups:
       - get_users_posts
     # For this explicitly allowlisted group, Daedalus consumes approval_policy
     # from the raw workflow YAML before NAT builds the MCP client. Only exact
-    # read_only entries bypass confirm_action; omitted or approval_required
-    # tools remain fail-closed.
+    # read_only entries bypass the execution gate; omitted or
+    # approval_required tools remain fail-closed.
     tool_overrides:
       search_news:
         approval_policy: read_only
@@ -627,16 +627,10 @@ functions:
       only to resolve genuine ambiguity;
       never use it to request or reconfirm approval, permission, or whether to
       proceed, and never call it after the user has already approved),
-      confirm_action (pending approval request before destructive or
-      irreversible actions: memory delete or an explicitly approval-gated MCP
-      mutation; before Docs update_doc or Calendar create_event, update_event,
-      delete_event, or respond_to_event, call this tool with
-      operation=confirm_action, a nonempty action and reason, and the exact
-      function-group name, remote tool name, target, and final JSON arguments;
-      if a gate reports approval is required, call this tool as the very next
-      tool with operation=confirm_action, nonempty action and reason, and the
-      same exact arguments, then stop and wait for the user's reply; never
-      follow it with clarify),
+      confirm_action (pending approval request for memory deletion only;
+      approval-gated MCP mutations are captured by the execution gate and must
+      never be serialized through this tool; after an MCP approval marker is
+      returned, stop the turn without another model or tool call),
       confirm_research_plan (approve expensive deep research),
       delete_memory_guarded (requires approval_token). Args depend on
       operation. Returns: formatted prompt or guarded action result.

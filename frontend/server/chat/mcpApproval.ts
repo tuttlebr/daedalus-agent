@@ -2,44 +2,9 @@ import { getRedis } from '@/server/session/redis';
 import type Redis from 'ioredis';
 import { createHash, randomBytes } from 'node:crypto';
 
-const APPROVAL_REQUEST_PATTERN =
-  /approval_request_id=`([A-Za-z0-9_-]{12,128})`/g;
-const APPROVAL_REQUEST_SINGLE_PATTERN =
-  /approval_request_id=`([A-Za-z0-9_-]{12,128})`/;
 const APPROVAL_TTL_SECONDS = 300;
 
-const APPROVE_REPLIES = new Set([
-  'approve',
-  'approved',
-  'confirm',
-  'confirmed',
-  'go ahead',
-  'please approve',
-  'please go ahead',
-  'please proceed',
-  'proceed',
-  'yes',
-  'yes please',
-  'yes, please',
-  'yes proceed',
-  'yes, proceed',
-]);
-const DENY_REPLIES = new Set([
-  'cancel',
-  'deny',
-  'denied',
-  'do not proceed',
-  "don't proceed",
-  'no',
-  'please cancel',
-  'stop',
-]);
-const NATURAL_APPROVE_REPLY =
-  /^(?:(?:yes|ok|okay)(?:,\s*|\s+))?(?:please\s+)?(?:approve|confirm|proceed with|go ahead with)\s+(?:it|this|that|the (?:action|request|change|update|doc update|document update|google doc update))$/;
-const NATURAL_EXECUTE_REPLY =
-  /^(?:yes|ok|okay)(?:,\s*|\s+)(?:please\s+)?(?:apply|complete|do|execute|make|perform|update)\s+(?:it|this|that|the (?:doc|document|google doc))$/;
-
-interface PendingMcpApproval {
+export interface PendingMcpApproval {
   request_id: string;
   user_id: string;
   action_type: 'mcp_mutation';
@@ -49,40 +14,22 @@ interface PendingMcpApproval {
   server_name: string;
   tool_name: string;
   canonical_arguments: string;
-  arguments_preview: string;
   arguments_sha256: string;
   created_at: number;
 }
 
-export interface ResolvedMcpApprovalReply {
+export interface ResolvedMcpApprovalDecision {
   decision: 'approved' | 'denied';
   requestId: string;
-  trustedInstruction: string;
+  pending: PendingMcpApproval;
   approvalToken?: string;
 }
 
-export class McpApprovalReplyError extends Error {
+export class McpApprovalDecisionError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'McpApprovalReplyError';
+    this.name = 'McpApprovalDecisionError';
   }
-}
-
-export function mcpApprovalReviewRequestId(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const requiredReviewMarkers = [
-    'Approval scope: action_type=`mcp_mutation`',
-    'target=`',
-    'server_name=`',
-    'tool_name=`',
-    'arguments_sha256=`',
-    'Arguments for review',
-    'Proceed? (yes/no)',
-  ];
-  if (requiredReviewMarkers.some((marker) => !value.includes(marker))) {
-    return null;
-  }
-  return value.match(APPROVAL_REQUEST_SINGLE_PATTERN)?.[1] ?? null;
 }
 
 function safeUserPrefix(userId: string): string {
@@ -97,78 +44,6 @@ function approvalTokenKey(userId: string, token: string): string {
   return `approval:${safeUserPrefix(userId)}:${token}`;
 }
 
-function normalizeReply(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[.!]+$/, '')
-    .trim();
-}
-
-function decisionFromReply(value: unknown): 'approved' | 'denied' | null {
-  const normalized = normalizeReply(value);
-  if (APPROVE_REPLIES.has(normalized)) return 'approved';
-  if (DENY_REPLIES.has(normalized)) return 'denied';
-  if (
-    NATURAL_APPROVE_REPLY.test(normalized) ||
-    NATURAL_EXECUTE_REPLY.test(normalized)
-  ) {
-    return 'approved';
-  }
-  return null;
-}
-
-function requestIdFromAssistantMessage(message: any): string | null {
-  const content = typeof message?.content === 'string' ? message.content : '';
-  let latest: string | null = null;
-  APPROVAL_REQUEST_PATTERN.lastIndex = 0;
-  for (const match of content.matchAll(APPROVAL_REQUEST_PATTERN)) {
-    latest = match[1];
-  }
-  return latest;
-}
-
-function findMcpApprovalReplyWithReview(messages: any[]): {
-  decision: 'approved' | 'denied';
-  requestId: string;
-  reviewText: string;
-} | null {
-  if (!Array.isArray(messages)) return null;
-
-  let userIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === 'user') {
-      userIndex = index;
-      break;
-    }
-  }
-  if (userIndex < 0) return null;
-
-  const decision = decisionFromReply(messages[userIndex]?.content);
-  if (!decision) return null;
-
-  for (let index = userIndex - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!['assistant', 'agent'].includes(message?.role)) continue;
-    const requestId = requestIdFromAssistantMessage(message);
-    return requestId
-      ? { decision, requestId, reviewText: String(message.content) }
-      : null;
-  }
-  return null;
-}
-
-export function findMcpApprovalReply(messages: any[]): {
-  decision: 'approved' | 'denied';
-  requestId: string;
-} | null {
-  const reply = findMcpApprovalReplyWithReview(messages);
-  return reply
-    ? { decision: reply.decision, requestId: reply.requestId }
-    : null;
-}
-
 function parsePendingApproval(
   raw: string,
   userId: string,
@@ -178,11 +53,16 @@ function parsePendingApproval(
   try {
     value = JSON.parse(raw);
   } catch {
-    throw new McpApprovalReplyError('The pending approval record is invalid.');
+    throw new McpApprovalDecisionError(
+      'The pending approval record is invalid.',
+    );
   }
   if (!value || typeof value !== 'object') {
-    throw new McpApprovalReplyError('The pending approval record is invalid.');
+    throw new McpApprovalDecisionError(
+      'The pending approval record is invalid.',
+    );
   }
+
   const pending = value as PendingMcpApproval;
   const exactFields = [
     pending.action,
@@ -199,15 +79,16 @@ function parsePendingApproval(
     exactFields.some((field) => typeof field !== 'string' || !field.trim()) ||
     !/^[0-9a-f]{64}$/.test(pending.arguments_sha256)
   ) {
-    throw new McpApprovalReplyError(
+    throw new McpApprovalDecisionError(
       'The pending approval does not match the authenticated user and exact action.',
     );
   }
+
   let parsedArguments: unknown;
   try {
     parsedArguments = JSON.parse(pending.canonical_arguments);
   } catch {
-    throw new McpApprovalReplyError(
+    throw new McpApprovalDecisionError(
       'The pending approval arguments are invalid.',
     );
   }
@@ -218,30 +99,11 @@ function parsePendingApproval(
     createHash('sha256').update(pending.canonical_arguments).digest('hex') !==
       pending.arguments_sha256
   ) {
-    throw new McpApprovalReplyError(
+    throw new McpApprovalDecisionError(
       'The pending approval arguments do not match their exact hash.',
     );
   }
   return pending;
-}
-
-function assertExactReviewWasPresented(
-  pending: PendingMcpApproval,
-  reviewText: string,
-): void {
-  const requiredReviewValues = [
-    `target=\`${pending.target}\``,
-    `server_name=\`${pending.server_name}\``,
-    `tool_name=\`${pending.tool_name}\``,
-    `arguments_sha256=\`${pending.arguments_sha256}\``,
-    pending.arguments_preview,
-    'Proceed? (yes/no)',
-  ];
-  if (requiredReviewValues.some((value) => !reviewText.includes(value))) {
-    throw new McpApprovalReplyError(
-      'The exact pending action was not fully presented for review. Ask the assistant to prepare the action again.',
-    );
-  }
 }
 
 const DENY_PENDING_LUA = `
@@ -261,39 +123,33 @@ redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
 return 1
 `;
 
-export async function resolveMcpApprovalReply(
-  messages: any[],
+export async function resolveMcpApprovalDecision(
+  requestId: string,
+  decision: 'approved' | 'denied',
   userId: string,
   redis: Redis = getRedis(),
-): Promise<ResolvedMcpApprovalReply | null> {
-  const reply = findMcpApprovalReplyWithReview(messages);
-  if (!reply) return null;
+): Promise<ResolvedMcpApprovalDecision> {
+  if (!/^[A-Za-z0-9_-]{12,128}$/.test(requestId)) {
+    throw new McpApprovalDecisionError('The approval request ID is invalid.');
+  }
 
-  const key = pendingApprovalKey(userId, reply.requestId);
+  const key = pendingApprovalKey(userId, requestId);
   const raw = await redis.get(key);
   if (!raw) {
-    throw new McpApprovalReplyError(
-      'That approval request is missing, expired, or already resolved. Ask the assistant to prepare the action again.',
+    throw new McpApprovalDecisionError(
+      'That approval request is missing, expired, or already resolved.',
     );
   }
-  const pending = parsePendingApproval(raw, userId, reply.requestId);
-  assertExactReviewWasPresented(pending, reply.reviewText);
+  const pending = parsePendingApproval(raw, userId, requestId);
 
-  if (reply.decision === 'denied') {
+  if (decision === 'denied') {
     const consumed = await redis.eval(DENY_PENDING_LUA, 1, key, raw);
     if (Number(consumed) !== 1) {
-      throw new McpApprovalReplyError(
+      throw new McpApprovalDecisionError(
         'That approval request changed or was already resolved.',
       );
     }
-    return {
-      decision: 'denied',
-      requestId: reply.requestId,
-      trustedInstruction:
-        '[APPROVAL] The authenticated user denied the pending MCP mutation. ' +
-        'Do not execute it. Do not call user_interaction_tool or ask for ' +
-        'confirmation again. Confirm that no external change was made.',
-    };
+    return { decision, requestId, pending };
   }
 
   const token = randomBytes(18).toString('base64url');
@@ -317,22 +173,15 @@ export async function resolveMcpApprovalReply(
     String(APPROVAL_TTL_SECONDS),
   );
   if (Number(issued) !== 1) {
-    throw new McpApprovalReplyError(
+    throw new McpApprovalDecisionError(
       'That approval request changed or was already resolved.',
     );
   }
-
   return {
-    decision: 'approved',
-    requestId: reply.requestId,
+    decision,
+    requestId,
+    pending,
     approvalToken: token,
-    trustedInstruction:
-      '[APPROVAL] The authenticated user approved exactly one MCP mutation. ' +
-      `Call ${pending.server_name}.${pending.tool_name} once with exactly these ` +
-      `canonical arguments: ${pending.canonical_arguments}. ` +
-      'Do not call user_interaction_tool or ask for confirmation again. ' +
-      'Do not change the arguments or call a different mutation. The one-time ' +
-      'execution credential is present only in trusted request metadata.',
   };
 }
 

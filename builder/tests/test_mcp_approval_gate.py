@@ -1,6 +1,7 @@
 """Tests for MCP destructive-action approval helpers."""
 
 import asyncio
+import base64
 import hashlib
 import json
 import sys
@@ -499,7 +500,20 @@ def test_additional_destructive_verbs_require_token(tool_name):
     assert "execution credential" in reason
 
 
-def test_blocked_workspace_write_requires_exact_immediate_confirmation():
+def test_blocked_workspace_write_creates_compact_gate_owned_approval(monkeypatch):
+    import nat_helpers.identity as identity
+
+    marker = "<!--daedalus-mcp-approval:opaque-->"
+    monkeypatch.setattr(
+        identity,
+        "authenticated_user_id_from_context_or_fallback",
+        lambda _fallback: "alice",
+    )
+    monkeypatch.setattr(
+        mcp_patches,
+        "_create_mcp_approval_marker",
+        lambda **_kwargs: marker,
+    )
     ok, reason = mcp_patches._validate_mcp_approval(
         "update_doc",
         {"documentId": "doc-123", "requests": []},
@@ -507,12 +521,51 @@ def test_blocked_workspace_write_requires_exact_immediate_confirmation():
     )
 
     assert ok is False
-    assert "Your next tool call must be user_interaction_tool" in reason
-    assert "operation='confirm_action'" in reason
-    assert "server_name='docs_mcp_server'" in reason
-    assert "tool_name='update_doc'" in reason
-    assert "nonempty action and reason" in reason
-    assert "unchanged arguments" in reason
+    assert reason == marker
+    assert "user_interaction_tool" not in reason
+    assert "doc-123" not in reason
+
+
+def test_gate_persists_exact_document_once_but_marker_contains_only_metadata(
+    monkeypatch,
+):
+    import user_interaction.approval_tokens as approval_tokens
+
+    redis = _FakeRedis()
+    monkeypatch.setattr(approval_tokens, "make_redis_client", lambda *_args: redis)
+    document_text = "private document text " * 500
+    canonical_arguments, arguments_sha256 = mcp_patches._canonical_mcp_call(
+        {
+            "documentId": "doc-123",
+            "requests": [
+                {
+                    "insertText": {
+                        "location": {"index": 1},
+                        "text": document_text,
+                    }
+                }
+            ],
+        }
+    )
+
+    marker = mcp_patches._create_mcp_approval_marker(
+        user_id="alice",
+        server_name="docs_mcp_server",
+        tool_name="update_doc",
+        canonical_arguments=canonical_arguments,
+        arguments_sha256=arguments_sha256,
+    )
+
+    encoded = marker.removeprefix("<!--daedalus-mcp-approval:").removesuffix("-->")
+    encoded += "=" * (-len(encoded) % 4)
+    marker_payload = json.loads(base64.urlsafe_b64decode(encoded))
+    assert marker_payload["summary"].startswith("Update Google document doc-123")
+    assert marker_payload["argumentsSha256"] == arguments_sha256
+    assert document_text not in marker
+    assert len(redis.store) == 1
+    pending = json.loads(next(iter(redis.store.values())))
+    assert pending["canonical_arguments"] == canonical_arguments
+    assert "arguments_preview" not in pending
 
 
 @pytest.mark.parametrize(

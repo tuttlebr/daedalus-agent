@@ -282,7 +282,7 @@ class TestClarify:
 
         assert result.startswith("Invalid clarification request")
         assert "Do not ask the user again" in result
-        assert "operation='confirm_action'" in result
+        assert "created automatically by the execution gate" in result
         assert "Clarification needed" not in result
 
 
@@ -380,19 +380,10 @@ class TestConfirmAction:
 
         result, fake_redis = run(_run())
 
-        assert "server_name=`k8s_mcp_server`" in result
-        assert "tool_name=`scale_deployment`" in result
-        assert "approval_request_id=`" in result
-        assert "arguments_sha256=`" in result
-        assert "approval_token" not in result
+        assert "created automatically by the execution gate" in result
+        assert "Do not serialize mutation arguments" in result
         assert "must-not-be-displayed" not in result
-        assert "[REDACTED]" in result
-        assert len(fake_redis.store) == 1
-        pending_key, raw_pending = next(iter(fake_redis.store.items()))
-        assert pending_key.startswith("approval-pending:")
-        pending = json.loads(raw_pending)
-        assert pending["canonical_arguments"].endswith('"replicas":3}')
-        assert pending["arguments_preview"].startswith('{"api_token":"[REDACTED]"')
+        assert fake_redis.store == {}
 
     def test_model_shaped_mcp_confirmation_derives_missing_review_text(self):
         """Production models may omit action/reason from the unified schema."""
@@ -437,22 +428,9 @@ class TestConfirmAction:
             return result, fake_redis, arguments_json
 
         result, fake_redis, arguments_json = run(_run())
-        assert "Execute docs_mcp_server.update_doc on doc-1." in result
-        assert "exact approval-gated MCP mutation" in result
-        assert "approval_request_id=`" in result
+        assert "created automatically by the execution gate" in result
         assert len(arguments_json) > 38_000
-        assert len(fake_redis.store) == 1
-        pending = json.loads(next(iter(fake_redis.store.values())))
-        assert pending["action"] == "Execute docs_mcp_server.update_doc on doc-1."
-        assert pending["reason"] == (
-            "The exact approval-gated MCP mutation must be reviewed before execution."
-        )
-        assert pending["canonical_arguments"] == json.dumps(
-            json.loads(arguments_json),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        )
+        assert fake_redis.store == {}
 
     def test_malformed_mcp_arguments_return_actionable_error_without_pending_record(
         self,
@@ -481,7 +459,7 @@ class TestConfirmAction:
             return result, fake_redis
 
         result, fake_redis = run(_run())
-        assert "valid arguments_json containing one JSON object" in result
+        assert "created automatically by the execution gate" in result
         assert fake_redis.store == {}
 
     def test_interactive_chat_creates_exact_mcp_mutation_intent(self):
@@ -531,9 +509,8 @@ class TestConfirmAction:
             return result, fake_redis
 
         result, fake_redis = run(_run())
-        assert "approval_request_id=`" in result
-        assert "server_name=`k8s_mcp_server`" in result
-        assert len(fake_redis.store) == 1
+        assert "created automatically by the execution gate" in result
+        assert fake_redis.store == {}
 
     def test_autonomy_cannot_create_mcp_mutation_intent(self):
         async def _run():
@@ -581,7 +558,7 @@ class TestConfirmAction:
             return result, fake_redis
 
         result, fake_redis = run(_run())
-        assert "autonomous work is non-interactive" in result
+        assert "created automatically by the execution gate" in result
         assert fake_redis.store == {}
 
     def test_memory_update_redirects_to_add_memory_without_confirmation(self):

@@ -26,6 +26,7 @@ release provides the corresponding supported hook.
 """
 
 import asyncio
+import base64
 import contextvars
 import hashlib
 import inspect
@@ -242,6 +243,8 @@ _UNRESTRICTED_MCP_GROUPS: frozenset[str] = frozenset()
 
 _UNRESTRICTED_APPROVAL_REASON = "unrestricted"
 _UNRESTRICTED_MUTATION_APPROVAL_REASON = "unrestricted-mutation"
+_MCP_APPROVAL_MARKER_PREFIX = "<!--daedalus-mcp-approval:"
+_MCP_APPROVAL_MARKER_SUFFIX = "-->"
 
 # API-key values must never appear in logs.  Still, operators need a clear
 # startup signal when a rendered deployment has omitted the environment
@@ -616,6 +619,97 @@ def _canonical_mcp_call(payload: dict, input_schema=None) -> tuple[str, str]:
     return canonical_arguments, arguments_sha256
 
 
+def _mcp_approval_target(arguments: dict, arguments_sha256: str) -> str:
+    """Derive a compact, deterministic target label without rendering content."""
+
+    identifiers: list[str] = []
+    for key in (
+        "documentId",
+        "document_id",
+        "calendarId",
+        "calendar_id",
+        "eventId",
+        "event_id",
+        "namespace",
+        "name",
+        "id",
+    ):
+        value = arguments.get(key)
+        if isinstance(value, (str, int)) and str(value).strip():
+            rendered = str(value).strip()
+            if rendered not in identifiers:
+                identifiers.append(rendered)
+    return "/".join(identifiers[:3]) or f"arguments:{arguments_sha256[:16]}"
+
+
+def _mcp_approval_summary(
+    *, server_name: str, tool_name: str, target: str, canonical_arguments: str
+) -> str:
+    """Describe the protected call using metadata only, never document text."""
+
+    payload_kib = max(1, math.ceil(len(canonical_arguments.encode("utf-8")) / 1024))
+    if server_name == "docs_mcp_server" and tool_name == "update_doc":
+        return f"Update Google document {target} ({payload_kib} KiB payload)"
+    return f"Run {server_name}.{tool_name} on {target} ({payload_kib} KiB payload)"
+
+
+def _encode_mcp_approval_marker(payload: dict) -> str:
+    encoded = (
+        base64.urlsafe_b64encode(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        .decode("ascii")
+        .rstrip("=")
+    )
+    return f"{_MCP_APPROVAL_MARKER_PREFIX}{encoded}{_MCP_APPROVAL_MARKER_SUFFIX}"
+
+
+def _create_mcp_approval_marker(
+    *,
+    user_id: str,
+    server_name: str,
+    tool_name: str,
+    canonical_arguments: str,
+    arguments_sha256: str,
+) -> str:
+    """Persist the gate-owned exact call and return an opaque UI marker."""
+
+    from user_interaction.approval_tokens import (
+        create_pending_mcp_approval,
+        make_redis_client,
+    )
+
+    arguments = json.loads(canonical_arguments)
+    target = _mcp_approval_target(arguments, arguments_sha256)
+    summary = _mcp_approval_summary(
+        server_name=server_name,
+        tool_name=tool_name,
+        target=target,
+        canonical_arguments=canonical_arguments,
+    )
+    pending = create_pending_mcp_approval(
+        make_redis_client(os.getenv("APPROVAL_REDIS_URL")),
+        user_id=user_id,
+        action=summary,
+        reason="This MCP operation changes external data.",
+        target=target,
+        server_name=server_name,
+        tool_name=tool_name,
+        arguments_json=canonical_arguments,
+    )
+    return _encode_mcp_approval_marker(
+        {
+            "version": 1,
+            "requestId": pending["request_id"],
+            "serverName": server_name,
+            "toolName": tool_name,
+            "target": target,
+            "summary": summary,
+            "argumentsSha256": arguments_sha256,
+        }
+    )
+
+
 def _validate_mcp_approval(
     tool_name: str,
     payload: dict,
@@ -645,20 +739,6 @@ def _validate_mcp_approval(
     # before MCPToolClient.acall(). A synthetic approval_token argument is
     # therefore stripped (or rejected) before this gate. Transport the
     # credential out of band in trusted request metadata instead.
-    token = str(approval_token or "").strip()
-    if not token:
-        return False, (
-            f"MCP tool '{tool_name}' isn't authorized as read-only and "
-            "requires a human-approved execution credential. Your next tool "
-            "call must be user_interaction_tool with "
-            "operation='confirm_action', action_type='mcp_mutation', the exact "
-            f"server_name='{server_name}', tool_name='{tool_name}', an exact "
-            "target, nonempty action and reason fields, and arguments_json "
-            "containing the unchanged arguments from this blocked call. Do not "
-            "retry the MCP tool until the user reviews the exact action and "
-            "approves it in their next message."
-        )
-
     try:
         from nat_helpers.identity import authenticated_user_id_from_context_or_fallback
 
@@ -673,7 +753,29 @@ def _validate_mcp_approval(
         )
         return False, "authenticated approval context is invalid"
     if not user_id:
-        return False, "authenticated approval context is required"
+        return False, (
+            "authenticated approval context is required before an execution "
+            "credential can be created"
+        )
+    token = str(approval_token or "").strip()
+    if not token:
+        try:
+            canonical_arguments, arguments_sha256 = _canonical_mcp_call(
+                payload, input_schema
+            )
+            return False, _create_mcp_approval_marker(
+                user_id=user_id,
+                server_name=server_name,
+                tool_name=tool_name,
+                canonical_arguments=canonical_arguments,
+                arguments_sha256=arguments_sha256,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Unable to persist gate-owned MCP approval: error_class=%s",
+                type(exc).__name__,
+            )
+            return False, "protected approval creation is unavailable"
     try:
         from user_interaction.approval_tokens import (
             make_redis_client,
@@ -1787,6 +1889,15 @@ def _is_mcp_authentication_required_error(exc) -> bool:
 
 def _mcp_tool_error_payload(exc, *, server_name: str, tool_name: str) -> str:
     """Return a safe, actionable MCP failure without leaking server details."""
+
+    error_text = str(exc)
+    marker_start = error_text.find(_MCP_APPROVAL_MARKER_PREFIX)
+    if marker_start >= 0:
+        marker_end = error_text.find(_MCP_APPROVAL_MARKER_SUFFIX, marker_start)
+        if marker_end >= 0:
+            return error_text[
+                marker_start : marker_end + len(_MCP_APPROVAL_MARKER_SUFFIX)
+            ]
 
     base = {
         "tool": tool_name,

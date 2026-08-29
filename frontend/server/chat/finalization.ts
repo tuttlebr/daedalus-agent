@@ -6,6 +6,7 @@ import {
   sanitizeConversationAssistantReplays,
   stripReplayedAssistantPrefix,
 } from '@/utils/app/conversationReplay';
+import { isMcpApprovalMarkerMessage } from '@/utils/app/mcpApproval';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
 
@@ -243,6 +244,7 @@ async function retainSuccessfulUserTurn(
   journal: JobFinalizationJournal,
 ): Promise<{ operationId: string; acceptedAt: number } | null> {
   if (journal.outcome !== 'completed' || !journal.conversation) return null;
+  if (isMcpApprovalMarkerMessage(journal.conversation.content)) return null;
   const userContent = sanitizeRetentionText(latestUserText(journal));
   const assistantContent = sanitizeRetentionText(journal.conversation.content);
   if (!userContent) return null;

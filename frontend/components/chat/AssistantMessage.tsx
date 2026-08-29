@@ -22,12 +22,14 @@ import {
 } from 'react';
 
 import { isAutonomousFeedHtmlMessage } from '@/utils/app/htmlResponse';
+import { parseMcpApprovalMarker } from '@/utils/app/mcpApproval';
 
 import { Message } from '@/types/chat';
 
 import { Avatar, IconButton, Badge } from '@/components/primitives';
 import { ModalSurface } from '@/components/surfaces';
 
+import { McpApprovalCard } from './McpApprovalCard';
 import {
   classifyResponseContent,
   ResponseDocument,
@@ -74,6 +76,10 @@ export const AssistantMessage = memo(
       message.intermediateSteps && message.intermediateSteps.length > 0;
     const isAgent = message.role === 'agent';
     const isAutonomousFeedHtml = isAutonomousFeedHtmlMessage(message);
+    const mcpApproval = useMemo(
+      () => parseMcpApprovalMarker(content),
+      [content],
+    );
     const errorMessages = message.errorMessages;
     const hasError = Boolean(errorMessages?.message);
     const isRecoverable = errorMessages?.recoverable === true;
@@ -182,131 +188,142 @@ export const AssistantMessage = memo(
           )}
 
           {/* Message content */}
-          {(content || isStreaming) && (
-            <div className="relative w-full min-w-0">
-              <div
-                aria-busy={isStreaming}
-                className={classNames(
-                  'min-w-0 text-dark-text-primary text-sm',
-                  isAutonomousFeedHtml
-                    ? 'p-0'
-                    : [
-                        'px-4 py-3 rounded-2xl rounded-tl-lg',
-                        'bg-dark-bg-secondary/80 border border-white/[0.06]',
-                      ],
-                  isStreaming && 'border-nvidia-green/20',
-                )}
-              >
-                {/* Long content header with document icon */}
-                {showDocumentHeader && (
-                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/[0.06]">
-                    <div className="flex min-w-0 items-center gap-2 text-xs text-dark-text-muted">
-                      <IconFileText size={14} className="text-nvidia-green" />
-                      <span className="truncate">
-                        {responseDocument.kind === 'html'
-                          ? 'HTML preview'
-                          : `Long response (${Math.ceil(
-                              content.length / 1000,
-                            )}k chars)`}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setIsFullscreen(true)}
-                        className="grid h-11 w-11 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-white/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-9 md:w-9"
-                        aria-label="View fullscreen"
-                      >
-                        <IconMaximize size={14} />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Collapsible content wrapper */}
+          {mcpApproval && !isStreaming ? (
+            <McpApprovalCard
+              approval={mcpApproval}
+              jobId={
+                typeof message.metadata?.jobId === 'string'
+                  ? message.metadata.jobId
+                  : undefined
+              }
+            />
+          ) : (
+            (content || isStreaming) && (
+              <div className="relative w-full min-w-0">
                 <div
-                  ref={contentRef}
+                  aria-busy={isStreaming}
                   className={classNames(
-                    'relative',
-                    needsCollapse &&
-                      !isExpanded &&
-                      !isStreaming &&
-                      'overflow-hidden',
+                    'min-w-0 text-dark-text-primary text-sm',
+                    isAutonomousFeedHtml
+                      ? 'p-0'
+                      : [
+                          'px-4 py-3 rounded-2xl rounded-tl-lg',
+                          'bg-dark-bg-secondary/80 border border-white/[0.06]',
+                        ],
+                    isStreaming && 'border-nvidia-green/20',
                   )}
-                  style={
-                    needsCollapse && !isExpanded && !isStreaming
-                      ? { maxHeight: COLLAPSED_MAX_HEIGHT }
-                      : undefined
-                  }
                 >
-                  {content && (
-                    <ResponseDocument
-                      document={responseDocument}
-                      messageIndex={messageIndex}
-                      messageId={message.id}
-                      isStreaming={isStreaming}
-                      className={
-                        isAutonomousFeedHtml
-                          ? feedClasses
-                          : RESPONSE_PROSE_CLASSES
-                      }
-                    />
+                  {/* Long content header with document icon */}
+                  {showDocumentHeader && (
+                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/[0.06]">
+                      <div className="flex min-w-0 items-center gap-2 text-xs text-dark-text-muted">
+                        <IconFileText size={14} className="text-nvidia-green" />
+                        <span className="truncate">
+                          {responseDocument.kind === 'html'
+                            ? 'HTML preview'
+                            : `Long response (${Math.ceil(
+                                content.length / 1000,
+                              )}k chars)`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setIsFullscreen(true)}
+                          className="grid h-11 w-11 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-white/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-9 md:w-9"
+                          aria-label="View fullscreen"
+                        >
+                          <IconMaximize size={14} />
+                        </button>
+                      </div>
+                    </div>
                   )}
 
-                  {isStreaming && (
-                    <span className="inline-block w-0.5 h-4 ml-0.5 bg-nvidia-green animate-blink align-text-bottom" />
+                  {/* Collapsible content wrapper */}
+                  <div
+                    ref={contentRef}
+                    className={classNames(
+                      'relative',
+                      needsCollapse &&
+                        !isExpanded &&
+                        !isStreaming &&
+                        'overflow-hidden',
+                    )}
+                    style={
+                      needsCollapse && !isExpanded && !isStreaming
+                        ? { maxHeight: COLLAPSED_MAX_HEIGHT }
+                        : undefined
+                    }
+                  >
+                    {content && (
+                      <ResponseDocument
+                        document={responseDocument}
+                        messageIndex={messageIndex}
+                        messageId={message.id}
+                        isStreaming={isStreaming}
+                        className={
+                          isAutonomousFeedHtml
+                            ? feedClasses
+                            : RESPONSE_PROSE_CLASSES
+                        }
+                      />
+                    )}
+
+                    {isStreaming && (
+                      <span className="inline-block w-0.5 h-4 ml-0.5 bg-nvidia-green animate-blink align-text-bottom" />
+                    )}
+                  </div>
+
+                  {/* Gradient fade when collapsed */}
+                  {needsCollapse && !isExpanded && !isStreaming && (
+                    <div className="absolute bottom-12 left-0 right-0 h-20 bg-gradient-to-t from-dark-bg-secondary/95 to-transparent pointer-events-none rounded-b-2xl" />
+                  )}
+
+                  {/* Expand/collapse toggle */}
+                  {needsCollapse && !isStreaming && (
+                    <button
+                      type="button"
+                      onClick={() => setIsExpanded(!isExpanded)}
+                      className="flex items-center gap-1.5 w-full mt-2 pt-2 border-t border-white/[0.04] text-xs font-medium text-nvidia-green hover:text-nvidia-green-light transition-colors"
+                    >
+                      {isExpanded ? (
+                        <>
+                          <IconChevronUp size={14} />
+                          <span>Show Less</span>
+                        </>
+                      ) : (
+                        <>
+                          <IconChevronDown size={14} />
+                          <span>Show Full Response</span>
+                        </>
+                      )}
+                    </button>
                   )}
                 </div>
 
-                {/* Gradient fade when collapsed */}
-                {needsCollapse && !isExpanded && !isStreaming && (
-                  <div className="absolute bottom-12 left-0 right-0 h-20 bg-gradient-to-t from-dark-bg-secondary/95 to-transparent pointer-events-none rounded-b-2xl" />
-                )}
-
-                {/* Expand/collapse toggle */}
-                {needsCollapse && !isStreaming && (
-                  <button
-                    type="button"
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    className="flex items-center gap-1.5 w-full mt-2 pt-2 border-t border-white/[0.04] text-xs font-medium text-nvidia-green hover:text-nvidia-green-light transition-colors"
-                  >
-                    {isExpanded ? (
-                      <>
-                        <IconChevronUp size={14} />
-                        <span>Show Less</span>
-                      </>
-                    ) : (
-                      <>
-                        <IconChevronDown size={14} />
-                        <span>Show Full Response</span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-
-              {/* Action buttons — always visible on touch, hover-only on desktop */}
-              {!isStreaming && content && (
-                <div className="flex items-center gap-1 mt-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-                  <IconButton
-                    icon={copied ? <IconCheck /> : <IconCopy />}
-                    aria-label="Copy message"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleCopy}
-                  />
-                  {onRetry && (
+                {/* Action buttons — always visible on touch, hover-only on desktop */}
+                {!isStreaming && content && (
+                  <div className="flex items-center gap-1 mt-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
                     <IconButton
-                      icon={<IconRefresh />}
-                      aria-label="Regenerate response"
+                      icon={copied ? <IconCheck /> : <IconCopy />}
+                      aria-label="Copy message"
                       variant="ghost"
                       size="sm"
-                      onClick={onRetry}
+                      onClick={handleCopy}
                     />
-                  )}
-                </div>
-              )}
-            </div>
+                    {onRetry && (
+                      <IconButton
+                        icon={<IconRefresh />}
+                        aria-label="Regenerate response"
+                        variant="ghost"
+                        size="sm"
+                        onClick={onRetry}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            )
           )}
         </div>
 
