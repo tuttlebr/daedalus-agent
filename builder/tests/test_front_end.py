@@ -121,7 +121,7 @@ def test_approval_marker_is_extracted_from_completed_tool_step(escaped):
     assert marker == _approval_marker()
 
 
-def test_approval_terminal_event_stops_upstream_before_another_model_cycle():
+def test_approval_terminal_event_suppresses_the_natural_stream_tail():
     consumed = []
     closed = []
     frame = {
@@ -149,14 +149,14 @@ def test_approval_terminal_event_stops_upstream_before_another_model_cycle():
 
     output = asyncio.run(collect())
 
-    assert consumed == ["initial", "approval"]
+    assert consumed == ["initial", "approval", "second-model-cycle"]
     assert closed == [True]
     assert b"event: mcp_approval_required\n" in output
     assert _approval_marker().encode() in output
     assert b"continued" not in output
 
 
-def test_approval_asgi_middleware_cancels_backend_at_the_send_boundary():
+def test_approval_asgi_middleware_allows_clean_backend_unwind():
     continued = []
     sent = []
     frame = {
@@ -182,6 +182,13 @@ def test_approval_asgi_middleware_cancels_backend_at_the_send_boundary():
             }
         )
         continued.append(True)
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b'data: {"choices": [{"delta": {"content": "continued"}}]}\n',
+                "more_body": False,
+            }
+        )
 
     async def receive():
         return {"type": "http.request"}
@@ -202,9 +209,27 @@ def test_approval_asgi_middleware_cancels_backend_at_the_send_boundary():
         )
     )
 
-    assert continued == []
+    assert continued == [True]
     assert sent[-1]["more_body"] is False
-    assert b"event: mcp_approval_required" in sent[-1]["body"]
+    body = b"".join(message.get("body", b"") for message in sent)
+    assert b"event: mcp_approval_required" in body
+    assert b"continued" not in body
+
+
+def test_agent_graph_treats_approval_marker_as_terminal_tool_result():
+    messages = [
+        types.SimpleNamespace(type="ai", content=""),
+        types.SimpleNamespace(
+            type="tool",
+            content=_approval_marker(escaped=True),
+            name="docs_mcp_server__update_doc",
+        ),
+    ]
+
+    assert front_end._has_terminal_mcp_approval(messages)
+    assert not front_end._has_terminal_mcp_approval(
+        [types.SimpleNamespace(type="tool", content="ordinary result")]
+    )
 
 
 def test_readiness_fails_when_required_mcp_capability_is_missing(monkeypatch):

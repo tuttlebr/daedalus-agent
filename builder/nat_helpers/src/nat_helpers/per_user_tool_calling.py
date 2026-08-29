@@ -199,6 +199,7 @@ async def _responses_api_agent_workflow(
     from langchain_core.runnables import RunnableLambda
     from langgraph.errors import GraphRecursionError
     from nat.plugins.langchain.agent.tool_calling_agent.agent import (
+        AgentDecision,
         ToolCallAgentGraph,
         ToolCallAgentGraphState,
     )
@@ -283,6 +284,23 @@ async def _responses_api_agent_workflow(
         )
         | bound_llm
     )
+
+    # A denied mutation is a deterministic terminal state, not content for a
+    # second model turn. Force NAT to build the tool conditional edge, then
+    # route only a strictly validated approval marker to graph END. The direct
+    # approval API owns the eventual execution after the user clicks a button.
+    original_tool_conditional_edge = agent.tool_conditional_edge
+
+    async def _approval_terminal_edge(state):
+        from nat_helpers.front_end import _has_terminal_mcp_approval
+
+        if _has_terminal_mcp_approval(state.messages):
+            logger.info("Ending agent graph at MCP approval boundary")
+            return AgentDecision.END
+        return await original_tool_conditional_edge(state)
+
+    agent.return_direct = ["__daedalus_mcp_approval_terminal__"]
+    agent.tool_conditional_edge = _approval_terminal_edge
     graph = await agent.build_graph()
 
     async def _initial_state(

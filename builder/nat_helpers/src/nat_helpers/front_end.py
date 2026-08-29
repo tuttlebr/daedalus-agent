@@ -89,44 +89,52 @@ def _approval_marker_from_sse_line(line: bytes) -> str | None:
     return _decode_valid_mcp_approval_marker(frame.get("payload"))
 
 
+def _has_terminal_mcp_approval(messages: list[object]) -> bool:
+    """Return whether the latest tool batch contains a validated approval gate."""
+
+    saw_tool_message = False
+    for message in reversed(messages):
+        if getattr(message, "type", None) == "tool":
+            saw_tool_message = True
+            if _decode_valid_mcp_approval_marker(message.content):
+                return True
+            continue
+        if saw_tool_message:
+            break
+    return False
+
+
 async def _terminalize_mcp_approval_stream(
     body_iterator: AsyncIterator[bytes | str],
 ) -> AsyncIterator[bytes]:
     """Replace the first gated tool result with a typed terminal SSE event.
 
-    Returning at that yield boundary closes the upstream response iterator, so
-    NAT cannot hand the gate result back to the model for another tool cycle.
+    The agent graph owns deterministic termination before another model cycle.
+    This serializer consumes its short natural tail so framework cleanup can
+    complete without GeneratorExit or orphaned producer tasks.
     """
 
     buffered = b""
     terminated = False
-    try:
-        async for chunk in body_iterator:
-            buffered += chunk.encode("utf-8") if isinstance(chunk, str) else chunk
-            while b"\n" in buffered:
-                line, buffered = buffered.split(b"\n", 1)
-                marker = _approval_marker_from_sse_line(line)
-                if marker is not None:
-                    terminated = True
-                    event = json.dumps(
-                        {"marker": marker}, separators=(",", ":")
-                    ).encode("utf-8")
-                    logger.info("Terminating chat stream at MCP approval boundary")
-                    yield b"event: mcp_approval_required\ndata: " + event + b"\n\n"
-                    return
-                yield line + b"\n"
-        if buffered:
-            yield buffered
-    finally:
+    async for chunk in body_iterator:
         if terminated:
-            close = getattr(body_iterator, "aclose", None)
-            if close is not None:
-                with contextlib.suppress(Exception):
-                    await close()
-
-
-class _McpApprovalStreamTerminated(BaseException):
-    """Unwind the NAT stream immediately after its terminal event is sent."""
+            continue
+        buffered += chunk.encode("utf-8") if isinstance(chunk, str) else chunk
+        while b"\n" in buffered:
+            line, buffered = buffered.split(b"\n", 1)
+            marker = _approval_marker_from_sse_line(line)
+            if marker is not None:
+                terminated = True
+                buffered = b""
+                event = json.dumps({"marker": marker}, separators=(",", ":")).encode(
+                    "utf-8"
+                )
+                logger.info("Terminating chat stream at MCP approval boundary")
+                yield b"event: mcp_approval_required\ndata: " + event + b"\n\n"
+                break
+            yield line + b"\n"
+    if buffered and not terminated:
+        yield buffered
 
 
 class McpApprovalTerminalMiddleware:
@@ -146,9 +154,10 @@ class McpApprovalTerminalMiddleware:
 
         is_event_stream = False
         buffered = b""
+        terminated = False
 
         async def terminal_send(message):
-            nonlocal is_event_stream, buffered
+            nonlocal is_event_stream, buffered, terminated
             if message.get("type") == "http.response.start":
                 headers = message.get("headers", [])
                 is_event_stream = any(
@@ -163,12 +172,26 @@ class McpApprovalTerminalMiddleware:
                 await send(message)
                 return
 
+            if terminated:
+                if not message.get("more_body", False):
+                    with contextlib.suppress(OSError):
+                        await send(
+                            {
+                                "type": "http.response.body",
+                                "body": b"",
+                                "more_body": False,
+                            }
+                        )
+                return
+
             buffered += message.get("body", b"")
             outgoing = bytearray()
             while b"\n" in buffered:
                 line, buffered = buffered.split(b"\n", 1)
                 marker = _approval_marker_from_sse_line(line)
                 if marker is not None:
+                    terminated = True
+                    buffered = b""
                     event = json.dumps(
                         {"marker": marker}, separators=(",", ":")
                     ).encode("utf-8")
@@ -179,10 +202,10 @@ class McpApprovalTerminalMiddleware:
                         {
                             "type": "http.response.body",
                             "body": bytes(outgoing),
-                            "more_body": False,
+                            "more_body": True,
                         }
                     )
-                    raise _McpApprovalStreamTerminated()
+                    return
                 outgoing.extend(line + b"\n")
 
             more_body = bool(message.get("more_body", False))
@@ -198,9 +221,8 @@ class McpApprovalTerminalMiddleware:
                     }
                 )
 
-        try:
-            await self.app(scope, receive, terminal_send)
-        except _McpApprovalStreamTerminated:
+        await self.app(scope, receive, terminal_send)
+        if terminated:
             logger.info("Terminated backend execution at MCP approval boundary")
 
 
