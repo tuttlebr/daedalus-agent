@@ -4,6 +4,8 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class FakeRedis:
     def __init__(self):
@@ -184,6 +186,23 @@ def test_mcp_argument_preview_redacts_nested_and_embedded_credentials():
     assert environment_value not in preview
     assert "url-secret" not in preview
     assert preview.count("[REDACTED]") >= 4
+
+
+def test_pending_mcp_approval_rejects_empty_action_or_reason():
+    from user_interaction.approval_tokens import create_pending_mcp_approval
+
+    for action, reason in (("", "Requested in chat"), ("Update doc", "")):
+        with pytest.raises(ValueError, match="exact action and reason"):
+            create_pending_mcp_approval(
+                FakeRedis(),
+                user_id="brandon",
+                action=action,
+                reason=reason,
+                target="document/doc-1",
+                server_name="docs_mcp_server",
+                tool_name="update_doc",
+                arguments_json='{"documentId":"doc-1","requests":[]}',
+            )
 
 
 class TestClarify:
@@ -374,6 +393,96 @@ class TestConfirmAction:
         pending = json.loads(raw_pending)
         assert pending["canonical_arguments"].endswith('"replicas":3}')
         assert pending["arguments_preview"].startswith('{"api_token":"[REDACTED]"')
+
+    def test_model_shaped_mcp_confirmation_derives_missing_review_text(self):
+        """Production models may omit action/reason from the unified schema."""
+
+        async def _run():
+            fake_redis = FakeRedis()
+            import user_interaction.user_interaction_function as mod
+
+            large_text = "# Booking Summary\n" + ("Cruise detail line\n" * 2200)
+            arguments_json = json.dumps(
+                {
+                    "documentId": "doc-1",
+                    "requests": [
+                        {
+                            "insertText": {
+                                "location": {"index": 1},
+                                "text": large_text,
+                            }
+                        }
+                    ],
+                }
+            )
+            with (
+                patch.object(mod, "make_redis_client", return_value=fake_redis),
+                patch.object(
+                    mod,
+                    "_authenticated_user_or_fallback",
+                    return_value="brandon",
+                ),
+            ):
+                items = await _get_tools()
+                confirm_fn = _operation(items, "confirm_action")
+                # This intentionally matches the live model call: all exact MCP
+                # binding fields are present, but action and reason are omitted.
+                result = await confirm_fn(
+                    action_type="mcp_mutation",
+                    target="doc-1",
+                    server_name="docs_mcp_server",
+                    tool_name="update_doc",
+                    arguments_json=arguments_json,
+                )
+            return result, fake_redis, arguments_json
+
+        result, fake_redis, arguments_json = run(_run())
+        assert "Execute docs_mcp_server.update_doc on doc-1." in result
+        assert "exact approval-gated MCP mutation" in result
+        assert "approval_request_id=`" in result
+        assert len(arguments_json) > 38_000
+        assert len(fake_redis.store) == 1
+        pending = json.loads(next(iter(fake_redis.store.values())))
+        assert pending["action"] == "Execute docs_mcp_server.update_doc on doc-1."
+        assert pending["reason"] == (
+            "The exact approval-gated MCP mutation must be reviewed before execution."
+        )
+        assert pending["canonical_arguments"] == json.dumps(
+            json.loads(arguments_json),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+
+    def test_malformed_mcp_arguments_return_actionable_error_without_pending_record(
+        self,
+    ):
+        async def _run():
+            fake_redis = FakeRedis()
+            import user_interaction.user_interaction_function as mod
+
+            with (
+                patch.object(mod, "make_redis_client", return_value=fake_redis),
+                patch.object(
+                    mod,
+                    "_authenticated_user_or_fallback",
+                    return_value="brandon",
+                ),
+            ):
+                items = await _get_tools()
+                confirm_fn = _operation(items, "confirm_action")
+                result = await confirm_fn(
+                    action_type="mcp_mutation",
+                    target="doc-1",
+                    server_name="docs_mcp_server",
+                    tool_name="update_doc",
+                    arguments_json='{"documentId":"doc-1","requests":[',
+                )
+            return result, fake_redis
+
+        result, fake_redis = run(_run())
+        assert "valid arguments_json containing one JSON object" in result
+        assert fake_redis.store == {}
 
     def test_interactive_chat_creates_exact_mcp_mutation_intent(self):
         async def _run():

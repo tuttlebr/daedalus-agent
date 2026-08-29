@@ -631,11 +631,12 @@ functions:
       irreversible actions: memory delete or an explicitly approval-gated MCP
       mutation; before Docs update_doc or Calendar create_event, update_event,
       delete_event, or respond_to_event, call this tool with
-      operation=confirm_action and the exact function-group name, remote tool
-      name, target, and final JSON arguments; if a gate reports approval is
-      required, call this tool as the very next tool with
-      operation=confirm_action and the same exact arguments, then stop and wait
-      for the user's reply; never follow it with clarify),
+      operation=confirm_action, a nonempty action and reason, and the exact
+      function-group name, remote tool name, target, and final JSON arguments;
+      if a gate reports approval is required, call this tool as the very next
+      tool with operation=confirm_action, nonempty action and reason, and the
+      same exact arguments, then stop and wait for the user's reply; never
+      follow it with clarify),
       confirm_research_plan (approve expensive deep research),
       delete_memory_guarded (requires approval_token). Args depend on
       operation. Returns: formatted prompt or guarded action result.

@@ -150,10 +150,20 @@ class UserInteractionInput(BaseModel):
         default="", description="Reason the clarification is needed."
     )
     action: str = Field(
-        default="", description="Exact action presented by confirm_action."
+        default="",
+        description=(
+            "Nonempty exact action presented by confirm_action. Required for "
+            "approval requests; an MCP mutation safely derives it from the exact "
+            "server, tool, and target only when omitted."
+        ),
     )
     reason: str = Field(
-        default="", description="Reason for confirm_action or plan approval."
+        default="",
+        description=(
+            "Nonempty reason for confirm_action or plan approval. Required for "
+            "approval requests; an MCP mutation uses a fixed gate reason only "
+            "when omitted."
+        ),
     )
     risks: str = Field(default="", description="Material action or plan risks.")
     alternatives: str = Field(
@@ -380,24 +390,10 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 "external mutations or memory deletes."
             )
 
-        parts = [f"**Action requiring confirmation:**\n\n{action}"]
-
-        parts.append(f"\n**Reason:** {reason}")
-
-        if risks:
-            parts.append(f"\n**Risks:** {risks}")
-
-        if not reversible:
-            parts.append("\n**Warning:** This action is difficult to reverse.")
-
-        if alternatives:
-            alt_list = [a.strip() for a in alternatives.split("|") if a.strip()]
-            if alt_list:
-                alts_formatted = ", ".join(alt_list)
-                parts.append(f"\n**Alternatives considered:** {alts_formatted}")
-
         resolved_user_id = _authenticated_user_or_fallback(user_id)
         resolved_target = (target or "").strip()
+        resolved_action = action.strip()
+        resolved_reason = reason.strip()
         pending_mcp_approval: dict[str, Any] | None = None
         if normalized_action_type == "delete_memory":
             if resolved_target and resolved_target != resolved_user_id:
@@ -419,12 +415,24 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 return "Error: MCP approval requires the exact server_name."
             if not tool_name.strip():
                 return "Error: MCP approval requires the exact tool_name."
+            # The exact server/tool/target/arguments binding is authoritative.
+            # Models can still omit descriptive fields from a multi-operation
+            # schema, so derive deterministic review text rather than persisting
+            # an approval that the frontend must reject as incomplete.
+            resolved_action = resolved_action or (
+                f"Execute {server_name.strip()}.{tool_name.strip()} on "
+                f"{resolved_target}."
+            )
+            resolved_reason = resolved_reason or (
+                "The exact approval-gated MCP mutation must be reviewed before "
+                "execution."
+            )
             try:
                 pending_mcp_approval = create_pending_mcp_approval(
                     _get_redis(),
                     user_id=resolved_user_id,
-                    action=action,
-                    reason=reason,
+                    action=resolved_action,
+                    reason=resolved_reason,
                     target=resolved_target,
                     server_name=server_name,
                     tool_name=tool_name,
@@ -435,7 +443,27 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                     "Unable to persist pending MCP approval: error_class=%s",
                     type(exc).__name__,
                 )
-                return "Error: unable to create a protected pending approval."
+                return (
+                    "Error: unable to create a protected pending approval. "
+                    "Provide nonempty action and reason fields and valid "
+                    "arguments_json containing one JSON object."
+                )
+
+        parts = [f"**Action requiring confirmation:**\n\n{resolved_action}"]
+
+        parts.append(f"\n**Reason:** {resolved_reason}")
+
+        if risks:
+            parts.append(f"\n**Risks:** {risks}")
+
+        if not reversible:
+            parts.append("\n**Warning:** This action is difficult to reverse.")
+
+        if alternatives:
+            alt_list = [a.strip() for a in alternatives.split("|") if a.strip()]
+            if alt_list:
+                alts_formatted = ", ".join(alt_list)
+                parts.append(f"\n**Alternatives considered:** {alts_formatted}")
 
         parts.append(
             "\nProceed? (yes/no)\nReply with `approve` or `deny`. "

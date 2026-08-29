@@ -230,11 +230,15 @@ def create_pending_mcp_approval(
     """Persist an exact, non-executable MCP intent for later human approval."""
 
     normalized_user = _norm(user_id)
+    normalized_action = _norm(action)
+    normalized_reason = _norm(reason)
     normalized_target = _norm(target)
     normalized_server = _norm(server_name)
     normalized_tool = _norm(tool_name)
     if not normalized_user:
         raise ValueError("pending MCP approval requires an authenticated user")
+    if not normalized_action or not normalized_reason:
+        raise ValueError("pending MCP approval requires an exact action and reason")
     if not normalized_target or normalized_target == "*":
         raise ValueError("pending MCP approval requires an exact target")
     if not normalized_server or not normalized_tool:
@@ -246,8 +250,8 @@ def create_pending_mcp_approval(
         "request_id": request_id,
         "user_id": normalized_user,
         "action_type": "mcp_mutation",
-        "action": _norm(action),
-        "reason": _norm(reason),
+        "action": normalized_action,
+        "reason": normalized_reason,
         "target": normalized_target,
         "server_name": normalized_server,
         "tool_name": normalized_tool,

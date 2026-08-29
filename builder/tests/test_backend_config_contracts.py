@@ -1726,6 +1726,7 @@ def test_workspace_writes_request_exact_approval_before_mutation():
         assert "Docs update_doc" in interaction_desc, path
         assert "Calendar create_event" in interaction_desc, path
         assert "operation=confirm_action" in interaction_desc, path
+        assert "nonempty action and reason" in interaction_desc, path
         assert "as the very next tool" in interaction_desc, path
 
 

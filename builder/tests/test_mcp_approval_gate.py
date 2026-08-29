@@ -511,6 +511,7 @@ def test_blocked_workspace_write_requires_exact_immediate_confirmation():
     assert "operation='confirm_action'" in reason
     assert "server_name='docs_mcp_server'" in reason
     assert "tool_name='update_doc'" in reason
+    assert "nonempty action and reason" in reason
     assert "unchanged arguments" in reason
 
 

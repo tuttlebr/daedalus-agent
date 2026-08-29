@@ -653,9 +653,10 @@ def _validate_mcp_approval(
             "call must be user_interaction_tool with "
             "operation='confirm_action', action_type='mcp_mutation', the exact "
             f"server_name='{server_name}', tool_name='{tool_name}', an exact "
-            "target, and arguments_json containing the unchanged arguments "
-            "from this blocked call. Do not retry the MCP tool until the user "
-            "reviews the exact action and approves it in their next message."
+            "target, nonempty action and reason fields, and arguments_json "
+            "containing the unchanged arguments from this blocked call. Do not "
+            "retry the MCP tool until the user reviews the exact action and "
+            "approves it in their next message."
         )
 
     try:

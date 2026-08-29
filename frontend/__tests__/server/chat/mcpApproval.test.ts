@@ -175,6 +175,21 @@ describe('interactive MCP approval handoff', () => {
     expect(redis.store.has(pendingKey)).toBe(true);
   });
 
+  it('rejects a legacy pending record with an empty exact action', async () => {
+    redis.store.set(
+      pendingKey,
+      JSON.stringify({ ...JSON.parse(pendingPayload()), action: '' }),
+    );
+    await expect(
+      resolveMcpApprovalReply(
+        conversation('Yes, confirm the doc update'),
+        userId,
+        redis as any,
+      ),
+    ).rejects.toThrow('does not match the authenticated user and exact action');
+    expect(redis.store.has(pendingKey)).toBe(true);
+  });
+
   it('atomically converts approval into an exact short-lived credential', async () => {
     const result = await resolveMcpApprovalReply(
       conversation(),
