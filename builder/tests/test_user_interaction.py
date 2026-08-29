@@ -97,7 +97,7 @@ def test_approval_redis_url_adds_port_before_database_path(monkeypatch):
 
 
 async def _get_tools(config_overrides=None):
-    """Instantiate user_interaction and collect yielded FunctionInfo objects."""
+    """Instantiate the unified user_interaction tool."""
     from user_interaction.user_interaction_function import (
         UserInteractionConfig,
         user_interaction_function,
@@ -112,25 +112,39 @@ async def _get_tools(config_overrides=None):
     return items
 
 
+def _operation(items, operation):
+    """Bind one dispatcher operation for readable behavior tests."""
+
+    async def invoke(**kwargs):
+        return await items[0].fn(operation=operation, **kwargs)
+
+    invoke.__name__ = operation
+    return invoke
+
+
 class TestUserInteractionRegistration:
-    def test_yields_five_function_infos(self):
+    def test_yields_exactly_one_function_info(self):
         items = run(_get_tools())
-        assert len(items) == 5
+        assert len(items) == 1
 
     def test_all_have_fn_and_description(self):
         items = run(_get_tools())
-        for item in items:
-            assert item.fn is not None
-            assert item.description
+        assert items[0].fn is not None
+        assert items[0].description
+        assert items[0].input_schema is not None
 
-    def test_tool_names(self):
+    def test_tool_schema_requires_an_explicit_operation(self):
         items = run(_get_tools())
-        fn_names = [item.fn.__name__ for item in items]
-        assert "clarify" in fn_names
-        assert "confirm_action" in fn_names
-        assert "confirm_research_plan" in fn_names
-        assert "present_options" in fn_names
-        assert "delete_memory_guarded" in fn_names
+        schema = items[0].input_schema.model_json_schema()
+        assert items[0].fn.__name__ == "user_interaction"
+        assert schema["required"] == ["operation"]
+        assert schema["properties"]["operation"]["enum"] == [
+            "clarify",
+            "confirm_action",
+            "confirm_research_plan",
+            "present_options",
+            "delete_memory_guarded",
+        ]
 
 
 def test_mcp_argument_preview_redacts_nested_and_embedded_credentials():
@@ -176,7 +190,7 @@ class TestClarify:
     def test_basic_question(self):
         async def _run():
             items = await _get_tools()
-            clarify_fn = items[0].fn
+            clarify_fn = _operation(items, "clarify")
             result = await clarify_fn(question="Which format do you prefer?")
             assert "Which format do you prefer?" in result
             assert "Clarification needed" in result
@@ -186,7 +200,7 @@ class TestClarify:
     def test_with_options(self):
         async def _run():
             items = await _get_tools()
-            clarify_fn = items[0].fn
+            clarify_fn = _operation(items, "clarify")
             result = await clarify_fn(
                 question="Which source?",
                 options="News | Knowledge base | Both",
@@ -202,7 +216,7 @@ class TestClarify:
     def test_with_context_and_why(self):
         async def _run():
             items = await _get_tools()
-            clarify_fn = items[0].fn
+            clarify_fn = _operation(items, "clarify")
             result = await clarify_fn(
                 question="Which topic?",
                 context="You asked about semiconductors",
@@ -217,7 +231,7 @@ class TestClarify:
     def test_options_limited_to_max(self):
         async def _run():
             items = await _get_tools({"max_options": 2})
-            clarify_fn = items[0].fn
+            clarify_fn = _operation(items, "clarify")
             result = await clarify_fn(
                 question="Pick one",
                 options="A | B | C | D | E",
@@ -232,7 +246,7 @@ class TestClarify:
     def test_rejects_reconfirming_an_action_the_user_already_approved(self):
         async def _run():
             items = await _get_tools()
-            clarify_fn = items[0].fn
+            clarify_fn = _operation(items, "clarify")
             return await clarify_fn(
                 question=(
                     'The user said "Please proceed" - let me confirm the '
@@ -249,7 +263,7 @@ class TestClarify:
 
         assert result.startswith("Invalid clarification request")
         assert "Do not ask the user again" in result
-        assert "call confirm_action once" in result
+        assert "operation='confirm_action'" in result
         assert "Clarification needed" not in result
 
 
@@ -257,7 +271,7 @@ class TestConfirmAction:
     def test_basic_confirmation(self):
         async def _run():
             items = await _get_tools()
-            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
+            confirm_fn = _operation(items, "confirm_action")
             result = await confirm_fn(
                 action="Delete all memories for user john",
                 reason="User explicitly requested memory reset",
@@ -265,14 +279,15 @@ class TestConfirmAction:
             assert "Delete all memories" in result
             assert "Reason" in result
             assert "Proceed?" in result
-            assert "`Please proceed` is also accepted" in result
+            assert "`Please proceed`" in result
+            assert "`Yes, confirm the doc update`" in result
 
         run(_run())
 
     def test_irreversible_warning(self):
         async def _run():
             items = await _get_tools()
-            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
+            confirm_fn = _operation(items, "confirm_action")
             result = await confirm_fn(
                 action="Drop the database",
                 reason="Migration requires fresh start",
@@ -285,7 +300,7 @@ class TestConfirmAction:
     def test_with_risks_and_alternatives(self):
         async def _run():
             items = await _get_tools()
-            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
+            confirm_fn = _operation(items, "confirm_action")
             result = await confirm_fn(
                 action="Scale to 10 replicas",
                 reason="Traffic spike expected",
@@ -303,7 +318,7 @@ class TestConfirmAction:
         async def _run():
             fake_redis = FakeRedis()
             items = await _get_tools()
-            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
+            confirm_fn = _operation(items, "confirm_action")
             result = await confirm_fn(
                 action="Delete memories",
                 reason="User requested it",
@@ -324,9 +339,7 @@ class TestConfirmAction:
 
             with patch.object(mod, "make_redis_client", return_value=fake_redis):
                 items = await _get_tools()
-                confirm_fn = next(
-                    i.fn for i in items if i.fn.__name__ == "confirm_action"
-                )
+                confirm_fn = _operation(items, "confirm_action")
                 result = await confirm_fn(
                     action="Scale the production API",
                     reason="User requested it",
@@ -395,9 +408,7 @@ class TestConfirmAction:
                 ),
             ):
                 items = await _get_tools()
-                confirm_fn = next(
-                    i.fn for i in items if i.fn.__name__ == "confirm_action"
-                )
+                confirm_fn = _operation(items, "confirm_action")
                 result = await confirm_fn(
                     action="Scale the production API",
                     reason="Requested in chat",
@@ -448,9 +459,7 @@ class TestConfirmAction:
                 ),
             ):
                 items = await _get_tools()
-                confirm_fn = next(
-                    i.fn for i in items if i.fn.__name__ == "confirm_action"
-                )
+                confirm_fn = _operation(items, "confirm_action")
                 result = await confirm_fn(
                     action="Scale the production API",
                     reason="Requested by an autonomous run",
@@ -469,7 +478,7 @@ class TestConfirmAction:
     def test_memory_update_redirects_to_add_memory_without_confirmation(self):
         async def _run():
             items = await _get_tools()
-            confirm_fn = next(i.fn for i in items if i.fn.__name__ == "confirm_action")
+            confirm_fn = _operation(items, "confirm_action")
             result = await confirm_fn(
                 action="Store a memory that the user's name is Brandon Tuttle.",
                 reason="The user explicitly asked me to remember it.",
@@ -495,7 +504,7 @@ class TestPresentOptions:
     def test_basic_options(self):
         async def _run():
             items = await _get_tools()
-            present_fn = next(i.fn for i in items if i.fn.__name__ == "present_options")
+            present_fn = _operation(items, "present_options")
             options = json.dumps(
                 [
                     {
@@ -524,7 +533,7 @@ class TestPresentOptions:
     def test_with_recommendation(self):
         async def _run():
             items = await _get_tools()
-            present_fn = next(i.fn for i in items if i.fn.__name__ == "present_options")
+            present_fn = _operation(items, "present_options")
             options = json.dumps(
                 [
                     {"label": "A", "description": "Option A"},
@@ -544,7 +553,7 @@ class TestPresentOptions:
     def test_invalid_json_returns_error(self):
         async def _run():
             items = await _get_tools()
-            present_fn = next(i.fn for i in items if i.fn.__name__ == "present_options")
+            present_fn = _operation(items, "present_options")
             result = await present_fn(
                 decision="Choose",
                 options_json="not valid json{{{",
@@ -556,7 +565,7 @@ class TestPresentOptions:
     def test_options_limited_to_max(self):
         async def _run():
             items = await _get_tools({"max_options": 2})
-            present_fn = next(i.fn for i in items if i.fn.__name__ == "present_options")
+            present_fn = _operation(items, "present_options")
             options = json.dumps([{"label": f"Option {i}"} for i in range(5)])
             result = await present_fn(
                 decision="Choose",
@@ -573,9 +582,7 @@ class TestConfirmResearchPlan:
     def test_formats_plan_and_source_strategy(self):
         async def _run():
             items = await _get_tools()
-            confirm_fn = next(
-                i.fn for i in items if i.fn.__name__ == "confirm_research_plan"
-            )
+            confirm_fn = _operation(items, "confirm_research_plan")
             strategy = json.dumps(
                 {
                     "recommended_tool_sequence": [
@@ -607,9 +614,7 @@ class TestConfirmResearchPlan:
         async def _run():
             fake_redis = FakeRedis()
             items = await _get_tools()
-            confirm_fn = next(
-                i.fn for i in items if i.fn.__name__ == "confirm_research_plan"
-            )
+            confirm_fn = _operation(items, "confirm_research_plan")
             result = await confirm_fn(
                 title="Deep report",
                 sections_json=json.dumps(["Plan", "Evidence"]),
@@ -633,9 +638,7 @@ class TestDeleteMemoryGuarded:
 
             with patch.object(mod, "make_redis_client", return_value=fake_redis):
                 items = await _get_tools()
-                delete_fn = next(
-                    i.fn for i in items if i.fn.__name__ == "delete_memory_guarded"
-                )
+                delete_fn = _operation(items, "delete_memory_guarded")
                 result = await delete_fn(user_id="brandon", approval_token="")
             assert "denied" in result
 
@@ -683,9 +686,7 @@ class TestDeleteMemoryGuarded:
                 ),
             ):
                 items = await _get_tools()
-                delete_fn = next(
-                    i.fn for i in items if i.fn.__name__ == "delete_memory_guarded"
-                )
+                delete_fn = _operation(items, "delete_memory_guarded")
                 result = await delete_fn(user_id="brandon", approval_token=token)
                 second = await delete_fn(user_id="brandon", approval_token=token)
 
@@ -744,9 +745,7 @@ class TestDeleteMemoryGuarded:
                 ),
             ):
                 items = await _get_tools()
-                delete_fn = next(
-                    i.fn for i in items if i.fn.__name__ == "delete_memory_guarded"
-                )
+                delete_fn = _operation(items, "delete_memory_guarded")
                 result = await delete_fn(
                     user_id="Brandon Tuttle",
                     approval_token=token,
@@ -767,9 +766,7 @@ class TestDeleteMemoryGuarded:
                 mod, "_authenticated_user_or_fallback", return_value="alice"
             ):
                 items = await _get_tools()
-                confirm_fn = next(
-                    i.fn for i in items if i.fn.__name__ == "confirm_action"
-                )
+                confirm_fn = _operation(items, "confirm_action")
                 return await confirm_fn(
                     action="Delete my memory",
                     reason="requested",

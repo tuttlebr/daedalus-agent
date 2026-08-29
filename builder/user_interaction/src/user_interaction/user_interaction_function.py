@@ -1,22 +1,10 @@
-"""Structured user interaction tools for NeMo Agent Toolkit.
+"""Unified structured user-interaction tool for NeMo Agent Toolkit.
 
-Registers three tools with NAT:
-
-  clarify             Ask the user a structured clarification question
-                      with suggested options and context. Reduces ambiguity
-                      in user requests before committing to a course of action.
-
-  confirm_action      Get explicit user confirmation before taking a
-                      consequential or irreversible action. Presents the
-                      action, rationale, risks, and alternatives.
-
-  confirm_research_plan
-                      Present a deep-research plan, source strategy, and
-                      expected cost/risk before expensive research begins.
-
-  present_options     Present a structured comparison of options for the
-                      user to choose from. Each option includes a label,
-                      description, and trade-offs.
+The registered function exposes one explicit ``operation`` dispatcher for
+clarification, exact action approval, research-plan approval, option
+presentation, and guarded memory deletion. A toolkit function builder must
+yield exactly one runtime function, so these related behaviors share one typed
+schema rather than attempting to yield multiple ``FunctionInfo`` objects.
 
 Inspired by Claude Code's AskUserQuestion tool and the principle that
 structured interaction dramatically improves user satisfaction and
@@ -25,13 +13,13 @@ reduces wasted effort on misunderstood requests.
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 from user_interaction.approval_tokens import (
     create_pending_mcp_approval,
     make_redis_client,
@@ -39,6 +27,22 @@ from user_interaction.approval_tokens import (
 )
 
 logger = logging.getLogger(__name__)
+
+UserInteractionOperation = Literal[
+    "clarify",
+    "confirm_action",
+    "confirm_research_plan",
+    "present_options",
+    "delete_memory_guarded",
+]
+
+_ALL_OPERATIONS: tuple[UserInteractionOperation, ...] = (
+    "clarify",
+    "confirm_action",
+    "confirm_research_plan",
+    "present_options",
+    "delete_memory_guarded",
+)
 
 _APPROVAL_ONLY_OPTIONS = {
     "approve",
@@ -108,13 +112,101 @@ class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
         default=None,
         description="Redis URL used for approval-token storage.",
     )
-    enabled_operations: list[str] | None = Field(
+    enabled_operations: list[UserInteractionOperation] | None = Field(
         default=None,
         description=(
             "Optional allow-list of operations to register. Supported values: "
             "clarify, confirm_action, confirm_research_plan, present_options, "
             "delete_memory_guarded. When omitted, all operations are registered."
         ),
+    )
+    description: str = Field(
+        default=(
+            "Structured user interaction. Set operation explicitly. Use "
+            "confirm_action for an exact pending MCP mutation approval; never "
+            "substitute clarify for approval."
+        ),
+        description="LLM-facing description for the unified dispatcher.",
+    )
+
+
+class UserInteractionInput(BaseModel):
+    """Explicit LLM-facing schema for the unified interaction dispatcher."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: UserInteractionOperation = Field(
+        description=(
+            "Required operation. Use confirm_action when an MCP mutation reports "
+            "that approval is required. Never use clarify for approval."
+        )
+    )
+    question: str = Field(default="", description="Question for clarify only.")
+    options: str = Field(
+        default="", description="Pipe-separated choices for clarify only."
+    )
+    context: str = Field(default="", description="Context for clarify only.")
+    why_asking: str = Field(
+        default="", description="Reason the clarification is needed."
+    )
+    action: str = Field(
+        default="", description="Exact action presented by confirm_action."
+    )
+    reason: str = Field(
+        default="", description="Reason for confirm_action or plan approval."
+    )
+    risks: str = Field(default="", description="Material action or plan risks.")
+    alternatives: str = Field(
+        default="", description="Pipe-separated action alternatives."
+    )
+    reversible: bool = Field(
+        default=True, description="Whether the confirmed action is reversible."
+    )
+    user_id: str = Field(
+        default="",
+        description=("Legacy non-HTTP fallback only. Omit for authenticated requests."),
+    )
+    action_type: str = Field(
+        default="unspecified",
+        description="Use mcp_mutation for an approval-gated MCP call.",
+    )
+    target: str = Field(
+        default="", description="Exact non-wildcard approval or plan target."
+    )
+    server_name: str = Field(
+        default="", description="Exact MCP function-group name for confirm_action."
+    )
+    tool_name: str = Field(
+        default="", description="Exact remote MCP tool name for confirm_action."
+    )
+    arguments_json: str = Field(
+        default="",
+        description="Exact MCP arguments JSON object for confirm_action.",
+    )
+    title: str = Field(default="", description="Plan title for confirm_research_plan.")
+    sections_json: str = Field(
+        default="[]", description="Plan sections JSON for confirm_research_plan."
+    )
+    source_strategy_json: str = Field(
+        default="", description="Optional source strategy JSON for plan approval."
+    )
+    estimated_tool_calls: int = Field(
+        default=0,
+        ge=0,
+        description="Estimated calls for confirm_research_plan.",
+    )
+    decision: str = Field(
+        default="", description="Decision to present with present_options."
+    )
+    options_json: str = Field(
+        default="[]", description="Option objects JSON for present_options."
+    )
+    recommendation: str = Field(
+        default="", description="Optional recommendation for present_options."
+    )
+    approval_token: str = Field(
+        default="",
+        description="Single-use credential for delete_memory_guarded only.",
     )
 
 
@@ -127,10 +219,7 @@ def _authenticated_user_or_fallback(fallback_user_id: str = "") -> str:
 @register_function(config_type=UserInteractionConfig)
 async def user_interaction_function(config: UserInteractionConfig, builder: Builder):
     _redis_client: Any | None = None
-    enabled = set(config.enabled_operations or [])
-
-    def _enabled(operation: str) -> bool:
-        return not enabled or operation in enabled
+    enabled = set(config.enabled_operations or _ALL_OPERATIONS)
 
     def _get_redis():
         nonlocal _redis_client
@@ -189,7 +278,8 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
                 "Invalid clarification request: clarify cannot request or "
                 "reconfirm action approval. Do not ask the user again. If an "
                 "MCP mutation requires an execution credential and no exact "
-                "pending approval exists, call confirm_action once with "
+                "pending approval exists, call user_interaction_tool once with "
+                "operation='confirm_action', "
                 "action_type='mcp_mutation' plus the exact target, server_name, "
                 "tool_name, and arguments_json. If approval was already resolved "
                 "by a trusted [APPROVAL] instruction, execute that exact action "
@@ -349,7 +439,8 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
 
         parts.append(
             "\nProceed? (yes/no)\nReply with `approve` or `deny`. "
-            "`Please proceed` is also accepted."
+            "Natural confirmations such as `Please proceed` or "
+            "`Yes, confirm the doc update` are also accepted."
         )
         if resolved_user_id and normalized_action_type != "unspecified":
             parts.append(
@@ -586,77 +677,88 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
 
         return "Durable memory cleared."
 
-    # ------------------------------------------------------------------
-    # Register all tools with NAT
-    # ------------------------------------------------------------------
+    async def user_interaction(
+        operation: UserInteractionOperation,
+        question: str = "",
+        options: str = "",
+        context: str = "",
+        why_asking: str = "",
+        action: str = "",
+        reason: str = "",
+        risks: str = "",
+        alternatives: str = "",
+        reversible: bool = True,
+        user_id: str = "",
+        action_type: str = "unspecified",
+        target: str = "",
+        server_name: str = "",
+        tool_name: str = "",
+        arguments_json: str = "",
+        title: str = "",
+        sections_json: str = "[]",
+        source_strategy_json: str = "",
+        estimated_tool_calls: int = 0,
+        decision: str = "",
+        options_json: str = "[]",
+        recommendation: str = "",
+        approval_token: str = "",
+    ) -> str:
+        """Dispatch one explicit structured user-interaction operation."""
+
+        op = str(operation or "").strip()
+        if op not in enabled:
+            enabled_text = ", ".join(
+                candidate for candidate in _ALL_OPERATIONS if candidate in enabled
+            )
+            return (
+                f"Error: operation '{op}' is disabled. "
+                f"Enabled operations: {enabled_text or '(none)'}."
+            )
+
+        if op == "clarify":
+            return await clarify(question, options, context, why_asking)
+        if op == "confirm_action":
+            return await confirm_action(
+                action,
+                reason,
+                risks,
+                alternatives,
+                reversible,
+                user_id,
+                action_type,
+                target,
+                server_name,
+                tool_name,
+                arguments_json,
+            )
+        if op == "confirm_research_plan":
+            return await confirm_research_plan(
+                title,
+                sections_json,
+                source_strategy_json,
+                estimated_tool_calls,
+                risks,
+                user_id,
+                target,
+            )
+        if op == "present_options":
+            return await present_options(decision, options_json, recommendation)
+        if op == "delete_memory_guarded":
+            return await delete_memory_guarded(approval_token, user_id)
+        raise AssertionError(f"Unhandled user-interaction operation: {op}")
+
+    # A registered toolkit function builder is an async context manager and
+    # must yield exactly one FunctionInfo. The old implementation yielded one
+    # FunctionInfo per operation; production therefore exposed only the first
+    # (clarify) schema and confirm_action could never be called. Keep one typed
+    # dispatcher so every enabled operation is present in the actual tool
+    # contract.
     try:
-        if _enabled("clarify"):
-            yield FunctionInfo.from_fn(
-                clarify,
-                description=(
-                    "Ask the user a structured clarification question with suggested "
-                    "options. Use BEFORE committing to an action when the request is "
-                    "ambiguous. Reduces wasted effort from misunderstood requests. "
-                    "Formats the question with context, options, and rationale. Never "
-                    "use clarify to request or reconfirm approval, permission, or "
-                    "whether to proceed; never call it after the user has already "
-                    "approved."
-                ),
-            )
-
-        if _enabled("confirm_action"):
-            yield FunctionInfo.from_fn(
-                confirm_action,
-                description=(
-                    "Request explicit user confirmation before taking a consequential "
-                    "action. Use for memory deletes, irreversible non-MCP actions, "
-                    "actions with significant costs, or an MCP call that explicitly "
-                    "reports approval is required. Call an MCP tool directly first; "
-                    "do not infer an approval requirement merely because it changes "
-                    "external state. Do not use for add_memory or memory_update. "
-                    "MCP approvals must include exact tool_name, target, and "
-                    "arguments_json; this tool never returns a live credential. "
-                    "After presenting the pending approval, stop and wait for the "
-                    "user's reply. Never call clarify to reconfirm it."
-                ),
-            )
-
-        if _enabled("confirm_research_plan"):
-            yield FunctionInfo.from_fn(
-                confirm_research_plan,
-                description=(
-                    "Request explicit approval before starting an expensive "
-                    "AIQ-style deep research plan. Args: title, sections_json, "
-                    "optional source_strategy_json, estimated_tool_calls, risks, "
-                    "and target. Presents sections, source strategy, "
-                    "cost/risk trade-offs, and records a pending decision using "
-                    "the authenticated request identity."
-                ),
-            )
-
-        if _enabled("present_options"):
-            yield FunctionInfo.from_fn(
-                present_options,
-                description=(
-                    "Present a structured comparison of options for the user to "
-                    "choose from. Use when multiple valid approaches exist and the "
-                    "best choice depends on user preferences you cannot determine "
-                    "from context. Each option includes label, description, and "
-                    "trade-offs."
-                ),
-            )
-
-        if _enabled("delete_memory_guarded"):
-            yield FunctionInfo.from_fn(
-                delete_memory_guarded,
-                description=(
-                    "Delete all Hindsight memories for a user only after validating "
-                    "a single-use approval_token from confirm_action. Required arg: "
-                    "approval_token. The backend derives user identity from the "
-                    "authenticated request. The token must have action_type "
-                    "'delete_memory' and target equal to that user_id."
-                ),
-            )
+        yield FunctionInfo.from_fn(
+            user_interaction,
+            input_schema=UserInteractionInput,
+            description=config.description,
+        )
 
     except GeneratorExit:
         logger.warning("user_interaction function exited early!")

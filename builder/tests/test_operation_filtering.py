@@ -131,14 +131,26 @@ def test_user_interaction_enabled_operations_filters_registration():
             user_interaction_function,
         )
 
-        return await _names(
-            user_interaction_function(
-                UserInteractionConfig(enabled_operations=["clarify", "confirm_action"]),
-                MagicMock(),
-            )
+        items = []
+        async for item in user_interaction_function(
+            UserInteractionConfig(enabled_operations=["clarify", "confirm_action"]),
+            MagicMock(),
+        ):
+            items.append(item)
+        allowed = await items[0].fn(
+            operation="clarify",
+            question="Which format?",
         )
+        denied = await items[0].fn(operation="present_options")
+        return [item.fn.__name__ for item in items], allowed, denied
 
-    assert run(_run()) == ["clarify", "confirm_action"]
+    names, allowed, denied = run(_run())
+    assert names == ["user_interaction"]
+    assert "Which format?" in allowed
+    assert denied == (
+        "Error: operation 'present_options' is disabled. "
+        "Enabled operations: clarify, confirm_action."
+    )
 
 
 def test_user_interaction_confirm_research_plan_operation_can_be_exposed_alone():
@@ -148,14 +160,27 @@ def test_user_interaction_confirm_research_plan_operation_can_be_exposed_alone()
             user_interaction_function,
         )
 
-        return await _names(
-            user_interaction_function(
-                UserInteractionConfig(enabled_operations=["confirm_research_plan"]),
-                MagicMock(),
-            )
+        items = []
+        async for item in user_interaction_function(
+            UserInteractionConfig(enabled_operations=["confirm_research_plan"]),
+            MagicMock(),
+        ):
+            items.append(item)
+        allowed = await items[0].fn(
+            operation="confirm_research_plan",
+            title="Plan",
+            sections_json="[]",
         )
+        denied = await items[0].fn(operation="confirm_action")
+        return [item.fn.__name__ for item in items], allowed, denied
 
-    assert run(_run()) == ["confirm_research_plan"]
+    names, allowed, denied = run(_run())
+    assert names == ["user_interaction"]
+    assert "Deep research plan approval" in allowed
+    assert denied == (
+        "Error: operation 'confirm_action' is disabled. "
+        "Enabled operations: confirm_research_plan."
+    )
 
 
 def test_rss_feed_enabled_operations_filters_registration():

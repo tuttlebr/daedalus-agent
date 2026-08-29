@@ -360,6 +360,81 @@ def main() -> None:
 
     asyncio.run(assert_agent_skills_dispatch_contract())
 
+    # User interaction also uses one explicit dispatch function. A toolkit
+    # function builder is an async context manager and consumes exactly one
+    # yield; yielding one FunctionInfo per operation silently exposed only
+    # clarify in production and made confirm_action unreachable.
+    from user_interaction.user_interaction_function import (
+        UserInteractionConfig,
+        UserInteractionInput,
+        user_interaction_function,
+    )
+
+    async def assert_user_interaction_dispatch_contract() -> None:
+        routing_description = "Runtime-configured interaction description."
+        config = UserInteractionConfig(
+            enabled_operations=["clarify", "confirm_action"],
+            description=routing_description,
+        )
+        async with user_interaction_function(
+            config, SimpleNamespace()
+        ) as function_info:
+            if function_info.description != routing_description:
+                raise RuntimeError(
+                    "User interaction discarded its configured description"
+                )
+            if function_info.input_schema is not UserInteractionInput:
+                raise RuntimeError(
+                    "User interaction lost its explicit dispatch input schema"
+                )
+            schema = function_info.input_schema.model_json_schema()
+            operation = schema.get("properties", {}).get("operation", {})
+            if operation.get("enum") != [
+                "clarify",
+                "confirm_action",
+                "confirm_research_plan",
+                "present_options",
+                "delete_memory_guarded",
+            ]:
+                raise RuntimeError("User interaction operation schema is incorrect")
+            if schema.get("required") != ["operation"]:
+                raise RuntimeError("User interaction operation is not required")
+            if function_info.single_fn is None:
+                raise RuntimeError("User interaction dispatch function is unavailable")
+
+            clarified = await function_info.single_fn(
+                UserInteractionInput(
+                    operation="clarify",
+                    question="Which runtime option?",
+                )
+            )
+            if "Which runtime option?" not in clarified:
+                raise RuntimeError("User interaction clarification dispatch failed")
+
+            confirmation = await function_info.single_fn(
+                UserInteractionInput(
+                    operation="confirm_action",
+                    action="Run the runtime contract action",
+                    reason="Verify the operation dispatcher",
+                    user_id="runtime-user",
+                )
+            )
+            if "Proceed? (yes/no)" not in confirmation:
+                raise RuntimeError("User interaction confirmation dispatch failed")
+
+            denied = await function_info.single_fn(
+                UserInteractionInput(
+                    operation="present_options",
+                    decision="Unavailable operation",
+                )
+            )
+            if "operation 'present_options' is disabled" not in denied:
+                raise RuntimeError(
+                    "User interaction disabled operation did not fail closed"
+                )
+
+    asyncio.run(assert_user_interaction_dispatch_contract())
+
     # OAuth-backed MCP groups must discover and cache their schemas inside a
     # real authenticated user's workflow. Prove the per-user tool-calling
     # registration exists in the pinned NAT registry and carries explicit API

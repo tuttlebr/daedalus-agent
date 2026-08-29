@@ -650,8 +650,8 @@ def _validate_mcp_approval(
         return False, (
             f"MCP tool '{tool_name}' isn't authorized as read-only and "
             "requires a human-approved execution credential. Your next tool "
-            "call must be "
-            "confirm_action with action_type='mcp_mutation', the exact "
+            "call must be user_interaction_tool with "
+            "operation='confirm_action', action_type='mcp_mutation', the exact "
             f"server_name='{server_name}', tool_name='{tool_name}', an exact "
             "target, and arguments_json containing the unchanged arguments "
             "from this blocked call. Do not retry the MCP tool until the user "
@@ -1562,7 +1562,7 @@ def _patch_google_docs_oauth_discovery():
         signature = inspect.signature(original_discover)
         if list(signature.parameters) != ["self", "response"]:
             raise RuntimeError(
-                "Unexpected DiscoverOAuth2Endpoints.discover signature: " f"{signature}"
+                f"Unexpected DiscoverOAuth2Endpoints.discover signature: {signature}"
             )
 
         @functools.wraps(original_discover)

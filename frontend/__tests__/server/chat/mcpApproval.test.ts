@@ -102,6 +102,9 @@ describe('interactive MCP approval handoff', () => {
     expect(findMcpApprovalReply(conversation('yes, but change the text'))).toBe(
       null,
     );
+    expect(
+      findMcpApprovalReply(conversation('confirm a different update')),
+    ).toBeNull();
   });
 
   it('recognizes explicit polite approval and denial replies', () => {
@@ -111,6 +114,9 @@ describe('interactive MCP approval handoff', () => {
       'Please approve',
       'Go ahead',
       'Yes, please',
+      'Yes, confirm the doc update',
+      'Confirm the document update',
+      'Yes please update the doc',
     ]) {
       expect(findMcpApprovalReply(conversation(reply))).toEqual({
         decision: 'approved',

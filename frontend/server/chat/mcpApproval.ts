@@ -34,6 +34,10 @@ const DENY_REPLIES = new Set([
   'please cancel',
   'stop',
 ]);
+const NATURAL_APPROVE_REPLY =
+  /^(?:(?:yes|ok|okay)(?:,\s*|\s+))?(?:please\s+)?(?:approve|confirm|proceed with|go ahead with)\s+(?:it|this|that|the (?:action|request|change|update|doc update|document update|google doc update))$/;
+const NATURAL_EXECUTE_REPLY =
+  /^(?:yes|ok|okay)(?:,\s*|\s+)(?:please\s+)?(?:apply|complete|do|execute|make|perform|update)\s+(?:it|this|that|the (?:doc|document|google doc))$/;
 
 interface PendingMcpApproval {
   request_id: string;
@@ -106,6 +110,12 @@ function decisionFromReply(value: unknown): 'approved' | 'denied' | null {
   const normalized = normalizeReply(value);
   if (APPROVE_REPLIES.has(normalized)) return 'approved';
   if (DENY_REPLIES.has(normalized)) return 'denied';
+  if (
+    NATURAL_APPROVE_REPLY.test(normalized) ||
+    NATURAL_EXECUTE_REPLY.test(normalized)
+  ) {
+    return 'approved';
+  }
   return null;
 }
 
