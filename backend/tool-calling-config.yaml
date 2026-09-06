@@ -126,6 +126,27 @@ function_groups:
       - get_player
       - get_draft
       - get_transactions
+    tool_overrides:
+      account_status:
+        approval_policy: read_only
+      get_league:
+        approval_policy: read_only
+      get_teams:
+        approval_policy: read_only
+      get_roster:
+        approval_policy: read_only
+      get_matchups:
+        approval_policy: read_only
+      search_players:
+        approval_policy: read_only
+      get_free_agents:
+        approval_policy: read_only
+      get_player:
+        approval_policy: read_only
+      get_draft:
+        approval_policy: read_only
+      get_transactions:
+        approval_policy: read_only
     server:
       transport: streamable-http
       url: http://espn-mcp-server.daedalus.svc.cluster.local:8000/mcp

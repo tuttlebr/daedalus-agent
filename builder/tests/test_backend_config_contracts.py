@@ -566,8 +566,8 @@ def test_deployed_tool_surface_is_optimized():
         # The three first-party Workspace resources and official GitHub MCP
         # resource add a deliberately bounded 23-operation surface. Each
         # remains server-allowlisted and locally classified as read-only or
-        # approval-required.
-        assert _effective_operation_count(config, workflow_tools) <= 67, path
+        # approval-required. ESPN adds ten explicitly read-only operations.
+        assert _effective_operation_count(config, workflow_tools) <= 77, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -868,6 +868,18 @@ def test_interactive_extensions_are_enabled_for_mcp_oauth():
 
 def test_mcp_approval_policy_follows_explicit_include_lists():
     allowlisted = {
+        "espn_mcp_server": {
+            "account_status",
+            "get_league",
+            "get_teams",
+            "get_roster",
+            "get_matchups",
+            "search_players",
+            "get_free_agents",
+            "get_player",
+            "get_draft",
+            "get_transactions",
+        },
         "x_mcp_server": {
             "search_news",
             "get_news",
@@ -958,6 +970,21 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
                 "approval_policy" in override
                 for override in group.get("tool_overrides", {}).values()
             ), path
+
+
+def test_espn_mcp_uses_the_deployment_token_without_user_oauth():
+    for path in DEPLOYED_CONFIGS:
+        config = _config(path)
+        group = config["function_groups"]["espn_mcp_server"]
+        assert group["_type"] == "mcp_client", path
+        auth = config["authentication"][group["server"]["auth_provider"]]
+        assert auth == {
+            "_type": "api_key",
+            "auth_scheme": "Custom",
+            "custom_header_name": "Authorization",
+            "custom_header_prefix": "Bearer",
+            "raw_key": "${ESPN_MCP_TOKEN}",
+        }, path
 
 
 def test_restricted_nginx_allows_oauth_redirect_callback():

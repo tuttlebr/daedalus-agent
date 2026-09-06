@@ -724,6 +724,48 @@ def test_unknown_read_like_tool_fails_closed_in_non_sensitive_group():
     assert "execution credential" in reason
 
 
+@pytest.mark.parametrize(
+    "tool_name,payload",
+    [
+        ("account_status", {"verify": True}),
+        ("get_league", {}),
+        ("get_teams", {}),
+        ("get_roster", {}),
+        ("get_matchups", {"week": 1}),
+        ("search_players", {"query": "Josh Allen"}),
+        ("get_free_agents", {}),
+        ("get_player", {"player_id": 3918298}),
+        ("get_draft", {}),
+        ("get_transactions", {}),
+    ],
+)
+def test_espn_reads_never_request_an_execution_credential(tool_name, payload):
+    for server_name in (
+        "espn_mcp_server",
+        "streamable-http:http://espn-mcp-server.daedalus.svc.cluster.local:8000/mcp",
+    ):
+        for _ in range(2):
+            assert mcp_patches._validate_mcp_approval(
+                tool_name,
+                payload,
+                annotations=_Annotations(readOnlyHint=True, destructiveHint=False),
+                server_name=server_name,
+                approval_token=None,
+            ) == (True, "read-only")
+
+
+def test_espn_unlisted_tools_still_require_approval():
+    assert "espn_mcp_server" not in mcp_patches._UNRESTRICTED_MCP_GROUPS
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "set_lineup",
+        {},
+        annotations=_Annotations(readOnlyHint=True),
+        server_name="espn_mcp_server",
+    )
+    assert ok is False
+    assert "execution credential" in reason
+
+
 def test_local_read_only_registry_matches_configured_includes():
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     groups = config["function_groups"]
