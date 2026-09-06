@@ -202,19 +202,20 @@ or deployment.
 
 ## Key Value Areas
 
-| Values path               | Purpose                                                        |
-| ------------------------- | -------------------------------------------------------------- |
-| `forceRedeploy`           | Rollout nonce for externally managed Secret changes            |
-| `images.*`                | Container repositories, tags, and pull policy                  |
-| `retrieval.*`             | Milvus/MinIO endpoints, Secret refs, policy ports, readiness   |
-| `frontend.*`              | Frontend, stream-worker, services, and scoped env settings     |
-| `backend.default.*`       | Backend deployment and config                                  |
-| `backend.persistence.*`   | PVCs used by backend pods                                      |
-| `backend.networkPolicy.*` | Kubernetes and optional Cilium restrictions                    |
-| `nginx.*`                 | nginx deployment, direct backend routing, TLS, restricted mode |
-| `redis.*`                 | Redis Stack deployment and persistence                         |
-| `autonomousAgent.*`       | Background research worker schedule and config                 |
-| `ingress.*`               | External hostnames, ingress class, annotations, and TLS        |
+| Values path               | Purpose                                                                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forceRedeploy`           | Rollout nonce for externally managed Secret changes                                                                                             |
+| `images.*`                | Container repositories, tags, and pull policy                                                                                                   |
+| `retrieval.*`             | Milvus/MinIO endpoints, Secret refs, policy ports, readiness                                                                                    |
+| `frontend.*`              | Frontend, stream-worker, services, and scoped env settings                                                                                      |
+| `backend.default.*`       | Backend deployment and config                                                                                                                   |
+| `backend.persistence.*`   | PVCs used by backend pods                                                                                                                       |
+| `backend.networkPolicy.*` | Kubernetes and optional Cilium restrictions                                                                                                     |
+| `contextServices.espnMcp` | ESPN MCP namespace and port for backend egress (defaults: `daedalus`, `8000`); limited to pods labeled `app.kubernetes.io/name=espn-mcp-server` |
+| `nginx.*`                 | nginx deployment, direct backend routing, TLS, restricted mode                                                                                  |
+| `redis.*`                 | Redis Stack deployment and persistence                                                                                                          |
+| `autonomousAgent.*`       | Background research worker schedule and config                                                                                                  |
+| `ingress.*`               | External hostnames, ingress class, annotations, and TLS                                                                                         |
 
 ## Traffic Model
 

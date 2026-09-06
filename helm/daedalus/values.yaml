@@ -122,6 +122,7 @@ contextServices:
   nvIngest: { namespace: daedalus, port: 7670 }
   kubernetesMcp: { namespace: daedalus, port: 8080 }
   unifiMcp: { namespace: daedalus, port: 8080 }
+  espnMcp: { namespace: daedalus, port: 8000 }
 
 backend:
   # Default backend configuration

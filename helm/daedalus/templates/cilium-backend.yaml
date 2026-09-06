@@ -175,6 +175,16 @@ spec:
             - port: "6006"
               protocol: TCP
 
+    # ESPN Fantasy Football MCP server
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ $.Values.contextServices.espnMcp.namespace | quote }}
+            app.kubernetes.io/name: espn-mcp-server
+      toPorts:
+        - ports:
+            - port: {{ $.Values.contextServices.espnMcp.port | quote }}
+              protocol: TCP
+
     # UniFi Network MCP Server
     - toEndpoints:
         - matchLabels:
