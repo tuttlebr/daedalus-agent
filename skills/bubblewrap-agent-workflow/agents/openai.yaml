@@ -1,4 +1,4 @@
 interface:
   display_name: 'Bubblewrap Agent Workflow'
-  short_description: 'Integrate agents with the isolated Bubblewrap execution service'
-  default_prompt: 'Use the Bubblewrap agent workflow skill to design or implement a secure agent tool integration.'
+  short_description: 'Run isolated commands and deliver verified artifacts'
+  default_prompt: 'Use $bubblewrap-agent-workflow to run a bounded task and deliver its verified artifact through the sandbox tool.'

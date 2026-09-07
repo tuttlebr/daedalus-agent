@@ -16,7 +16,7 @@
     },
     {
       "id": "frontend-crashloop",
-      "question": "The frontend pod is in CrashLoopBackOff after I deployed — collect what you need and tell me why.",
+      "question": "The frontend pod is in CrashLoopBackOff after I deployed \u2014 collect what you need and tell me why.",
       "expected_skill": "dynamo-troubleshoot",
       "expected_script": "scripts/collect_dynamo_debug_bundle.py",
       "ground_truth": "Gather a read-only bundle including pod describe and logs, classify the failure, and give the likely cause plus next command.",
@@ -59,12 +59,13 @@
     },
     {
       "id": "neg-check-interconnect-ready",
-      "question": "Everything is running and healthy — confirm the NIXL interconnect is actually ready before I trust my disagg benchmark.",
+      "question": "Everything is running and healthy \u2014 confirm the NIXL interconnect is actually ready before I trust my disagg benchmark.",
       "expected_skill": "dynamo-interconnect-check",
       "ground_truth": "Proactive validation of interconnect readiness on a healthy deployment belongs to dynamo-interconnect-check, not failure diagnosis.",
       "expected_behavior": [
         "dynamo-troubleshoot stays silent; dynamo-interconnect-check handles it"
       ]
     }
-  ]
+  ],
+  "execution_context": "Operator CLI scenarios require an actual checkout and tools. In Daedalus, use registered MCP reads/actions where available; otherwise prepare the artifact and report unexecuted steps. Never execute a script merely by loading it."
 }

@@ -1,178 +1,82 @@
 ---
 name: devops-engineer
-description: >-
-  Build CI/CD, container, release, and infrastructure automation. Use focused
-  Kubernetes or SRE skills for cluster objects and reliability work.
+description: Build or review CI/CD, container images, release automation, and infrastructure delivery. Use kubernetes-specialist for cluster objects and sre-engineer for reliability analysis.
 license: MIT
 metadata:
   author: Jeff Allan <author@example.com>
-  version: '1.1.1'
-  tags:
-    - devops
-    - cicd
-    - containers
-    - infrastructure
-    - platform-engineering
+  version: '2.0.0'
   source: https://github.com/Jeffallan
-  domain: devops
-  triggers: DevOps, CI/CD, deployment, Docker, Kubernetes, Terraform, GitHub Actions, infrastructure, platform engineering, incident response, on-call, self-service
-  role: engineer
-  scope: implementation
-  output-format: code
-  related-skills: terraform-engineer, kubernetes-specialist, sre-engineer, monitoring-expert, security-reviewer
 ---
 
-# DevOps Engineer
+# DevOps engineer
 
-Senior DevOps engineer specializing in CI/CD pipelines, infrastructure as code, and deployment automation.
+Implement the requested delivery change in the application's existing
+architecture. Do not introduce a new orchestrator, cloud, staging environment,
+or release process just because a generic template uses one.
 
-## Purpose
+## Execution and ownership
 
-You are a senior DevOps engineer with 10+ years of experience. You operate with three perspectives:
+Daedalus uses registered repository tools for source inspection,
+`k8s_mcp_server` for cluster evidence, and `llm_sandbox_tool` for explicitly
+requested isolated command/file work. GitHub's configured tools are read-only.
+The sandbox does not inherit a checkout, Docker daemon, or cluster credentials.
+Without an appropriate execution tool, produce the exact files/patch and report
+unexecuted validation or release steps.
 
-- **Build Hat**: Automating build, test, and packaging
-- **Deploy Hat**: Orchestrating deployments across environments
-- **Ops Hat**: Ensuring reliability, monitoring, and incident response
+For this application, inspect `README.md`, `Makefile`, `deploy.sh`,
+`docker-compose.yaml`, `builder/Dockerfile`, the selected backend YAML,
+and `helm/daedalus` as relevant:
 
-## When to Use This Skill
+- The canonical interactive workflow is `backend/tool-calling-config.yaml`;
+  its Responses overlay inherits it. The frontend's chat-completions route
+  and the backend's outbound Responses model API are separate contracts.
+- Compose supports local services; Kubernetes also supplies the autonomous
+  worker and external integrations. Do not treat their footprints as identical.
+- Backend images copy the separate `skills` build context into `/skills`.
+  Compose mounts source skills read-only; Helm can use an optional skills
+  volume. Check the effective deployment before choosing how to refresh them.
+- Use the documented deploy wrapper and existing preflights for publication
+  and deployment. Preserve image provenance, immutable references, Secret
+  wiring, protected user identity, and existing data.
 
-- Setting up CI/CD pipelines (GitHub Actions, GitLab CI, Jenkins)
-- Containerizing applications (Docker, Docker Compose)
-- Kubernetes deployments and configurations
-- Infrastructure as code (Terraform, Pulumi)
-- Cloud platform configuration (AWS, GCP, Azure)
-- Deployment strategies (blue-green, canary, rolling)
-- Building internal developer platforms and self-service tools
-- Incident response, on-call, and production troubleshooting
-- Release automation and artifact management
+## Workflow
 
-## Prerequisites
+1. Identify the requested artifact and release stage, repository revision,
+   environment, owner, and existing constraints. Reuse confirmed context.
+2. Inspect relevant source/configuration and explain the concrete change.
+   Keep source edits, build, image publication, deployment, and restart distinct.
+3. Implement the smallest complete change in the owner source. Prefer existing
+   templates and dependency locks over copied examples or version guesses.
+4. Run the checks that cover the changed behavior, including runtime packaging
+   where dependencies, registrations, or image contents change.
+5. Publish/deploy only within the user's requested scope and runtime gates;
+   existing authorization carries forward. Verify immutable artifacts and the
+   actual endpoint/tool result after a rollout.
+6. Report what changed, evidence, remaining risk, and any unexecuted stage.
+   Do not call a source test a deployed fix.
 
-- Repository and deployment context for the application being changed.
-- Target platform, environment, and existing delivery constraints.
-- Explicit authorization before publishing images, changing cloud resources, or deploying.
+Use [kubernetes-specialist](../kubernetes-specialist/SKILL.md) for manifests,
+Helm resources, networking, and storage; [sre-engineer](../sre-engineer/SKILL.md)
+for SLOs or incident policy. Preserve completed checks across handoffs.
+Dynamo recipe bring-up belongs to
+[dynamo-recipe-runner](../dynamo-recipe-runner/SKILL.md).
 
-## Instructions
+## Focused references
 
-1. **Assess** - Understand application, environments, requirements
-2. **Design** - Pipeline structure, deployment strategy
-3. **Implement** - IaC, Dockerfiles, CI/CD configs
-4. **Validate** - Run `terraform plan`, lint configs, execute unit/integration tests; confirm no destructive changes before proceeding
-5. **Deploy** - Roll out with verification; run smoke tests post-deployment
-6. **Monitor** - Set up observability, alerts; confirm rollback procedure is ready before going live
+Load only the relevant resource with `agent_skills_tool(operation=load_skill,
+skill_name=devops-engineer, resource=references/<file>.md)`.
 
-## Reference Guide
+| Task                       | Reference                                                    |
+| -------------------------- | ------------------------------------------------------------ |
+| CI workflow                | [github-actions](references/github-actions.md)               |
+| Image/build context        | [docker-patterns](references/docker-patterns.md)             |
+| Cluster delivery boundary  | [kubernetes](references/kubernetes.md)                       |
+| Terraform/IaC              | [terraform-iac](references/terraform-iac.md)                 |
+| Rollout and rollback       | [deployment-strategies](references/deployment-strategies.md) |
+| Internal platform          | [platform-engineering](references/platform-engineering.md)   |
+| Release/artifact lifecycle | [release-automation](references/release-automation.md)       |
+| Delivery-related incident  | [incident-response](references/incident-response.md)         |
 
-Load detailed guidance based on context:
-
-| Topic          | Reference                             | Load When                                                      |
-| -------------- | ------------------------------------- | -------------------------------------------------------------- |
-| GitHub Actions | `references/github-actions.md`        | Setting up CI/CD pipelines, GitHub workflows                   |
-| Docker         | `references/docker-patterns.md`       | Containerizing applications, writing Dockerfiles               |
-| Kubernetes     | `references/kubernetes.md`            | K8s deployments, services, ingress, pods                       |
-| Terraform      | `references/terraform-iac.md`         | Infrastructure as code, AWS/GCP provisioning                   |
-| Deployment     | `references/deployment-strategies.md` | Blue-green, canary, rolling updates, rollback                  |
-| Platform       | `references/platform-engineering.md`  | Self-service infra, developer portals, golden paths, Backstage |
-| Release        | `references/release-automation.md`    | Artifact management, feature flags, multi-platform CI/CD       |
-| Incidents      | `references/incident-response.md`     | Production outages, on-call, MTTR, postmortems, runbooks       |
-
-## Constraints
-
-### MUST DO
-
-- Use infrastructure as code (never manual changes)
-- Implement health checks and readiness probes
-- Store secrets in secret managers (not env files)
-- Enable container scanning in CI/CD
-- Document rollback procedures
-- Use GitOps for Kubernetes (ArgoCD, Flux)
-
-### MUST NOT DO
-
-- Deploy to production without explicit approval
-- Store secrets in code or CI/CD variables
-- Skip staging environment testing
-- Ignore resource limits in containers
-- Use `latest` tag in production
-- Deploy on Fridays without monitoring
-
-## Examples
-
-Provide: CI/CD pipeline config, Dockerfile, K8s/Terraform files, deployment verification, rollback procedure
-
-### Minimal GitHub Actions Example
-
-```yaml
-name: CI
-on:
-  push:
-    branches: [main]
-jobs:
-  build-test-push:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build -t myapp:1.2.3 .
-      - name: Run tests
-        run: docker container run --rm myapp:1.2.3 pytest
-      - name: Scan image
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: myapp:1.2.3
-      - name: Push to registry
-        run: |
-          docker tag myapp:1.2.3 ghcr.io/org/myapp:1.2.3
-          docker push ghcr.io/org/myapp:1.2.3
-```
-
-### Minimal Dockerfile Example
-
-```dockerfile
-FROM python:3.12-slim AS builder
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-FROM python:3.12-slim
-WORKDIR /app
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY . .
-USER nonroot
-HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8080/health || exit 1
-CMD ["python", "main.py"]
-```
-
-### Rollback Procedure Example
-
-```bash
-# Kubernetes: roll back to previous deployment revision
-kubectl rollout undo deployment/myapp -n production
-kubectl rollout status deployment/myapp -n production
-
-# Verify rollback succeeded
-kubectl get pods -n production -l app=myapp
-curl -f https://myapp.example.com/health
-```
-
-Always document the rollback command and verification step in the PR or change ticket before deploying.
-
-## Limitations
-
-- Use the focused Kubernetes skill for deep cluster policy and object debugging.
-- This skill does not authorize deploys, publishing, provisioning, or credential rotation.
-- Adapt examples to the repository's actual runtime and security controls.
-
-## Troubleshooting
-
-| Problem                                   | Likely cause                                    | Response                                                                     |
-| ----------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------- |
-| Pipeline passes but deployment fails      | Build and runtime contracts differ              | Compare the published artifact, deployment configuration, and live workload. |
-| Infrastructure plan is unexpectedly large | State, provider, or variable drift              | Stop and review the plan before applying it.                                 |
-| Rollback does not restore service         | A downstream dependency or data contract failed | Trace the endpoint and dependency path before another mutation.              |
-
-## Knowledge Reference
-
-GitHub Actions, GitLab CI, Jenkins, CircleCI, Docker, Kubernetes, Helm, ArgoCD, Flux, Terraform, Pulumi, Crossplane, AWS/GCP/Azure, Prometheus, Grafana, PagerDuty, Backstage, LaunchDarkly, Flagger
-
-[Documentation](https://jeffallan.github.io/claude-skills/skills/devops/devops-engineer/)
+For requested downloads, verify and publish generated text through the sandbox
+and return its exact link. Do not expose credentials, stage unrelated edits,
+or replace persistent resources to make a rollout pass.

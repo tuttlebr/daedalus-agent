@@ -1,6 +1,8 @@
 # Routing Heuristics
 
-Decision tree for picking a method. Read top to bottom; first match wins.
+Use these optional cues after honoring a user-named method, requested count,
+medium and practical constraints. Pick the closest fit; combine methods only
+when each solves a distinct part of the request.
 
 ## Phase signals — what stage is the user in?
 
@@ -68,8 +70,8 @@ Most invocations: one method. Stack only when:
 ## Edge cases
 
 - **Wild prompt that fits no path** → constraint dispatch with the closest matching constraint.
-- **User asks for method recommendation, not ideas** → surface 2–3 candidate methods, ask which to apply. Don't silently default.
-- **High-slop terrain** ("AI ideas", "startup ideas", "habit tracker") → force `methods/lateral-provocations.md` or `methods/pataphysics.md` over the obvious method. Refuse the first 5 ideas, not 3.
+- **User asks for method recommendation, not ideas** → recommend the best fit with alternatives and explain why; apply it only if the user also requested application.
+- **High-slop terrain** ("AI ideas", "startup ideas", "habit tracker") → consider `methods/lateral-provocations.md` when the first ideas are generic; preserve requested practicality and avoid fixed discard quotas.
 - **Same question asked again** → switch methods. Variation in method = variation in idea distribution.
 - **User frustrated / says everything is bad** → don't keep generating. `methods/creative-discipline.md` (Cleese open mode, Tharp scratching). Sometimes the right move is to stop ideating.
 - **User wants to be talked out of starting** → premortem. Inversion. Sometimes the right answer is "don't do this".

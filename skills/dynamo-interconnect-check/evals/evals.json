@@ -16,7 +16,7 @@
     },
     {
       "id": "agg-ok-disagg-slow-suspect-fabric",
-      "question": "Aggregated serving works fine but disaggregated is slow and sometimes hangs — I suspect the fabric, not the model.",
+      "question": "Aggregated serving works fine but disaggregated is slow and sometimes hangs \u2014 I suspect the fabric, not the model.",
       "expected_skill": "dynamo-interconnect-check",
       "expected_script": "scripts/check_interconnect.py",
       "ground_truth": "Validate the disagg transport path; a deployment can pass an endpoint smoke test while KV transfer silently falls back to a slow/broken path.",
@@ -64,5 +64,6 @@
         "dynamo-interconnect-check stays silent; dynamo-router-starter handles it"
       ]
     }
-  ]
+  ],
+  "execution_context": "Operator CLI scenarios require an actual checkout and tools. In Daedalus, use registered MCP reads/actions where available; otherwise prepare the artifact and report unexecuted steps. Never execute a script merely by loading it."
 }

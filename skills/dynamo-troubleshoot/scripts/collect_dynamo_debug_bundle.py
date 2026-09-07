@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Collect a read-only Dynamo Kubernetes debug bundle without secrets."""
+"""Collect a read-only Dynamo Kubernetes debug bundle with best-effort redaction."""
 
 from __future__ import annotations
 
@@ -27,10 +26,14 @@ RETURNCODE_TIMED_OUT = int("124")  # subprocess timeout
 
 # `kubectl describe` and pod logs can echo secret env values (HF tokens,
 # bearer tokens, passwords). Scrub them before anything is written to disk so
-# the bundle honors its no-secrets contract.
+# known credential patterns are omitted. Review arbitrary logs before sharing.
 _SECRET_KV_RE = re.compile(
     r"(?i)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|"
     r"CREDENTIAL)[A-Z0-9_]*)(\s*[:=]\s*)(\S+)"
+)
+_ENV_SECRET_RE = re.compile(
+    r'("name"\s*:\s*"[^"]*(?:TOKEN|SECRET|PASSWORD|API_KEY|ACCESS_KEY)[^"]*"\s*,\s*"value"\s*:\s*)"[^"]*"',
+    re.I,
 )
 _BEARER_RE = re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]+)")
 _HF_TOKEN_RE = re.compile(r"\bhf_[A-Za-z0-9]{8,}\b")
@@ -39,6 +42,7 @@ _HF_TOKEN_RE = re.compile(r"\bhf_[A-Za-z0-9]{8,}\b")
 def redact(text: str) -> str:
     if not text:
         return text
+    text = _ENV_SECRET_RE.sub(lambda m: m.group(1) + '"<redacted>"', text)
     text = _SECRET_KV_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}<redacted>", text)
     text = _BEARER_RE.sub(lambda m: f"{m.group(1)}<redacted>", text)
     text = _HF_TOKEN_RE.sub("<redacted-hf-token>", text)
@@ -107,13 +111,13 @@ def kubectl_json(args: list[str], timeout: int) -> Any | None:
         return None
 
 
-def pod_names(namespace: str, selector: str | None, timeout: int) -> list[str]:
+def pod_names(namespace: str, selector: str | None, timeout: int) -> list[str] | None:
     args = ["get", "pods", "-n", namespace]
     if selector:
         args.extend(["-l", selector])
     body = kubectl_json(args, timeout)
     if not body:
-        return []
+        return None
     return [
         item.get("metadata", {}).get("name")
         for item in body.get("items", [])
@@ -121,10 +125,12 @@ def pod_names(namespace: str, selector: str | None, timeout: int) -> list[str]:
     ]
 
 
-def container_names(namespace: str, pod: str, timeout: int) -> list[tuple[str, str]]:
+def container_names(
+    namespace: str, pod: str, timeout: int
+) -> list[tuple[str, str]] | None:
     body = kubectl_json(["get", "pod", pod, "-n", namespace], timeout)
     if not body:
-        return []
+        return None
     specs = body.get("spec", {})
     containers: list[tuple[str, str]] = []
     for kind, field in [
@@ -216,21 +222,34 @@ def main() -> int:
         "namespace": args.namespace,
         "commands": [],
     }
-    for name, cmd in commands:
-        result = run(cmd, args.timeout)
+
+    def save(name, result, required=True):
         write_result(outdir, name, result)
         summary["commands"].append(
-            {"name": name, "cmd": cmd, "returncode": result["returncode"]}
+            {
+                "name": name,
+                "cmd": result["cmd"],
+                "returncode": result["returncode"],
+                "required": required,
+            }
         )
+
+    for name, cmd in commands:
+        result = run(cmd, args.timeout)
+        save(name, result)
 
     pods = pod_names(args.namespace, args.selector, args.timeout)
     summary["pods"] = pods
-    for pod in pods:
+    summary["enumeration_errors"] = [] if pods is not None else ["pod discovery failed"]
+    for pod in pods or []:
         result = run(
             ["kubectl", "describe", "pod", pod, "-n", args.namespace], args.timeout
         )
-        write_result(outdir, f"describe_pod_{pod}", result)
-        for kind, container in container_names(args.namespace, pod, args.timeout):
+        save(f"describe_pod_{pod}", result)
+        containers = container_names(args.namespace, pod, args.timeout)
+        if containers is None:
+            summary["enumeration_errors"].append(f"container discovery failed: {pod}")
+        for kind, container in containers or []:
             result = run(
                 [
                     "kubectl",
@@ -244,7 +263,7 @@ def main() -> int:
                 ],
                 args.timeout,
             )
-            write_result(outdir, f"logs_{kind}_{pod}_{container}", result)
+            save(f"logs_{kind}_{pod}_{container}", result)
             previous_result = run(
                 [
                     "kubectl",
@@ -259,15 +278,21 @@ def main() -> int:
                 ],
                 args.timeout,
             )
-            write_result(
-                outdir, f"logs_previous_{kind}_{pod}_{container}", previous_result
+            # No prior instance is normal; retain its status without requiring it.
+            save(
+                f"logs_previous_{kind}_{pod}_{container}",
+                previous_result,
+                required=False,
             )
 
+    summary["collection_complete"] = not summary["enumeration_errors"] and all(
+        item["returncode"] == 0 for item in summary["commands"] if item["required"]
+    )
     (outdir / "summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
     print(json.dumps(summary, indent=2))
-    return 0
+    return 0 if summary["collection_complete"] else 1
 
 
 if __name__ == "__main__":

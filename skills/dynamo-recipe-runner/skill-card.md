@@ -1,3 +1,6 @@
+> Historical upstream provenance for the imported skill. This report/card
+> does not evaluate or certify the current Daedalus adaptation.
+
 ## Description: <br>
 
 Select, validate, patch, and deploy existing NVIDIA Dynamo Kubernetes recipes for model/backend/GPU/deployment-mode bring-up. <br>

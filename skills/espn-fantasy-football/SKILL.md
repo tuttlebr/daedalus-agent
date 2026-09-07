@@ -1,6 +1,6 @@
 ---
 name: espn-fantasy-football
-description: Use for ESPN fantasy football draft preparation, live draft picks, snake or salary-cap draft strategy, waiver claims, FAAB bids, free-agent pickups, drops, trades, and weekly lineup decisions. Use the ESPN MCP server to adapt recommendations to the selected league's actual scoring, roster rules, team, and available players; combine with available research tools for current projections, injuries, and player roles. Supports multiple leagues, redraft, keeper, dynasty, superflex, and custom scoring.
+description: Advise on ESPN fantasy football drafts, lineups, waivers, FAAB and trades using explicit league/team/season context and actual scoring. Supports snake and salary-cap drafts; the connected MCP is read-only.
 ---
 
 # ESPN Fantasy Football Adviser
@@ -8,6 +8,21 @@ description: Use for ESPN fantasy football draft preparation, live draft picks, 
 Guide the user toward the strongest feasible roster for their league. Optimize expected useful lineup production and the user's stated competitive horizon, accounting for replacement players, uncertainty, and acquisition cost. Give a concrete recommendation, alternatives, and the condition that would change the choice. Do not promise a guaranteed optimal draft or a championship.
 
 This skill is self-contained. Use the connected ESPN MCP server and any available search, browsing, current-time, calculation, or memory tools. Discover their actual names and argument schemas; the host may prefix ESPN tools with `espn_mcp_server__` or expose them through a dispatcher. No bundled scripts or particular research provider are required.
+
+## Daedalus integration
+
+Use `espn_mcp_server` leaf tools, `current_datetime_tool`, and available
+research tools such as `perplexity_search_tool` and `webscrape_tool`. Reuse a
+confirmed context and successful reads from the calling skill. For a requested
+fantasy desk in `daily-summary`, return concise dated facts/recommendations to
+that skill and preserve its read-only, source-only HTML output contract.
+A briefing mention is not a request for a full draft/waiver campaign.
+
+If `_daedalus_compacted_tool_output` omits relevant roster/pool rows, recover
+them through `tool_output_retriever_tool` before exact counts, exhaustive
+availability, or absence claims. Do not infer legal lineups from a truncated
+roster. Use memory only when personalization matters; never write private
+league data or new findings to memory merely because this skill was loaded.
 
 ## Establish the decision context
 

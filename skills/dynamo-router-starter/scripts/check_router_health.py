@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Smoke test a Dynamo OpenAI-compatible frontend."""
@@ -67,8 +66,8 @@ def request_json(
         except json.JSONDecodeError:
             body = raw
         return exc.code, body
-    except urllib.error.URLError as exc:
-        return 0, {"error": str(exc.reason)}
+    except (TimeoutError, OSError) as exc:
+        return 0, {"error": str(getattr(exc, "reason", exc))}
 
 
 def choose_model(models_body: Any) -> str | None:
@@ -82,6 +81,26 @@ def choose_model(models_body: Any) -> str | None:
     return None
 
 
+def valid_completion(body: Any, model: str) -> bool:
+    """Require the requested model and a completed, nonempty assistant message."""
+    if not isinstance(body, dict) or body.get("error") or body.get("model") != model:
+        return False
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return False
+    choice = choices[0]
+    if not isinstance(choice, dict) or choice.get("finish_reason") not in {
+        "stop",
+        "length",
+    }:
+        return False
+    message = choice.get("message")
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return False
+    content = message.get("content")
+    return isinstance(content, str) and bool(content.strip())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
@@ -91,7 +110,17 @@ def main() -> int:
     parser.add_argument("--skip-chat", action="store_true")
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
     parser.add_argument("--retry-sleep", type=float, default=DEFAULT_RETRY_SLEEP_SEC)
+    parser.add_argument("--timeout", type=float, default=DEFAULT_HTTP_TIMEOUT_SEC)
     args = parser.parse_args()
+    if (
+        args.retries < 1
+        or args.timeout <= 0
+        or args.retry_sleep < 0
+        or args.max_tokens < 1
+    ):
+        parser.error(
+            "retries, timeout and max-tokens must be positive; retry-sleep must be nonnegative"
+        )
 
     base_url = args.base_url.rstrip("/")
     result: dict[str, Any] = {"base_url": base_url, "ok": False, "checks": []}
@@ -99,10 +128,15 @@ def main() -> int:
     models_status = None
     models_body = None
     for attempt in range(1, args.retries + 1):
-        models_status, models_body = request_json("GET", f"{base_url}/v1/models")
+        models_status, models_body = request_json(
+            "GET", f"{base_url}/v1/models", timeout=args.timeout
+        )
         if models_status == HTTP_OK:
             break
-        time.sleep(args.retry_sleep)
+        if models_status in {401, 403}:
+            break
+        if attempt < args.retries:
+            time.sleep(args.retry_sleep)
 
     model = args.model or choose_model(models_body)
     result["checks"].append(
@@ -113,8 +147,23 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         return EXIT_MODELS_UNAVAILABLE
 
+    advertised = models_body.get("data") if isinstance(models_body, dict) else None
+    if (
+        not isinstance(advertised, list)
+        or not model
+        or not any(
+            isinstance(item, dict) and item.get("id") == model for item in advertised
+        )
+    ):
+        result["checks"].append(
+            {"name": "model", "error": "Requested model is not advertised"}
+        )
+        print(json.dumps(result, indent=2))
+        return EXIT_NO_MODEL_DISCOVERED
+
     if args.skip_chat:
         result["ok"] = True
+        result["scope"] = "model-discovery-only"
         print(json.dumps(result, indent=2))
         return EXIT_OK
 
@@ -131,10 +180,10 @@ def main() -> int:
         "max_tokens": args.max_tokens,
     }
     chat_status, chat_body = request_json(
-        "POST", f"{base_url}/v1/chat/completions", payload
+        "POST", f"{base_url}/v1/chat/completions", payload, timeout=args.timeout
     )
     result["checks"].append({"name": "chat", "status": chat_status, "body": chat_body})
-    result["ok"] = chat_status == HTTP_OK
+    result["ok"] = chat_status == HTTP_OK and valid_completion(chat_body, model)
     print(json.dumps(result, indent=2))
     return EXIT_OK if result["ok"] else EXIT_CHAT_FAILED
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Discover and lightly validate Dynamo recipes."""
@@ -315,8 +314,9 @@ def main() -> int:
         return 0
 
     if args.command == "validate":
-        print(json.dumps(validate(root, Path(args.target)), indent=2))
-        return 0
+        result = validate(root, Path(args.target))
+        print(json.dumps(result, indent=2))
+        return 1 if result["blockers"] else 0
 
     return 1
 

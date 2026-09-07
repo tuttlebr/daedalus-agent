@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Read-only checks that a Dynamo deployment's interconnect is disagg-ready.
@@ -11,7 +10,7 @@ things that decide whether that transport will actually work:
 
 * ``env``  - the NIXL/UCX/NCCL transport env vars set on a recipe or pod
 * ``node`` - host/pod RDMA + GPUDirect + NVLink capabilities (read-only)
-* ``nixl`` - a best-effort NIXL reachability probe between two pods
+* ``nixl`` - discovery of NIXL tooling; does not execute a transfer
 
 Everything is read-only and degrades gracefully when a tool, pod, or cluster is
 not available, emitting structured JSON instead of crashing.
@@ -48,14 +47,12 @@ ENV_CATALOG: dict[str, dict[str, str]] = {
     "UCX_TLS": {
         "group": "nixl/ucx",
         "disagg": "yes",
-        "why": "Selects UCX transports; must include rc/ib and cuda_ipc for "
-        "RDMA + NVLink, or NIXL silently falls back to TCP.",
+        "why": "Restricts UCX transport selection; verify effective path and version defaults.",
     },
     "UCX_NET_DEVICES": {
         "group": "nixl/ucx",
         "disagg": "yes",
-        "why": "Pins UCX to the right IB HCA/port (e.g. mlx5_0:1); wrong or "
-        "unset device degrades to the management NIC.",
+        "why": "Restricts UCX device selection; unset may validly auto-select.",
     },
     "UCX_IB_GPU_DIRECT_RDMA": {
         "group": "nixl/ucx",
@@ -208,10 +205,10 @@ def check_env(target: Path) -> list[Check]:
             Check(
                 "env:disagg-transport",
                 "warn",
-                "disagg-critical vars not set in manifest: "
+                "transport selectors not set in manifest: "
                 + ", ".join(missing_disagg)
-                + ". Fine if baked into the image/entrypoint; verify with the "
-                "`node` and `nixl` checks. See references/interconnect-env-vars.md.",
+                + ". Defaults or runtime injection may be valid; inspect effective "
+                "configuration and actual transfers. See references/interconnect-env-vars.md.",
             )
         )
     if not checks:
@@ -335,18 +332,22 @@ def check_nixl(
 
 
 def summarize(checks: list[Check]) -> dict[str, Any]:
-    """Roll the checks up into a verdict on disagg transport readiness."""
-    counts = {s: sum(c.status == s for c in checks) for s in ("ok", "warn", "fail")}
+    """Summarize inspection without implying an unperformed transfer passed."""
+    counts = {
+        s: sum(c.status == s for c in checks)
+        for s in ("ok", "warn", "fail", "skipped", "unknown")
+    }
     if counts["fail"]:
-        verdict = "transport blockers found; disagg will not be correct"
-    elif counts["warn"]:
-        verdict = "potential transport gaps; verify before trusting disagg"
+        verdict = "inspection failed; transport not validated"
+    elif counts["warn"] or counts["skipped"] or counts["unknown"] or not checks:
+        verdict = "inconclusive inspection; transport not validated"
     else:
-        verdict = "no transport gaps detected by read-only checks"
+        verdict = "inspection completed; pairwise transport not validated"
     return {
         "checks": [asdict(c) for c in checks],
         "counts": counts,
         "verdict": verdict,
+        "transfer_validated": False,
     }
 
 

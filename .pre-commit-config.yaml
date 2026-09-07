@@ -56,11 +56,17 @@ repos:
   # Lightweight Bash/Shell syntax validation (no external deps)
   - repo: local
     hooks:
+      - id: skill-links
+        name: Local skill links
+        entry: python3 scripts/check_skill_links.py
+        language: system
+        pass_filenames: false
+        files: ^(skills/.*\.md|scripts/check_skill_links\.py)$
       - id: bash-syntax-check
         name: Bash syntax check
-        entry: bash -n
+        entry: bash -c 'for path in "$@"; do bash -n "$path" || exit "$?"; done' --
         language: system
-        files: \.\(sh|bash\)$
+        files: \.(sh|bash)$
         types_or: [bash, shell]
       - id: prettier
         name: Prettier

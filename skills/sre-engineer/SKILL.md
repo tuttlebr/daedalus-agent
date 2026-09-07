@@ -1,220 +1,76 @@
 ---
 name: sre-engineer
-description: >-
-  Define SLOs, error budgets, alerts, capacity, incident practices, and safe
-  toil automation. Use focused DevOps or Kubernetes skills for delivery work.
+description: Define or review service SLIs, SLOs, error budgets, alerting, capacity, incident response, and bounded toil automation. Use focused delivery skills for implementation.
 license: MIT
 metadata:
   author: Jeff Allan <author@example.com>
-  version: '1.1.0'
-  tags:
-    - sre
-    - reliability
-    - observability
-    - incidents
-    - automation
+  version: '2.0.0'
   source: https://github.com/Jeffallan
-  domain: devops
-  triggers: SRE, site reliability, SLO, SLI, error budget, incident management, chaos engineering, toil reduction, on-call, MTTR
-  role: specialist
-  scope: implementation
-  output-format: code
-  related-skills: devops-engineer, cloud-architect, kubernetes-specialist
 ---
 
-# SRE Engineer
+# SRE engineer
 
-## Purpose
+Tie reliability claims to user-visible behavior and measured evidence.
+Choose the requested reliability task; an alert review does not require a
+chaos campaign, new monitoring stack, or deployment.
 
-Turn service goals and observed failure modes into measurable reliability
-contracts, actionable alerts, capacity evidence, and bounded automation.
+## Application boundaries
 
-## Prerequisites
+Use connected tools and existing telemetry. Daedalus's registered Kubernetes
+tools can establish workload state, but are not an implicit Prometheus query
+service. Read logs/metrics through an available capability or supplied data;
+report missing observation instead of inventing a metric.
 
-- A defined service boundary, users, and important request paths.
-- Current telemetry and incident history appropriate to the analysis.
-- Explicit authorization before chaos experiments or state-changing automation.
+For this application, distinguish frontend request acceptance, provider
+response completion, successful tool actions, durable memory, retrieval, image
+delivery, and autonomous goal runs. A successful HTTP status or Ready pod is
+not a complete service SLI. Per-user OAuth/approval waits should be classified
+according to the agreed user journey, not automatically counted as server
+failure or silently removed from the denominator.
 
-## Instructions
+## Workflow
 
-1. **Assess reliability** - Review architecture, SLOs, incidents, toil levels
-2. **Define SLOs** - Identify meaningful SLIs and set appropriate targets
-3. **Verify alignment** - Confirm SLO targets reflect user expectations before proceeding
-4. **Implement monitoring** - Build golden signal dashboards and alerting
-5. **Automate toil** - Identify repetitive tasks and build automation
-6. **Test resilience** - Design and execute chaos experiments; verify recovery meets RTO/RPO targets before marking the experiment complete; validate recovery behavior end-to-end
+1. Identify the service boundary, affected users, measurement period, and
+   requested decision. Reuse current scope and evidence from the calling skill.
+2. For an SLO, specify good events, valid total events, source query, exclusions,
+   window, and target. Separate an observed baseline from a proposed target.
+   Missing telemetry is unknown, not zero errors.
+3. For an incident, lead with current impact, timeline, strongest evidence,
+   owner, and a bounded next action. Distinguish recovery from root-cause proof.
+4. For capacity, use representative traffic, service latency and saturation;
+   freeze the workload/topology before comparison. A mock frontend benchmark
+   cannot establish real GPU serving capacity.
+5. For automation, begin with a read-only decision/dry run, exact targets,
+   concurrency/timeout bounds, stop conditions, and verifiable postconditions.
+   A restart on a threshold alone is not a diagnosis.
+6. Validate queries, calculations, proposed configuration, and recovery behavior
+   appropriate to the requested scope. Execute a fault experiment, restart,
+   failover, or external notification only when that action is authorized and
+   the runtime permits it.
 
-## Reference Guide
+Do not impose an invented organization-wide release freeze, approval hierarchy,
+mandatory postmortem, or toil percentage. Propose policies based on impact,
+actual ownership, and the user's constraints.
 
-Load detailed guidance based on context:
+## References
 
-| Topic         | Reference                           | Load When                                |
-| ------------- | ----------------------------------- | ---------------------------------------- |
-| SLO/SLI       | `references/slo-sli-management.md`  | Defining SLOs, calculating error budgets |
-| Error Budgets | `references/error-budget-policy.md` | Managing budgets, burn rates, policies   |
-| Monitoring    | `references/monitoring-alerting.md` | Golden signals, alert design, dashboards |
-| Automation    | `references/automation-toil.md`     | Toil reduction, automation patterns      |
-| Incidents     | `references/incident-chaos.md`      | Incident response, chaos engineering     |
+Load only the relevant reference with `agent_skills_tool(operation=load_skill,
+skill_name=sre-engineer, resource=references/<file>.md)`.
 
-## Constraints
+- [slo-sli-management](references/slo-sli-management.md): event definitions,
+  latency and availability targets, missing data.
+- [error-budget-policy](references/error-budget-policy.md): burn rates,
+  budget arithmetic, decision policy.
+- [monitoring-alerting](references/monitoring-alerting.md): paired windows,
+  label consistency, notification/runbook design.
+- [automation-toil](references/automation-toil.md): bounded automation and
+  capacity evidence.
+- [incident-chaos](references/incident-chaos.md): incident record and
+  explicitly requested resilience experiments.
 
-### MUST DO
-
-- Define quantitative SLOs (e.g., 99.9% availability)
-- Calculate error budgets from SLO targets
-- Monitor golden signals (latency, traffic, errors, saturation)
-- Write blameless postmortems for all incidents
-- Measure toil and track reduction progress
-- Automate repetitive operational tasks
-- Test failure scenarios with chaos engineering
-- Balance reliability with feature velocity
-
-### MUST NOT DO
-
-- Set SLOs without user impact justification
-- Alert on symptoms without actionable runbooks
-- Tolerate >50% toil without automation plan
-- Skip postmortems or assign blame
-- Implement manual processes for recurring tasks
-- Deploy without capacity planning
-- Ignore error budget exhaustion
-- Build systems that can't degrade gracefully
-
-## Output Templates
-
-When implementing SRE practices, provide:
-
-1. SLO definitions with SLI measurements and targets
-2. Monitoring/alerting configuration (Prometheus, etc.)
-3. Automation scripts (Python, Go, Terraform)
-4. Runbooks with clear remediation steps
-5. Brief explanation of reliability impact
-
-## Examples
-
-### SLO Definition & Error Budget Calculation
-
-```
-# 99.9% availability SLO over a 30-day window
-# Allowed downtime: (1 - 0.999) * 30 * 24 * 60 = 43.2 minutes/month
-# Error budget (request-based): 0.001 * total_requests
-
-# Example: 10M requests/month → 10,000 error budget requests
-# If 5,000 errors consumed in week 1 → 50% budget burned in 25% of window
-# → Trigger error budget policy: freeze non-critical releases
-```
-
-### Prometheus SLO Alerting Rule (Multiwindow Burn Rate)
-
-```yaml
-groups:
-  - name: slo_availability
-    rules:
-      # Fast burn: 2% budget in 1h (14.4x burn rate)
-      - alert: HighErrorBudgetBurn
-        expr: |
-          (
-            sum(rate(http_requests_total{status=~"5.."}[1h]))
-            /
-            sum(rate(http_requests_total[1h]))
-          ) > 0.014400
-          and
-          (
-            sum(rate(http_requests_total{status=~"5.."}[5m]))
-            /
-            sum(rate(http_requests_total[5m]))
-          ) > 0.014400
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: 'High error budget burn rate detected'
-          runbook: 'https://wiki.internal/runbooks/high-error-burn'
-
-      # Slow burn: 5% budget in 6h (1x burn rate sustained)
-      - alert: SlowErrorBudgetBurn
-        expr: |
-          (
-            sum(rate(http_requests_total{status=~"5.."}[6h]))
-            /
-            sum(rate(http_requests_total[6h]))
-          ) > 0.001
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          summary: 'Sustained error budget consumption'
-          runbook: 'https://wiki.internal/runbooks/slow-error-burn'
-```
-
-### PromQL Golden Signal Queries
-
-```promql
-# Latency — 99th percentile request duration
-histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
-
-# Traffic — requests per second by service
-sum(rate(http_requests_total[5m])) by (service)
-
-# Errors — error rate ratio
-sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
-  /
-sum(rate(http_requests_total[5m])) by (service)
-
-# Saturation — CPU throttling ratio
-sum(rate(container_cpu_cfs_throttled_seconds_total[5m])) by (pod)
-  /
-sum(rate(container_cpu_cfs_periods_total[5m])) by (pod)
-```
-
-### Toil Automation Script (Python)
-
-```python
-#!/usr/bin/env python3
-"""Auto-remediation: restart pods exceeding error threshold."""
-import subprocess, sys, json
-
-ERROR_THRESHOLD = 0.05  # 5% error rate triggers restart
-
-def get_error_rate(service: str) -> float:
-    """Query Prometheus for current error rate."""
-    import urllib.request
-    query = f'sum(rate(http_requests_total{{status=~"5..",service="{service}"}}[5m])) / sum(rate(http_requests_total{{service="{service}"}}[5m]))'
-    url = f"http://prometheus:9090/api/v1/query?query={urllib.request.quote(query)}"
-    with urllib.request.urlopen(url) as resp:
-        data = json.load(resp)
-    results = data["data"]["result"]
-    return float(results[0]["value"][1]) if results else 0.0
-
-def restart_deployment(namespace: str, deployment: str) -> None:
-    subprocess.run(
-        ["kubectl", "rollout", "restart", f"deployment/{deployment}", "-n", namespace],
-        check=True
-    )
-    print(f"Restarted {namespace}/{deployment}")
-
-if __name__ == "__main__":
-    service, namespace, deployment = sys.argv[1], sys.argv[2], sys.argv[3]
-    rate = get_error_rate(service)
-    print(f"Error rate for {service}: {rate:.2%}")
-    if rate > ERROR_THRESHOLD:
-        restart_deployment(namespace, deployment)
-    else:
-        print("Within SLO threshold — no action required")
-```
-
-[Documentation](https://jeffallan.github.io/claude-skills/skills/devops/sre-engineer/)
-
-## Limitations
-
-- Reliability guidance depends on representative telemetry and cannot infer missing production behavior.
-- This skill does not authorize deploys, restarts, failovers, or chaos experiments.
-- Use focused DevOps and Kubernetes skills for delivery configuration and manifests.
-
-## Troubleshooting
-
-| Problem                          | Likely cause                                     | Response                                                        |
-| -------------------------------- | ------------------------------------------------ | --------------------------------------------------------------- |
-| Alert fires without user impact  | Indicator or threshold is not tied to the SLO    | Rebuild the alert from the user-visible SLI and burn rate.      |
-| Error-budget data disagrees      | Window, denominator, or excluded traffic differs | Make the query contract explicit and recompute from one source. |
-| Automation cannot verify success | The runbook lacks a read-only postcondition      | Stop and add a concrete verification step before execution.     |
+Hand off cluster objects to
+[kubernetes-specialist](../kubernetes-specialist/SKILL.md), delivery changes to
+[devops-engineer](../devops-engineer/SKILL.md), and Dynamo failures to
+[dynamo-troubleshoot](../dynamo-troubleshoot/SKILL.md). Keep evidence and
+execution status together. Return the requested analysis or artifact, its
+measurement assumptions, validation, and unverified limits.

@@ -32,5 +32,5 @@ Multi-node and within-node correctness parallelism are campaign throughput optim
 they must not change workload concurrency or weaken performance isolation.
 
 Keep this scheduling detail subordinate to the frozen per-row contract in
-`SKILL.md`. If cluster capacity cannot preserve the stated isolation, run fewer
+[campaign protocol](campaign-protocol.md). If cluster capacity cannot preserve the stated isolation, run fewer
 rows concurrently rather than weakening a row's controls.

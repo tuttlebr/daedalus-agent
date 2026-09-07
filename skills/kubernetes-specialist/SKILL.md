@@ -1,280 +1,90 @@
 ---
 name: kubernetes-specialist
-description: >-
-  Author and debug Kubernetes workloads, Helm, policy, networking, and storage.
-  Use Dynamo skills for Dynamo; skip CI/CD and SLO work.
+description: Author, review, or diagnose Kubernetes workloads, Helm resources, networking, policy, storage, and controllers. Route Dynamo-specific failures and recipes to their focused skills.
 license: MIT
 metadata:
   author: Jeff Allan <author@example.com>
-  version: '1.1.1'
-  tags:
-    - kubernetes
-    - helm
-    - networking
-    - storage
-    - workload-debugging
+  version: '2.0.0'
   source: https://github.com/Jeffallan
-  domain: infrastructure
-  triggers: Kubernetes, K8s, kubectl, Helm, container orchestration, pod deployment, RBAC, NetworkPolicy, Ingress, StatefulSet, Operator, CRD, CustomResourceDefinition, ArgoCD, Flux, GitOps, Istio, Linkerd, service mesh, multi-cluster, cost optimization, VPA, spot instances
-  role: specialist
-  scope: infrastructure
-  output-format: manifests
-  related-skills: devops-engineer, cloud-architect, sre-engineer, terraform-engineer, security-reviewer, chaos-engineer
 ---
 
-# Kubernetes Specialist
+# Kubernetes specialist
 
-## Purpose
+Work from the intended cluster, namespace, resource, and controller owner.
+Preserve application behavior and persistent state while diagnosing or changing
+the requested surface.
 
-Author, review, and diagnose Kubernetes resources while preserving cluster
-safety, workload intent, and least privilege.
+## Use the available execution surface
 
-## When to Use This Skill
+Use registered `k8s_mcp_server` schemas for live reads and supported actions.
+A tool name or Kubernetes verb does not itself grant permission.
+Use an operator CLI only when the environment actually supplies it; the
+isolated sandbox does not inherit kubeconfig or host/cluster access.
 
-- Deploying workloads (Deployments, StatefulSets, DaemonSets, Jobs)
-- Configuring networking (Services, Ingress, NetworkPolicies)
-- Managing configuration (ConfigMaps, Secrets, environment variables)
-- Setting up persistent storage (PV, PVC, StorageClasses)
-- Creating Helm charts for application packaging
-- Troubleshooting cluster and workload issues
-- Implementing security best practices
+Read the matching reference using `agent_skills_tool(operation=load_skill,
+skill_name=kubernetes-specialist, resource=references/<file>.md)`.
+Cross-skill handoffs use the target skill's name and retain the same scope and
+already collected evidence.
 
-## Prerequisites
+## Diagnose or implement
 
-- The intended cluster context, namespace, workload, and deployment owner.
-- Read access to current manifests and live state when diagnosis is requested.
-- Explicit user authorization before applying, deleting, or changing cluster resources.
+1. Resolve the context, namespace, workload and owner from the request/current
+   inventory. Prefer bounded summaries, specific objects, recent logs and
+   events over full-cluster dumps.
+2. Follow the owner chain: source values/manifests → rendered resource →
+   reconciler status → pod specification/mounted configuration → Service and
+   EndpointSlices → the real caller's endpoint behavior.
+3. Distinguish current failures from old events. An image-pull failure or a
+   container waiting to start does not prove the application ran and failed.
+   A Running/Ready pod does not prove a protected tool or application request.
+4. Fix the diagnosed layer in its declarative source when repair is requested.
+   Respect Helm, GitOps, operators, and autoscalers as owners; do not fight
+   reconciliation with a lasting live patch. An emergency live change needs a
+   scoped source follow-up and verification.
+5. Review rendered diffs and use applicable lint/schema/dry-run checks before
+   the authorized apply. Secret manifests and Helm output can contain values:
+   avoid printing them. Runtime gates handle required approvals.
+6. Verify the requested behavior from the caller path after a change. Preserve
+   the previous working state when possible; rollback is a separate mutation
+   with data/schema implications, not an automatic generic remedy.
 
-## Instructions
+## Application constraints
 
-1. **Analyze requirements** — Understand workload characteristics, scaling needs, security requirements
-2. **Design architecture** — Choose workload types, networking patterns, storage solutions
-3. **Implement manifests** — Create declarative YAML with proper resource limits, health checks
-4. **Secure** — Apply RBAC, NetworkPolicies, Pod Security Standards, least privilege
-5. **Validate** — Run `kubectl rollout status`, `kubectl get pods -w`, and `kubectl describe pod <name>` to confirm health; roll back with `kubectl rollout undo` if needed
+For Daedalus, Helm owns the deployed stack; Compose has a smaller footprint.
+Trace backend config, external MCP/RAG dependencies, and per-user
+authentication through the actual mounted/runtime configuration.
 
-## Reference Guide
+Preserve requested NodePorts, PVCs, PVs, Secret contents, PDBs, and unrelated
+workloads. Do not delete network policies, bypass PDBs, dump Secrets, or recycle
+all pods as diagnosis. Adapt probes, resource requests, permissions, and
+security contexts to the workload: a model worker, migration Job, and web
+server need different startup and health contracts.
 
-Load detailed guidance based on context:
+Match node architecture, GPU SKU/count, image support, taints/tolerations,
+storage locality, and controller-owned replicas before scheduling changes.
+Do not infer that a NodePort accepts a remote client because a Host header is
+allowed; inspect routing, firewall/Cilium verdicts, and source/destination paths.
 
-| Topic             | Reference                         | Load When                                                        |
-| ----------------- | --------------------------------- | ---------------------------------------------------------------- |
-| Workloads         | `references/workloads.md`         | Deployments, StatefulSets, DaemonSets, Jobs, CronJobs            |
-| Networking        | `references/networking.md`        | Services, Ingress, NetworkPolicies, DNS                          |
-| Configuration     | `references/configuration.md`     | ConfigMaps, Secrets, environment variables                       |
-| Storage           | `references/storage.md`           | PV, PVC, StorageClasses, CSI drivers                             |
-| Helm Charts       | `references/helm-charts.md`       | Chart structure, values, templates, hooks, testing, repositories |
-| Troubleshooting   | `references/troubleshooting.md`   | kubectl debug, logs, events, common issues                       |
-| Custom Operators  | `references/custom-operators.md`  | CRD, Operator SDK, controller-runtime, reconciliation            |
-| Service Mesh      | `references/service-mesh.md`      | Istio, Linkerd, traffic management, mTLS, canary                 |
-| GitOps            | `references/gitops.md`            | ArgoCD, Flux, progressive delivery, sealed secrets               |
-| Cost Optimization | `references/cost-optimization.md` | VPA, HPA tuning, spot instances, quotas, right-sizing            |
-| Multi-Cluster     | `references/multi-cluster.md`     | Cluster API, federation, cross-cluster networking, DR            |
+## References and handoffs
 
-## Constraints
+| Surface                        | Reference                                            |
+| ------------------------------ | ---------------------------------------------------- |
+| Workload lifecycle/probes      | [workloads](references/workloads.md)                 |
+| DNS, Service, network policy   | [networking](references/networking.md)               |
+| Config and Secret references   | [configuration](references/configuration.md)         |
+| PVC, CSI, data lifecycle       | [storage](references/storage.md)                     |
+| Chart and rendered contracts   | [helm-charts](references/helm-charts.md)             |
+| Current failure triage         | [troubleshooting](references/troubleshooting.md)     |
+| Custom controller ownership    | [custom-operators](references/custom-operators.md)   |
+| Existing service mesh          | [service-mesh](references/service-mesh.md)           |
+| GitOps revision/reconciliation | [gitops](references/gitops.md)                       |
+| Evidence-based resource sizing | [cost-optimization](references/cost-optimization.md) |
+| Multi-cluster scope/failover   | [multi-cluster](references/multi-cluster.md)         |
 
-### MUST DO
-
-- Use declarative YAML manifests (avoid imperative kubectl commands)
-- Set resource requests and limits on all containers
-- Include liveness and readiness probes
-- Use secrets for sensitive data (never hardcode credentials)
-- Apply least privilege RBAC permissions
-- Implement NetworkPolicies for network segmentation
-- Use namespaces for logical isolation
-- Label resources consistently for organization
-- Document configuration decisions in annotations
-
-### MUST NOT DO
-
-- Deploy to production without resource limits
-- Store secrets in ConfigMaps or as plain environment variables
-- Use default ServiceAccount for application pods
-- Allow unrestricted network access (default allow-all)
-- Run containers as root without justification
-- Skip health checks (liveness/readiness probes)
-- Use latest tag for production images
-- Expose unnecessary ports or services
-
-## Examples
-
-### Deployment with resource limits, probes, and security context
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-app
-  namespace: my-namespace
-  labels:
-    app: my-app
-    version: '1.2.3'
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: my-app
-  template:
-    metadata:
-      labels:
-        app: my-app
-        version: '1.2.3'
-    spec:
-      serviceAccountName: my-app-sa # never use default SA
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 2000
-      containers:
-        - name: my-app
-          image: my-registry/my-app:1.2.3 # never use latest
-          ports:
-            - containerPort: 8080
-          resources:
-            requests:
-              cpu: '100m'
-              memory: '128Mi'
-            limits:
-              cpu: '500m'
-              memory: '512Mi'
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ['ALL']
-          envFrom:
-            - secretRef:
-                name: my-app-secret # pull credentials from Secret, not ConfigMap
-```
-
-### Minimal RBAC (least privilege)
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: my-app-sa
-  namespace: my-namespace
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: my-app-role
-  namespace: my-namespace
-rules:
-  - apiGroups: ['']
-    resources: ['configmaps']
-    verbs: ['get', 'list'] # grant only what is needed
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: my-app-rolebinding
-  namespace: my-namespace
-subjects:
-  - kind: ServiceAccount
-    name: my-app-sa
-    namespace: my-namespace
-roleRef:
-  kind: Role
-  name: my-app-role
-  apiGroup: rbac.authorization.k8s.io
-```
-
-### NetworkPolicy (default-deny + explicit allow)
-
-```yaml
-# Deny all ingress and egress by default
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny-all
-  namespace: my-namespace
-spec:
-  podSelector: {}
-  policyTypes: ['Ingress', 'Egress']
----
-# Allow only specific traffic
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-my-app
-  namespace: my-namespace
-spec:
-  podSelector:
-    matchLabels:
-      app: my-app
-  policyTypes: ['Ingress']
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: frontend
-      ports:
-        - protocol: TCP
-          port: 8080
-```
-
-## Validation Commands
-
-After deploying, verify health and security posture:
-
-```bash
-# Watch rollout complete
-kubectl rollout status deployment/my-app -n my-namespace
-
-# Stream pod events to catch crash loops or image pull errors
-kubectl get pods -n my-namespace -w
-
-# Inspect a specific pod for failures
-kubectl describe pod <pod-name> -n my-namespace
-
-# Check container logs
-kubectl logs <pod-name> -n my-namespace --previous   # use --previous for crashed containers
-
-# Verify resource usage vs. limits
-kubectl top pods -n my-namespace
-
-# Audit RBAC permissions for a service account
-kubectl auth can-i --list --as=system:serviceaccount:my-namespace:my-app-sa
-
-# Roll back a failed deployment
-kubectl rollout undo deployment/my-app -n my-namespace
-```
-
-## Output Templates
-
-When implementing Kubernetes resources, provide:
-
-1. Complete YAML manifests with proper structure
-2. RBAC configuration if needed (ServiceAccount, Role, RoleBinding)
-3. NetworkPolicy for network isolation
-4. Brief explanation of design decisions and security considerations
-
-## Limitations
-
-- Use Dynamo-specific skills for Dynamo operators and recipes.
-- Adapt examples to the target cluster APIs, admission policy, networking, and storage.
-- Read-only diagnosis does not authorize workload or cluster mutations.
-
-## Troubleshooting
-
-| Symptom                | First check                                                 | Next step                                                           |
-| ---------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------- |
-| Pod is Pending         | Events, requests, affinities, taints, and PVC binding       | Fix the terminal scheduling constraint, not only the first warning. |
-| Service has no traffic | Service ports, EndpointSlices, readiness, and NetworkPolicy | Exercise the endpoint from the real caller path.                    |
-| Rollout stalls         | New ReplicaSet pods, probes, image pull, and admission      | Preserve the old revision until the failure is understood.          |
-
-[Documentation](https://jeffallan.github.io/claude-skills/skills/infrastructure/kubernetes-specialist/)
+Use [devops-engineer](../devops-engineer/SKILL.md) for build/release pipelines
+and [sre-engineer](../sre-engineer/SKILL.md) for SLOs and incident analysis.
+Dynamo failures belong to [dynamo-troubleshoot](../dynamo-troubleshoot/SKILL.md);
+Dynamo bring-up to [dynamo-recipe-runner](../dynamo-recipe-runner/SKILL.md).
+Use [network-health-check](../network-health-check/SKILL.md) when external
+UniFi evidence is needed. Report the observed cause, exact proposed/applied
+change, verification, and remaining uncertainty.

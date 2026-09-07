@@ -1,120 +1,58 @@
 ---
 name: network-health-check
-description: >-
-  Run a read-only UniFi health check for devices, alarms, firmware, controller,
-  WAN, LAN, WLAN, and VPN. Use UniFi Network for changes.
+description: Report current UniFi device and client health from read-only integration-API inventory, details, and statistics. Use unifi-network for changes and unifi-network-setup for connector failures.
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 1.0.0
-  tags:
-    - unifi
-    - network-health
-    - diagnostics
-    - read-only
+  version: 2.0.0
 ---
 
-# Network Health Check
+# Network health check
 
-## Purpose
+Produce an evidence-backed network status for the requested site. During a
+Daily Daedalus briefing, return findings to the calling skill; it owns the
+edition's output, cadence, and read-only boundary.
 
-Report the UniFi controller's current health, active alarms, device state,
-firmware posture, and WAN-to-VPN subsystem status without changing the network.
+## Collect current evidence
 
-## Prerequisites
+1. Use registered `unifi_mcp_server` leaf tools and their schemas. Reuse
+   successful reads from the caller. If needed, call `getInfo` and
+   `listSites` to verify access and resolve the site UUID.
+2. Call `listAdoptedDevices(siteId=...)`. Page through all devices before
+   stating fleet counts. Use `listPendingDevices` only when adoption is relevant.
+3. After IDs are known, parallelize `getAdoptedDeviceDetails` and
+   `getAdoptedDeviceLatestStatistics` for affected devices. Use
+   `listConnectedClients` and `getConnectedClientDetails` when client impact
+   or an uplink relationship needs evidence.
+4. Inspect configured networks, Wi-Fi broadcasts, or WAN interfaces only to
+   explain a specific anomaly. Configuration existence alone does not prove
+   traffic health. Recover omitted compacted rows before exact/absence claims.
 
-Before running a health check, verify the MCP server is configured:
+Load these references only for the returned evidence, using
+`agent_skills_tool(operation=load_skill, skill_name=network-health-check,
+resource=references/<file>.md)`:
 
-- Check that `UNIFI_NETWORK_HOST` is set in the environment.
-- If it is not set or the connection fails, stop and direct the user to the `unifi-network-setup` skill to configure the UniFi Network MCP server.
-- Use `unifi_tool_index` to confirm available tools. If no UniFi tools are listed, the server is not connected.
+- [device-states](references/device-states.md): integration-API states,
+  firmware, uptime, and utilization.
+- [health-subsystems](references/health-subsystems.md): WAN, LAN, Wi-Fi, VPN
+  evidence and caller-path verification.
+- [alarm-types](references/alarm-types.md): unavailable alarm feeds and
+  active-versus-historical event handling.
 
-## Instructions
+## Interpret and report
 
-1. Call `unifi_batch` once to gather system, health, device, and alarm data in
-   parallel:
+Report as-of time, site, observed device states, affected users/paths, and the
+smallest useful next check. State the denominator and missing pages for partial
+inventories. Distinguish `healthy on checked surfaces`, `degraded`, and
+`unavailable/inconclusive`; missing data cannot justify an all-clear.
 
-```
-unifi_batch([
-  { "tool": "unifi_get_system_info" },
-  { "tool": "unifi_get_network_health" },
-  { "tool": "unifi_list_devices" },
-  { "tool": "unifi_list_alarms" }
-])
-```
+Only call a device offline when its returned state supports that classification.
+Firmware availability is maintenance information, not an outage. Uptime alone
+does not prove instability; correlate restarts and impact. Never claim that
+there are no alarms or healthy WAN/VPN sessions from tools that do not expose
+those observations.
 
-2. Validate each batch result and report any unavailable operation instead of
-   guessing its data. Do not call these tools one at a time.
-
-3. Run this follow-up batch only when a device or alarm issue needs more detail:
-
-```
-unifi_batch([
-  { "tool": "unifi_list_clients" },
-  { "tool": "unifi_get_top_clients" }
-])
-```
-
-4. Use the reference mappings to classify the results, then return the report
-   structure below.
-
-## Analyzing Results
-
-Use these reference documents to interpret the data returned by the batch call:
-
-- `references/device-states.md` — maps device `state` integer codes to human-readable status (online, offline, isolated, etc.) and explains what each state means operationally. Do not guess at state codes — consult this reference before classifying device status.
-- `references/alarm-types.md` — describes known alarm types, their severity levels, and recommended remediation steps. Consult before classifying alarm severity or suggesting actions.
-- `references/health-subsystems.md` — explains the per-subsystem health fields returned by `unifi_get_network_health` (WAN, LAN, WLAN, VPN), how to interpret `status` values, and the recommended diagnostic priority order: **WAN → LAN → WLAN → VPN**.
-
-From the device list, identify:
-
-- **Offline devices** — any device with `state` != 1. Check `references/device-states.md` for the full state code table.
-- **Devices needing updates** — check the `upgradeable` field. Report current vs available firmware version.
-- **High-load devices** — check CPU/memory utilization if present in device stats.
-- **Devices with poor uptime** — recently rebooted devices may indicate instability.
-
-For each active alarm, classify severity using `references/alarm-types.md` and provide a plain-language explanation with remediation steps from that reference.
-
-## Examples
-
-Present findings using this structure:
-
-```
-## Network Health Report
-
-**Overall Status:** [Healthy / Warning / Critical]
-**Controller:** [version] — uptime [X days]
-
-### Devices ([online]/[total])
-- [List any offline or problematic devices with their state code and meaning]
-- [List devices needing firmware updates with current and available versions]
-
-### Active Alarms ([count])
-- [Summarize each alarm with severity and recommendation]
-
-### Recommendations
-1. [Actionable item]
-2. [Actionable item]
-```
-
-A healthy network gets a brief "all clear" summary. Do not manufacture concerns for quiet periods.
-
-## Tips
-
-- Always use `unifi_batch` for initial data gathering — sequential tool calls are significantly slower.
-- If `unifi_get_network_health` shows WAN health issues, that likely explains many downstream problems — lead with that finding and follow the WAN → LAN → WLAN → VPN diagnostic priority from `references/health-subsystems.md`.
-- Don't overwhelm the user with raw data. Focus on what is broken or needs attention.
-- Consult the reference docs before classifying device state codes or alarm meanings — misclassification leads to bad recommendations.
-
-## Limitations
-
-- Read-only health reporting; use `unifi-network` for approved configuration changes.
-- Results reflect the controller's current data and may omit unsupported device metrics.
-- The skill does not score firewall policy; use `firewall-auditor` for that task.
-
-## Troubleshooting
-
-| Problem                     | Cause                                        | Response                                                              |
-| --------------------------- | -------------------------------------------- | --------------------------------------------------------------------- |
-| No UniFi tools appear       | MCP server is disconnected or not configured | Stop and use `unifi-network-setup`.                                   |
-| Batch call times out        | Controller or MCP transport is unavailable   | Verify the connection, retry the read once, then report the boundary. |
-| One tool in the batch fails | Controller capability differs by version     | Report available sections and identify the missing operation.         |
+Keep healthy reports short. For a failure, lead with impact and current
+evidence, then give an actionable next step. No reboot, adoption, upgrade,
+acknowledgement, or configuration call belongs in this health check. Use
+[unifi-network](../unifi-network/SKILL.md) for a requested repair and
+[unifi-network-setup](../unifi-network-setup/SKILL.md) for access failures.

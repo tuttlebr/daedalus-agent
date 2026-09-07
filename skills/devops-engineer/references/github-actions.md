@@ -1,142 +1,22 @@
-# GitHub Actions Pipelines
+# CI workflow changes
 
-## Complete CI/CD Pipeline
+Read `.github/workflows`, `Makefile`, pre-commit configuration, and dependency
+locks together. Preserve parity between local checks and required CI jobs.
 
-```yaml
-name: CI/CD Pipeline
+1. Identify triggers, permissions, job dependencies, concurrency, caches,
+   artifacts and publication conditions for the requested change.
+2. Keep pull-request validation separate from trusted release publication.
+   Never execute untrusted PR code in a privileged secret-bearing job.
+3. Pin external actions according to repository policy; validate versions and
+   inputs against the action's current documentation rather than copying a
+   stale template. Use the least token permissions each job needs.
+4. Include lockfile/platform inputs in cache keys. A cache hit is not evidence
+   the current tree passed tests. Preserve artifacts needed by downstream jobs.
+5. Preserve Daedalus's skills build context and runtime-lock/image validation.
+   Multi-platform publication needs each architecture validated.
+6. Validate YAML and changed commands locally when execution is available;
+   report external CI state only after observing that run/revision.
 
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm test
-      - run: npm run lint
-
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=
-            type=ref,event=branch
-      - uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  deploy-staging:
-    needs: build
-    if: github.ref == 'refs/heads/develop'
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          kubectl set image deployment/app app=${{ needs.build.outputs.image-tag }}
-
-  deploy-production:
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          kubectl set image deployment/app app=${{ needs.build.outputs.image-tag }}
-```
-
-## Common Workflow Patterns
-
-### Matrix Builds (Multi-version testing)
-
-```yaml
-jobs:
-  test:
-    strategy:
-      matrix:
-        node-version: [18, 20, 22]
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-```
-
-### Reusable Workflows
-
-```yaml
-# .github/workflows/deploy.yml
-on:
-  workflow_call:
-    inputs:
-      environment:
-        required: true
-        type: string
-    secrets:
-      DEPLOY_KEY:
-        required: true
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    steps:
-      - run: echo "Deploying to ${{ inputs.environment }}"
-```
-
-### Caching Dependencies
-
-```yaml
-- uses: actions/cache@v4
-  with:
-    path: ~/.npm
-    key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-    restore-keys: |
-      ${{ runner.os }}-node-
-```
-
-## Quick Reference
-
-| Action                        | Purpose                     |
-| ----------------------------- | --------------------------- |
-| `actions/checkout@v4`         | Clone repository            |
-| `actions/setup-node@v4`       | Install Node.js             |
-| `docker/build-push-action@v5` | Build and push Docker image |
-| `docker/metadata-action@v5`   | Generate Docker tags        |
-| `actions/cache@v4`            | Cache dependencies          |
+Use GitHub's [secure-use reference](https://docs.github.com/en/actions/reference/security/secure-use)
+for workflow trust boundaries. Configured Daedalus GitHub MCP operations inspect
+source; they cannot create a workflow run, commit, or PR by themselves.

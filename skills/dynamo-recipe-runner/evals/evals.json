@@ -52,7 +52,7 @@
     },
     {
       "id": "neg-pods-crashlooping",
-      "question": "I deployed a recipe but the worker pods are in CrashLoopBackOff — what's wrong?",
+      "question": "I deployed a recipe but the worker pods are in CrashLoopBackOff \u2014 what's wrong?",
       "expected_skill": "dynamo-troubleshoot",
       "ground_truth": "Diagnosing a broken/failed deployment belongs to dynamo-troubleshoot.",
       "expected_behavior": [
@@ -66,5 +66,6 @@
       "ground_truth": "Authoring kernels is unrelated to running existing recipes; the skill should not activate.",
       "expected_behavior": ["dynamo-recipe-runner stays silent"]
     }
-  ]
+  ],
+  "execution_context": "Operator CLI scenarios require an actual checkout and tools. In Daedalus, use registered MCP reads/actions where available; otherwise prepare the artifact and report unexecuted steps. Never execute a script merely by loading it."
 }

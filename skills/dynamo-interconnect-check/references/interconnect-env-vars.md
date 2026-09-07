@@ -1,67 +1,37 @@
-# Dynamo Interconnect Env Vars & IB Capability Checklist
+# Transport configuration and evidence
 
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: CC-BY-4.0
--->
+Inspect effective settings and the selected transport in the deployed version.
+NIXL supports backend plugins; UCX is not necessarily the selected backend.
+NCCL collectives and NIXL KV transfers are different paths.
 
-Disaggregated serving moves KV cache between prefill and decode workers over
-NIXL (which uses UCX underneath), and tensor/expert-parallel workers exchange
-data over NCCL. Both ride the same fabric — InfiniBand/RoCE RDMA across nodes
-and NVLink within a node. If that fabric is misconfigured, a deployment still
-serves `/v1/models` but disagg is slow or wrong. The variables below decide
-which transport gets used.
+| Setting                                     | What to verify                                                                    |
+| ------------------------------------------- | --------------------------------------------------------------------------------- |
+| `UCX_TLS`                                   | Actual transport restriction versus automatic selection; do not force an old list |
+| `UCX_NET_DEVICES`                           | Selected NIC/port and GPU affinity; unset can validly auto-select                 |
+| `UCX_IB_GPU_DIRECT_RDMA`, `UCX_RNDV_SCHEME` | Version support and observed GPU-transfer behavior                                |
+| `NIXL_PLUGIN_DIR`                           | Plugin location only if that build exposes the variable                           |
+| `NCCL_IB_HCA`, `NCCL_SOCKET_IFNAME`         | Collective/bootstrapping interfaces and current topology                          |
+| `NCCL_IB_DISABLE`                           | Whether RDMA is intentionally disabled for the tested collective path             |
+| `NCCL_NET_GDR_LEVEL`, `NCCL_P2P_LEVEL`      | Supported distance policy and actual selected path                                |
+| `NCCL_IB_GID_INDEX`                         | Version/fabric-specific override; avoid stale manual values                       |
 
-## NIXL / UCX (KV cache transport)
+Unset selectors are not failures. Start with the version's defaults unless
+measured evidence justifies an override. See the
+[UCX FAQ](https://openucx.readthedocs.io/en/master/faq.html) and
+[NCCL environment reference](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html).
 
-| Variable                 | Disagg-critical | Purpose                                                                                                                             |
-| ------------------------ | :-------------: | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `UCX_TLS`                |       yes       | Allowed transports. Include `rc`/IB and `cuda_ipc`/`cuda_copy` for RDMA + NVLink. If it resolves to `tcp` only, KV transfer crawls. |
-| `UCX_NET_DEVICES`        |       yes       | Pins UCX to a specific HCA/port (e.g. `mlx5_0:1`). Unset or wrong device falls back to the management NIC.                          |
-| `UCX_IB_GPU_DIRECT_RDMA` |       yes       | Enables GPUDirect RDMA so the NIC DMAs straight to/from GPU memory.                                                                 |
-| `UCX_RNDV_SCHEME`        |       no        | Rendezvous scheme for large messages (`put_zcopy` / `get_zcopy` / `auto`).                                                          |
-| `NIXL_PLUGIN_DIR`        |       no        | Backend plugin search path; only for non-default install layouts.                                                                   |
+## Capability versus transfer
 
-## NCCL (collective transport)
+RDMA devices/link state, GPU/NIC topology and exposed device permissions show
+capability. The absence of `nvidia_peermem` alone is not decisive: supported
+DMA-BUF paths may provide peer access. GDRCopy and NVLink are not universal
+requirements. Missing probe binaries are inconclusive, never a pass.
 
-| Variable             | Disagg-critical | Purpose                                                                           |
-| -------------------- | :-------------: | --------------------------------------------------------------------------------- |
-| `NCCL_IB_HCA`        |       yes       | IB HCAs NCCL may use (e.g. `mlx5_0,mlx5_1`).                                      |
-| `NCCL_SOCKET_IFNAME` |       yes       | NIC for NCCL bootstrap/rendezvous (e.g. `eth0`, `ib0`). A wrong guess hangs init. |
-| `NCCL_IB_DISABLE`    |       yes       | Must be `0`/unset to use InfiniBand; `1` forces sockets.                          |
-| `NCCL_NET_GDR_LEVEL` |       no        | GPUDirect RDMA aggressiveness (`SYS`/`PHB`/`PIX`).                                |
-| `NCCL_P2P_LEVEL`     |       no        | NVLink/PCIe peer-to-peer level for intra-node collectives.                        |
-| `NCCL_IB_GID_INDEX`  |       no        | GID index for RoCE/EFA fabrics; not needed on classic IB.                         |
-| `NCCL_DEBUG`         |       no        | Set to `INFO` to print the transport NCCL actually selected.                      |
+To prove a path, use compatible shipped NIXL tooling with the actual peer roles,
+placement, payload and intended transport. Record integrity, transferred bytes,
+completion and timing. A `command -v` result or successful HTTP completion cannot
+prove a pairwise transfer, RDMA selection or performance.
 
-## IB / GPUDirect / NVLink capability checklist
-
-The `node` check probes these read-only; here is what each tells you:
-
-- **`/dev/infiniband` + `ibv_devinfo -l`** — RDMA devices are exposed to the
-  pod. Empty means no RDMA (often a missing device plugin or `hostNetwork`/
-  resource request).
-- **`ibstat` → `State: Active` / `LinkUp`** — the IB/RoCE port is actually up.
-  `Down`/`Polling` means cabling, subnet manager, or fabric issues.
-- **`nvidia_peermem` (or legacy `nv_peer_mem`) loaded** — GPUDirect RDMA kernel
-  support; without it RDMA stages through host memory.
-- **`/dev/gdrdrv`** — GDRCopy present, used for low-latency small transfers.
-- **`nvidia-smi topo -m` showing `NV#`** — NVLink links between GPUs for
-  intra-node KV/collective traffic; `PIX`/`PXB` rows show GPU↔NIC affinity,
-  which should line up with `UCX_NET_DEVICES` / `NCCL_IB_HCA`.
-
-## Validating NIXL reachability
-
-Capabilities being present does not prove two workers can talk. To actually
-exercise the path, run a pairwise transfer between a prefill pod and a decode
-pod (different nodes for the RDMA path, same node for NVLink) using the NIXL
-test/bench tooling shipped in the worker image, e.g.:
-
-```bash
-# in the worker image; exact binary/flags depend on the NIXL build
-kubectl exec -n "${NAMESPACE}" <prefill-pod> -- nixlbench --help
-```
-
-If the transfer fails or silently uses TCP, fix the env vars and capabilities
-above before trusting any disagg result. Set `NCCL_DEBUG=INFO` and inspect UCX
-logs to confirm the selected transport.
+Do not install modules, modify policy, create privileged debug pods or inject
+load as part of a passive inspection. Those need the requested action scope
+and runtime capability. Report the unvalidated layer explicitly.

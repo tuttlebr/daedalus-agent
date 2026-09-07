@@ -1,11 +1,10 @@
 ---
 name: dynamo-interconnect-check
 description: Validate NIXL, UCX, NCCL, RDMA, GPUDirect, and NVLink for Dynamo disaggregated serving. Use after deploy, not for failed pods.
-allowed-tools: Read, Bash
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>
-  version: 1.0.0
+  version: 2.0.0
   tags:
     - dynamo
     - nixl
@@ -14,151 +13,56 @@ metadata:
     - validation
 ---
 
-# Dynamo Interconnect Check
+# Dynamo interconnect check
 
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: CC-BY-4.0
--->
+Inspect the transport used by running disaggregated NVIDIA Dynamo workers.
+Separate configuration, device capability, and actual transfer proof.
+A successful frontend completion does not prove RDMA or NVLink was used.
 
-## Purpose
+## Execution and evidence
 
-Confirm that the transport disaggregated serving depends on actually works. A
-deployment can pass an endpoint smoke test while disagg is silently wrong: if
-NIXL/UCX cannot reach the peer worker over RDMA or NVLink, KV transfer falls
-back to a slow or broken path. Catch that with read-only checks before trusting
-a disagg deployment or its benchmark numbers.
+Use registered `k8s_mcp_server` reads or an available, authorized in-pod exec
+capability. Do not presume the isolated sandbox can reach pods or GPUs.
+Use `nvidia_docs_tool(product=dynamo)` and the deployed NIXL/UCX/NCCL
+version's documentation for settings; no fixed environment list proves health.
 
-This skill is read-only. It never mutates the cluster and never prints secrets.
+Load [interconnect-env-vars](references/interconnect-env-vars.md) through
+`agent_skills_tool(operation=load_skill, skill_name=dynamo-interconnect-check,
+resource=references/interconnect-env-vars.md)`.
+The optional [check_interconnect.py](scripts/check_interconnect.py) needs an
+operator environment; loading it does not execute it.
 
-## Prerequisites
+## Checks
 
-- Python 3.10+ on the operator machine.
-- `kubectl exec` access to a worker pod in the target Dynamo deployment.
-- Read access to the recipe directory (`recipes/<model>/<framework>/<mode>`).
-- For node-capability checks: tools like `ibstat`, `nvidia-smi`, `lsmod` available in the worker pod image (missing tools are reported as `skipped`, not failures).
+1. Resolve context, namespace, worker roles/containers, node placement, image,
+   transport plugin and expected path. For crashing or unschedulable pods,
+   use [dynamo-troubleshoot](../dynamo-troubleshoot/SKILL.md) first.
+2. Compare recipe settings with effective worker configuration and transport
+   logs. Inspect only transport-related fields, never a full credential-bearing
+   environment dump. Unset UCX/NCCL selectors may mean valid auto-selection.
+3. Inspect GPU/NIC topology, exposed RDMA devices, link state, and applicable
+   peer-memory or DMA-BUF support. Missing probe tools are inconclusive.
+   GDRCopy, NVLink, and `nvidia_peermem` are not universal prerequisites.
+4. Identify the actual selected NIXL backend/UCX transport and NCCL path when
+   collectives are relevant. A discovered test binary proves availability only.
+5. To claim transfer correctness/performance, run an explicitly scoped pairwise
+   test in the actual prefill/decode placement with compatible shipped tooling.
+   Record peers, payload, selected transport, integrity, bytes transferred,
+   timing, and completion. This is active test traffic, not a passive read.
+   If the capability/budget is absent, return `not validated`.
 
-## When To Use
+Helper subcommands:
 
-- After `dynamo-recipe-runner` deploys a **disagg** or multi-node recipe.
-- Before reporting disagg throughput/latency, so numbers reflect the real
-  transport.
-- When agg works but disagg is slow, hangs, or returns wrong output and you
-  suspect the fabric rather than the model.
+- `env <manifest-or-directory>`: text inventory, not effective config proof.
+- `node --namespace <ns> --pod <pod> --container <container>`: capability probes.
+- `nixl --namespace <ns> --pod <pod>`: tooling discovery only, no transfer.
 
-For diagnosing pods that are already crashing or unschedulable, use
-`dynamo-troubleshoot` first.
+Report each layer as verified, failed, or inconclusive, with evidence.
+Never turn `skipped`, an exit code of zero, or a present module into a fabric
+pass. A multi-node RDMA test and same-node GPU peer transfer test cover
+different paths.
 
-## Instructions
-
-### 1. Check Transport Env Vars On The Recipe
-
-```bash
-python3 scripts/check_interconnect.py env recipes/<model>/<framework>/<mode>
-```
-
-Reports which NIXL/UCX/NCCL transport variables are set and flags
-disagg-critical ones (e.g. `UCX_TLS`, `UCX_NET_DEVICES`, `NCCL_IB_HCA`) that are
-absent. Missing here is only a warning — they may be baked into the image — so
-confirm with the node and NIXL checks. See
-`references/interconnect-env-vars.md` for what each variable does.
-
-### 2. Check Node Capabilities
-
-Locally on a GPU node, or inside a running worker pod:
-
-```bash
-python3 scripts/check_interconnect.py node \
-  --namespace "${NAMESPACE}" --pod <worker-pod>
-```
-
-Probes (read-only) for: InfiniBand devices and Active links, GPUDirect RDMA
-(`nvidia_peermem`), GDRCopy, and NVLink in the GPU topology. Missing tools are
-reported as `skipped`, not failures.
-
-### 3. Validate NIXL Reachability
-
-```bash
-python3 scripts/check_interconnect.py nixl \
-  --namespace "${NAMESPACE}" --pod <worker-pod>
-```
-
-Looks for NIXL test tooling in the pod and surfaces the exact next step to run a
-pairwise prefill↔decode transfer test. A full cross-pod transfer test requires
-two scheduled GPU pods on the fabric.
-
-## Available Scripts
-
-| Script                               | Purpose                                                            | Arguments              |
-| ------------------------------------ | ------------------------------------------------------------------ | ---------------------- |
-| `scripts/check_interconnect.py env`  | Inspect NIXL/UCX/NCCL env vars on a recipe                         | positional recipe path |
-| `scripts/check_interconnect.py node` | Probe InfiniBand, GPUDirect RDMA, GDRCopy, NVLink on a node or pod | `--namespace`, `--pod` |
-| `scripts/check_interconnect.py nixl` | Surface NIXL transfer-test readiness for a pod                     | `--namespace`, `--pod` |
-
-Invoke via the agentskills.io `run_script()` protocol:
-
-```python
-run_script("scripts/check_interconnect.py", args=["env", "recipes/qwen3-coder-480b/sglang/disagg"])
-run_script("scripts/check_interconnect.py", args=["node", "--namespace", "dynamo-demo", "--pod", "qwen-worker-0"])
-```
-
-## Examples
-
-Verify a disagg recipe's transport env shape before deploy:
-
-```bash
-python3 scripts/check_interconnect.py env recipes/qwen3-coder-480b/sglang/disagg
-```
-
-After deploy, validate a worker pod's fabric:
-
-```bash
-python3 scripts/check_interconnect.py node \
-  --namespace dynamo-demo --pod qwen-worker-0
-python3 scripts/check_interconnect.py nixl \
-  --namespace dynamo-demo --pod qwen-worker-0
-```
-
-Equivalent through the agent protocol:
-
-```python
-run_script("scripts/check_interconnect.py", args=["nixl", "--namespace", "dynamo-demo", "--pod", "qwen-worker-0"])
-```
-
-## Output Contract
-
-Each check returns `ok` / `warn` / `fail` / `skipped` with a one-line detail,
-plus a rolled-up verdict on disagg transport readiness. Report:
-
-- transport env vars present vs. disagg-critical ones missing
-- RDMA / GPUDirect / NVLink capability status
-- whether NIXL reachability was validated, and the next command if not
-- an explicit verdict on whether disagg can be trusted, or what to fix first
-
-## Limitations
-
-- Read-only fabric probe; does not run a full pairwise NIXL transfer (requires two scheduled GPU pods and the in-pod NIXL test tools).
-- `skipped` results for missing tools (`ibstat`, `nvidia-smi`, `lsmod`) are inconclusive, not a pass.
-- Env-var check inspects the recipe text; values injected at runtime via initContainers or operator-applied envs are not detected.
-- Single-node agg deployments do not exercise the transport — this skill is for disagg / multi-node validation.
-
-## Troubleshooting
-
-- All critical env vars missing: they may be baked into the image or injected
-  by the operator. Run the `node` check inside the worker pod.
-- No Active IB link: verify node GPU and IB labels, then have the cluster owner
-  repair the fabric or HCA provisioning.
-- `nvidia_peermem` missing: have the cluster owner load the GPUDirect RDMA
-  module; otherwise NIXL falls back to staged copies.
-- No NIXL test tools: use a NIXL-enabled image or a standalone transfer test
-  from an approved debug pod.
-
-## Benchmark
-
-See `BENCHMARK.md` for the NVCARPS-EVAL performance report (auto-generated by the NVSkills CI pipeline). To refresh, re-run `/nvskills-ci` on an upstream PR touching this skill.
-
-## References
-
-- `references/interconnect-env-vars.md` — NIXL/UCX/NCCL env var catalog and IB
-  capability checklist.
-- Use `scripts/check_interconnect.py` for all read-only checks.
+Use [kubernetes-specialist](../kubernetes-specialist/SKILL.md) for device
+exposure/policy repairs, [dynamo-recipe-runner](../dynamo-recipe-runner/SKILL.md)
+for recipe changes, and [dynamo-troubleshoot](../dynamo-troubleshoot/SKILL.md)
+for worker failures. Keep repairs within the user's scope and runtime gates.

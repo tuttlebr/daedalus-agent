@@ -1,163 +1,60 @@
 ---
 name: unifi-network-setup
-description: >-
-  Configure the UniFi Network MCP connection, credentials, site, SSL, and
-  write-policy gates. Use UniFi Network after the connection works.
-allowed-tools: Read, Bash, AskUserQuestion
+description: Configure or diagnose Daedalus's UniFi MCP endpoint, bearer authentication, fixed controller, API key, TLS, and network reachability. Use unifi-network for controller operations.
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 1.0.0
-  tags:
-    - unifi
-    - mcp
-    - setup
-    - credentials
+  version: 2.0.0
 ---
 
-# Set Up UniFi Network MCP Server
+# UniFi connection setup
 
-## Purpose
+Repair the connection from Daedalus to its existing UniFi integration-API MCP
+server. This application uses a remote MCP service; desktop plugin installers
+and local controller passwords are not part of this workflow.
 
-Walk the user through configuring their UniFi Network controller connection. Ask one question at a time and wait for the answer before continuing.
+## Establish the failing boundary
 
-## Instructions
+1. Reuse the endpoint/site context and error already observed. Inspect the
+   registered `unifi_mcp_server` schema when available; an absent tool is not
+   proof that the controller is down.
+2. Attempt one bounded `getInfo` read, then `listSites` when the first succeeds.
+   These prove controller access and provide real site UUIDs.
+3. Distinguish MCP connection/authentication, controller authentication/TLS,
+   controller reachability, and unsupported API/version errors. Do not retry
+   unchanged access failures or ask for a token in chat.
 
-Use the client target that matches the current agent runtime:
+For configuration work, inspect these owner surfaces through repository tools
+or an available operator checkout:
 
-- Claude Code: `claude`
-- Codex: `codex`
-- OpenClaw: `openclaw`
+| Boundary                               | Source of truth                                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Daedalus endpoint and MCP bearer token | `UNIFI_MCP_SERVER`, `UNIFI_MCP_TOKEN`; `backend/tool-calling-config.yaml` and deployment Secret wiring |
+| Remote server/chart                    | daedalus-context `unifi-network-mcp/` and `helm/unifi-network-mcp-server/`                             |
+| Controller integration API             | server-side `UNIFI_BASE_URL`, `UNIFI_API_KEY`; base path `/proxy/network/integration`                  |
+| Controller/credential lock             | `UNIFI_FIXED_CONTROLLER=true` in the server deployment                                                 |
+| TLS and reachability                   | trusted CA, server egress, Service/EndpointSlices, caller network policy                               |
 
-If the runtime is unclear, ask which client to configure. For questions, use the platform's blocking question tool when available (`AskUserQuestion` in Claude Code, `request_user_input` in Codex). If no blocking question tool is available, ask in chat with numbered options and wait for the user's reply.
+Never print Secret data, read private environment files into model context, or
+put credentials in commands, tool arguments, generated files, or memory.
+Operators provision values through the existing Secret-backed deployment path.
+Ask only for nonsecret missing context, such as the intended endpoint or site.
 
-On macOS and Linux, resolve setup scripts relative to this skill file:
+## Prepare and verify the repair
 
-- `../../scripts/check-prereqs.sh`
-- `../../scripts/set-env.sh`
+Use [devops-engineer](../devops-engineer/SKILL.md) for delivery/configuration
+changes and [kubernetes-specialist](../kubernetes-specialist/SKILL.md) for
+Service or policy diagnosis. Select the owning repository's documented deploy
+command after inspecting it; do not invent a script path or reinstall a desktop
+client. Keep TLS verification enabled and configure trust for a private CA.
 
-When the host exposes a plugin-root variable such as `CLAUDE_PLUGIN_ROOT`, using `$CLAUDE_PLUGIN_ROOT/scripts/...` is also valid. Do not assume the current shell directory is the plugin root.
+Prepare the exact endpoint, Secret-reference, or network-policy diff and the
+scoped validation before a deployment. Continue within existing authorization;
+the runtime handles any required approval. The isolated sandbox cannot edit a
+remote release or supply its credentials.
 
-On Windows with Claude Code, use `../../scripts/set-env.ps1` for the final Claude settings write. On Windows with Codex, prefer the native PowerShell prereq script and call `codex mcp add` directly with the same env variables if Bash is unavailable. On Windows with OpenClaw, call `openclaw mcp set` directly with a JSON object containing `command`, `args`, and `env` if Bash is unavailable. Do not run the Bash prereq script on Windows unless the user explicitly asks to use a Bash environment.
-
-## Prerequisites
-
-Before asking for credentials, run the prereq checker for the current OS.
-
-On macOS/Linux:
-
-```bash
-bash <path-to-plugin>/scripts/check-prereqs.sh --target <claude|codex|openclaw> "unifi-network"
-```
-
-On Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File <path-to-plugin>/scripts/check-prereqs.ps1 -Target <claude|codex|openclaw> -PluginName "unifi-network"
-```
-
-If the script exits non-zero, stop and report the error. Do not proceed to credentials.
-
-## Examples
-
-For a Codex setup on Linux, the final write has this shape after the user has
-provided and approved the values:
-
-```bash
-bash <path-to-plugin>/scripts/set-env.sh --target codex \
-  UNIFI_NETWORK_HOST=<host> \
-  UNIFI_NETWORK_USERNAME=<username> \
-  UNIFI_NETWORK_PASSWORD=<password>
-```
-
-## Step 1: Controller Host
-
-Ask: "What is your UniFi controller's IP address or hostname?" Example: `192.168.1.1`.
-
-## Step 2: Credentials
-
-Ask for:
-
-1. Username, using a local admin account, not a Ubiquiti SSO account
-2. Password
-
-Username and password are required.
-
-### Optional API Key
-
-After collecting username and password, explain that UniFi API key support is experimental and limited to read-only operations and a subset of tools. Ask whether to configure an API key too.
-
-If yes, ask for the API key and include `UNIFI_NETWORK_API_KEY`. If no, skip it.
-
-## Step 3: Optional Settings
-
-Ask whether to use defaults or customize:
-
-- Defaults: port `443`, site `default`, SSL verification `false`, lazy tool loading
-- Customize: ask for port, site, SSL verification, and tool registration mode
-
-## Step 4: Permission Configuration
-
-Ask whether to enable write permissions:
-
-- Read-only for now
-- Enable common write permissions: firewall, port forwards, QoS, traffic routes, VPN clients
-- Enable all write permissions except delete operations
-- Custom categories
-
-Collect any selected policy variables. Use the existing `UNIFI_POLICY_NETWORK_<CATEGORY>_<ACTION>=true` format.
-
-## Step 5: Write Configuration
-
-On macOS/Linux, run the target-aware setup script with only values the user provided or selected:
-
-```bash
-bash <path-to-plugin>/scripts/set-env.sh --target <claude|codex|openclaw> \
-  UNIFI_NETWORK_HOST=<host> \
-  UNIFI_NETWORK_USERNAME=<username> \
-  UNIFI_NETWORK_PASSWORD=<password>
-```
-
-Add optional values and policy variables to the same command, for example:
-
-```bash
-bash <path-to-plugin>/scripts/set-env.sh --target <claude|codex|openclaw> \
-  UNIFI_NETWORK_HOST=<host> \
-  UNIFI_NETWORK_USERNAME=<username> \
-  UNIFI_NETWORK_PASSWORD=<password> \
-  UNIFI_NETWORK_API_KEY=<api-key> \
-  UNIFI_POLICY_NETWORK_FIREWALL_UPDATE=true
-```
-
-The script handles the client-specific write:
-
-- Claude target: merges env vars into `.claude/settings.local.json`
-- Codex target: replaces the `unifi-network` MCP server via `codex mcp add --env ... -- uvx ...`
-- OpenClaw target: replaces the `unifi-network` MCP server via `openclaw mcp set ...`
-
-## Step 6: Final Message
-
-For Claude Code, tell the user:
-
-"Configuration saved to `.claude/settings.local.json`. Restart Claude Code or run `/reload-plugins`, then confirm the plugin is enabled with `/plugin`."
-
-For Codex, tell the user:
-
-"Codex MCP server `unifi-network` configured. Restart Codex so the updated MCP server is loaded."
-
-For OpenClaw, tell the user:
-
-"OpenClaw MCP server `unifi-network` configured. Restart the OpenClaw Gateway so the updated MCP server is loaded."
-
-## Limitations
-
-- Requires a local UniFi admin account; Ubiquiti SSO credentials are unsupported.
-- API-key authentication is experimental and read-only for only part of the tool set.
-- Configuration is not active until the selected client or gateway reloads.
-
-## Troubleshooting
-
-| Error                                      | Cause                                              | Solution                                                               |
-| ------------------------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------- |
-| Prerequisite script fails                  | Required client, runtime, or package is missing    | Stop and report the exact check; do not collect credentials.           |
-| MCP server remains unavailable after write | Client has not reloaded or host settings are wrong | Reload once, then verify host, port, site, and SSL settings.           |
-| Authentication fails                       | Wrong account type or credential                   | Confirm a local admin account without echoing the password or API key. |
+The server's `/livez` and `/readyz` prove local process health.
+`/dependencyz` checks the controller; an authenticated `getInfo` tool result
+proves the application path. Finish with `listSites`, then hand off to
+[unifi-network](../unifi-network/SKILL.md) or
+[network-health-check](../network-health-check/SKILL.md) using the confirmed
+site. Report source validation, rollout, and successful reads separately.

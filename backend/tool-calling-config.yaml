@@ -413,6 +413,18 @@ functions:
       returns instructions or bundled resources. Follow loaded instructions
       with the ordinary session tools; no separate skill execution tool is
       required. Script execution is disabled in production.
+      Load only the skill that owns the task and any necessary specialist.
+      Preserve the user's scope, evidence, identifiers, and completed calls
+      across handoffs. For a sibling skill use its skill_name, not a ../
+      resource path; resources are confined to the selected skill directory.
+      Skills do not add tools, credentials, host files, or permissions.
+      Use the registered MCP schemas for live systems. The sandbox has no
+      implicit repository checkout, kubeconfig, GPU, or host-service access.
+      Operator command examples require a separately available execution
+      environment; otherwise prepare a reviewable artifact and state what
+      remains unexecuted. Honor existing authorization and runtime approval
+      gates; do not add a prose confirmation step. Background autonomous runs
+      must retain their non-interactive tool and output restrictions.
       Trigger: user names a skill, task matches a skill's purpose, or you
       need a procedure you do not yet know. Args: operation, optional query for
       listing, and skill_name plus optional resource for loading. Returns: skill

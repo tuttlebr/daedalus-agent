@@ -1,7 +1,7 @@
 # Daily Daedalus research and sourcing
 
-Use this reference after current time, the standing edition policy, and the
-merged desk manifest are available.
+Load this reference after current time and policy, before personal-source
+preflight. Plan sources only after the preflight and memory merge complete.
 
 ## Source planning and cadence
 
@@ -54,9 +54,11 @@ contains no drift.
 ### Home network and storage
 
 Use read-only `unifi_mcp_server` information, inventory, and status operations.
-Report controller reachability, adopted-device availability, active alarms,
-WAN state, pending adoptions, and material firmware notices only to the depth
-returned by the tool. Counts must be current.
+Use the `network-health-check` skill when needed. Report controller
+reachability, adopted-device states, pending adoptions, and firmware notices
+only from returned integration-API data. Alarm feeds and live WAN/VPN health
+may be unavailable; do not invent those fields or infer health from configured
+interfaces. Counts require complete current pages.
 
 Report Synology storage health and the rsync mirror to
 `/volume2/daedalus/datasets/cluster-maintenance/` only when a connected source
@@ -188,6 +190,7 @@ Images are evidence-adjacent editorial assets, not decoration.
 When trustworthy source imagery is unavailable or fails analysis, omit it and
 rebalance the page with type, rules, and whitespace.
 
-Use `content_distiller_tool` when a result exceeds roughly 5000 tokens. Preserve
-source identifiers and URLs. Retry one verified transient read once. For an
+Recover relevant omitted compacted rows before exact or absence claims. Use
+`content_distiller_tool` for lengthy source prose only when helpful, preserving
+source identifiers and URLs; keep structured evidence and render resources exact. Retry one verified transient read once. For an
 unavailable source, record the limitation and continue with supported desks.

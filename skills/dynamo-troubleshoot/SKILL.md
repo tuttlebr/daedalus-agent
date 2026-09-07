@@ -1,11 +1,10 @@
 ---
 name: dynamo-troubleshoot
 description: Diagnose unhealthy Dynamo Kubernetes deployments across pods, jobs, PVCs, workers, routers, and endpoints. Not for normal recipe bring-up.
-allowed-tools: Read, Write, Bash
 license: Apache-2.0
 metadata:
   author: Dan Gil <dagil@nvidia.com>
-  version: 1.0.0
+  version: 2.0.0
   tags:
     - dynamo
     - kubernetes
@@ -13,155 +12,64 @@ metadata:
     - day-2
 ---
 
-# Dynamo Troubleshoot
+# Dynamo troubleshoot
 
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: CC-BY-4.0
--->
+Diagnose unhealthy NVIDIA Dynamo workloads using current, bounded evidence.
+Diagnosis is read-only; execute a repair only when the user requested it and
+the runtime permits it. Do not turn a debugging request into a redeployment.
 
-## Purpose
+## Collect and classify
 
-Turn a Dynamo failure into a clear problem class, strongest signal, and next
-action. Start with read-only evidence, avoid secrets, and fix one layer at a
-time.
+Use registered `k8s_mcp_server` reads. Resolve context, namespace, DGD/workload,
+container, endpoint and owner before collecting details. Carry prior evidence
+and completed reads into this skill instead of repeating a full preflight.
 
-## Prerequisites
+Load [failure-decision-tree](references/failure-decision-tree.md) using
+`agent_skills_tool(operation=load_skill, skill_name=dynamo-troubleshoot,
+resource=references/failure-decision-tree.md)`.
 
-- Python 3.10+ on the operator machine.
-- `kubectl` configured with read access to the target namespace.
-- Permission to read pods, events, jobs, PVCs, and `DynamoGraphDeployment` resources (NOT secrets).
-- Network reachability to the cluster API server.
+Check the layer implicated by the symptom, then trace dependencies:
 
-## Instructions
+- cluster/node and namespace;
+- model-access references, cache job, PVC and mount;
+- image/backend/architecture and GPU scheduling;
+- operator reconciliation and replica/scaling ownership;
+- frontend/worker registration, Service/EndpointSlices and network policy;
+- requested API/model response;
+- benchmark client only after the endpoint works.
 
-### 1. Collect A Read-Only Bundle
+Use recent conditions, last termination, owner chain, and bounded current or
+previous-container logs. An old event is not an active incident.
+`ErrImagePull`, `ImagePullBackOff`, and a container that has not started
+are unexecuted application checks. Preserve secrets and private request data.
 
-Run:
+## Optional operator bundle
 
-```bash
-python3 scripts/collect_dynamo_debug_bundle.py \
-  --namespace "${NAMESPACE}"
-```
+[collect_dynamo_debug_bundle.py](scripts/collect_dynamo_debug_bundle.py) needs
+an actual operator environment with Python and read-only kubectl access.
+Load it as a resource to inspect; Daedalus does not execute bundled scripts.
+Its arguments include `--namespace`, `--deployment-name`, `--selector`,
+`--outdir`, `--tail`, and `--timeout`.
 
-If the user names a deployment, include it:
+Use an explicit verified `--selector` to scope pod logs. A deployment name
+adds its DGD description but does not automatically scope all pod reads.
+The helper records failed collection commands and applies best-effort
+redaction; inspect collection errors and sanitize before sharing. An empty
+bundle is not evidence of a healthy deployment.
 
-```bash
-python3 scripts/collect_dynamo_debug_bundle.py \
-  --namespace "${NAMESPACE}" \
-  --deployment-name <deployment-name>
-```
+## Resolve and verify
 
-Do not collect Kubernetes secrets. Do not print Hugging Face tokens.
+Report the primary failure class, strongest signal, observed impact, plausible
+cause, ruled-out layers, and the exact next read or source patch.
 
-### 2. Classify The Failure
+When repair is requested, choose one evidenced change in the owner source.
+Use [dynamo-recipe-runner](../dynamo-recipe-runner/SKILL.md) for recipe repair,
+[dynamo-router-starter](../dynamo-router-starter/SKILL.md) for routing, or
+[kubernetes-specialist](../kubernetes-specialist/SKILL.md) for platform objects.
+Do not recreate populated PVCs, dump Secrets, change GPU counts without
+revalidating the model topology, or bypass PDBs to make readiness green.
 
-Use `references/failure-decision-tree.md` and classify into one primary bucket:
-
-- cluster/platform
-- namespace/secret
-- model cache/PVC/download
-- image pull/runtime image
-- GPU scheduling/resources
-- operator/DynamoGraphDeployment reconciliation
-- frontend/router
-- worker/backend
-- endpoint/API
-- benchmark/perf job
-
-### 3. Debug Top Down
-
-Check in this order:
-
-1. namespace, storage class, GPU nodes, and HF secret existence
-2. PVC and model-download job
-3. `DynamoGraphDeployment` status and events
-4. pod status, `describe pod`, and container logs
-5. frontend service and port-forward
-6. `/v1/models`
-7. `/v1/chat/completions`
-8. benchmark job only after endpoint smoke test passes
-
-### 4. Fix One Layer At A Time
-
-Prefer the smallest reversible change:
-
-- create missing namespace or HF secret
-- patch `storageClassName`
-- patch image tag or image pull secret
-- reduce GPU request only if the recipe can still be valid
-- switch KV router to approximate mode only if workers do not publish events
-- restart failed jobs after fixing the underlying config
-
-After each fix, rerun the relevant readiness check before moving deeper.
-
-## Available Scripts
-
-| Script                                   | Purpose                                                                | Arguments                                          |
-| ---------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------- |
-| `scripts/collect_dynamo_debug_bundle.py` | Collect a read-only debug bundle (pods, events, jobs, PVCs, CR status) | `--namespace`, `--deployment-name`, `--output-dir` |
-
-Invoke via the agentskills.io `run_script()` protocol:
-
-```python
-run_script("scripts/collect_dynamo_debug_bundle.py", args=["--namespace", "dynamo-demo"])
-```
-
-## Examples
-
-Collect everything in a namespace for triage:
-
-```bash
-python3 scripts/collect_dynamo_debug_bundle.py --namespace dynamo-demo
-```
-
-Scope to a single failing deployment:
-
-```bash
-python3 scripts/collect_dynamo_debug_bundle.py \
-  --namespace dynamo-demo \
-  --deployment-name qwen-vllm-disagg
-```
-
-Equivalent through the agent protocol:
-
-```python
-run_script("scripts/collect_dynamo_debug_bundle.py", args=["--namespace", "dynamo-demo", "--deployment-name", "qwen-vllm-disagg"])
-```
-
-## Output Contract
-
-Return:
-
-- problem class
-- evidence checked
-- strongest signal
-- likely cause
-- exact next command or patch
-- what was ruled out
-- whether it is safe to continue deployment or benchmarking
-
-## Limitations
-
-- Read-only. Never mutates the cluster; remediation commands are returned, not executed.
-- Will not collect secrets or print Hugging Face tokens; some failure modes (auth) may need user-side inspection.
-- Bundle size grows with deployment size; on very large namespaces, scope with `--deployment-name`.
-- Does not validate disagg transport — use `dynamo-interconnect-check` for that.
-
-## Troubleshooting
-
-| Symptom                                       | Likely cause                                  | Next step                                                                 |
-| --------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------- |
-| `kubectl` returns Forbidden on events/pods    | Service account lacks read RBAC               | Ask operator for read-only role binding on the namespace                  |
-| Bundle missing `DynamoGraphDeployment` status | Operator not installed or different namespace | Verify `dynamo-platform` operator is installed and watching the namespace |
-| Model-download job in `Pending`               | PVC unbound or HF secret missing              | Fix PVC binding or create the named HF secret, then rerun the job         |
-| Worker pods `CrashLoopBackOff`                | Image/runtime mismatch or GPU not available   | Inspect container logs; check `nvidia.com/gpu` allocatable on nodes       |
-
-## Benchmark
-
-See `BENCHMARK.md` for the NVCARPS-EVAL performance report (auto-generated by the NVSkills CI pipeline). To refresh, re-run `/nvskills-ci` on an upstream PR touching this skill.
-
-## References
-
-- Read `references/failure-decision-tree.md` for bucket-specific checks.
-- Use `scripts/collect_dynamo_debug_bundle.py` for read-only bundle collection.
+Verify the changed layer and requested endpoint behavior afterward.
+For running workers with suspected cross-worker transport failures, use
+[dynamo-interconnect-check](../dynamo-interconnect-check/SKILL.md).
+Keep source validation, rollout recovery, and real serving evidence distinct.

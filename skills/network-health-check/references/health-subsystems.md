@@ -1,48 +1,21 @@
-# Network Health Subsystems Reference
+# Health by observed path
 
-## Subsystems
+There is no guaranteed aggregate WAN/LAN/WLAN/VPN health operation in this
+integration-API server. Use inventory, device/interface detail and statistics;
+identify missing live connectivity observations explicitly.
 
-`unifi_get_network_health` returns one object per subsystem.
+| Surface    | Evidence and limits                                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Controller | Authenticated `getInfo`; local MCP readiness alone cannot prove access                                                     |
+| WAN        | Gateway/interface observations plus a real caller-path check when available; `listWanInterfaces` alone lists configuration |
+| LAN        | Switch state, uplink/port details, relevant statistics and affected clients                                                |
+| WLAN       | AP state, radio/interface statistics, client association; a Wi-Fi broadcast configuration is not airtime/latency proof     |
+| VPN        | Tunnel/server configuration plus live state only if actually returned; configured tunnel is not a working tunnel           |
 
-| Subsystem | Key Fields                                    | What It Tells You               |
-| --------- | --------------------------------------------- | ------------------------------- |
-| `wan`     | `status`, `num_gw`, latency, uptime, ISP info | Internet connectivity health    |
-| `lan`     | `status`, `num_sw`, port errors               | Switch and wired network health |
-| `wlan`    | `status`, `num_ap`, channel utilization       | Wireless network health         |
-| `vpn`     | `status`, tunnel count                        | VPN tunnel connectivity         |
+Trace the affected dependency chain, often upstream gateway → switch → AP/client.
+Do not force a WAN investigation for a purely local isolated-device symptom.
+Keep cause as a hypothesis until correlated with current evidence.
 
-## Status Values
-
-| Status    | Meaning                                    |
-| --------- | ------------------------------------------ |
-| `ok`      | Subsystem healthy — all devices responding |
-| `warning` | Degraded — some devices or links unhealthy |
-| `error`   | Subsystem down or critical issues          |
-| `unknown` | Cannot determine status                    |
-
-## Diagnostic Priority Order
-
-Always check in this order — upstream failures explain downstream symptoms:
-
-1. **WAN first** — if WAN is down, everything internet-dependent fails
-2. **LAN (switches)** — if switches are down, APs and wired clients lose connectivity
-3. **WLAN** — AP-specific issues (interference, overload, firmware)
-4. **VPN** — site-to-site and remote access tunnels
-
-## System Info Fields
-
-`unifi_get_system_info` returns a raw dict from `/stat/sysinfo`:
-
-- `version` — Controller firmware version
-- `uptime` — Controller uptime (seconds)
-- Hostname, CPU/memory stats, update availability (controller-dependent)
-
-## Quick Health Assessment
-
-| Scenario                           | Priority | Likely Cause                                 |
-| ---------------------------------- | -------- | -------------------------------------------- |
-| WAN error, everything else warning | P1       | ISP outage or gateway failure                |
-| LAN error, WLAN warning            | P1       | Core switch down, APs lose uplink            |
-| WLAN warning, rest ok              | P2       | AP interference, overload, or firmware issue |
-| All ok, alarms present             | P3       | Resolved issues or informational events      |
-| VPN error, rest ok                 | P2       | Tunnel configuration or remote site issue    |
+For Kubernetes access issues, hand the site/device/path evidence to
+`kubernetes-specialist`; successful controller reads cannot establish NodePort,
+Cilium, VLAN routing or application authentication health.

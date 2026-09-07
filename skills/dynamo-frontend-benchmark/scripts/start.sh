@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Start the benchmark topology:
@@ -17,6 +16,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 source ./env.sh
+exec 9>"$LOG_DIR/topology.lock"
+flock -n 9 || { echo "ERROR: another topology operation is active"; exit 1; }
+for record in "$LOG_DIR/frontend.process.json" "$LOG_DIR/workers.process.json"; do
+    [[ ! -e "$record" ]] || { echo "ERROR: inspect/stop the existing process record: $record"; exit 1; }
+done
 
 # --- Sanity: infra ---------------------------------------------------------
 ss -ltn 2>/dev/null | grep -q ':2379' || { echo "ERROR: etcd not listening on :2379"; exit 1; }
@@ -40,9 +44,19 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+STARTUP_OK=0
+cleanup_startup_failure() {
+    [[ "$STARTUP_OK" == "1" ]] && return
+    echo "[cleanup] startup failed; stopping recorded task processes ..."
+    for name in frontend workers; do
+        [[ ! -f "$LOG_DIR/$name.process.json" ]] || python3 ./process_control.py stop "$LOG_DIR/$name.process.json" || true
+    done
+}
+trap cleanup_startup_failure EXIT
+
 # --- 4 mock workers (cores ${OTHER_CORES}) ---------------------------------
 echo "[workers] launching ${NUM_WORKERS} mock workers on cores ${OTHER_CORES} ..."
-taskset -c "$OTHER_CORES" "$DYN_PY" -m dynamo.mocker \
+setsid taskset -c "$OTHER_CORES" "$DYN_PY" -m dynamo.mocker \
     --model-path "$MODEL" \
     --endpoint "$ENDPOINT" \
     --num-workers "$NUM_WORKERS" \
@@ -50,29 +64,11 @@ taskset -c "$OTHER_CORES" "$DYN_PY" -m dynamo.mocker \
     --max-num-seqs 100000 \
     --max-num-batched-tokens 10000000 \
     --block-size "$BLOCK_SIZE" \
-    > "$LOG_DIR/workers.log" 2>&1 &
+    > "$LOG_DIR/workers.log" 2>&1 9>&- &
 WORKERS_PID=$!
+python3 ./process_control.py record "$LOG_DIR/workers.process.json" "$WORKERS_PID"
 echo "$WORKERS_PID" > "$LOG_DIR/workers.pid"
 echo "[workers] pid $WORKERS_PID, logging to $LOG_DIR/workers.log"
-
-STARTUP_OK=0
-terminate_process_tree() {
-    local pid="$1"
-    local child
-    [[ -n "$pid" ]] || return
-    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
-        terminate_process_tree "$child"
-    done
-    kill "$pid" 2>/dev/null || true
-}
-
-cleanup_startup_failure() {
-    [[ "$STARTUP_OK" == "1" ]] && return
-    echo "[cleanup] startup failed; stopping launched worker/frontend processes ..."
-    terminate_process_tree "${FRONTEND_PID:-}"
-    terminate_process_tree "${WORKERS_PID:-}"
-}
-trap cleanup_startup_failure EXIT
 
 # Wait for EXACTLY NUM_WORKERS fresh instances to register.
 echo "[workers] waiting for ${NUM_WORKERS} instances to register in etcd ..."
@@ -102,26 +98,21 @@ if [[ "${ISOLATE:-0}" == "1" ]]; then
     [[ $EUID -eq 0 ]] || { echo "ERROR: ISOLATE=1 requires the approved privileged shell."; exit 1; }
     BENCH_RUN_USER="${BENCH_RUN_USER:-$(stat -c %U "$DYN_REPO")}"
     echo "[frontend] ISOLATE=1: launching in bench.slice on cores ${FRONTEND_CORES} as ${BENCH_RUN_USER} ..."
-    systemd-run --scope --uid="${BENCH_RUN_USER}" --slice=bench -p AllowedCPUs="${FRONTEND_CORES}" \
+    BENCH_UNIT="daedalus-bench-$(python3 -c 'import uuid; print(uuid.uuid4().hex)').service"
+    systemd-run --unit="$BENCH_UNIT" --uid="${BENCH_RUN_USER}" --slice=bench \
+        --property=Type=exec --property=AllowedCPUs="${FRONTEND_CORES}" \
+        --property=StandardOutput="append:$LOG_DIR/frontend.log" \
+        --property=StandardError="append:$LOG_DIR/frontend.log" \
         env LD_PRELOAD="${FRONTEND_LD_PRELOAD:-}" \
             MALLOC_CONF="${FRONTEND_MALLOC_CONF:-}" \
             FASTOKENS_SEQUENTIAL="${FASTOKENS_SEQUENTIAL:-}" \
             DYN_TOKENIZER="$DYN_TOKENIZER" \
             DYN_TOKENIZER_CACHE="$DYN_TOKENIZER_CACHE" \
             DYN_TOKENIZER_CACHE_BYTES="$DYN_TOKENIZER_CACHE_BYTES" \
-            "$DYN_PY" -m dynamo.frontend \
-                --router-mode kv \
-                --kv-cache-block-size "$BLOCK_SIZE" \
-                --http-port "$HTTP_PORT" \
-        > "$LOG_DIR/frontend.log" 2>&1 &
-    # PID is a descendant of systemd-run; resolve the Python process.
-    FRONTEND_PID=""
-    for _ in $(seq 1 20); do
-        FRONTEND_PID="$(pgrep -f 'dynamo.frontend --router-mode kv' | head -1)"
-        [[ -n "$FRONTEND_PID" ]] && break
-        sleep 0.5
-    done
-    [[ -n "$FRONTEND_PID" ]] || { echo "ERROR: frontend (isolated) did not start; check $LOG_DIR/frontend.log"; tail -20 "$LOG_DIR/frontend.log"; exit 1; }
+            "$DYN_PY" -m dynamo.frontend --router-mode kv \
+            --kv-cache-block-size "$BLOCK_SIZE" --http-port "$HTTP_PORT"
+    FRONTEND_PID="$(systemctl show --property=MainPID --value "$BENCH_UNIT")"
+    python3 ./process_control.py record "$LOG_DIR/frontend.process.json" "$FRONTEND_PID" --unit "$BENCH_UNIT"
 else
     echo "[frontend] launching on cores ${FRONTEND_CORES} (fastokens + 1GiB cache, kv routing) ..."
     LD_PRELOAD="${FRONTEND_LD_PRELOAD:-}" \
@@ -130,12 +121,13 @@ else
     DYN_TOKENIZER="$DYN_TOKENIZER" \
     DYN_TOKENIZER_CACHE="$DYN_TOKENIZER_CACHE" \
     DYN_TOKENIZER_CACHE_BYTES="$DYN_TOKENIZER_CACHE_BYTES" \
-    taskset -c "$FRONTEND_CORES" "$DYN_PY" -m dynamo.frontend \
+    setsid taskset -c "$FRONTEND_CORES" "$DYN_PY" -m dynamo.frontend \
         --router-mode kv \
         --kv-cache-block-size "$BLOCK_SIZE" \
         --http-port "$HTTP_PORT" \
-        > "$LOG_DIR/frontend.log" 2>&1 &
+        > "$LOG_DIR/frontend.log" 2>&1 9>&- &
     FRONTEND_PID=$!
+    python3 ./process_control.py record "$LOG_DIR/frontend.process.json" "$FRONTEND_PID"
 fi
 echo "$FRONTEND_PID" > "$LOG_DIR/frontend.pid"
 echo "[frontend] pid $FRONTEND_PID, logging to $LOG_DIR/frontend.log"
@@ -148,7 +140,8 @@ for i in $(seq 1 60); do
         tail -25 "$LOG_DIR/frontend.log"
         exit 1
     fi
-    if curl -sf "http://localhost:${HTTP_PORT}/v1/models" 2>/dev/null | grep -Fq "$MODEL"; then
+    if curl --max-time 5 -sf "http://localhost:${HTTP_PORT}/v1/models" 2>/dev/null | \
+        python3 -c 'import json,os,sys; data=json.load(sys.stdin); sys.exit(not any(item.get("id") == os.environ["MODEL"] for item in data.get("data", [])))' 2>/dev/null; then
         echo "[ready] frontend (pid $FRONTEND_PID) serving model after ${i}s; ${NUM_WORKERS} workers live."
         STARTUP_OK=1
         trap - EXIT

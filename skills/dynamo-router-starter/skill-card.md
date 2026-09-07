@@ -1,3 +1,6 @@
+> Historical upstream provenance for the imported skill. This report/card
+> does not evaluate or certify the current Daedalus adaptation.
+
 ## Description: <br>
 
 Start or patch Dynamo router modes and run router endpoint smoke checks. <br>

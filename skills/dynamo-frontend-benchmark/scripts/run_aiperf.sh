@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Full benchmark run. NOT executed during setup — trigger this yourself.
@@ -10,7 +9,7 @@ cd "$(dirname "$0")"
 source ./env.sh
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
-ART="$RESULTS_DIR/aiperf-$STAMP"
+ART="$(mktemp -d "$RESULTS_DIR/aiperf-$STAMP-XXXXXX")"
 echo "[aiperf] artifacts -> $ART"
 
 # Optional warmup: set WARMUP_REQUESTS to prime the shared-prefix cache + warm

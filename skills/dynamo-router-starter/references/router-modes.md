@@ -1,58 +1,49 @@
-# Router Modes
+# Router modes and evidence
 
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: CC-BY-4.0
--->
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
-## Common Modes
+## Select against the deployed version
 
-| Mode                    | Use When                             | Key Setting                             |
-| ----------------------- | ------------------------------------ | --------------------------------------- |
-| `round-robin`           | simplest baseline                    | `DYN_ROUTER_MODE=round-robin`           |
-| `kv`                    | route by KV overlap and active load  | `DYN_ROUTER_MODE=kv`                    |
-| `least-loaded`          | simple load-aware fallback           | `DYN_ROUTER_MODE=least-loaded`          |
-| `device-aware-weighted` | heterogeneous CPU/GPU worker pools   | `DYN_ROUTER_MODE=device-aware-weighted` |
-| `random`                | stateless randomized baseline        | `DYN_ROUTER_MODE=random`                |
-| `direct`                | external orchestrator chooses worker | `DYN_ROUTER_MODE=direct`                |
+Inspect the pinned frontend CLI/config schema and effective container command
+before editing. Mode names, environment bindings and defaults can change.
+Do not assume every mode below exists in a particular image.
 
-## KV Routing Knobs
+| Candidate mode          | Intended comparison                                                 |
+| ----------------------- | ------------------------------------------------------------------- |
+| `round-robin`           | Simple distribution baseline                                        |
+| `kv`                    | KV overlap and load-aware placement                                 |
+| `least-loaded`          | Load-aware placement without an overlap objective                   |
+| `device-aware-weighted` | Capacity weighting where the version supports heterogeneous workers |
+| `random`                | Randomized distribution baseline                                    |
+| `direct`                | Explicit worker selection by the caller/orchestrator                |
 
-Kubernetes frontend env equivalents:
+Read the deployed version's help/docs for routing mode, KV event consumption,
+cache block size, load weighting, temperature and queue policy. Use the exact
+supported flag or environment variable; do not invent one from its description.
 
-| Purpose                                                  | Env                                          |
-| -------------------------------------------------------- | -------------------------------------------- |
-| Enable KV router                                         | `DYN_ROUTER_MODE=kv`                         |
-| Disable worker KV event consumption for approximate mode | `DYN_ROUTER_USE_KV_EVENTS=false`             |
-| Enable load-aware behavior                               | `DYN_ROUTER_LOAD_AWARE=true`                 |
-| Set router randomness                                    | `DYN_ROUTER_TEMPERATURE=<float>`             |
-| Set KV cache block size                                  | `DYN_KV_CACHE_BLOCK_SIZE=<size>`             |
-| Tune KV overlap credit                                   | `DYN_ROUTER_KV_OVERLAP_SCORE_CREDIT=<float>` |
-| Scale prefill load                                       | `DYN_ROUTER_PREFILL_LOAD_SCALE=<float>`      |
-| Set queue policy                                         | `DYN_ROUTER_QUEUE_POLICY=fcfs\|wspt\|lcfs`   |
-
-CLI equivalents:
+For example, when the pinned CLI supports these options:
 
 ```bash
 python3 -m dynamo.frontend --router-mode kv --http-port 8000
-python3 -m dynamo.frontend --router-mode kv --no-router-kv-events --http-port 8000
 python3 -m dynamo.frontend --router-mode least-loaded --http-port 8000
 ```
 
-## Success Signals
+Approximate KV mode, where supported, trades event-derived cache knowledge for
+an estimate. Make that tradeoff explicit. Match frontend/worker block sizes and
+verify worker event publication and router consumption when events are enabled.
 
-- frontend process or pod is ready
-- backend workers are registered
-- `/v1/models` returns at least one model
-- `/v1/chat/completions` succeeds
-- repeated-prefix traffic does not error under KV mode
+## Verify the claim being made
 
-## When To Stop And Troubleshoot
+- Configuration: source diff plus effective frontend command/config and mode logs.
+- Discovery: intended workers registered and requested model advertised.
+- Serving: bounded request returns nonempty content and a successful finish state.
+- Placement/reuse: per-request selected-worker rationale and KV-event/cache evidence.
+- Performance: a separate frozen comparison with the same workload and topology.
 
-Stop mode comparison and use `dynamo-troubleshoot` when:
+Repeated-prefix traffic without errors establishes serving behavior only; it
+cannot by itself establish KV reuse, placement quality or throughput improvement.
 
-- `/v1/models` is empty or unavailable
-- frontend service exists but chat completions return 503/5xx
-- no worker pods are ready
-- frontend logs show no registered workers
-- KV events are expected but worker logs do not show event publication
+If models are absent, workers are unready, or requests fail, load
+`dynamo-troubleshoot` by name. Use `dynamo-interconnect-check` for transport
+questions after workers are running. Do not change routing modes repeatedly to
+mask an unresolved platform, model-loading or registration failure.

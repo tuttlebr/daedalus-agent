@@ -1,98 +1,130 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-"""Recompute throughput/latency from aiperf's raw profile_export.jsonl.
+"""Report observed AIPerf profiling records without hiding partial or failed runs."""
 
-WHY: aiperf's finalizer can hang for minutes (or effectively deadlock) on large
-runs while "processing records". Don't wait for profile_export_aiperf.json --
-the raw per-request JSONL is written incrementally and has everything you need.
-Kill the finalizer and run this instead.
-
-Usage: python3 extract_throughput.py <artifact_dir_or_jsonl> [--conc N]
-
-Each JSONL line: {"metadata": {...request_start_ns, request_end_ns,
-benchmark_phase, was_cancelled...}, "metrics": {request_latency, time_to_first_token, ...}}
-"""
-
+import argparse
 import json
-import os
-import statistics as st
-import sys
-
-NANOSECONDS_PER_SECOND = int("1000000000")
-MILLISECONDS_PER_SECOND = int("1000")
-P99_QUANTILE = float("0.99")
+import math
+import statistics
+from pathlib import Path
 
 
-def find_jsonl(p):
-    if p.endswith(".jsonl"):
-        return p
-    for root, _, files in os.walk(p):
-        if "profile_export.jsonl" in files:
-            return os.path.join(root, "profile_export.jsonl")
-    sys.exit(f"no profile_export.jsonl under {p}")
+def find_jsonl(path):
+    if path.is_file():
+        return path
+    matches = sorted(path.rglob("profile_export.jsonl"))
+    if len(matches) != 1:
+        raise ValueError(
+            f"expected one profile_export.jsonl, found {len(matches)}; select one run"
+        )
+    return matches[0]
+
+
+def analyze(path, expected_count=None):
+    counts = dict(
+        attempted=0, completed=0, cancelled=0, failed=0, invalid=0, other_phase=0
+    )
+    starts, ends, latencies, ttfts = [], [], [], []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+            metadata = row["metadata"]
+            if metadata.get("benchmark_phase") != "profiling":
+                counts["other_phase"] += 1
+                continue
+            counts["attempted"] += 1
+            if metadata.get("was_cancelled"):
+                counts["cancelled"] += 1
+                continue
+            if (
+                row.get("error")
+                or metadata.get("error")
+                or metadata.get("request_error")
+            ):
+                counts["failed"] += 1
+                continue
+            start, end = metadata["request_start_ns"], metadata["request_end_ns"]
+            if (
+                not isinstance(start, (int, float))
+                or not isinstance(end, (int, float))
+                or not math.isfinite(start)
+                or not math.isfinite(end)
+                or end <= start
+            ):
+                raise ValueError("invalid interval")
+            metrics = row.get("metrics") or {}
+            values = []
+            for name in ["request_latency", "time_to_first_token"]:
+                metric = metrics.get(name) or {}
+                value = metric.get("value")
+                if value is not None:
+                    if (
+                        metric.get("unit", "ms") not in {"ms", "milliseconds"}
+                        or not isinstance(value, (int, float))
+                        or not math.isfinite(value)
+                        or value < 0
+                    ):
+                        raise ValueError("invalid metric value/unit")
+                values.append(value)
+            starts.append(start)
+            ends.append(end)
+            if values[0] is not None:
+                latencies.append(values[0])
+            if values[1] is not None:
+                ttfts.append(values[1])
+            counts["completed"] += 1
+        except (ValueError, KeyError, TypeError, AttributeError):
+            counts["invalid"] += 1
+    complete = bool(starts) and not any(
+        counts[key] for key in ["cancelled", "failed", "invalid"]
+    )
+    if expected_count is not None and counts["attempted"] != expected_count:
+        complete = False
+    wall = (max(ends) - min(starts)) / 1e9 if starts else None
+    result = {
+        "file": str(path),
+        "counts": counts,
+        "expected_count": expected_count,
+        "records_complete": complete,
+        "scope": "observed records; process/run completion must be verified separately",
+        "observed_success_window_seconds": wall,
+        "observed_completed_requests_per_second": len(starts) / wall if wall else None,
+    }
+    for name, values in [("request_latency_ms", latencies), ("ttft_ms", ttfts)]:
+        if values:
+            ordered = sorted(values)
+            result[name] = {
+                "count": len(values),
+                "mean": statistics.mean(values),
+                "p50": statistics.median(values),
+                "p99": ordered[math.ceil(0.99 * len(values)) - 1],
+            }
+    return result
 
 
 def main():
-    path = find_jsonl(sys.argv[1])
-    conc = None
-    if "--conc" in sys.argv:
-        conc = int(sys.argv[sys.argv.index("--conc") + 1])
-    S, E, lat, ttft = [], [], [], []
-    for line in open(path):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            r = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        m = r.get("metadata") or {}
-        if m.get("benchmark_phase") != "profiling" or m.get("was_cancelled"):
-            continue
-        start = m.get("request_start_ns")
-        end = m.get("request_end_ns")
-        if start is None or end is None:
-            continue
-        S.append(start)
-        E.append(end)
-        mt = r.get("metrics") or {}
-        request_latency = mt.get("request_latency") or {}
-        time_to_first_token = mt.get("time_to_first_token") or {}
-        if "value" in request_latency:
-            lat.append(request_latency["value"])
-        if "value" in time_to_first_token:
-            ttft.append(time_to_first_token["value"])
-    if not S:
-        sys.exit("no completed profiling-phase records")
-    wall = (max(E) - min(S)) / NANOSECONDS_PER_SECOND
-    tput = len(S) / wall
-    print(f"file: {path}")
-    print(f"completed reqs : {len(S)}")
-    print(f"wall (1st start->last end): {wall:.1f}s")
-    print(f"THROUGHPUT     : {tput:.1f} req/s")
-    if lat:
-        print(
-            f"request_latency: mean {st.mean(lat):.0f}ms  p50 {st.median(lat):.0f}ms  "
-            f"p99 {sorted(lat)[int(P99_QUANTILE*len(lat))]:.0f}ms"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("path", type=Path)
+    parser.add_argument("--conc", type=int)
+    parser.add_argument("--expected-count", type=int)
+    args = parser.parse_args()
+    if (args.conc is not None and args.conc < 1) or (
+        args.expected_count is not None and args.expected_count < 1
+    ):
+        parser.error("counts must be positive")
+    try:
+        result = analyze(find_jsonl(args.path), args.expected_count)
+    except (OSError, ValueError) as exc:
+        parser.exit(2, f"{exc}\n")
+    if args.conc and result.get("request_latency_ms", {}).get("mean", 0) > 0:
+        result["closed_loop_sanity_requests_per_second"] = (
+            args.conc * 1000 / result["request_latency_ms"]["mean"]
         )
-    if ttft:
-        print(
-            f"TTFT           : p50 {st.median(ttft):.0f}ms  "
-            f"p99 {sorted(ttft)[int(P99_QUANTILE*len(ttft))]:.0f}ms"
-        )
-    if conc and lat:
-        # Little's law sanity check (closed loop): tput ~= concurrency / latency
-        print(
-            f"Little's law   : {conc}/{st.mean(lat)/MILLISECONDS_PER_SECOND:.2f}s = "
-            f"{conc/(st.mean(lat)/MILLISECONDS_PER_SECOND):.0f} req/s "
-            f"(vs measured {tput:.0f})"
-        )
+    print(json.dumps(result, indent=2))
+    return 0 if result["records_complete"] else 2
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(__doc__)
-        sys.exit(1)
-    main()
+    raise SystemExit(main())

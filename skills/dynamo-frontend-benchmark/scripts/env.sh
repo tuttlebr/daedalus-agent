@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Shared environment for the Dynamo frontend benchmark harness.
@@ -26,8 +25,7 @@ export ENDPOINT="${ENDPOINT:-dyn://dynamo.backend.generate}"   # mocker default
 export HTTP_PORT="${HTTP_PORT:-8000}"
 # Block size: frontend (--kv-cache-block-size) and mocker (--block-size) MUST
 # agree. 64 is realistic; larger reduces the MOCK's per-request KV-block
-# bookkeeping (see SKILL.md "Block size"). NOTE: very large sizes (>=2048) break
-# the current mocker (requests hang, never emit a token).
+# bookkeeping (see SKILL.md "Block size"). Smoke-test the pinned mocker version after any size change.
 export BLOCK_SIZE="${BLOCK_SIZE:-64}"
 export NUM_WORKERS="${NUM_WORKERS:-4}"
 
@@ -37,7 +35,11 @@ export ETCD_ENDPOINT="${ETCD_ENDPOINT:-localhost:2379}"
 # self-expire. Used to verify exactly NUM_WORKERS are live and no stale ones linger.
 export INSTANCE_PREFIX="${INSTANCE_PREFIX:-v1/instances/dynamo/backend/generate/}"
 # count live registered workers (grep -c exits 1 on zero, which would trip set -e)
-count_workers() { ETCDCTL_API=3 etcdctl --endpoints="$ETCD_ENDPOINT" get --prefix "$INSTANCE_PREFIX" --keys-only 2>/dev/null | grep -c 'generate/' || true; }
+count_workers() {
+    local keys
+    keys="$(ETCDCTL_API=3 etcdctl --endpoints="$ETCD_ENDPOINT" --command-timeout=5s get --prefix "$INSTANCE_PREFIX" --keys-only)" || return 1
+    printf '%s\n' "$keys" | awk 'NF {n++} END {print n+0}'
+}
 
 # --- CPU isolation ---------------------------------------------------------
 # Frontend (HTTP + tokenizer + KV router) pinned to FRONTEND_CORES.

@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 4.0.1
+  version: 4.1.0
   tags:
     - daily-briefing
     - html
@@ -33,6 +33,20 @@ Times nameplate, logo, prose, or article composition.
 Truth outranks visual fullness. Report only current conditions and verified
 claims. For infrastructure, distinguish live state from cumulative event
 history and omit resolved warnings.
+
+## Collaboration
+
+This skill owns the complete interactive edition. Load a specialist only when
+its procedure is needed: `kubernetes-specialist` for cluster interpretation,
+`network-health-check` for UniFi evidence, or `espn-fantasy-football` for a
+requested fantasy desk. Pass the desk scope, as-of time and completed reads;
+incorporate their findings into this renderer's schema. Do not let a handoff
+start repairs, widen research, generate imagery or replace the output format.
+
+The autonomous background worker has a separate non-interactive output/tool
+contract. If invoked there, report the need for an interactive briefing through
+that contract; do not initiate personal-source OAuth or emit an HTML edition
+in place of the worker's required result.
 
 ## Required resources
 
@@ -232,8 +246,10 @@ fence, and return it without edits.
   not invent personal data.
 - Retry one verified transient read once. Do not retry policy errors, writes,
   or unchanged failures.
-- When tool output exceeds roughly 5000 tokens, use `content_distiller_tool`
-  before incorporating it.
+- For `_daedalus_compacted_tool_output`, recover omitted rows through
+  `tool_output_retriever_tool` before counts, exhaustive coverage or absence
+  claims. Use `content_distiller_tool` only for long source prose when helpful;
+  never distill renderer/validator code, structured edition data or exact HTML.
 - When current time, the edition policy, or sandbox validation cannot be
   established, fail closed with a small HTML error edition.
 

@@ -137,8 +137,17 @@ class SkillParser:
         meta = self.get_skill_metadata(name)
         resources: list[str] = []
         for path in sorted(meta.directory.rglob("*")):
+            relative = path.relative_to(meta.directory)
+            # Compose mounts the source tree, which can contain local caches
+            # and imported signatures that do not certify this edited copy.
+            if any(
+                part.startswith(".") or part == "__pycache__" for part in relative.parts
+            ):
+                continue
+            if path.suffix in {".pyc", ".pyo", ".sig"}:
+                continue
             if path.is_file() and path.name != _SKILL_FILENAME:
-                resources.append(str(path.relative_to(meta.directory)))
+                resources.append(str(relative))
         return resources
 
     def resolve_script_path(self, name: str, script_path: str) -> Path:

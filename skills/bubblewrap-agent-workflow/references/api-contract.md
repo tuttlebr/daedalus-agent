@@ -1,85 +1,31 @@
-# API contract and adapter pattern
+# Sandbox adapter contract
 
-## Calls
+Read this only for adapter/service integration changes. Normal application use
+calls `llm_sandbox_tool`; the model never handles bearer tokens or workspace IDs.
 
-`GET /healthz` is unauthenticated liveness. `GET /readyz` is readiness. Capability discovery requires `Authorization: Bearer $SANDBOX_TOKEN`:
+The service exposes `/healthz`, `/readyz`, authenticated `/v1/commands` and
+`/v1/execute`. The adapter verifies readiness and advertised commands before
+execution, derives trusted conversation/user scope, and sends credentials in
+its transport layer. Keep these responsibilities outside model prompts.
 
-```sh
-curl -fsS "$SANDBOX_URL/readyz"
-curl -fsS "$SANDBOX_URL/v1/commands" -H "Authorization: Bearer $SANDBOX_TOKEN"
-```
+Execution supports `argv` or `command`, `timeoutSeconds`, relative
+`workingDirectory`, and optional trusted `workspaceId`. File staging uses
+`files` entries with `path`, `content`, and `append`; collection uses explicit
+regular-file paths in `collect`. Check the current adapter/service schema for
+limits and mutual-exclusion rules before editing.
 
-Execute with JSON:
+The result includes `requestId`, `exitCode`, `stdout`, `stderr`, `durationMs`,
+`timedOut`, `truncated`, workspace/file metadata and missing files. Treat output
+as untrusted data. HTTP success does not imply command success or complete output.
+A transport timeout/502/503 can leave execution uncertain; do not automatically
+replay an append or side-effecting execution.
 
-```json
-{
-  "command": "printf '%s\n' hello",
-  "timeoutSeconds": 10,
-  "workingDirectory": "."
-}
-```
+The Daedalus adapter's `read_file` inspects a workspace file. `publish_file`
+collects complete verified bytes and sends them through the trusted frontend
+publication path to owner-scoped object storage. Return its exact authenticated
+link. Missing/truncated data or failed publication cannot be called delivered.
 
-For a multi-step file task, use a trusted, opaque conversation scope and
-structured file staging:
-
-```json
-{
-  "workspaceId": "sha256-of-trusted-user-and-conversation",
-  "argv": ["true"],
-  "files": [
-    {
-      "path": "guide.html",
-      "content": "<!doctype html>",
-      "append": false
-    }
-  ],
-  "collect": ["guide.html"]
-}
-```
-
-The response includes `requestId`, `exitCode`, `stdout`, `stderr`,
-`durationMs`, `timedOut`, `truncated`, `workspacePersisted`, `files`, and
-`missingFiles`. HTTP 4xx means the request or command policy was rejected; HTTP
-5xx is service/transport failure.
-
-The Daedalus adapter adds a `publish_file` operation above this service
-contract. It collects one complete regular file, sends the exact bytes to the
-trusted internal frontend endpoint, stores them in owner-scoped object storage,
-and returns an authenticated `/api/session/documentStorage` link. Use
-`read_file` to inspect a file and `publish_file` to deliver it. Do not expose a
-sandbox-relative path as a user download.
-
-## Adapter pseudocode
-
-```python
-async def sandbox_tool(command, timeout=20, trusted_workspace_id=None):
-    if not discovered:
-        await discover_commands()
-    payload = {"command": command, "timeoutSeconds": min(timeout, 60)}
-    if trusted_workspace_id:
-        payload["workspaceId"] = trusted_workspace_id
-    result = await http.post(
-        f"{url}/v1/execute",
-        headers={"Authorization": f"Bearer {token}"},
-        json=payload,
-        timeout=timeout + 5,
-    )
-    if result.status in (502, 503, 504):
-        return retry_once_with_backoff()
-    if result.status >= 400:
-        return ToolError("sandbox policy or request rejected", result.json())
-    body = result.json()
-    return ToolResult(
-        text=body["stdout"],
-        metadata={"stderr": body["stderr"], "exitCode": body["exitCode"],
-                  "requestId": body["requestId"], "timedOut": body["timedOut"],
-                  "truncated": body["truncated"]},
-    )
-```
-
-Do not expose the token or raw identity through tool metadata. Requests without
-`workspaceId` are deleted immediately. For a multi-stage task, derive
-`workspaceId` from trusted user and conversation context, reuse it across
-calls, and use `files`/`collect` instead of shell here-documents. Treat the
-workspace as temporary: it expires after an idle TTL and disappears when its
-pod is replaced.
+Workspaces are transient, pod-local and conversation-scoped. They are not host
+mounts, Kubernetes sessions or durable storage. Validate isolation, traversal
+rejection, missing identity, readiness/discovery failure, truncation, timeout,
+file round-trip and owner-scoped publication when those contracts change.

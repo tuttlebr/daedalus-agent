@@ -1,3 +1,6 @@
+> Historical upstream provenance for the imported skill. This report/card
+> does not evaluate or certify the current Daedalus adaptation.
+
 ## Description: <br>
 
 Validate that a Dynamo deployment's NIXL/UCX/NCCL interconnect is ready for disaggregated serving over RDMA/NVLink. <br>

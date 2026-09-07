@@ -1,38 +1,49 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Single streaming request to confirm the frontend -> KV router -> mock worker
-# pipeline is alive before running the full aiperf profile.
+# One bounded streaming request; require content, a finish reason and [DONE].
 set -euo pipefail
 cd "$(dirname "$0")"
 source ./env.sh
-
-echo "[smoke] GET /v1/models:"
-curl -sf "http://localhost:${HTTP_PORT}/v1/models" | head -c 400; echo; echo
-
-echo "[smoke] streaming chat completion:"
-set +o pipefail
-curl -sf -X POST "http://localhost:${HTTP_PORT}/v1/chat/completions" \
-    -H "Content-Type: application/json" \
-    -H "Accept: text/event-stream" \
-    -d "{
-        \"model\": \"${MODEL}\",
-        \"messages\": [
-            {\"role\": \"system\", \"content\": \"You are a helpful assistant.\"},
-            {\"role\": \"user\", \"content\": \"Say hello in five words.\"}
-        ],
-        \"stream\": true,
-        \"max_tokens\": 16,
-        \"ignore_eos\": true
-    }" | head -20
-stream_status=("${PIPESTATUS[@]}")
-set -o pipefail
-if [[ "${stream_status[0]}" -ne 0 && "${stream_status[0]}" -ne 23 ]]; then
-    exit "${stream_status[0]}"
-fi
-if [[ "${stream_status[1]}" -ne 0 ]]; then
-    exit "${stream_status[1]}"
-fi
-echo
-echo "[smoke] done. If you saw SSE 'data:' chunks above, the pipeline works."
+SMOKE_DIR="$(mktemp -d "$LOG_DIR/smoke-XXXXXX")"
+curl --fail --silent --show-error --max-time 20 \
+    "http://localhost:${HTTP_PORT}/v1/models" > "$SMOKE_DIR/models.json"
+python3 - "$SMOKE_DIR/models.json" "$SMOKE_DIR/request.json" <<'PY'
+import json, os, sys
+from pathlib import Path
+model = os.environ['MODEL']
+body = json.loads(Path(sys.argv[1]).read_text())
+if not any(item.get('id') == model for item in body.get('data', [])):
+    raise SystemExit('requested model is not advertised')
+Path(sys.argv[2]).write_text(json.dumps({
+    'model': model, 'messages': [{'role': 'user', 'content': 'Say hello in five words.'}],
+    'stream': True, 'max_tokens': 32,
+}))
+PY
+curl --fail --silent --show-error --max-time 30 \
+    "http://localhost:${HTTP_PORT}/v1/chat/completions" \
+    -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    --data-binary "@$SMOKE_DIR/request.json" > "$SMOKE_DIR/response.sse"
+python3 - "$SMOKE_DIR/response.sse" <<'PY'
+import json, os, sys
+from pathlib import Path
+content, finished, done = [], False, False
+for line in Path(sys.argv[1]).read_text().splitlines():
+    if not line.startswith('data:'):
+        continue
+    value = line[5:].strip()
+    if value == '[DONE]':
+        done = True
+        continue
+    event = json.loads(value)
+    if event.get('error') or event.get('model') != os.environ['MODEL']:
+        raise SystemExit('stream error or model mismatch')
+    for choice in event.get('choices', []):
+        text = choice.get('delta', {}).get('content')
+        if isinstance(text, str):
+            content.append(text)
+        if choice.get('finish_reason') in {'stop', 'length'}:
+            finished = True
+if not done or not finished or not ''.join(content).strip():
+    raise SystemExit('incomplete or empty completion stream')
+print(json.dumps({'ok': True, 'content': ''.join(content)}))
+PY
