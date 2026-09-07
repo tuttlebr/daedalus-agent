@@ -1,3 +1,5 @@
+import { branding } from '@/generated/branding';
+
 export default function Custom500() {
   return (
     <main
@@ -8,7 +10,7 @@ export default function Custom500() {
       <div className="max-w-md text-center">
         <div className="mb-8">
           <img
-            src="/favicon.png"
+            src={branding.assets['/favicon.png']}
             alt="Daedalus"
             className="h-16 w-auto mx-auto"
           />

@@ -44,6 +44,7 @@ import { ChatInput } from './ChatInput';
 import { DocumentIngestProgress } from './DocumentIngestProgress';
 import { MessageBubble } from './MessageBubble';
 
+import { branding } from '@/generated/branding';
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -1363,7 +1364,7 @@ const EmptyState = memo(
     <div className="min-h-full flex flex-col items-center justify-center px-5 py-8">
       <div className="text-center space-y-5 w-full max-w-md">
         <img
-          src="/favicon.png"
+          src={branding.assets['/favicon.png']}
           alt="Daedalus"
           className="h-14 w-auto mx-auto"
         />

@@ -15,6 +15,8 @@ import { GlassCard } from '@/components/surfaces';
 
 import { useAuth } from './AuthProvider';
 
+import { branding } from '@/generated/branding';
+
 const logger = new Logger('LoginPage');
 
 export const LoginPage: React.FC = () => {
@@ -72,7 +74,11 @@ export const LoginPage: React.FC = () => {
           {/* Logo */}
           <div className="text-center">
             <div className="flex justify-center mb-6">
-              <img src="/favicon.png" alt="Daedalus" className="h-16 w-auto" />
+              <img
+                src={branding.assets['/favicon.png']}
+                alt="Daedalus"
+                className="h-16 w-auto"
+              />
             </div>
             <h1 className="text-2xl font-bold text-dark-text-primary tracking-tight">
               Welcome to Daedalus

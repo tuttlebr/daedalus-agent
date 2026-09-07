@@ -41,6 +41,7 @@ import { MemoryCenter } from '@/components/memory';
 import { BottomNav } from '@/components/mobile/BottomNav';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 
+import { branding } from '@/generated/branding';
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { useImageChatDraftStore } from '@/state/imageChatDraftStore';
 import { useImagePanelStore } from '@/state/imagePanelStore';
@@ -295,7 +296,7 @@ const Home = () => {
           content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <meta name="format-detection" content="telephone=no" />
-        <link rel="icon" href="/favicon.png" />
+        <link rel="icon" href={branding.assets['/favicon.png']} />
       </Head>
 
       <main

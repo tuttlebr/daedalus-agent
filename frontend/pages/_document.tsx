@@ -1,5 +1,7 @@
 import { Head, Html, Main, NextScript } from 'next/document';
 
+import { branding } from '@/generated/branding';
+
 export default function Document() {
   return (
     <Html lang="en">
@@ -8,23 +10,23 @@ export default function Document() {
         <link
           rel="apple-touch-icon"
           sizes="180x180"
-          href="/icons/icon-180x180.png"
+          href={branding.assets['/icons/icon-180x180.png']}
         />
         <link
           rel="icon"
           type="image/png"
           sizes="32x32"
-          href="/icons/icon-32x32.png"
+          href={branding.assets['/icons/icon-32x32.png']}
         />
         <link
           rel="icon"
           type="image/png"
           sizes="16x16"
-          href="/icons/icon-16x16.png"
+          href={branding.assets['/icons/icon-16x16.png']}
         />
 
         {/* Web App Manifest */}
-        <link rel="manifest" href="/manifest.json?v=2" />
+        <link rel="manifest" href={branding.manifest} />
 
         {/* PWA Meta */}
         <meta name="application-name" content="Daedalus" />
@@ -40,46 +42,49 @@ export default function Document() {
         {/* iOS Splash Screens */}
         <link
           rel="apple-touch-startup-image"
-          href="/icons/icon-512x512.png"
+          href={branding.assets['/icons/icon-512x512.png']}
           media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)"
         />
         <link
           rel="apple-touch-startup-image"
-          href="/icons/icon-512x512.png"
+          href={branding.assets['/icons/icon-512x512.png']}
           media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)"
         />
         <link
           rel="apple-touch-startup-image"
-          href="/icons/icon-512x512.png"
+          href={branding.assets['/icons/icon-512x512.png']}
           media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)"
         />
         <link
           rel="apple-touch-startup-image"
-          href="/icons/icon-512x512.png"
+          href={branding.assets['/icons/icon-512x512.png']}
           media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)"
         />
         <link
           rel="apple-touch-startup-image"
-          href="/icons/icon-512x512.png"
+          href={branding.assets['/icons/icon-512x512.png']}
           media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)"
         />
         <link
           rel="apple-touch-startup-image"
-          href="/icons/icon-512x512.png"
+          href={branding.assets['/icons/icon-512x512.png']}
           media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)"
         />
         <link
           rel="apple-touch-startup-image"
-          href="/icons/icon-512x512.png"
+          href={branding.assets['/icons/icon-512x512.png']}
           media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2)"
         />
-        <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png" />
+        <link
+          rel="apple-touch-startup-image"
+          href={branding.assets['/icons/icon-512x512.png']}
+        />
 
         {/* Windows */}
         <meta name="msapplication-TileColor" content="#76b900" />
         <meta
           name="msapplication-TileImage"
-          content="/icons/icon-144x144.png"
+          content={branding.assets['/icons/icon-144x144.png']}
         />
       </Head>
       <body className="bg-dark-bg-primary text-dark-text-primary antialiased">

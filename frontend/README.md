@@ -82,6 +82,26 @@ Use the root Compose stack for an integrated local environment. The E2E command
 builds the production frontend and starts isolated Redis, SeaweedFS, mock
 backend, stream worker, WebSocket, and Next.js processes automatically.
 
+## Updating branding icons
+
+Replace the PNGs in `public/icons/` and `public/favicon.png`, then rebuild and
+publish/deploy the frontend image through the normal release process. Starting
+`next dev` or `next build` automatically hashes the PNG bytes and updates the
+shared `generated/branding.ts` map, manifest icons and shortcuts, offline page,
+and service worker. URLs use `?v=<content hash>`; no manual version increment is
+needed. The manifest URL changes with its contents while its app identity stays
+stable.
+
+During an already-running development session, run `npm run branding` after
+replacing an icon (or restart the dev server). Keep the generated source changes
+with the PNG changes in Git. Do not edit the generated map or worker branding
+block by hand. Building locally does not update the deployed image.
+
+The worker moves to a new precache when branding changes, revalidates legacy
+icon URLs, and refreshes entries in the same cache it reads. Browser pages use
+the new URLs on their next load after deployment. Installed home-screen icons
+also depend on the operating system's manifest/icon refresh schedule.
+
 ## Important Environment Variables
 
 The frontend reads runtime settings from environment variables and Kubernetes

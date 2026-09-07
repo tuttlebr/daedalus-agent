@@ -1,4 +1,9 @@
 const path = require('path');
+const {
+  PHASE_DEVELOPMENT_SERVER,
+  PHASE_PRODUCTION_BUILD,
+} = require('next/constants');
+const { generateBranding } = require('./scripts/generate-branding');
 
 const nextConfig = {
   output: 'standalone',
@@ -104,4 +109,11 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+module.exports = (phase) => {
+  // Generate before compilation, including Docker builds. Production startup
+  // must keep the manifest/worker consistent with the already-compiled pages.
+  if (phase === PHASE_DEVELOPMENT_SERVER || phase === PHASE_PRODUCTION_BUILD) {
+    generateBranding(__dirname);
+  }
+  return nextConfig;
+};

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "branding": "node scripts/generate-branding.js",
     "dev": "next dev -p 5000 -H 0.0.0.0",
     "build": "next build && node scripts/inject-precache.js",
     "build:websocket": "esbuild ws-server.ts --bundle --platform=node --target=node22 --outfile=./ws-build/ws-server.js",
