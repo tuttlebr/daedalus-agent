@@ -26,7 +26,7 @@ export function EmptyState({
   if (filtered) {
     return (
       <div className="mx-auto max-w-md py-24 text-center">
-        <p className="font-serif text-[17px] italic leading-relaxed text-dark-text-muted">
+        <p className="font-sans text-[17px] italic leading-relaxed text-dark-text-muted">
           Nothing in this lane yet.
         </p>
         <p className="mt-2 font-mono text-[0.75rem] uppercase tracking-[0.18em] text-dark-text-subtle">
@@ -41,7 +41,7 @@ export function EmptyState({
       <span className="mb-5 inline-grid h-12 w-12 place-items-center rounded-full bg-fill/[0.04] text-dark-text-muted ring-1 ring-separator/70">
         <IconRobot size={22} />
       </span>
-      <p className="font-serif text-[18px] leading-relaxed text-dark-text-secondary">
+      <p className="font-sans text-[18px] leading-relaxed text-dark-text-secondary">
         {enabled
           ? 'Daedalus hasn’t surfaced anything yet.'
           : 'Daedalus is paused.'}

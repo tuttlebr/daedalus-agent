@@ -16,13 +16,6 @@ interface Props {
   value: string;
 }
 
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'dark',
-  securityLevel: 'strict',
-  fontFamily: "'JetBrains Mono', monospace",
-});
-
 export const MermaidChart: FC<Props> = memo(({ value }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>('');
@@ -35,6 +28,16 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
 
     const renderDiagram = async () => {
       try {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'dark',
+          securityLevel: 'strict',
+          // Resolve the shared stack so downloaded SVGs keep their fonts even
+          // outside the page that defines the CSS variable.
+          fontFamily: getComputedStyle(document.documentElement)
+            .getPropertyValue('--font-mono')
+            .trim(),
+        });
         // Validate first
         await mermaid.parse(value);
         const { svg: renderedSvg } = await mermaid.render(
@@ -92,7 +95,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
     return (
       <div
         className="codeblock relative text-[16px]"
-        style={{ fontFamily: "'JetBrains Mono', monospace" }}
+        style={{ fontFamily: 'var(--font-mono)' }}
       >
         <div className="flex items-center justify-between py-1.5 px-4">
           <span className="text-xs lowercase text-white">mermaid (error)</span>
@@ -109,7 +112,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
   return (
     <div
       className="codeblock relative text-[16px]"
-      style={{ fontFamily: "'JetBrains Mono', monospace" }}
+      style={{ fontFamily: 'var(--font-mono)' }}
     >
       <div className="flex items-center justify-between py-1.5 px-4">
         <span className="text-xs lowercase text-white">mermaid</span>

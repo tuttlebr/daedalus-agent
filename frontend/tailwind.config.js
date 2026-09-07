@@ -7,33 +7,8 @@ module.exports = {
   darkMode: 'class',
   theme: {
     fontFamily: {
-      sans: [
-        '-apple-system',
-        'BlinkMacSystemFont',
-        'SF Pro Text',
-        'system-ui',
-        'Segoe UI',
-        'Roboto',
-        'sans-serif',
-      ],
-      serif: [
-        'IBM Plex Serif',
-        'Georgia',
-        'Cambria',
-        'Times New Roman',
-        'Times',
-        'serif',
-      ],
-      mono: [
-        'JetBrains Mono',
-        'SF Mono',
-        'Monaco',
-        'Cascadia Code',
-        'Roboto Mono',
-        'Consolas',
-        'Courier New',
-        'monospace',
-      ],
+      sans: ['var(--font-sans)'],
+      mono: ['var(--font-mono)'],
     },
     fontWeight: {
       normal: '400',
@@ -84,27 +59,9 @@ module.exports = {
         'touch-lg': 'var(--touch-target-large)',
       },
       fontFamily: {
-        heading: [
-          '-apple-system',
-          'BlinkMacSystemFont',
-          'SF Pro Text',
-          'system-ui',
-          'sans-serif',
-        ],
-        display: [
-          '-apple-system',
-          'BlinkMacSystemFont',
-          'SF Pro Text',
-          'system-ui',
-          'sans-serif',
-        ],
-        nvidia: [
-          '-apple-system',
-          'BlinkMacSystemFont',
-          'SF Pro Text',
-          'system-ui',
-          'sans-serif',
-        ],
+        heading: ['var(--font-heading)'],
+        display: ['var(--font-display)'],
+        nvidia: ['var(--font-sans)'],
       },
       colors: {
         app: 'rgb(var(--app) / <alpha-value>)',

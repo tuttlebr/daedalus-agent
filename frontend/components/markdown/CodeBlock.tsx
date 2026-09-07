@@ -109,7 +109,7 @@ export const CodeBlock: FC<Props> = memo(
           'codeblock relative text-[16px]',
           fullscreen && 'flex h-full min-h-0 flex-col',
         )}
-        style={{ fontFamily: "'JetBrains Mono', monospace" }}
+        style={{ fontFamily: 'var(--font-mono)' }}
       >
         <div className="flex items-center justify-between py-1.5 px-4">
           <span className="text-xs lowercase text-white">{language}</span>
@@ -192,13 +192,13 @@ export const CodeBlock: FC<Props> = memo(
               wordBreak: 'normal',
               overflowX: 'auto',
               overflowY: 'auto',
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: 'var(--font-mono)',
               fontSize: '14px',
               lineHeight: '1.5',
             }}
             codeTagProps={{
               style: {
-                fontFamily: "'JetBrains Mono', monospace",
+                fontFamily: 'var(--font-mono)',
                 fontSize: '14px',
               },
             }}

@@ -9,11 +9,14 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
 
 - Content comes first: quiet solid backgrounds and cards, a readable chat
   column, a gallery of actual images, concise empty states, and a single
-  accent color for interactive emphasis. The Autonomy feed retains its
-  editorial serif typography.
-- System typography uses San Francisco when installed on Apple platforms,
-  with local system fallbacks elsewhere. Fonts require no external network
-  requests. Text and captions use relative sizes and browser text scaling.
+  accent color for interactive emphasis.
+- Text, including the Autonomy feed, prefers SF Pro for regular, italic, and
+  bold styles. Code, inline code, and diagrams prefer SF Mono. Shared CSS font
+  variables also drive Tailwind and syntax highlighting. These are device-local
+  font stacks: Apple system aliases and generic system fallbacks apply when the
+  named fonts are unavailable. The application does not bundle SF font files or
+  request fonts from a CDN. Text and captions use relative sizes and browser
+  text scaling.
 - Semantic color roles in `styles/appearance.css` cover text, backgrounds,
   controls, separators, and filled actions. Light, Dark, and System appearance
   are available in the sidebar and sign-in screen. The System choice follows

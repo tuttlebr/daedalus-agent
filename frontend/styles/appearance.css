@@ -2,10 +2,6 @@
    content surfaces, and a restrained translucent navigation layer. */
 :root {
   color-scheme: light;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
-    sans-serif;
-  --font-heading: var(--font-sans);
-  --font-display: var(--font-sans);
   --app: 242 242 247;
   --panel: 255 255 255;
   --control: 233 233 239;

@@ -11,11 +11,6 @@
 /* Import KaTeX styles for LaTeX math rendering */
 @import 'katex/dist/katex.min.css';
 
-/* Editorial body serif used by the Autonomy feed */
-@import '@fontsource/ibm-plex-serif/400.css';
-@import '@fontsource/ibm-plex-serif/400-italic.css';
-@import '@fontsource/ibm-plex-serif/600.css';
-
 /* PWA Animations */
 @keyframes slideDown {
   from {
@@ -26,103 +21,6 @@
     opacity: 1;
     transform: translate(-50%, 0);
   }
-}
-
-/* Load NVIDIA brand fonts */
-@font-face {
-  font-family: 'NVIDIA Sans';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/NVIDIASans_Rg.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'NVIDIA Sans';
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/NVIDIASans_It.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'NVIDIA Sans';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/NVIDIASans_Md.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'NVIDIA Sans';
-  font-style: italic;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/NVIDIASans_MdIt.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'NVIDIA Sans';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/NVIDIASans_Bd.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'NVIDIA Sans';
-  font-style: italic;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/NVIDIASans_BdIt.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/JetBrainsMono-Italic.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/JetBrainsMono-Medium.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: italic;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/JetBrainsMono-MediumItalic.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'JetBrains Mono';
-  font-style: italic;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/JetBrainsMono-BoldItalic.woff2') format('woff2');
 }
 
 @layer base {
@@ -313,16 +211,14 @@
 
   /* =================================================================
      TYPOGRAPHY
-     System fonts with NVIDIA Sans as primary
+     SF Pro for text and SF Mono for code when available on the device
      ================================================================= */
-  --font-sans: 'NVIDIA Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    'Roboto', sans-serif;
-  --font-heading: 'NVIDIA Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    'Roboto', sans-serif;
-  --font-display: 'NVIDIA Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    'Roboto', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'SF Mono',
-    'Roboto Mono', 'Courier New', monospace;
+  --font-sans: 'SF Pro', -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+    system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --font-display: var(--font-sans);
+  --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas,
+    monospace;
 
   /* =================================================================
      SOPHISTICATED NEUTRALS - True Black/Gray Theme
@@ -719,7 +615,7 @@ body {
   .codeblock *,
   pre code,
   code {
-    font-family: 'JetBrains Mono', var(--font-mono) !important;
+    font-family: var(--font-mono) !important;
   }
 }
 
@@ -910,7 +806,7 @@ img {
 .prose kbd {
   display: inline-block;
   padding: 0.15em 0.4em;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   line-height: 1;
   color: inherit;
@@ -929,7 +825,7 @@ img {
 
 /* Sample output */
 .prose samp {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   background-color: rgba(255, 255, 255, 0.05);
   padding: 0.1em 0.3em;
@@ -939,7 +835,7 @@ img {
 /* Variable */
 .prose var {
   font-style: italic;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--color-nvidia-green-light, #9be234);
 }
 
@@ -1648,7 +1544,7 @@ details div {
   gap: 12px;
   width: 100%;
   color: var(--color-dark-text-primary);
-  font-family: var(--font-family-sans, 'NVIDIA Sans', system-ui, sans-serif);
+  font-family: var(--font-sans);
 }
 
 .daedalus-feed__header {

@@ -98,7 +98,7 @@ function FeedItemImpl({
         {item.title}
       </button>
 
-      <p className="mt-1.5 font-serif text-[15px] leading-[1.65] text-dark-text-secondary">
+      <p className="mt-1.5 font-sans text-[15px] leading-[1.65] text-dark-text-secondary">
         {item.bluf}
       </p>
 
@@ -113,7 +113,7 @@ function FeedItemImpl({
           )}
         >
           <div className="min-h-0">
-            <p className="whitespace-pre-line border-l border-separator/70 pl-3 font-serif text-[15px] leading-[1.7] text-dark-text-secondary">
+            <p className="whitespace-pre-line border-l border-separator/70 pl-3 font-sans text-[15px] leading-[1.7] text-dark-text-secondary">
               {item.body}
             </p>
           </div>

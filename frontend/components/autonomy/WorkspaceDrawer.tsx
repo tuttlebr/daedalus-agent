@@ -176,7 +176,7 @@ export function WorkspaceDrawer({
         <Section title="State">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="font-serif text-[14px] text-dark-text-secondary">
+              <p className="font-sans text-[14px] text-dark-text-secondary">
                 Daedalus is currently{' '}
                 <strong className="text-dark-text-primary">
                   {enabled ? 'awake' : 'paused'}
@@ -239,7 +239,7 @@ export function WorkspaceDrawer({
             Import profile JSON
           </Button>
           {profileImportError && (
-            <p className="mt-2 font-serif text-[12px] text-nvidia-red">
+            <p className="mt-2 font-sans text-[12px] text-nvidia-red">
               {profileImportError}
             </p>
           )}
@@ -297,7 +297,7 @@ export function WorkspaceDrawer({
                 value={intervalHours}
                 onChange={(event) => setIntervalHours(event.target.value)}
               />
-              <span className="font-serif text-[14px] text-dark-text-muted">
+              <span className="font-sans text-[14px] text-dark-text-muted">
                 hours
               </span>
               <Button
@@ -361,14 +361,14 @@ export function WorkspaceDrawer({
               Import JSON
             </Button>
             {goalImportError && (
-              <p className="font-serif text-[12px] text-nvidia-red">
+              <p className="font-sans text-[12px] text-nvidia-red">
                 {goalImportError}
               </p>
             )}
           </div>
           <div className="mt-4 space-y-3">
             {goals.length === 0 ? (
-              <p className="font-serif text-[13px] italic text-dark-text-muted">
+              <p className="font-sans text-[13px] italic text-dark-text-muted">
                 No goals yet.
               </p>
             ) : (
@@ -388,7 +388,7 @@ export function WorkspaceDrawer({
                         </span>
                       </div>
                       {goal.description && (
-                        <p className="mt-1 font-serif text-[13px] leading-snug text-dark-text-muted">
+                        <p className="mt-1 font-sans text-[13px] leading-snug text-dark-text-muted">
                           {goal.description}
                         </p>
                       )}
@@ -418,7 +418,7 @@ export function WorkspaceDrawer({
         >
           <div className="space-y-3">
             {queue.length === 0 ? (
-              <p className="font-serif text-[13px] italic text-dark-text-muted">
+              <p className="font-sans text-[13px] italic text-dark-text-muted">
                 No queued requests.
               </p>
             ) : (
@@ -442,11 +442,11 @@ export function WorkspaceDrawer({
                       {relativeTime(request.createdAt)}
                     </span>
                   </div>
-                  <p className="mt-1 line-clamp-3 font-serif text-[13px] leading-snug text-dark-text-secondary">
+                  <p className="mt-1 line-clamp-3 font-sans text-[13px] leading-snug text-dark-text-secondary">
                     {request.prompt?.trim() || 'No prompt supplied.'}
                   </p>
                   {request.goalId && (
-                    <p className="mt-1 truncate font-serif text-[12px] text-dark-text-muted">
+                    <p className="mt-1 truncate font-sans text-[12px] text-dark-text-muted">
                       Goal: {resolveGoalTitle(request.goalId)}
                     </p>
                   )}
@@ -472,7 +472,7 @@ export function WorkspaceDrawer({
         <Collapsible title="History" badge={runs.length}>
           <div className="space-y-3">
             {runs.length === 0 ? (
-              <p className="font-serif text-[13px] italic text-dark-text-muted">
+              <p className="font-sans text-[13px] italic text-dark-text-muted">
                 No runs yet.
               </p>
             ) : (
@@ -495,12 +495,12 @@ export function WorkspaceDrawer({
                     </span>
                   </div>
                   {run.summary && (
-                    <p className="mt-1 line-clamp-3 font-serif text-[13px] leading-snug text-dark-text-secondary">
+                    <p className="mt-1 line-clamp-3 font-sans text-[13px] leading-snug text-dark-text-secondary">
                       {run.summary}
                     </p>
                   )}
                   {run.goalId && (
-                    <p className="mt-1 truncate font-serif text-[12px] text-dark-text-muted">
+                    <p className="mt-1 truncate font-sans text-[12px] text-dark-text-muted">
                       Goal: {resolveGoalTitle(run.goalId)}
                     </p>
                   )}
@@ -513,7 +513,7 @@ export function WorkspaceDrawer({
         <Collapsible title="Diagnostics" badge={events.length}>
           <ol className="space-y-1.5">
             {events.length === 0 ? (
-              <p className="font-serif text-[13px] italic text-dark-text-muted">
+              <p className="font-sans text-[13px] italic text-dark-text-muted">
                 No events.
               </p>
             ) : (
