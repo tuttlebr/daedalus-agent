@@ -544,11 +544,11 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   );
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-neutral-950 text-neutral-100">
-      <header className="z-10 grid flex-none grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2 border-b border-white/5 px-3 pb-2 pt-2 safe-top md:grid-cols-[1fr_auto_1fr] md:border-0 md:px-5 md:py-3">
-        <h1 className="text-base font-semibold tracking-tight text-neutral-100">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-app text-primary">
+      <header className="z-10 grid flex-none grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2 border-b border-separator/70 px-3 pb-2 pt-2 safe-top md:grid-cols-[1fr_auto_1fr] md:border-0 md:px-5 md:py-3">
+        <h1 className="text-base font-semibold tracking-tight text-primary">
           <span className="md:hidden">Create</span>
-          <span className="hidden md:inline">Create New</span>
+          <span className="hidden md:inline">Create</span>
         </h1>
         <div className="order-3 col-span-2 w-full md:order-none md:col-span-1 md:w-auto md:justify-self-center">
           <ModeSegmentedControl fullWidth />
@@ -559,7 +559,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       </header>
 
       <div className="relative flex min-h-0 flex-1">
-        <main className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           {mode === 'edit' && (
             <div className="hidden flex-none md:block">
               <EditAssetsPanel disabled={loading} />
@@ -584,7 +584,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
 
           {error && (
             <div className="flex-none px-4 pb-1">
-              <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 backdrop-blur">
+              <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-nvidia-red backdrop-blur">
                 <span>{error}</span>
                 {!loading && (
                   <button
@@ -596,7 +596,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
                         void submit();
                       }
                     }}
-                    className="shrink-0 rounded-md px-2 py-1 font-medium text-red-100 transition-colors hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+                    className="shrink-0 rounded-md px-2 py-1 font-medium text-nvidia-red transition-colors hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
                   >
                     {recoverableJobId ? 'Check status' : 'Try again'}
                   </button>
@@ -606,9 +606,9 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
           )}
 
           <ImagesDock onSubmit={submit} onStop={stopWaiting} />
-        </main>
+        </div>
 
-        <aside className="hidden w-[360px] flex-none flex-col border-l border-white/10 bg-neutral-950/90 lg:flex">
+        <aside className="hidden w-[360px] flex-none flex-col border-l border-separator/70 bg-app/90 lg:flex">
           <div className="min-h-0 flex-1">
             <ImageSettingsPanel />
           </div>
@@ -655,9 +655,11 @@ function CreateEmptyState({
       ? 'Describe the change in the prompt below, then tap Apply edit.'
       : 'Use Add image in the prompt bar, then describe the change you want.';
   return (
-    <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-950/75 p-4 text-center shadow-xl backdrop-blur-sm max-[700px]:max-w-xs max-[700px]:p-3">
-      <h2 className="text-sm font-medium text-neutral-100">{title}</h2>
-      <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-neutral-400">
+    <div className="w-full max-w-md space-y-3 p-4 text-center">
+      <h2 className="text-2xl font-semibold tracking-tight text-primary">
+        {title}
+      </h2>
+      <p className="mx-auto max-w-sm text-base leading-relaxed text-secondary">
         {description}
       </p>
     </div>
@@ -677,8 +679,8 @@ function OutputDetailPanel({
 }) {
   if (!image) {
     return (
-      <div className="border-t border-white/10 p-4 text-xs text-neutral-600">
-        Select an output to inspect its prompt, params, and actions.
+      <div className="border-t border-separator/70 p-4 text-xs text-muted">
+        Select an output to view its prompt, settings, and actions.
       </div>
     );
   }
@@ -688,11 +690,9 @@ function OutputDetailPanel({
   const downloadUrl = `${fullUrl}?download=1`;
 
   return (
-    <div className="max-h-[44vh] overflow-y-auto border-t border-white/10 p-4">
-      <div className="mb-3 text-sm font-medium text-neutral-100">
-        Output Detail
-      </div>
-      <div className="mb-3 overflow-hidden rounded-lg bg-neutral-900 ring-1 ring-white/10">
+    <div className="max-h-[44vh] overflow-y-auto border-t border-separator/70 p-4">
+      <div className="mb-3 text-sm font-medium text-primary">Output Detail</div>
+      <div className="mb-3 overflow-hidden rounded-lg bg-panel ring-1 ring-separator/70">
         <img
           src={fullUrl}
           alt={image.prompt}
@@ -759,8 +759,8 @@ function OutputAction({
   const className = classNames(
     'inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition-colors',
     danger
-      ? 'border-red-500/20 text-red-300 hover:bg-red-500/10'
-      : 'border-white/10 text-neutral-300 hover:bg-white/5 hover:text-neutral-100',
+      ? 'border-red-500/20 text-nvidia-red hover:bg-red-500/10'
+      : 'border-separator/70 text-secondary hover:bg-fill/5 hover:text-primary',
   );
   if (href) {
     return (
@@ -792,10 +792,10 @@ function OutputMeta({
 }) {
   return (
     <div className="mb-3">
-      <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">
+      <div className="mb-1 text-[0.75rem] uppercase tracking-wider text-muted">
         {label}
       </div>
-      <div className="whitespace-pre-wrap break-words rounded-md bg-black/25 p-2 text-[11px] leading-relaxed text-neutral-300">
+      <div className="whitespace-pre-wrap break-words rounded-md bg-fill/5 p-2 text-[0.75rem] leading-relaxed text-secondary">
         {children}
       </div>
     </div>

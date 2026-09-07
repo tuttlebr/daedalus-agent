@@ -43,15 +43,15 @@ export function HistoryToggleButton() {
       onClick={toggleHistory}
       className={classNames(
         'inline-flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 md:min-h-0 md:py-1.5',
-        'text-sm text-neutral-400 hover:text-neutral-100',
-        'hover:bg-white/5 transition-colors',
+        'text-sm text-muted hover:text-primary',
+        'hover:bg-fill/5 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
       )}
     >
       <IconHistory size={16} />
       <span>History</span>
       {historyCount > 0 && (
-        <span className="text-xs text-neutral-500 tabular-nums md:text-[10px]">
+        <span className="text-xs text-muted tabular-nums md:text-[0.75rem]">
           {historyCount}
         </span>
       )}
@@ -184,14 +184,14 @@ export function HistoryDrawer() {
       <aside
         className={classNames(
           'h-full w-full',
-          'bg-neutral-950/95 backdrop-blur-xl border-l border-white/10',
+          'bg-app/95 backdrop-blur-xl border-l border-separator/70',
           'flex flex-col',
         )}
       >
-        <div className="safe-top flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <div className="safe-top flex items-center justify-between px-4 py-3 border-b border-separator/70">
           <div>
-            <div className="text-sm font-medium text-neutral-100">History</div>
-            <div className="mt-0.5 text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
+            <div className="text-sm font-medium text-primary">History</div>
+            <div className="mt-0.5 text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
               {history.length} saved creation{history.length === 1 ? '' : 's'}
             </div>
           </div>
@@ -206,7 +206,7 @@ export function HistoryDrawer() {
 
         <div className="flex-1 overflow-y-auto p-3">
           {history.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-xs text-neutral-600">
+            <div className="flex items-center justify-center h-full text-xs text-muted">
               No saved creations yet.
             </div>
           ) : (
@@ -222,7 +222,7 @@ export function HistoryDrawer() {
                     key={entry.id}
                     className={classNames(
                       'group relative flex gap-3 p-2 rounded-lg cursor-pointer',
-                      'bg-white/5 hover:bg-white/10 ring-1 ring-white/5 hover:ring-white/20',
+                      'bg-fill/5 hover:bg-fill/10 ring-1 ring-separator/70 hover:ring-separator/70',
                       'transition-all',
                       'focus-visible:outline-none focus-visible:ring-nvidia-green/40',
                     )}
@@ -233,7 +233,7 @@ export function HistoryDrawer() {
                       className="flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
                       aria-label={`Restore saved ${entry.mode} creation`}
                     >
-                      <div className="flex-shrink-0 w-14 h-14 rounded-md overflow-hidden bg-neutral-900">
+                      <div className="flex-shrink-0 w-14 h-14 rounded-md overflow-hidden bg-panel">
                         {entry.outputImageIds[0] && (
                           <OptimizedImage
                             imageRef={{
@@ -251,15 +251,15 @@ export function HistoryDrawer() {
                       </div>
                       <div className="flex-1 min-w-0 pr-5">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs uppercase tracking-wider text-neutral-500 md:text-[9px]">
+                          <span className="text-xs uppercase tracking-wider text-muted md:text-[9px]">
                             {entry.mode}
                           </span>
-                          <span className="text-xs text-neutral-600 md:text-[9px]">
+                          <span className="text-xs text-muted md:text-[9px]">
                             · {entry.outputImageIds.length} image
                             {entry.outputImageIds.length !== 1 ? 's' : ''}
                           </span>
                         </div>
-                        <div className="text-xs text-neutral-200 line-clamp-2 leading-snug">
+                        <div className="text-xs text-secondary line-clamp-2 leading-snug">
                           {entry.prompt || '(no prompt)'}
                         </div>
                       </div>
@@ -293,7 +293,7 @@ export function HistoryDrawer() {
                         'absolute top-1 right-1 grid h-11 w-11 place-items-center rounded-md touch-manipulation',
                         confirmDeleteId === entry.id
                           ? 'bg-nvidia-red/20 text-nvidia-red opacity-100'
-                          : 'text-neutral-500 hover:text-nvidia-red hover:bg-nvidia-red/10 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
+                          : 'text-muted hover:text-nvidia-red hover:bg-nvidia-red/10 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
                         'transition-all disabled:opacity-50',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
                       )}
@@ -312,38 +312,38 @@ export function HistoryDrawer() {
         </div>
 
         {history.length > 0 && (
-          <div className="flex-shrink-0 border-t border-white/5 px-3 py-2 pb-safe-bottom">
+          <div className="flex-shrink-0 border-t border-separator/70 px-3 py-2 pb-safe-bottom">
             {actionError && (
               <p
                 role="alert"
-                className="mb-2 rounded-md bg-red-500/10 px-2 py-2 text-xs text-red-300"
+                className="mb-2 rounded-md bg-red-500/10 px-2 py-2 text-xs text-nvidia-red"
               >
                 {actionError}
               </p>
             )}
             {isConfirmingClear ? (
               <div className="rounded-lg bg-red-500/5 px-2 py-2 text-xs">
-                <div className="font-medium text-neutral-100">
+                <div className="font-medium text-primary">
                   Clear saved history?
                 </div>
-                <p className="mt-1 leading-relaxed text-neutral-400">
+                <p className="mt-1 leading-relaxed text-muted">
                   Your current canvas stays unless you also choose to delete
                   generated images.
                 </p>
-                <label className="mt-2 flex min-h-11 cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-neutral-300 hover:bg-white/5">
+                <label className="mt-2 flex min-h-11 cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-secondary hover:bg-fill/5">
                   <input
                     type="checkbox"
                     checked={deleteAssetsWithHistory}
                     onChange={(event) =>
                       setDeleteAssetsWithHistory(event.target.checked)
                     }
-                    className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/30 text-nvidia-green focus:ring-nvidia-green/50"
+                    className="mt-0.5 h-4 w-4 rounded border-separator/70 bg-control text-nvidia-green focus:ring-nvidia-green/50"
                   />
                   <span>
                     <span className="block font-medium">
                       Also delete generated images
                     </span>
-                    <span className="block text-[11px] text-neutral-500">
+                    <span className="block text-[0.75rem] text-muted">
                       This removes saved output assets, not downloaded copies.
                     </span>
                   </span>
@@ -353,7 +353,7 @@ export function HistoryDrawer() {
                     type="button"
                     onClick={() => setIsConfirmingClear(false)}
                     disabled={isClearing}
-                    className="min-h-11 rounded-lg px-3 text-xs font-medium text-neutral-300 hover:bg-white/5 disabled:opacity-50"
+                    className="min-h-11 rounded-lg px-3 text-xs font-medium text-secondary hover:bg-fill/5 disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -361,7 +361,7 @@ export function HistoryDrawer() {
                     type="button"
                     onClick={handleClearAll}
                     disabled={isClearing}
-                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-red-500/15 px-3 text-xs font-medium text-red-200 hover:bg-red-500/25 disabled:opacity-50"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-red-500/15 px-3 text-xs font-medium text-nvidia-red hover:bg-red-500/25 disabled:opacity-50"
                   >
                     <IconCheck size={15} />
                     {isClearing
@@ -379,7 +379,7 @@ export function HistoryDrawer() {
                 className={classNames(
                   'flex items-center gap-2 w-full px-2 py-2 text-xs',
                   'min-h-11',
-                  'text-neutral-500 hover:text-nvidia-red rounded-md',
+                  'text-muted hover:text-nvidia-red rounded-md',
                   'hover:bg-nvidia-red/5 transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
                 )}

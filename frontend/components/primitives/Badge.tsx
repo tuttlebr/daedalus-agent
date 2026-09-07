@@ -15,11 +15,9 @@ export type BadgeVariant =
 export type BadgeSize = 'xs' | 'sm' | 'md' | 'lg';
 
 const variantClasses: Record<BadgeVariant, string> = {
-  default:
-    'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700',
+  default: 'bg-panel dark:bg-control text-secondary border border-separator',
   primary: 'bg-nvidia-green/15 text-nvidia-green border border-nvidia-green/30',
-  secondary:
-    'bg-neutral-500/15 text-neutral-600 dark:text-neutral-400 border border-neutral-500/30',
+  secondary: 'bg-control/15 text-muted border border-separator/30',
   success: 'bg-nvidia-teal/15 text-nvidia-teal border border-nvidia-teal/30',
   warning:
     'bg-nvidia-orange/15 text-nvidia-orange border border-nvidia-orange/30',
@@ -28,7 +26,7 @@ const variantClasses: Record<BadgeVariant, string> = {
 };
 
 const sizeClasses: Record<BadgeSize, string> = {
-  xs: 'px-1.5 py-0.5 text-[10px] rounded-full',
+  xs: 'px-1.5 py-0.5 text-[0.75rem] rounded-full',
   sm: 'px-2 py-1 text-xs rounded-full',
   md: 'px-2.5 py-1 text-sm rounded-full',
   lg: 'px-3 py-1.5 text-sm rounded-full',

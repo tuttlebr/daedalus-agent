@@ -16,6 +16,7 @@ import {
 import { Logger } from '@/utils/logger';
 
 import { Skeleton } from '@/components/primitives/Skeleton';
+import { ModalSurface } from '@/components/surfaces/ModalSurface';
 
 const ImageSkeleton = ({
   className = '',
@@ -215,6 +216,7 @@ export const OptimizedImage = memo(
 
     const toggleFullscreen = useCallback((e: React.MouseEvent) => {
       e.stopPropagation();
+      (e.currentTarget as HTMLElement).focus({ preventScroll: true });
       setIsFullscreen((open) => !open);
     }, []);
 
@@ -311,19 +313,6 @@ export const OptimizedImage = memo(
       }
     };
 
-    // Prevent body scroll when fullscreen is open
-    useEffect(() => {
-      if (isFullscreen) {
-        document.body.style.overflow = 'hidden';
-      } else {
-        document.body.style.overflow = '';
-      }
-
-      return () => {
-        document.body.style.overflow = '';
-      };
-    }, [isFullscreen]);
-
     return (
       <>
         <div
@@ -340,11 +329,12 @@ export const OptimizedImage = memo(
 
           {/* Error state */}
           {error && (
-            <div className="flex items-center justify-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-              <IconExclamationCircle className="w-5 h-5 text-red-500 mr-2" />
-              <p className="text-red-600 dark:text-red-400 text-sm">
-                Failed to load image
-              </p>
+            <div
+              role="status"
+              className="flex items-center justify-center p-4 bg-nvidia-red/10 rounded-lg border border-nvidia-red/30"
+            >
+              <IconExclamationCircle className="w-5 h-5 text-nvidia-red mr-2" />
+              <p className="text-nvidia-red text-sm">Failed to load image</p>
             </div>
           )}
 
@@ -358,7 +348,7 @@ export const OptimizedImage = memo(
                 onLoad={handleImageLoad}
                 onError={handleImageError}
                 className={`
-                block max-w-full h-auto rounded-lg border border-gray-200 dark:border-gray-700
+                block max-w-full h-auto rounded-lg border border-separator
                 ${
                   enableFullscreen ? 'cursor-pointer hover:shadow-lg' : ''
                 } transition-shadow duration-200
@@ -371,15 +361,28 @@ export const OptimizedImage = memo(
                   transitionProperty: 'opacity, visibility',
                 }}
                 onClick={enableFullscreen ? toggleFullscreen : undefined}
+                role={enableFullscreen ? 'button' : undefined}
+                tabIndex={enableFullscreen ? 0 : undefined}
+                onKeyDown={
+                  enableFullscreen
+                    ? (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setIsFullscreen(true);
+                        }
+                      }
+                    : undefined
+                }
                 loading="lazy"
                 decoding="async"
               />
 
               {/* Action buttons overlay */}
               {!isLoading && showControls && (
-                <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 sm:opacity-100">
+                <div className="absolute top-2 right-2 flex gap-2 opacity-100 transition-opacity duration-200 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                   <button
-                    className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg"
+                    type="button"
+                    className="bg-panel text-primary p-2 rounded-lg shadow-sm"
                     onClick={handleDownload}
                     aria-label="Download image"
                     title="Download as PNG"
@@ -387,9 +390,10 @@ export const OptimizedImage = memo(
                     <IconDownload size={20} />
                   </button>
                   <button
-                    className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg"
+                    type="button"
+                    className="bg-panel text-primary p-2 rounded-lg shadow-sm"
                     onClick={toggleFullscreen}
-                    aria-label="View fullscreen"
+                    aria-label="View image fullscreen"
                     title="View fullscreen"
                   >
                     <IconMaximize size={20} />
@@ -402,14 +406,18 @@ export const OptimizedImage = memo(
 
         {/* Fullscreen Modal */}
         {isFullscreen && !error && (
-          <div
-            className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
-            onClick={toggleFullscreen}
+          <ModalSurface
+            open={isFullscreen}
+            onClose={() => setIsFullscreen(false)}
+            position="fullscreen"
+            aria-label="Image preview"
+            className="flex h-full w-full flex-col bg-app safe-y"
           >
             {/* Action buttons */}
-            <div className="absolute top-4 right-4 flex gap-2">
+            <div className="flex shrink-0 justify-end gap-2 px-4 pb-2">
               <button
-                className="text-white hover:text-gray-300 p-2 rounded-lg bg-black/50 hover:bg-black/70 transition-colors"
+                type="button"
+                className="text-primary p-2 rounded-lg bg-control"
                 onClick={handleDownload}
                 aria-label="Download image"
                 title="Download as PNG (Full Quality)"
@@ -417,7 +425,8 @@ export const OptimizedImage = memo(
                 <IconDownload size={24} />
               </button>
               <button
-                className="text-white hover:text-gray-300 p-2 rounded-lg bg-black/50 hover:bg-black/70 transition-colors"
+                type="button"
+                className="text-primary p-2 rounded-lg bg-control"
                 onClick={toggleFullscreen}
                 aria-label="Close fullscreen"
                 title="Close fullscreen"
@@ -427,21 +436,24 @@ export const OptimizedImage = memo(
             </div>
 
             {/* Fullscreen image - use full resolution if available */}
-            <div className="relative max-w-full max-h-full p-4">
+            <div className="relative flex min-h-0 flex-1 items-center justify-center p-4">
               <img
                 src={fullBlobUrl || imageSrc}
                 alt={alt}
-                className="max-w-full max-h-full object-contain"
+                className="h-full w-full object-contain"
                 onClick={(e) => e.stopPropagation()}
               />
               {/* Loading indicator while fetching full resolution */}
               {fullResolutionLoading && useThumbnail && imageRef && (
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-3 py-1 rounded-full">
+                <div
+                  role="status"
+                  className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-panel text-primary text-xs px-3 py-1 rounded-full"
+                >
                   Loading full resolution...
                 </div>
               )}
             </div>
-          </div>
+          </ModalSurface>
         )}
       </>
     );

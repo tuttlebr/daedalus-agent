@@ -29,7 +29,7 @@ export function EmptyState({
         <p className="font-serif text-[17px] italic leading-relaxed text-dark-text-muted">
           Nothing in this lane yet.
         </p>
-        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.18em] text-dark-text-subtle">
+        <p className="mt-2 font-mono text-[0.75rem] uppercase tracking-[0.18em] text-dark-text-subtle">
           try another filter
         </p>
       </div>
@@ -38,7 +38,7 @@ export function EmptyState({
 
   return (
     <div className="mx-auto max-w-md py-24 text-center">
-      <span className="mb-5 inline-grid h-12 w-12 place-items-center rounded-full bg-white/[0.04] text-dark-text-muted ring-1 ring-white/[0.04]">
+      <span className="mb-5 inline-grid h-12 w-12 place-items-center rounded-full bg-fill/[0.04] text-dark-text-muted ring-1 ring-separator/70">
         <IconRobot size={22} />
       </span>
       <p className="font-serif text-[18px] leading-relaxed text-dark-text-secondary">
@@ -46,7 +46,7 @@ export function EmptyState({
           ? 'Daedalus hasn’t surfaced anything yet.'
           : 'Daedalus is paused.'}
       </p>
-      <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.18em] text-dark-text-subtle">
+      <p className="mt-2 font-mono text-[0.75rem] uppercase tracking-[0.18em] text-dark-text-subtle">
         {enabled
           ? `next sweep in about ${formatInterval(intervalSeconds)}`
           : 'open the workspace to wake her up'}

@@ -212,7 +212,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
       <div className="sticky top-0 z-10">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="group w-full px-3 py-2 sm:px-4 sm:py-2.5 text-left text-sm font-medium text-white/90 hover:bg-white/5 transition-all flex items-center justify-between backdrop-blur-sm"
+          className="group w-full px-3 py-2 sm:px-4 sm:py-2.5 text-left text-sm font-medium text-white/90 hover:bg-fill/5 transition-all flex items-center justify-between backdrop-blur-sm"
         >
           <span className="flex items-center gap-2.5">
             <span className="text-sm font-semibold tracking-tight">
@@ -222,7 +222,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
               className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-all ${
                 resolvedIsStreaming
                   ? 'bg-nvidia-green/15 text-nvidia-green border border-nvidia-green/20'
-                  : 'bg-white/10 text-white/60 border border-white/10'
+                  : 'bg-fill/10 text-white/60 border border-separator/70'
               }`}
             >
               {resolvedIsStreaming && (
@@ -258,7 +258,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
 
       {isExpanded && (
         <div className="flex-1 flex flex-col min-h-0 animate-slide-in">
-          <div className="sticky top-0 z-10 border-b border-white/[0.06]">
+          <div className="sticky top-0 z-10 border-b border-separator/70">
             <ViewToggle
               searchTerm={searchTerm}
               onSearchChange={setSearchTerm}
@@ -279,7 +279,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
               <div className="p-3 flex justify-center">
                 <button
                   onClick={handleLoadMore}
-                  className="px-3 py-1.5 text-xs font-medium text-white/50 bg-white/[0.06] hover:bg-white/10 rounded-lg transition-colors border border-white/[0.06]"
+                  className="px-3 py-1.5 text-xs font-medium text-white/50 bg-fill/[0.06] hover:bg-fill/10 rounded-lg transition-colors border border-separator/70"
                 >
                   Load{' '}
                   {Math.min(STEPS_TO_LOAD_MORE, totalStepsCount - loadedCount)}{' '}

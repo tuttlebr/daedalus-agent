@@ -17,7 +17,8 @@ const sizeClasses: Record<AvatarSize, { container: string; icon: number }> = {
 
 const roleColors: Record<AvatarRole, string> = {
   user: 'bg-nvidia-green/20 text-nvidia-green border-nvidia-green/30',
-  assistant: 'bg-dark-bg-quaternary text-dark-text-secondary border-white/10',
+  assistant:
+    'bg-dark-bg-quaternary text-dark-text-secondary border-separator/70',
   agent: 'bg-nvidia-purple/20 text-nvidia-purple border-nvidia-purple/30',
   system: 'bg-nvidia-blue/20 text-nvidia-blue border-nvidia-blue/30',
 };

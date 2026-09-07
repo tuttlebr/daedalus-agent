@@ -3,8 +3,6 @@
 import React, { memo, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { useFocusTrap } from '@/hooks/useFocusTrap';
-
 import classNames from 'classnames';
 
 export type ModalSurfacePosition =
@@ -26,38 +24,9 @@ export interface ModalSurfaceProps {
 
 let activeModalCount = 0;
 let savedBodyOverflow = '';
-let savedMainAriaHidden: string | null = null;
 
-function isolateBackground(): () => void {
-  const main = document.getElementById('main-content');
-  if (activeModalCount === 0) {
-    savedBodyOverflow = document.body.style.overflow;
-    savedMainAriaHidden = main?.getAttribute('aria-hidden') ?? null;
-    document.body.style.overflow = 'hidden';
-    if (main) {
-      main.inert = true;
-      main.setAttribute('aria-hidden', 'true');
-    }
-  }
-  activeModalCount += 1;
-
-  return () => {
-    activeModalCount = Math.max(0, activeModalCount - 1);
-    if (activeModalCount !== 0) return;
-
-    document.body.style.overflow = savedBodyOverflow;
-    if (main) {
-      main.inert = false;
-      if (savedMainAriaHidden === null) main.removeAttribute('aria-hidden');
-      else main.setAttribute('aria-hidden', savedMainAriaHidden);
-    }
-  };
-}
-
-/**
- * Portal-backed modal foundation used by sheets, drawers, and fullscreen
- * document views. It owns focus, Escape, background isolation, and body scroll.
- */
+/** Native modal semantics provide focus containment, inert background, and
+ * correct stacking for nested sheets, including keyboard and screen readers. */
 export const ModalSurface = memo(
   ({
     open,
@@ -69,80 +38,110 @@ export const ModalSurface = memo(
     'aria-label': ariaLabel,
   }: ModalSurfaceProps) => {
     const [mounted, setMounted] = useState(false);
-    const previousFocusRef = useRef<HTMLElement | null>(null);
-    const { containerRef } = useFocusTrap({
-      isActive: open,
-      onEscape: onClose,
-      autoFocus: false,
-      restoreFocus: false,
-    });
-
+    const dialogRef = useRef<HTMLDialogElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
     useEffect(() => setMounted(true), []);
 
     useEffect(() => {
-      if (!open) return;
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      const restoreBackground = isolateBackground();
-      const focusTimer = window.setTimeout(() => {
-        containerRef.current?.focus();
-      }, 0);
-
+      const dialog = dialogRef.current;
+      if (!mounted || !open || !dialog) return;
+      const previousFocus = document.activeElement as HTMLElement | null;
+      if (activeModalCount++ === 0) {
+        savedBodyOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+      }
+      dialog.showModal();
+      // Focus the sheet itself to announce its title without opening a phone's
+      // keyboard. Tab then moves into its controls in document order.
+      panelRef.current?.focus({ preventScroll: true });
       return () => {
-        window.clearTimeout(focusTimer);
-        restoreBackground();
-        previousFocusRef.current?.focus();
-        previousFocusRef.current = null;
+        dialog.close();
+        if (--activeModalCount === 0)
+          document.body.style.overflow = savedBodyOverflow;
+        if (previousFocus?.isConnected)
+          previousFocus.focus({ preventScroll: true });
       };
-    }, [containerRef, open]);
+    }, [mounted, open]);
 
     if (!mounted || !open) return null;
-
-    const contentPosition: Record<ModalSurfacePosition, string> = {
+    const positions: Record<ModalSurfacePosition, string> = {
       left: 'items-stretch justify-start',
       right: 'items-stretch justify-end',
-      center: 'items-center justify-center p-4',
+      center: 'app-dialog-centered items-center justify-center safe-y',
       bottom: 'items-end justify-center',
       fullscreen: 'items-stretch justify-stretch',
     };
 
-    const panelAnimation: Record<ModalSurfacePosition, string> = {
-      left: 'animate-slide-panel-in',
-      right: 'animate-slide-panel-in',
-      center: 'animate-scale-in',
-      bottom: 'animate-slide-up',
-      fullscreen: 'animate-fade-in',
-    };
-
     return createPortal(
-      <div
-        className={classNames(
-          'fixed inset-0 z-[200] flex',
-          contentPosition[position],
-        )}
+      <dialog
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
+        className="app-dialog fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-hidden border-0 bg-transparent p-0"
+        onKeyDown={(event) => {
+          if (
+            event.key !== 'Tab' ||
+            (event.target instanceof Element &&
+              event.target.closest('dialog') !== event.currentTarget)
+          )
+            return;
+          const dialog = event.currentTarget;
+          const controls = Array.from(
+            dialog.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
+            ),
+          ).filter(
+            (el) =>
+              el.getClientRects().length && !el.closest('[hidden], [inert]'),
+          );
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (!first) {
+            event.preventDefault();
+            return;
+          }
+          if (
+            event.shiftKey &&
+            (document.activeElement === first ||
+              document.activeElement === panelRef.current)
+          ) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }}
+        onCancel={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }}
       >
         <div
           className={classNames(
-            'absolute inset-0 bg-black/60 backdrop-blur-xl animate-fade-in motion-reduce:animate-none',
-            backdropClassName,
-          )}
-          onPointerDown={onClose}
-          aria-hidden="true"
-        />
-        <div
-          ref={containerRef}
-          tabIndex={-1}
-          className={classNames(
-            'relative z-10 outline-none motion-reduce:animate-none',
-            panelAnimation[position],
-            className,
+            'app-safe-x relative flex h-full w-full',
+            positions[position],
           )}
         >
-          {children}
+          <div
+            className={classNames('absolute inset-0', backdropClassName)}
+            onPointerDown={onClose}
+            aria-hidden="true"
+          />
+          <div
+            ref={panelRef}
+            tabIndex={-1}
+            className={classNames(
+              'app-dialog-panel relative z-10 outline-none animate-fade-in motion-reduce:animate-none',
+              className,
+            )}
+          >
+            {children}
+          </div>
         </div>
-      </div>,
+      </dialog>,
       document.body,
     );
   },

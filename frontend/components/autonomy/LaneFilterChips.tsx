@@ -43,11 +43,11 @@ export function LaneFilterChips({
             aria-checked={active}
             onClick={() => onChange(filter)}
             className={classNames(
-              'group inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-[11px] font-medium tracking-wide transition md:min-h-[36px]',
+              'group inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-[0.75rem] font-medium tracking-wide transition md:min-h-[36px]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
               active
-                ? 'bg-white/[0.07] text-dark-text-primary'
-                : 'text-dark-text-muted hover:bg-white/[0.03] hover:text-dark-text-secondary',
+                ? 'bg-fill/[0.07] text-dark-text-primary'
+                : 'text-dark-text-muted hover:bg-fill/[0.03] hover:text-dark-text-secondary',
             )}
           >
             {accent && (
@@ -63,7 +63,7 @@ export function LaneFilterChips({
             <span>{label}</span>
             <span
               className={classNames(
-                'font-mono text-[10px] tabular-nums',
+                'font-mono text-[0.75rem] tabular-nums',
                 active ? 'text-dark-text-secondary' : 'text-dark-text-subtle',
               )}
             >

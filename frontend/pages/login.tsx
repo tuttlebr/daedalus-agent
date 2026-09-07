@@ -1,9 +1,17 @@
 import { GetServerSideProps } from 'next';
+import Head from 'next/head';
 
 import { LoginPage } from '@/components/auth';
 
 export default function Login() {
-  return <LoginPage />;
+  return (
+    <>
+      <Head>
+        <title>Sign in · Daedalus</title>
+      </Head>
+      <LoginPage />
+    </>
+  );
 }
 
 export const getServerSideProps: GetServerSideProps = async ({ query }) => {

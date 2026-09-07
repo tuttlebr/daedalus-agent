@@ -21,6 +21,7 @@ import { saveConversation } from '@/utils/app/conversation';
 import { Conversation } from '@/types/chat';
 
 import { useAuth } from '@/components/auth';
+import { AppearanceSettings } from '@/components/layout/AppearanceSettings';
 import { Button, IconButton, Input } from '@/components/primitives';
 import { GlassPanel } from '@/components/surfaces';
 
@@ -197,6 +198,17 @@ export const Sidebar = memo(() => {
 
   return (
     <GlassPanel className="w-full h-full flex flex-col">
+      <div className="flex min-h-14 items-center justify-between px-5 pt-safe-top">
+        <span className="text-lg font-semibold tracking-tight text-primary">
+          Daedalus
+        </span>
+        <IconButton
+          icon={<IconX size={18} />}
+          aria-label="Close sidebar"
+          variant="ghost"
+          onClick={() => setShowChatbar(false)}
+        />
+      </div>
       {/* Header */}
       <div className="flex-shrink-0 p-3 space-y-2">
         <Button
@@ -252,7 +264,7 @@ export const Sidebar = memo(() => {
                         if (e.key === 'Escape') setRenamingId(null);
                       }}
                       onBlur={commitRename}
-                      className="min-w-0 flex-1 rounded-md border border-white/10 bg-dark-bg-tertiary px-2 py-1.5 text-sm text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-nvidia-green/40"
+                      className="min-w-0 flex-1 rounded-md border border-separator/70 bg-dark-bg-tertiary px-2 py-1.5 text-sm text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-nvidia-green/40"
                     />
                     <button
                       type="button"
@@ -297,7 +309,7 @@ export const Sidebar = memo(() => {
                       aria-label="Cancel delete"
                       className={classNames(
                         rowActionClasses,
-                        'hover:bg-white/[0.06] hover:text-dark-text-primary',
+                        'hover:bg-fill/[0.06] hover:text-dark-text-primary',
                       )}
                       onClick={() => setConfirmingDeleteId(null)}
                     >
@@ -328,7 +340,7 @@ export const Sidebar = memo(() => {
                       ? isAutonomous
                         ? 'bg-nvidia-purple/10 border-l-2 border-nvidia-purple text-dark-text-primary'
                         : 'bg-nvidia-green/10 border-l-2 border-nvidia-green text-dark-text-primary'
-                      : 'text-dark-text-secondary hover:bg-white/[0.04] border-l-2 border-transparent',
+                      : 'text-dark-text-secondary hover:bg-fill/[0.04] border-l-2 border-transparent',
                   )}
                 >
                   <div className="flex items-center justify-between gap-1">
@@ -349,7 +361,7 @@ export const Sidebar = memo(() => {
                           title="Rename"
                           className={classNames(
                             rowActionClasses,
-                            'hover:bg-white/[0.06] hover:text-dark-text-primary',
+                            'hover:bg-fill/[0.06] hover:text-dark-text-primary',
                           )}
                           onClick={(e) => {
                             e.preventDefault();
@@ -365,7 +377,7 @@ export const Sidebar = memo(() => {
                           title="Download traces"
                           className={classNames(
                             rowActionClasses,
-                            'hover:bg-white/[0.06] hover:text-dark-text-primary',
+                            'hover:bg-fill/[0.06] hover:text-dark-text-primary',
                           )}
                           onClick={(e) => {
                             e.preventDefault();
@@ -402,13 +414,14 @@ export const Sidebar = memo(() => {
       </nav>
 
       {/* Footer */}
-      <div className="flex-shrink-0 p-3 border-t border-white/[0.06] space-y-1">
+      <div className="flex-shrink-0 max-h-[45%] overflow-y-auto p-3 border-t border-separator space-y-1">
+        <AppearanceSettings />
         <button
           onClick={() => {
             setActiveView('memory');
             closeSidebarOnMobile();
           }}
-          className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-white/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+          className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
         >
           <IconBrain size={16} />
           <span>Memory Center</span>
@@ -418,7 +431,7 @@ export const Sidebar = memo(() => {
             setActiveView('connections');
             closeSidebarOnMobile();
           }}
-          className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-white/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+          className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
         >
           <IconPlugConnected size={16} />
           <span>Connections</span>
@@ -459,7 +472,7 @@ export const Sidebar = memo(() => {
 
         <button
           onClick={() => logout()}
-          className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-dark-text-primary rounded-lg hover:bg-white/[0.04] transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+          className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-dark-text-primary rounded-lg hover:bg-fill/[0.04] transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
         >
           <IconLogout size={16} />
           <span>Sign Out</span>

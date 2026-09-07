@@ -2,31 +2,8 @@ import { Head, Html, Main, NextScript } from 'next/document';
 
 export default function Document() {
   return (
-    <Html lang="en" className="dark">
+    <Html lang="en">
       <Head>
-        {/* Preload critical fonts */}
-        <link
-          rel="preload"
-          href="/fonts/NVIDIASans_Rg.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
-        <link
-          rel="preload"
-          href="/fonts/NVIDIASans_Md.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
-        <link
-          rel="preload"
-          href="/fonts/NVIDIASans_Bd.woff2"
-          as="font"
-          type="font/woff2"
-          crossOrigin="anonymous"
-        />
-
         {/* Icons */}
         <link
           rel="apple-touch-icon"
@@ -58,7 +35,6 @@ export default function Document() {
         />
         <meta name="apple-mobile-web-app-title" content="Daedalus" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="theme-color" content="#76b900" />
         <meta name="description" content="AI Agent Interface" />
 
         {/* iOS Splash Screens */}
@@ -113,9 +89,9 @@ export default function Document() {
             __html: `
           try {
             var s = JSON.parse(localStorage.getItem('ui-settings') || '{}');
-            if (s && s.state && s.state.lightMode === 'light') {
-              document.documentElement.classList.remove('dark');
-            }
+            var mode = s && s.state && s.state.lightMode;
+            var dark = mode === 'dark' || (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.classList.toggle('dark', dark);
           } catch(e) {}
         `,
           }}

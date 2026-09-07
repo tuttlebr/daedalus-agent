@@ -84,33 +84,31 @@ export function OutputActionSheet({
     >
       <section
         aria-labelledby="selected-output-title"
-        className="max-h-[88dvh] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-neutral-950/98 pb-safe-bottom shadow-2xl"
+        className="max-h-[88dvh] overflow-y-auto rounded-t-3xl border-t border-separator/70 bg-app/98 pb-safe-bottom shadow-2xl"
       >
-        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-white/15" />
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-fill/15" />
         <header className="flex items-center justify-between px-4 pb-3 pt-2">
           <div>
             <h2
               id="selected-output-title"
-              className="text-base font-semibold text-neutral-100"
+              className="text-base font-semibold text-primary"
             >
               Selected image
             </h2>
-            <p className="mt-0.5 text-xs text-neutral-500">
-              Choose what to do next
-            </p>
+            <p className="mt-0.5 text-xs text-muted">Choose what to do next</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close selected image actions"
-            className="grid h-11 w-11 place-items-center rounded-full text-neutral-400 transition-colors hover:bg-white/5 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+            className="grid h-11 w-11 place-items-center rounded-full text-muted transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
           >
             <IconX size={20} />
           </button>
         </header>
 
         <div className="px-4 pb-4">
-          <div className="overflow-hidden rounded-2xl bg-black/30 ring-1 ring-white/10">
+          <div className="overflow-hidden rounded-2xl bg-control ring-1 ring-separator/70">
             <OptimizedImage
               imageRef={ref}
               alt={image.prompt}
@@ -181,10 +179,10 @@ function SheetAction({
   const classes = classNames(
     'inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2',
     emphasis
-      ? 'border-nvidia-green bg-nvidia-green text-black hover:bg-nvidia-green-dark focus-visible:ring-nvidia-green/50'
+      ? 'border-nvidia-green bg-action text-on-action hover:bg-nvidia-green-dark focus-visible:ring-nvidia-green/50'
       : destructive
-      ? 'border-red-500/25 text-red-300 hover:bg-red-500/10 focus-visible:ring-red-500/40'
-      : 'border-white/10 bg-white/[0.04] text-neutral-200 hover:bg-white/[0.08] focus-visible:ring-nvidia-green/40',
+      ? 'border-red-500/25 text-nvidia-red hover:bg-red-500/10 focus-visible:ring-red-500/40'
+      : 'border-separator/70 bg-fill/[0.04] text-secondary hover:bg-fill/[0.08] focus-visible:ring-nvidia-green/40',
     className,
   );
 

@@ -20,7 +20,7 @@ async function sendMessage(page: Page, message: string) {
 test('mobile Create controls stay separated and the keyboard collapses navigation', async ({
   page,
 }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile-chromium');
+  test.skip(!testInfo.project.name.startsWith('mobile-'));
   await login(page);
 
   await page.getByRole('button', { name: 'Create' }).click();

@@ -1,0 +1,91 @@
+# Apple HIG adaptation for the Daedalus PWA
+
+Daedalus remains a Next.js progressive web app. This implementation adapts
+Apple's interaction and visual guidance for touch on iPhone, resizable iPad
+windows, and pointer/keyboard use on Mac and other desktop browsers. It does
+not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
+
+## Design decisions
+
+- Content comes first: quiet solid backgrounds and cards, a readable chat
+  column, a gallery of actual images, concise empty states, and a single
+  accent color for interactive emphasis. The Autonomy feed retains its
+  editorial serif typography.
+- System typography uses San Francisco when installed on Apple platforms,
+  with local system fallbacks elsewhere. Fonts require no external network
+  requests. Text and captions use relative sizes and browser text scaling.
+- Semantic color roles in `styles/appearance.css` cover text, backgrounds,
+  controls, separators, and filled actions. Light, Dark, and System appearance
+  are available in the sidebar and sign-in screen. The System choice follows
+  changes while the app is open. Existing explicit saved choices are retained.
+- Translucency is reserved for navigation and toolbars. Content cards and
+  settings sheets use solid surfaces. Increased contrast and reduced
+  transparency remove backdrop filters; reduced motion removes transitions
+  and smooth scrolling. Forced-colors selection retains a visible outline.
+- Five peer destinations remain visible in the mobile tab bar. Commands are
+  placed in toolbars. Desktop navigation uses labeled tabs, a conversation
+  sidebar, arrow/Home/End navigation, and an adjustable divider. Visited tabs
+  retain drafts, selections, and scroll position.
+- Coarse-pointer controls have at least 44 CSS pixels of target height, including
+  iPad at desktop widths. Safe-area padding and the existing visual viewport
+  keyboard compensation remain part of the PWA shell. Zoom remains enabled.
+- Sheets, drawers, and the memory editor share native HTML dialog semantics for
+  modal stacking, inert background, focus containment, Escape, and focus return.
+  Mobile settings include an explicit Done action. Desktop popovers move focus
+  into their content and support Escape.
+- Permission and destructive-action confirmation remain explicit. Sign-in has
+  persistent labels and associated validation. Connection and memory copy
+  explains access and saved data without exposing internal storage details.
+- Installability, offline recovery, image creation/editing, chat streaming,
+  attachments, approvals, and generated document previews are retained.
+  The manifest uses the neutral launch background and current, correctly sized
+  Chat and sign-in screenshots.
+
+## Source guidance
+
+Reviewed September 7, 2026. Apple's documentation overview includes native
+framework choices; its linked HIG informs this web implementation.
+
+- [App design and UI](https://developer.apple.com/documentation/technologyoverviews/app-design-and-ui)
+- [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
+- [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
+- [Color](https://developer.apple.com/design/human-interface-guidelines/color)
+- [Typography](https://developer.apple.com/design/human-interface-guidelines/typography)
+- [Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars)
+
+## Verification
+
+`e2e/tests/hig-design.spec.ts` uses deterministic API fixtures to inspect all
+five destinations in light/dark appearance, enlarged text, reduced motion,
+increased contrast, navigation state, and modal keyboard behavior. Axe checks
+WCAG A/AA rules in each destination. Screenshots are saved with test results.
+The existing `ui-layout.spec.ts` checks the mobile keyboard and fullscreen
+HTML/Markdown. The agentic suite covers authenticated streaming, cancellation,
+uploads, approvals, and recovery against isolated test services.
+
+The browser matrix includes desktop Chromium, 393px Chromium and WebKit,
+834px iPad WebKit, and 320px Chromium. Tests cover text at 200%, saved image
+actions and editing, chat photo previews, appearance persistence, tab state
+across window resizing, and focus return. API fixtures contain no personal
+conversation data. Install previews are in `public/screenshots/`.
+
+With Node 22, Docker, and Playwright browser dependencies available, run:
+
+```sh
+npm test -- --run
+npm run lint
+npm run e2e -- hig-design.spec.ts ui-layout.spec.ts agentic-app.spec.ts
+```
+
+The e2e runner builds the production application and its workers and starts
+isolated Redis/object-store services. It removes its test services afterward.
+
+Validated locally on September 7, 2026: production build (including TypeScript
+and lint), 730 unit tests, and 46 browser regression tests passed. Three browser
+cases were intentionally skipped on platforms covered by another project.
+After the final compact-toolbar adjustment, all five affected phone-layout
+checks passed again, including keeping Create above the tab bar at 200% text.
+
+Browser emulation can verify the web implementation; it does not substitute
+for VoiceOver listening, physical iPhone keyboard behavior, or installation
+from Safari. Those device checks should accompany a production release.

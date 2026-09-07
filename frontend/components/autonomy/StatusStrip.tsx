@@ -41,19 +41,19 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
     const last = relativeTime(lastRunAt);
 
     return (
-      <div className="sticky top-0 z-30 -mx-4 mb-4 border-b border-white/[0.04] bg-[rgba(10,11,12,0.78)] px-4 py-3 backdrop-blur-xl md:-mx-6 md:px-6">
+      <div className="sticky top-0 z-30 -mx-4 mb-4 border-b border-separator/70 app-chrome px-4 py-3 backdrop-blur-xl md:-mx-6 md:px-6">
         <div className="mx-auto flex max-w-[720px] items-center gap-3">
           <PulseDot live={live} enabled={enabled} />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
               <h1 className="font-display text-base font-semibold tracking-tight text-dark-text-primary">
-                Daedalus
+                Autonomy
               </h1>
-              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-dark-text-subtle">
+              <span className="font-mono text-[0.75rem] uppercase tracking-[0.18em] text-dark-text-subtle">
                 {enabled ? (live ? 'thinking' : 'idle') : 'paused'}
               </span>
             </div>
-            <div className="mt-0.5 truncate font-mono text-[11px] text-dark-text-muted">
+            <div className="mt-0.5 truncate font-mono text-[0.75rem] text-dark-text-muted">
               <Meta>last {last}</Meta>
               {enabled && next && (
                 <>
@@ -70,7 +70,7 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
               {!wsConnected && (
                 <>
                   <Sep />
-                  <Meta className="text-amber-300/80">reconnecting…</Meta>
+                  <Meta className="text-nvidia-orange">reconnecting…</Meta>
                 </>
               )}
             </div>
@@ -109,7 +109,7 @@ function PulseDot({ live, enabled }: { live: boolean; enabled: boolean }) {
       <span
         className={classNames(
           'absolute inset-0 rounded-full',
-          enabled ? 'bg-nvidia-green' : 'bg-neutral-500',
+          enabled ? 'bg-nvidia-green' : 'bg-control',
           live && 'animate-ping opacity-60',
         )}
       />
@@ -118,7 +118,7 @@ function PulseDot({ live, enabled }: { live: boolean; enabled: boolean }) {
           'relative h-2 w-2 rounded-full',
           enabled
             ? 'bg-nvidia-green shadow-[0_0_10px_rgba(118,185,0,0.6)]'
-            : 'bg-neutral-500',
+            : 'bg-control',
         )}
       />
     </span>
@@ -155,7 +155,7 @@ const IconChrome = forwardRef<
       onClick={onClick}
       aria-label={label}
       disabled={disabled}
-      className="grid h-11 w-11 place-items-center rounded-full text-dark-text-muted transition hover:bg-white/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 disabled:pointer-events-none disabled:opacity-60"
+      className="grid h-11 w-11 place-items-center rounded-full text-dark-text-muted transition hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 disabled:pointer-events-none disabled:opacity-60"
     >
       {children}
     </button>

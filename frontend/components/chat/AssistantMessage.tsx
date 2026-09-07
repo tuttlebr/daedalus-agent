@@ -143,7 +143,7 @@ export const AssistantMessage = memo(
           {hasSteps && enableIntermediateSteps && !isStreaming && (
             <Suspense
               fallback={
-                <div className="h-8 bg-white/[0.02] rounded-lg animate-pulse mb-2" />
+                <div className="h-8 bg-fill/[0.02] rounded-lg animate-pulse mb-2" />
               }
             >
               <div className="mb-2 w-full min-w-0">
@@ -169,7 +169,7 @@ export const AssistantMessage = memo(
                 <div className="font-medium">{errorMessages!.message}</div>
                 {errorMessages!.category &&
                   errorMessages!.category !== 'unknown' && (
-                    <div className="text-[10px] uppercase tracking-wider text-dark-text-muted mt-0.5">
+                    <div className="text-[0.75rem] uppercase tracking-wider text-dark-text-muted mt-0.5">
                       {errorMessages!.category.replace('_', ' ')}
                     </div>
                   )}
@@ -208,14 +208,14 @@ export const AssistantMessage = memo(
                       ? 'p-0'
                       : [
                           'px-4 py-3 rounded-2xl rounded-tl-lg',
-                          'bg-dark-bg-secondary/80 border border-white/[0.06]',
+                          'bg-dark-bg-secondary/80 border border-separator/70',
                         ],
                     isStreaming && 'border-nvidia-green/20',
                   )}
                 >
                   {/* Long content header with document icon */}
                   {showDocumentHeader && (
-                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/[0.06]">
+                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-separator/70">
                       <div className="flex min-w-0 items-center gap-2 text-xs text-dark-text-muted">
                         <IconFileText size={14} className="text-nvidia-green" />
                         <span className="truncate">
@@ -230,7 +230,7 @@ export const AssistantMessage = memo(
                         <button
                           type="button"
                           onClick={() => setIsFullscreen(true)}
-                          className="grid h-11 w-11 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-white/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-9 md:w-9"
+                          className="grid h-11 w-11 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-9 md:w-9"
                           aria-label="View fullscreen"
                         >
                           <IconMaximize size={14} />
@@ -284,7 +284,7 @@ export const AssistantMessage = memo(
                     <button
                       type="button"
                       onClick={() => setIsExpanded(!isExpanded)}
-                      className="flex items-center gap-1.5 w-full mt-2 pt-2 border-t border-white/[0.04] text-xs font-medium text-nvidia-green hover:text-nvidia-green-light transition-colors"
+                      className="flex items-center gap-1.5 w-full mt-2 pt-2 border-t border-separator/70 text-xs font-medium text-nvidia-green hover:text-nvidia-green-light transition-colors"
                     >
                       {isExpanded ? (
                         <>
@@ -337,7 +337,7 @@ export const AssistantMessage = memo(
           backdropClassName="bg-dark-bg-primary/95"
         >
           {/* Toolbar */}
-          <div className="safe-top flex min-h-14 flex-shrink-0 items-center justify-between border-b border-white/[0.06] px-3 py-2 md:px-6">
+          <div className="safe-top flex min-h-14 flex-shrink-0 items-center justify-between border-b border-separator/70 px-3 py-2 md:px-6">
             <div className="flex items-center gap-2 text-sm text-dark-text-muted">
               <IconFileText size={16} className="text-nvidia-green" />
               <span>

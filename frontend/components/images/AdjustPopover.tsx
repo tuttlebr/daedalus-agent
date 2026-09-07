@@ -52,15 +52,15 @@ export const AdjustPopover = memo(function AdjustPopover({
       trigger={
         <DockIconTrigger disabled={disabled} aria-label="Adjust image" labeled>
           <IconAdjustmentsHorizontal size={17} />
-          <span>Adjust</span>
+          <span className="adjust-label">Adjust</span>
         </DockIconTrigger>
       }
     >
-      <div className="divide-y divide-white/[0.06]">
+      <div className="divide-y divide-separator">
         <section aria-labelledby="create-presets-heading" className="p-1">
           <h3
             id="create-presets-heading"
-            className="px-3 pt-3 text-xs font-medium uppercase tracking-wider text-neutral-500"
+            className="px-3 pt-3 text-xs font-medium uppercase tracking-wider text-muted"
           >
             Presets
           </h3>

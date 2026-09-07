@@ -207,7 +207,7 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
             <div ref={sentinelRef} className="h-16" aria-hidden />
           )}
           {visibleCount >= filtered.length && filtered.length > PAGE_SIZE && (
-            <p className="py-10 text-center font-mono text-[10px] uppercase tracking-[0.24em] text-dark-text-subtle">
+            <p className="py-10 text-center font-mono text-[0.75rem] uppercase tracking-[0.24em] text-dark-text-subtle">
               · end of feed ·
             </p>
           )}

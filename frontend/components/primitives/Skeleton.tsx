@@ -15,7 +15,7 @@ export const Skeleton = memo(
   ({ className = '', variant = 'text', width, height }: SkeletonProps) => (
     <div
       className={classNames(
-        'animate-pulse bg-white/5',
+        'animate-pulse bg-fill/5',
         variant === 'circular' && 'rounded-full',
         variant === 'rectangular' && 'rounded-lg',
         variant === 'text' && 'rounded h-4',

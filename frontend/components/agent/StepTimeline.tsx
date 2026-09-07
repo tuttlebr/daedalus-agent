@@ -110,8 +110,8 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
             transition-all duration-150
             ${
               selectedStep?.id === step.id
-                ? 'bg-white/15 shadow-[0_0_8px_rgba(118,185,0,0.15)]'
-                : 'hover:bg-white/[0.07]'
+                ? 'bg-fill/15 shadow-[0_0_8px_rgba(118,185,0,0.15)]'
+                : 'hover:bg-fill/[0.07]'
             }
             ${isActive ? 'bg-nvidia-green/[0.06]' : ''}
           `}
@@ -131,7 +131,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
                 e.stopPropagation();
                 toggleNode(step.id);
               }}
-              className="p-0.5 hover:bg-white/15 rounded transition-all flex-shrink-0"
+              className="p-0.5 hover:bg-fill/15 rounded transition-all flex-shrink-0"
             >
               {isExpanded ? (
                 <IconChevronDown size={14} className="text-white/50" />
@@ -198,9 +198,9 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
       <div className="p-4 space-y-2">
         {[...Array(3)].map((_, i) => (
           <div key={i} className="flex items-center gap-3 px-3 py-2">
-            <div className="w-4 h-4 rounded bg-white/10 animate-pulse" />
-            <div className="h-4 rounded bg-white/10 animate-pulse flex-1" />
-            <div className="w-12 h-4 rounded bg-white/10 animate-pulse" />
+            <div className="w-4 h-4 rounded bg-fill/10 animate-pulse" />
+            <div className="h-4 rounded bg-fill/10 animate-pulse flex-1" />
+            <div className="w-12 h-4 rounded bg-fill/10 animate-pulse" />
           </div>
         ))}
       </div>
@@ -222,7 +222,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
       </div>
 
       {selectedStep && (
-        <div className="w-full md:w-96 lg:w-[28rem] xl:w-[32rem] 2xl:w-[36rem] max-w-[40rem] border-l border-white/10 overflow-y-auto apple-glass-subtle">
+        <div className="w-full md:w-96 lg:w-[28rem] xl:w-[32rem] 2xl:w-[36rem] max-w-[40rem] border-l border-separator/70 overflow-y-auto apple-glass-subtle">
           <StepDetails
             consolidatedStep={selectedStep}
             onClose={() => setSelectedStep(null)}

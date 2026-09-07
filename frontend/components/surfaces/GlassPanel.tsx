@@ -19,9 +19,9 @@ export const GlassPanel = memo(
         ref={ref}
         className={classNames(
           'h-full flex flex-col',
-          'bg-dark-bg-secondary',
+          'app-chrome',
           position === 'left' ? 'border-r' : 'border-l',
-          'border-white/[0.06]',
+          'border-separator',
           className,
         )}
         {...props}

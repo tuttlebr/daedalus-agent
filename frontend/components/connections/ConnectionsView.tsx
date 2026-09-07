@@ -92,20 +92,19 @@ export function ConnectionsView() {
   ).length;
 
   return (
-    <section className="h-full overflow-y-auto bg-dark-bg-primary px-4 py-8 md:px-8">
+    <section className="app-page h-full overflow-y-auto bg-app px-4 pb-8 md:px-8">
       <div className="mx-auto max-w-4xl space-y-6">
         <header className="space-y-2">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-xl bg-nvidia-green/15 p-2 text-nvidia-green">
               <IconBrandGoogle size={24} aria-hidden="true" />
             </span>
-            <div>
-              <h1 className="text-2xl font-semibold text-dark-text-primary">
+            <div className="min-w-0 flex-1 basis-48">
+              <h1 className="break-words text-2xl font-semibold text-dark-text-primary">
                 Google Workspace
               </h1>
               <p className="text-sm text-dark-text-muted">
-                Review saved Google authorization records shared across your
-                chats.
+                Manage the Google services available in your chats.
               </p>
             </div>
           </div>
@@ -119,13 +118,13 @@ export function ConnectionsView() {
           />
           <div className="space-y-1 text-sm text-dark-text-secondary">
             <p className="font-medium text-dark-text-primary">
-              Authorize once per Workspace service, not once per chat.
+              You choose which services Daedalus can access.
             </p>
             <p>
-              Google exposes these as separate MCP resources, so the first use
-              of each service can still open its own consent flow. Saved tokens
-              remain in the server-side object store and are checked only when
-              the service is used. This page never retrieves their contents.
+              The first time you use each service, Google asks you to approve
+              access. Your authorization is saved securely for future chats.
+              Reconnect a service to sign in again, or manage access in your
+              Google Account.
             </p>
           </div>
         </GlassCard>

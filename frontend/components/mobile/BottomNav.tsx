@@ -76,11 +76,11 @@ export const BottomNav = memo(
 
     return (
       <nav
-        className="md:hidden flex-shrink-0 bg-black/60 backdrop-blur-xl border-t border-white/[0.06] safe-bottom z-40"
+        className="app-chrome md:hidden flex-shrink-0 border-t z-40"
         role="navigation"
         aria-label="Primary navigation"
       >
-        <div className="flex items-center justify-around px-2 h-14">
+        <div className="app-bottom-nav">
           {items.map(({ icon: Icon, label, active, onClick }) => (
             <button
               key={label}
@@ -88,22 +88,17 @@ export const BottomNav = memo(
               aria-label={label}
               aria-current={active ? 'page' : undefined}
               className={classNames(
-                'flex flex-col items-center justify-center gap-0.5',
-                'min-w-[52px] min-h-[48px] rounded-xl',
+                'app-nav-item flex flex-col items-center justify-center gap-1',
+
                 'transition-all duration-150 touch-manipulation motion-reduce:transition-none',
-                'active:scale-90 motion-reduce:active:scale-100',
+
                 active ? 'text-nvidia-green' : 'text-dark-text-muted',
               )}
             >
               <div className="relative">
-                <Icon size={22} />
-                {active && (
-                  <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-nvidia-green" />
-                )}
+                <Icon size={22} aria-hidden="true" />
               </div>
-              <span className="text-[11px] font-medium leading-none">
-                {label}
-              </span>
+              <span className="app-nav-label font-medium">{label}</span>
             </button>
           ))}
         </div>

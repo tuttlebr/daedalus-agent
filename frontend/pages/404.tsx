@@ -1,28 +1,29 @@
 import Link from 'next/link';
 
-import { GalaxyBackground } from '@/components/auth/GalaxyBackground';
-
 export default function Custom404() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-dark-bg-primary px-4">
-      <GalaxyBackground />
-      <div className="relative z-10 animate-morph-in text-center">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="safe-y flex min-h-screen flex-col items-center justify-center bg-dark-bg-primary px-4"
+    >
+      <div className="max-w-md text-center">
         <div className="mb-8">
           <img
             src="/favicon.png"
             alt="Daedalus"
-            className="h-16 w-auto mx-auto animate-galaxy-float"
+            className="h-16 w-auto mx-auto"
           />
         </div>
         <h1 className="mb-2 text-6xl font-bold text-dark-text-primary">404</h1>
         <p className="mb-8 text-lg text-dark-text-muted">Page Not Found</p>
         <Link
           href="/"
-          className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-white bg-nvidia-green rounded-xl hover:bg-nvidia-green-dark hover:shadow-glow-green transition-all duration-200"
+          className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-on-action bg-action rounded-xl hover:brightness-95 transition-colors duration-200"
         >
           Go Home
         </Link>
       </div>
-    </div>
+    </main>
   );
 }

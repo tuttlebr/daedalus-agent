@@ -16,44 +16,44 @@ export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary: `
-    bg-black dark:bg-white text-white dark:text-black
-    hover:bg-neutral-800 dark:hover:bg-neutral-200
+    bg-primary text-panel
+    hover:opacity-90
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-neutral-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg-primary
   `,
   accent: `
-    bg-nvidia-green text-white
-    hover:bg-nvidia-green-dark hover:shadow-[0_0_25px_rgba(118,185,0,0.5)]
+    bg-action text-on-action
+    hover:brightness-95
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-nvidia-green/40 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg-primary
   `,
   secondary: `
-    bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100
-    hover:bg-neutral-300 dark:hover:bg-neutral-700
+    bg-control text-primary
+    hover:bg-control
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-neutral-400/40
   `,
   ghost: `
-    bg-transparent text-neutral-700 dark:text-neutral-300
-    hover:bg-neutral-700/10 dark:hover:bg-neutral-300/10
+    bg-transparent text-secondary
+    hover:bg-control/10
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-neutral-400/40
   `,
   danger: `
     bg-red-600 text-white
-    hover:bg-red-700 hover:shadow-[0_0_20px_rgba(239,68,68,0.4)]
+    hover:bg-red-700
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-red-500/40
   `,
   success: `
     bg-emerald-600 text-white
-    hover:bg-emerald-700 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]
+    hover:bg-emerald-700
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-emerald-500/40
   `,
   outline: `
-    bg-transparent border-2 border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300
-    hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-500
+    bg-transparent border-2 border-separator text-secondary
+    hover:bg-panel dark:hover:bg-control hover:border-separator
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-neutral-400/40
   `,
@@ -99,7 +99,9 @@ export const Button = memo(
       return (
         <button
           ref={ref}
+          type="button"
           disabled={isDisabled}
+          aria-busy={isLoading || undefined}
           className={classNames(
             'inline-flex items-center justify-center gap-2 font-medium',
             'transition-all duration-200 ease-out',

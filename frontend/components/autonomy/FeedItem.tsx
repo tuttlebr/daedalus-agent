@@ -45,7 +45,7 @@ function FeedItemImpl({
         'group relative pl-7 outline-none transition-colors duration-200',
         'before:absolute before:left-[-5px] before:top-[7px] before:h-2.5 before:w-2.5 before:rounded-full before:transition-all',
         focused ? 'before:scale-110' : '',
-        focused && 'before:ring-2 before:ring-white/30',
+        focused && 'before:ring-2 before:ring-separator/70',
       )}
     >
       <span
@@ -66,7 +66,7 @@ function FeedItemImpl({
         )}
       />
 
-      <header className="flex items-baseline gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-dark-text-muted">
+      <header className="flex items-baseline gap-2 font-mono text-[0.75rem] uppercase tracking-[0.16em] text-dark-text-muted">
         <span>{LANE_LABELS[lane]}</span>
         <span aria-hidden>·</span>
         <time dateTime={new Date(item.createdAt).toISOString()}>
@@ -88,7 +88,7 @@ function FeedItemImpl({
         className={classNames(
           'mt-1 block w-full text-left font-display text-[17px] font-semibold leading-snug tracking-[-0.005em] text-dark-text-primary',
           'transition-colors duration-150',
-          hasBody && 'cursor-pointer hover:text-white',
+          hasBody && 'cursor-pointer hover:text-primary',
           !hasBody && 'cursor-default',
           'focus-visible:outline-none focus-visible:underline focus-visible:decoration-nvidia-green/40 focus-visible:underline-offset-4',
         )}
@@ -113,7 +113,7 @@ function FeedItemImpl({
           )}
         >
           <div className="min-h-0">
-            <p className="whitespace-pre-line border-l border-white/[0.05] pl-3 font-serif text-[15px] leading-[1.7] text-dark-text-secondary">
+            <p className="whitespace-pre-line border-l border-separator/70 pl-3 font-serif text-[15px] leading-[1.7] text-dark-text-secondary">
               {item.body}
             </p>
           </div>

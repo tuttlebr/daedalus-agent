@@ -8,12 +8,12 @@ import { useRouter } from 'next/router';
 
 import { Logger } from '@/utils/logger';
 
+import { AppearanceSettings } from '@/components/layout/AppearanceSettings';
 import { Button } from '@/components/primitives';
 import { Input } from '@/components/primitives';
 import { GlassCard } from '@/components/surfaces';
 
 import { useAuth } from './AuthProvider';
-import { GalaxyBackground } from './GalaxyBackground';
 
 const logger = new Logger('LoginPage');
 
@@ -62,10 +62,12 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-dark-bg-primary">
-      <GalaxyBackground />
-
-      <div className="relative z-10 w-full max-w-md px-4 animate-morph-in">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="min-h-[100dvh] flex items-center justify-center bg-app safe-y py-8"
+    >
+      <div className="w-full max-w-md px-4">
         <GlassCard variant="elevated" padding="lg" className="space-y-8">
           {/* Logo */}
           <div className="text-center">
@@ -73,23 +75,25 @@ export const LoginPage: React.FC = () => {
               <img src="/favicon.png" alt="Daedalus" className="h-16 w-auto" />
             </div>
             <h1 className="text-2xl font-bold text-dark-text-primary tracking-tight">
-              Sign In
+              Welcome to Daedalus
             </h1>
             <p className="mt-2 text-sm text-dark-text-muted">
-              Enter your credentials to continue
+              Sign in to your personal AI workspace.
             </p>
           </div>
 
           {/* Form */}
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-3">
-              <label htmlFor="username" className="sr-only">
+              <label
+                htmlFor="username"
+                className="block text-sm font-medium text-primary"
+              >
                 Username
               </label>
               <Input
                 id="username"
                 type="text"
-                placeholder="Username"
                 autoComplete="username"
                 required
                 value={username}
@@ -97,15 +101,19 @@ export const LoginPage: React.FC = () => {
                 disabled={isLoading}
                 leftIcon={<IconUser size={18} />}
                 error={!!error}
+                aria-invalid={!!error}
+                aria-describedby={error ? 'login-error' : undefined}
               />
 
-              <label htmlFor="password" className="sr-only">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-primary"
+              >
                 Password
               </label>
               <Input
                 id="password"
                 type="password"
-                placeholder="Password"
                 autoComplete="current-password"
                 required
                 value={password}
@@ -113,12 +121,18 @@ export const LoginPage: React.FC = () => {
                 disabled={isLoading}
                 leftIcon={<IconLock size={18} />}
                 error={!!error}
+                aria-invalid={!!error}
+                aria-describedby={error ? 'login-error' : undefined}
               />
             </div>
 
             {/* Error */}
             {error && (
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-nvidia-red/10 border border-nvidia-red/20 animate-shake">
+              <div
+                role="alert"
+                id="login-error"
+                className="flex items-start gap-3 p-3 rounded-lg bg-nvidia-red/10 border border-nvidia-red/20 animate-shake"
+              >
                 <IconAlertCircle
                   size={18}
                   className="text-nvidia-red flex-shrink-0 mt-0.5"
@@ -139,7 +153,10 @@ export const LoginPage: React.FC = () => {
             </Button>
           </form>
         </GlassCard>
+        <div className="mt-6">
+          <AppearanceSettings />
+        </div>
       </div>
-    </div>
+    </main>
   );
 };

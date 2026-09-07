@@ -490,9 +490,6 @@
 /* =================================================================
    BASE STYLES
    ================================================================= */
-* {
-  font-family: var(--font-sans);
-}
 
 /* Prevent iOS Safari auto-zoom on inputs below 16px */
 input,

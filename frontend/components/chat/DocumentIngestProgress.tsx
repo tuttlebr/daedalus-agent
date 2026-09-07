@@ -97,7 +97,7 @@ export const DocumentIngestProgress = memo(
     return (
       <div
         className={classNames(
-          'rounded-lg border border-white/[0.08] bg-dark-bg-secondary/80 px-4 py-3 shadow-sm',
+          'rounded-lg border border-separator/70 bg-dark-bg-secondary/80 px-4 py-3 shadow-sm',
           className,
         )}
         role="status"
@@ -144,11 +144,11 @@ export const DocumentIngestProgress = memo(
               {detail}
             </div>
             {metrics.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-dark-text-muted">
+              <div className="mt-2 flex flex-wrap gap-2 text-[0.75rem] text-dark-text-muted">
                 {metrics.map((item) => (
                   <span
                     key={item}
-                    className="rounded-md bg-white/[0.04] px-2 py-0.5"
+                    className="rounded-md bg-fill/[0.04] px-2 py-0.5"
                   >
                     {item}
                   </span>

@@ -42,7 +42,7 @@ export const MessageBubble = memo(
     if (message.role === 'system') {
       return (
         <div className="flex justify-center py-2">
-          <span className="px-3 py-1 text-xs text-dark-text-muted bg-white/[0.03] rounded-full border border-white/[0.04]">
+          <span className="px-3 py-1 text-xs text-dark-text-muted bg-fill/[0.03] rounded-full border border-separator/70">
             {message.content}
           </span>
         </div>

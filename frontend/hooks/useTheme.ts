@@ -1,33 +1,29 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
-import { useUISettingsStore, useLightMode } from '@/state';
+import { useUISettingsStore } from '@/state';
 
-/**
- * Hook that syncs the Zustand theme state with the document's `dark` class
- * and system preference. Returns the current mode and a toggle function.
- *
- * @example
- * const { mode, toggle, setMode } = useTheme();
- */
+/** Resolve the saved appearance, and keep System in sync while the app is open. */
 export function useTheme() {
-  const mode = useLightMode();
-  const setLightMode = useUISettingsStore((s) => s.setLightMode);
-  const toggleLightMode = useUISettingsStore((s) => s.toggleLightMode);
+  const mode = useUISettingsStore((s) => s.lightMode);
+  const setMode = useUISettingsStore((s) => s.setLightMode);
+  const [isDark, setIsDark] = useState(false);
 
-  // Sync dark class on <html> whenever mode changes
   useEffect(() => {
-    const root = document.documentElement;
-    if (mode === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = () => {
+      const dark = mode === 'dark' || (mode === 'system' && media.matches);
+      document.documentElement.classList.toggle('dark', dark);
+      setIsDark(dark);
+    };
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
   }, [mode]);
 
   return {
     mode,
-    isDark: mode === 'dark',
-    toggle: toggleLightMode,
-    setMode: setLightMode,
+    isDark,
+    setMode,
+    toggle: () => setMode(isDark ? 'light' : 'dark'),
   };
 }

@@ -29,32 +29,35 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
       role="radiogroup"
       aria-label="Image creation mode"
       className={classNames(
-        'inline-grid grid-cols-2 rounded-lg border border-white/10 bg-black/25 p-0.5',
+        'inline-grid grid-cols-2 rounded-lg border border-separator/70 bg-fill/5 p-0.5',
         fullWidth && 'w-full md:w-auto',
       )}
     >
       {MODES.map((item) => {
         const selected = mode === item.value;
         return (
-          <button
-            key={item.value}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            disabled={loading}
-            onClick={() => setMode(item.value)}
-            className={classNames(
-              'inline-flex h-11 min-w-[96px] items-center justify-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors md:h-8',
-              fullWidth && 'min-w-0 w-full',
-              selected
-                ? 'bg-white text-black'
-                : 'text-neutral-400 hover:bg-white/5 hover:text-neutral-100',
-              loading && 'cursor-not-allowed opacity-50',
-            )}
-          >
-            {item.icon}
-            {item.label}
-          </button>
+          <label key={item.value} className="relative min-w-0 cursor-pointer">
+            <input
+              type="radio"
+              name="image-creation-mode"
+              value={item.value}
+              checked={selected}
+              disabled={loading}
+              onChange={() => setMode(item.value)}
+              className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+            />
+            <span
+              className={classNames(
+                'flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm text-secondary transition-colors md:min-h-9',
+                'peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent',
+                selected && 'bg-panel font-semibold text-primary shadow-sm',
+                loading && 'cursor-not-allowed opacity-50',
+              )}
+            >
+              {item.icon}
+              {item.label}
+            </span>
+          </label>
         );
       })}
     </div>

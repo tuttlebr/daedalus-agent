@@ -58,13 +58,13 @@ export const ImagesDock = memo(function ImagesDock({
   return (
     <div
       data-chat-input
-      className="flex-none px-2 pb-2 pt-2 md:px-4 md:pb-safe-bottom"
+      className="flex-none max-h-full overflow-y-auto px-2 pb-2 pt-2 md:px-4 md:pb-safe-bottom"
     >
       <div
         className={classNames(
-          'w-full md:max-w-3xl md:mx-auto',
+          'image-composer w-full md:max-w-3xl md:mx-auto',
           'rounded-2xl backdrop-blur-xl',
-          'bg-neutral-900/80 border border-white/10',
+          'bg-panel/80 border border-separator/70',
           'shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]',
         )}
       >
@@ -89,13 +89,13 @@ export const ImagesDock = memo(function ImagesDock({
           disabled={loading}
           className={classNames(
             'w-full resize-none bg-transparent px-4 pt-3 pb-1',
-            'text-base text-neutral-100 placeholder:text-neutral-500 md:text-sm',
+            'text-base text-primary placeholder:text-muted md:text-sm',
             'focus:outline-none',
-            'max-h-[30vh] overflow-y-auto',
+            'min-h-[calc(1lh+1rem)] max-h-[30dvh] overflow-y-auto',
           )}
         />
 
-        <label className="flex items-center gap-2 px-4 py-2 text-xs text-neutral-400">
+        <label className="flex items-center gap-2 px-4 py-2 text-xs text-muted">
           <input
             type="checkbox"
             checked={guidance === 'exact'}
@@ -137,9 +137,9 @@ const DockActionsRow = memo(function DockActionsRow({
   return (
     <div
       data-create-actions
-      className="flex items-center justify-between gap-2 px-2 pb-2"
+      className="flex flex-wrap items-center justify-between gap-2 px-2 pb-2"
     >
-      <div className="flex min-w-0 items-center gap-0.5">
+      <div className="flex shrink-0 items-center gap-0.5">
         <div className="md:hidden">
           <AdjustPopover disabled={loading} />
         </div>
@@ -149,7 +149,7 @@ const DockActionsRow = memo(function DockActionsRow({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 pr-1">
+      <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2 pr-1">
         <SettingsSummary />
         {loading && onStop ? (
           <StopButton onClick={onStop} />
@@ -174,7 +174,7 @@ function MobileEditAssetsRow({ disabled }: { disabled: boolean }) {
   return (
     <div
       data-mobile-edit-assets
-      className="flex min-h-14 items-center gap-2 border-b border-white/[0.06] px-2 py-1.5 md:hidden"
+      className="flex min-h-14 items-center gap-2 border-b border-separator/70 px-2 py-1.5 md:hidden"
     >
       <AttachmentsPopover disabled={disabled} showLabel />
       {visibleImages.length > 0 ? (
@@ -187,7 +187,7 @@ function MobileEditAssetsRow({ disabled }: { disabled: boolean }) {
           {visibleImages.map((image, index) => (
             <div
               key={image.imageId}
-              className="h-9 w-9 flex-none overflow-hidden rounded-lg bg-neutral-900 ring-1 ring-white/10"
+              className="h-9 w-9 flex-none overflow-hidden rounded-lg bg-panel ring-1 ring-separator/70"
             >
               <OptimizedImage
                 imageRef={image}
@@ -200,13 +200,13 @@ function MobileEditAssetsRow({ disabled }: { disabled: boolean }) {
             </div>
           ))}
           {remaining > 0 && (
-            <span className="grid h-9 min-w-9 place-items-center rounded-lg bg-white/5 px-1 text-xs font-medium text-neutral-400">
+            <span className="grid h-9 min-w-9 place-items-center rounded-lg bg-fill/5 px-1 text-xs font-medium text-muted">
               +{remaining}
             </span>
           )}
         </div>
       ) : (
-        <span className="min-w-0 truncate text-xs text-neutral-500">
+        <span className="min-w-0 truncate text-xs text-muted">
           Required before applying an edit
         </span>
       )}
@@ -215,13 +215,9 @@ function MobileEditAssetsRow({ disabled }: { disabled: boolean }) {
 }
 
 function SettingsSummary() {
-  const model = useImagePanelStore((s) => s.model);
   const params = useImagePanelStore((s) => s.params);
-  const mode = useImagePanelStore(selectMode);
   const parts = [
-    model,
-    mode,
-    `${params.n ?? 1}x`,
+    `${params.n ?? 1} image${(params.n ?? 1) === 1 ? '' : 's'}`,
     params.size ?? 'auto',
     params.quality ?? 'auto',
   ];
@@ -230,10 +226,10 @@ function SettingsSummary() {
   return (
     <>
       {/* Condensed summary on phones so users can confirm settings at a glance */}
-      <span className="inline-flex rounded-full bg-white/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wider text-neutral-500 sm:hidden">
+      <span className="settings-summary inline-flex rounded-full bg-fill/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wider text-muted sm:hidden">
         {compactParts.join(' · ')}
       </span>
-      <span className="hidden rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500 sm:inline-flex">
+      <span className="settings-summary hidden rounded-full bg-fill/5 px-2 py-0.5 text-[0.75rem] font-medium uppercase tracking-wider text-muted sm:inline-flex">
         {parts.join(' · ')}
       </span>
     </>
@@ -282,8 +278,8 @@ function SubmitButton({
         'inline-flex h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold touch-manipulation',
         'transition-all',
         disabled
-          ? 'bg-white/5 text-neutral-600 cursor-not-allowed'
-          : 'bg-white text-black hover:bg-neutral-200 active:scale-95',
+          ? 'bg-fill/5 text-muted cursor-not-allowed'
+          : 'bg-action text-on-action hover:brightness-95',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
       )}
     >

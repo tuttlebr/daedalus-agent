@@ -1,6 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useState,
+  useRef,
+  type CSSProperties,
+} from 'react';
 
 import { GetServerSideProps } from 'next';
 import Head from 'next/head';
@@ -9,7 +15,6 @@ import {
   useKeyboardShortcuts,
   commonShortcuts,
 } from '@/hooks/useKeyboardShortcuts';
-import { useTheme } from '@/hooks/useTheme';
 import { useVisualViewportKeyboard } from '@/hooks/useVisualViewportKeyboard';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
@@ -44,7 +49,6 @@ import { v4 as uuidv4 } from 'uuid';
 const Home = () => {
   const { user } = useAuth();
   const userId = user?.username || 'anon';
-  useTheme();
 
   const workflow = getWorkflowName() || 'Daedalus';
   const visualViewport = useVisualViewportKeyboard();
@@ -291,22 +295,13 @@ const Home = () => {
           content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <meta name="format-detection" content="telephone=no" />
-        <meta
-          name="theme-color"
-          content="#000000"
-          media="(prefers-color-scheme: dark)"
-        />
-        <meta
-          name="theme-color"
-          content="#ffffff"
-          media="(prefers-color-scheme: light)"
-        />
         <link rel="icon" href="/favicon.png" />
       </Head>
 
       <main
         className="flex h-[var(--app-viewport-height,100dvh)] min-h-0 w-screen flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
         id="main-content"
+        tabIndex={-1}
         data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
         style={
           {
@@ -341,9 +336,47 @@ const Home = () => {
 
 export default Home;
 
+const APP_VIEWS = [
+  'chat',
+  'create',
+  'autonomy',
+  'memory',
+  'connections',
+] as const;
+
 function ActiveView() {
   const activeView = useUISettingsStore((s) => s.activeView);
+  const [visited, setVisited] = useState<string[]>([activeView]);
+  useEffect(() => {
+    setVisited((views) =>
+      views.includes(activeView) ? views : [...views, activeView],
+    );
+  }, [activeView]);
+  return (
+    <>
+      {APP_VIEWS.map((view) => (
+        <section
+          key={view}
+          id={`view-panel-${view}`}
+          role="tabpanel"
+          aria-label={view.charAt(0).toUpperCase() + view.slice(1)}
+          hidden={activeView !== view}
+          className="h-full min-w-0"
+        >
+          {(visited.includes(view) || activeView === view) && (
+            <ActiveViewContent view={view} />
+          )}
+        </section>
+      ))}
+    </>
+  );
+}
 
+function ActiveViewContent({
+  view: activeView,
+}: {
+  view: (typeof APP_VIEWS)[number];
+}) {
   if (activeView === 'create') {
     return (
       <ImagePanel

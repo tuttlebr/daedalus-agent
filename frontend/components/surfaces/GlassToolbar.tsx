@@ -19,9 +19,9 @@ export const GlassToolbar = memo(
       <div
         ref={ref}
         className={classNames(
-          'bg-surface-control backdrop-blur-xl',
+          'app-chrome',
           position === 'top' ? 'border-b' : 'border-t',
-          'border-white/[0.06]',
+          'border-separator',
           className,
         )}
         {...props}

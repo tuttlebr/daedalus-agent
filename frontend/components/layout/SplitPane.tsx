@@ -2,6 +2,8 @@
 
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
+import { useIsMobile } from '@/hooks/useMediaQuery';
+
 import { setUserSessionItem } from '@/utils/app/storage';
 
 import { useUISettingsStore } from '@/state';
@@ -26,7 +28,9 @@ const KEYBOARD_RESIZE_STEP = 16;
  */
 export const SplitPane = memo(
   ({ sidebar, children, className = '' }: SplitPaneProps) => {
-    const showChatbar = useUISettingsStore((s) => s.showChatbar);
+    const isMobile = useIsMobile();
+    const sidebarRequested = useUISettingsStore((s) => s.showChatbar);
+    const showChatbar = sidebarRequested && !isMobile;
     const chatbarWidth = useUISettingsStore((s) => s.chatbarWidth);
     const setChatbarWidth = useUISettingsStore((s) => s.setChatbarWidth);
 
@@ -133,7 +137,7 @@ export const SplitPane = memo(
             transition: isResizing ? 'none' : 'width 0.3s ease-out',
           }}
         >
-          {sidebar}
+          {!isMobile && sidebar}
         </div>
 
         {/* Resize handle: 1px visual line with an invisible ~12px hit area */}

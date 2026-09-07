@@ -41,8 +41,8 @@ interface ImagesCanvasProps {
 
 /**
  * Grid of generated outputs. Columns adapt to viewport:
- * mobile (2), tablet (3), desktop (4). Empty state shows faint
- * grid lines that telegraph where outputs will appear.
+ * mobile (2), tablet (3), desktop (4). Empty space is reserved for
+ * the introductory message until there are outputs to display.
  */
 export const ImagesCanvas = memo(function ImagesCanvas({
   images,
@@ -59,12 +59,10 @@ export const ImagesCanvas = memo(function ImagesCanvas({
   const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1023px)');
   const isLarge = useMediaQuery('(min-width: 1024px)');
   const cols = isMobile ? 2 : isTablet ? 3 : 4;
-  const baseRows = isMobile ? 3 : 2;
 
   const loadingSlots = loading ? Math.max(1, expectedCount) : 0;
   const populated = Math.max(images.length, loadingSlots);
-  const rows = Math.max(baseRows, Math.ceil(populated / cols));
-  const totalCells = cols * rows;
+  const totalCells = populated;
 
   const cells = useMemo(
     () => Array.from({ length: totalCells }, (_, i) => i),
@@ -75,13 +73,10 @@ export const ImagesCanvas = memo(function ImagesCanvas({
     <div className="relative w-full h-full">
       <div
         className={classNames(
-          'grid gap-0 h-full',
-          'divide-x divide-y divide-neutral-800/60',
-          'border-y border-neutral-800/60',
+          'grid h-full content-start gap-4 overflow-y-auto p-4',
         )}
         style={{
           gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
         }}
       >
         {cells.map((idx) => {
@@ -89,7 +84,7 @@ export const ImagesCanvas = memo(function ImagesCanvas({
           return (
             <div
               key={img ? img.imageId : `empty-${cols}-${idx}`}
-              className="relative group overflow-hidden min-h-0"
+              className="relative group aspect-square overflow-hidden rounded-2xl border border-separator bg-panel"
             >
               {img ? (
                 <CanvasTile
@@ -113,8 +108,8 @@ export const ImagesCanvas = memo(function ImagesCanvas({
         })}
       </div>
       {!loading && images.length === 0 && emptyState && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center p-5 pointer-events-none">
-          {emptyState}
+        <div className="absolute inset-0 z-10 flex overflow-y-auto p-5">
+          <div className="m-auto min-w-0">{emptyState}</div>
         </div>
       )}
     </div>
@@ -144,11 +139,11 @@ function LoadingCell({
   return (
     <div className="absolute inset-0 flex items-center justify-center">
       <div className="flex flex-col items-center gap-2 text-center">
-        <div className="w-6 h-6 rounded-full border-2 border-neutral-700 border-t-nvidia-green animate-spin" />
-        <div className="text-[11px] font-medium uppercase tracking-wider text-neutral-400">
+        <div className="w-6 h-6 rounded-full border-2 border-separator border-t-nvidia-green animate-spin" />
+        <div className="text-[0.75rem] font-medium uppercase tracking-wider text-muted">
           {label}
         </div>
-        <div className="text-[10px] text-neutral-600">
+        <div className="text-[0.75rem] text-muted">
           {index + 1}/{count} · {Math.floor(elapsedMs / 1000)}s
         </div>
       </div>
@@ -176,6 +171,7 @@ const CanvasTile = memo(function CanvasTile({
         selected && 'ring-2 ring-inset ring-nvidia-green/70',
       )}
       aria-label="Open generated image actions"
+      aria-pressed={selected}
     >
       <OptimizedImage
         imageRef={ref}
@@ -186,11 +182,11 @@ const CanvasTile = memo(function CanvasTile({
         className="w-full h-full bg-black/40 object-contain"
       />
       {image.partial && (
-        <div className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-neutral-200">
+        <div className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[0.75rem] font-medium uppercase tracking-wider text-white">
           Partial
         </div>
       )}
-      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 text-left text-[10px] font-medium text-white opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 text-left text-[0.75rem] font-medium text-white opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
         {selected ? 'Selected · view actions' : 'Tap to view actions'}
       </span>
     </button>

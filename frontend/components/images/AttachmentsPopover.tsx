@@ -141,7 +141,7 @@ export const AttachmentsPopover = memo(function AttachmentsPopover({
           <div className="relative">
             <IconPaperclip size={16} />
             {attachedCount > 0 && (
-              <span className="absolute -top-1 -right-2 min-w-[14px] h-[14px] px-1 rounded-full bg-nvidia-green text-black text-[9px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1 -right-2 min-w-[14px] h-[14px] px-1 rounded-full bg-action text-on-action text-[9px] font-bold flex items-center justify-center">
                 {attachedCount}
               </span>
             )}
@@ -177,7 +177,7 @@ export function EditAssetsPanel({
     <div
       className={classNames(
         layout === 'panel'
-          ? 'grid gap-4 border-b border-white/5 bg-neutral-950/80 p-3 md:grid-cols-[minmax(0,1fr)_260px]'
+          ? 'grid gap-4 border-b border-separator/70 bg-app/80 p-3 md:grid-cols-[minmax(0,1fr)_260px]'
           : 'p-4',
       )}
     >
@@ -192,8 +192,8 @@ export function EditAssetsPanel({
       <div
         className={classNames(
           layout === 'panel'
-            ? 'border-t border-white/5 pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0'
-            : 'mt-4 border-t border-white/5 pt-4',
+            ? 'border-t border-separator/70 pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0'
+            : 'mt-4 border-t border-separator/70 pt-4',
         )}
       >
         <MaskSection
@@ -286,14 +286,14 @@ function InputsSection({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
+        <div className="text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
           Input images {images.length > 0 && `(${images.length})`}
         </div>
         {images.length > 0 && (
           <button
             type="button"
             onClick={onClear}
-            className="min-h-11 rounded-lg px-2 text-xs uppercase tracking-wider text-neutral-500 transition-colors hover:bg-white/5 hover:text-neutral-100 md:min-h-8 md:text-[10px]"
+            className="min-h-11 rounded-lg px-2 text-xs uppercase tracking-wider text-muted transition-colors hover:bg-fill/5 hover:text-primary md:min-h-8 md:text-[0.75rem]"
           >
             Clear
           </button>
@@ -335,8 +335,8 @@ function InputsSection({
         disabled={disabled || uploading || images.length >= MAX_INPUTS}
         className={classNames(
           'min-h-11 w-full rounded-md py-2 text-xs md:min-h-9',
-          'border border-dashed border-white/10',
-          'text-neutral-400 hover:text-neutral-100 hover:border-white/20 hover:bg-white/5',
+          'border border-dashed border-separator/70',
+          'text-muted hover:text-primary hover:border-separator/70 hover:bg-fill/5',
           'transition-colors',
           (disabled || uploading || images.length >= MAX_INPUTS) &&
             'opacity-40 cursor-not-allowed',
@@ -348,12 +348,12 @@ function InputsSection({
           ? `Maximum ${MAX_INPUTS} images`
           : '+ Add images'}
       </button>
-      <p className="mt-2 text-xs leading-relaxed text-neutral-500 md:text-[10px]">
+      <p className="mt-2 text-xs leading-relaxed text-muted md:text-[0.75rem]">
         Reference uploaded images in your prompt as Image&nbsp;1, Image&nbsp;2,
         … Up to 30 MB each; full resolution is preserved.
       </p>
 
-      {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+      {error && <p className="text-xs text-nvidia-red mt-2">{error}</p>}
     </div>
   );
 }
@@ -420,12 +420,12 @@ function MaskSection({
 
   return (
     <div>
-      <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
+      <div className="mb-2 text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
         Mask for Image 1 (optional)
       </div>
       {mask ? (
         <div>
-          <div className="relative group w-24 h-24 rounded-md overflow-hidden bg-neutral-900 ring-1 ring-white/10">
+          <div className="relative group w-24 h-24 rounded-md overflow-hidden bg-panel ring-1 ring-separator/70">
             <OptimizedImage
               imageRef={{
                 imageId: mask.imageId,
@@ -464,8 +464,8 @@ function MaskSection({
             disabled={disabled || uploading || !canAttachMask}
             className={classNames(
               'min-h-11 w-full rounded-md py-2 text-xs md:min-h-9',
-              'border border-dashed border-white/10',
-              'text-neutral-400 hover:text-neutral-100 hover:border-white/20 hover:bg-white/5',
+              'border border-dashed border-separator/70',
+              'text-muted hover:text-primary hover:border-separator/70 hover:bg-fill/5',
               'transition-colors',
               (disabled || uploading || !firstImage) &&
                 'opacity-40 cursor-not-allowed',
@@ -479,7 +479,7 @@ function MaskSection({
               ? 'Uploading…'
               : '+ Add mask'}
           </button>
-          <p className="mt-2 text-xs leading-relaxed text-neutral-500 md:text-[10px]">
+          <p className="mt-2 text-xs leading-relaxed text-muted md:text-[0.75rem]">
             {!firstImage
               ? 'Add a PNG source image first. Masks use transparent PNGs.'
               : !primaryImageIsPng
@@ -488,7 +488,7 @@ function MaskSection({
           </p>
         </>
       )}
-      {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+      {error && <p className="text-xs text-nvidia-red mt-2">{error}</p>}
     </div>
   );
 }
@@ -502,7 +502,7 @@ function MaskOverlayPreview({
 }) {
   return (
     <div className="mt-2">
-      <div className="relative h-24 w-24 overflow-hidden rounded-md bg-neutral-900 ring-1 ring-white/10">
+      <div className="relative h-24 w-24 overflow-hidden rounded-md bg-panel ring-1 ring-separator/70">
         <OptimizedImage
           imageRef={{
             imageId: image.imageId,
@@ -524,7 +524,7 @@ function MaskOverlayPreview({
           className="absolute inset-0 h-full w-full object-cover opacity-50 mix-blend-screen"
         />
       </div>
-      <p className="mt-1 text-xs leading-snug text-neutral-500 md:text-[10px]">
+      <p className="mt-1 text-xs leading-snug text-muted md:text-[0.75rem]">
         Mask applies to Image 1.
       </p>
     </div>
@@ -541,7 +541,7 @@ function Thumb({
   onRemove: () => void;
 }) {
   return (
-    <div className="relative group aspect-square rounded-md overflow-hidden bg-neutral-900 ring-1 ring-white/10">
+    <div className="relative group aspect-square rounded-md overflow-hidden bg-panel ring-1 ring-separator/70">
       <OptimizedImage
         imageRef={{
           imageId: imageRef.imageId,

@@ -715,7 +715,7 @@ export const ChatInput = memo(
                           type="button"
                           onClick={() => dismissUpload(u.id)}
                           aria-label="Dismiss"
-                          className="p-0.5 rounded text-dark-text-muted hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                          className="p-0.5 rounded text-dark-text-muted hover:bg-fill/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
                         >
                           <IconX size={12} />
                         </button>
@@ -734,7 +734,7 @@ export const ChatInput = memo(
                             type="button"
                             onClick={() => cancelUpload(u.id)}
                             aria-label="Cancel upload"
-                            className="p-0.5 rounded text-dark-text-muted hover:bg-white/[0.05] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                            className="p-0.5 rounded text-dark-text-muted hover:bg-fill/[0.05] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
                           >
                             <IconX size={12} />
                           </button>
@@ -773,7 +773,7 @@ export const ChatInput = memo(
                     </span>
                     <button
                       onClick={() => removeAttachment(i)}
-                      className="p-0.5 rounded hover:bg-white/10 transition-colors"
+                      className="p-0.5 rounded hover:bg-fill/10 transition-colors"
                       aria-label="Remove attachment"
                     >
                       <IconX size={12} />
@@ -797,7 +797,7 @@ export const ChatInput = memo(
                   <select
                     value={selectedCollection}
                     onChange={(e) => setSelectedCollection(e.target.value)}
-                    className="flex-1 bg-dark-bg-tertiary text-dark-text-primary text-xs border border-white/10 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-nvidia-green/30"
+                    className="flex-1 bg-dark-bg-tertiary text-dark-text-primary text-xs border border-separator/70 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-nvidia-green/30"
                   >
                     <option value="">Select a knowledge base...</option>
                     <option value={INLINE_MODE}>

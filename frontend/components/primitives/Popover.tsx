@@ -1,6 +1,13 @@
 'use client';
 
-import React, { memo, useState, useRef, useEffect, useCallback } from 'react';
+import React, {
+  memo,
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useId,
+} from 'react';
 
 import { useIsMobile } from '@/hooks/useMediaQuery';
 
@@ -37,6 +44,7 @@ export const Popover = memo(
     const [mounted, setMounted] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
+    const panelId = useId();
     const isMobile = useIsMobile();
     const useSheet = sheetOnMobile && isMobile;
     const accessibleLabel =
@@ -67,13 +75,24 @@ export const Popover = memo(
     }, [open, close, useSheet]);
 
     useEffect(() => {
-      if (!open) return;
+      if (!open || useSheet) return;
+      const panel = panelRef.current;
+      const triggerButton =
+        containerRef.current?.querySelector<HTMLElement>('button');
+      panel?.focus({ preventScroll: true });
       const handler = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') close();
+        if (e.key === 'Escape' && !document.querySelector('dialog[open]')) {
+          e.preventDefault();
+          close();
+          triggerButton?.focus();
+        }
       };
       document.addEventListener('keydown', handler);
-      return () => document.removeEventListener('keydown', handler);
-    }, [open, close]);
+      return () => {
+        document.removeEventListener('keydown', handler);
+        if (panel?.contains(document.activeElement)) triggerButton?.focus();
+      };
+    }, [open, close, useSheet]);
 
     // Desktop viewport-collision clamp for floating panel.
     // Uses marginLeft so we don't clobber Tailwind's -translate-x-1/2 centering.
@@ -109,12 +128,14 @@ export const Popover = memo(
     };
 
     const triggerEl = React.cloneElement(trigger, {
-      onClick: (event: React.MouseEvent) => {
+      onClick: (event: React.MouseEvent<HTMLElement>) => {
+        event.currentTarget.focus({ preventScroll: true });
         trigger.props.onClick?.(event);
         if (!event.defaultPrevented) toggle();
       },
       'aria-expanded': open,
       'aria-haspopup': 'dialog',
+      'aria-controls': open && !useSheet ? panelId : undefined,
     });
 
     if (useSheet && mounted) {
@@ -130,21 +151,21 @@ export const Popover = memo(
             aria-label={accessibleLabel}
             className={classNames(
               'flex max-h-[85vh] w-full flex-col overflow-hidden',
-              'rounded-t-2xl bg-neutral-900/95 backdrop-blur-xl',
-              'border-t border-white/10',
+              'rounded-t-3xl bg-panel',
+              'border-t border-separator/70',
               className,
             )}
           >
-            <div className="flex-none border-b border-white/[0.06] px-4 pb-2 pt-2">
-              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/15" />
+            <div className="flex-none border-b border-separator/70 px-4 pb-2 pt-2">
+              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-fill/15" />
               <div className="flex min-h-11 items-center justify-between gap-3">
-                <h2 className="text-sm font-medium text-neutral-100">
+                <h2 className="text-sm font-medium text-primary">
                   {accessibleLabel}
                 </h2>
                 <button
                   type="button"
                   onClick={close}
-                  className="min-h-11 rounded-lg px-3 text-sm font-medium text-nvidia-green transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+                  className="min-h-11 rounded-lg px-3 text-sm font-medium text-nvidia-green transition-colors hover:bg-fill/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
                 >
                   Done
                 </button>
@@ -164,12 +185,14 @@ export const Popover = memo(
         {open && (
           <div
             ref={panelRef}
+            id={panelId}
+            tabIndex={-1}
             role="dialog"
             aria-label={accessibleLabel}
             className={classNames(
               'absolute z-50',
-              'bg-dark-bg-secondary/95 backdrop-blur-xl',
-              'border border-white/10 rounded-xl shadow-xl',
+              'bg-panel max-h-[70dvh] overflow-y-auto',
+              'border border-separator/70 rounded-xl shadow-xl',
               'animate-scale-in min-w-[200px]',
               positionClasses[position],
               alignClasses[align],

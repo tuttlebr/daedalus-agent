@@ -27,7 +27,7 @@ describe('ModalSurface', () => {
     document.body.innerHTML = '';
   });
 
-  it('isolates the background, closes on Escape, and restores the page', () => {
+  it('opens a native modal, handles cancellation, and restores scroll', () => {
     const onClose = vi.fn();
     act(() => {
       root.render(
@@ -47,12 +47,13 @@ describe('ModalSurface', () => {
     expect(
       document.querySelector('[role="dialog"]')?.getAttribute('aria-label'),
     ).toBe('Adjust image');
-    expect(main.inert).toBe(true);
-    expect(main.getAttribute('aria-hidden')).toBe('true');
+    expect(document.querySelector('dialog')?.open).toBe(true);
     expect(document.body.style.overflow).toBe('hidden');
 
     act(() => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      document
+        .querySelector('dialog')!
+        .dispatchEvent(new Event('cancel', { cancelable: true }));
     });
     expect(onClose).toHaveBeenCalledTimes(1);
 
@@ -64,8 +65,7 @@ describe('ModalSurface', () => {
       );
     });
 
-    expect(main.inert).toBe(false);
-    expect(main.hasAttribute('aria-hidden')).toBe(false);
+    expect(document.querySelector('dialog')).toBeNull();
     expect(document.body.style.overflow).toBe('');
   });
 });

@@ -67,7 +67,7 @@ export const Textarea = memo(
           disabled={disabled}
           onChange={handleChange}
           className={classNames(
-            'w-full font-sans resize-none',
+            'w-full min-h-[calc(1lh+1.5rem)] font-sans resize-none',
             'bg-dark-bg-tertiary text-dark-text-primary placeholder:text-dark-text-muted',
             'border rounded-xl px-4 py-3 text-sm',
             'transition-colors duration-200',
@@ -75,7 +75,7 @@ export const Textarea = memo(
             'touch-manipulation',
             error
               ? 'border-nvidia-red/50 focus:ring-nvidia-red/30 focus:border-nvidia-red'
-              : 'border-white/10 focus:ring-nvidia-green/30 focus:border-nvidia-green/50',
+              : 'border-separator/70 focus:ring-nvidia-green/30 focus:border-nvidia-green/50',
             disabled && 'opacity-50 cursor-not-allowed',
             className,
           )}

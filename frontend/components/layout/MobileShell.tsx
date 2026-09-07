@@ -2,6 +2,8 @@
 
 import React, { memo } from 'react';
 
+import { useIsMobile } from '@/hooks/useMediaQuery';
+
 import { GlassOverlay } from '@/components/surfaces';
 import { GlassPanel } from '@/components/surfaces';
 
@@ -21,27 +23,30 @@ export interface MobileShellProps {
  */
 export const MobileShell = memo(
   ({ sidebar, bottomNav, children, className = '' }: MobileShellProps) => {
+    const isMobile = useIsMobile();
     const showChatbar = useUISettingsStore((s) => s.showChatbar);
     const setShowChatbar = useUISettingsStore((s) => s.setShowChatbar);
 
     return (
       <div className={classNames('relative flex flex-col h-full', className)}>
         {/* Main content */}
-        <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+        <div className="app-safe-x min-h-0 flex-1 overflow-hidden">
+          {children}
+        </div>
 
         {/* Bottom navigation */}
         {bottomNav}
 
         {/* Sidebar overlay */}
         <GlassOverlay
-          open={showChatbar}
+          open={isMobile && showChatbar}
           onClose={() => setShowChatbar(false)}
           position="left"
           aria-label="Navigation menu"
         >
           <GlassPanel
             position="left"
-            className="w-[80vw] max-w-sm h-full safe-top safe-bottom"
+            className="w-[min(22rem,calc(100vw-2rem))] h-full safe-bottom"
           >
             {sidebar}
           </GlassPanel>

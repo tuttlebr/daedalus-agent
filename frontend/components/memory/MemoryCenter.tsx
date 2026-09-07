@@ -15,7 +15,7 @@ import {
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 
 import { Badge, Button } from '@/components/primitives';
-import { GlassCard } from '@/components/surfaces';
+import { GlassCard, ModalSurface } from '@/components/surfaces';
 
 type MemoryFact = {
   id: string;
@@ -354,7 +354,7 @@ export function MemoryCenter() {
   const canNext = offset + PAGE_SIZE < page.total;
 
   return (
-    <section className="h-full overflow-y-auto bg-dark-bg-primary px-4 py-8 md:px-8">
+    <section className="app-page h-full overflow-y-auto bg-app px-4 pb-8 md:px-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -366,9 +366,8 @@ export function MemoryCenter() {
                 Memory Center
               </h1>
               <p className="max-w-2xl text-sm text-dark-text-muted">
-                Review the durable facts Daedalus can recall and the user text
-                they came from. Automatic memory applies to every authenticated
-                chat.
+                Review what Daedalus remembers, where it came from, and what you
+                want to change.
               </p>
             </div>
           </div>
@@ -392,10 +391,9 @@ export function MemoryCenter() {
             size={19}
           />
           <p>
-            Daedalus starts a conversation with a bounded memory brief, searches
-            auto-refreshing Knowledge Pages during the conversation, and retains
-            a sanitized, role-labelled user request and final answer afterward.
-            Raw tool traces are never retained automatically.
+            Daedalus uses memories to personalize your chats and saves useful
+            details from your requests and its answers. You can review, edit, or
+            delete them here. Tool activity is not saved automatically.
           </p>
         </GlassCard>
 
@@ -403,7 +401,7 @@ export function MemoryCenter() {
           <GlassCard variant="subtle" className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium text-dark-text-primary">
-                Automatic retention health
+                Memory activity
               </p>
               <span className="text-xs text-dark-text-muted">
                 Last {retentionStatus.total} operations
@@ -414,7 +412,7 @@ export function MemoryCenter() {
                 Completed {retentionStatus.counts.completed || 0}
               </Badge>
               <Badge variant="secondary">
-                No durable facts {retentionStatus.counts.zero_fact || 0}
+                No new memories {retentionStatus.counts.zero_fact || 0}
               </Badge>
               <Badge variant="secondary">
                 Pending{' '}
@@ -436,8 +434,9 @@ export function MemoryCenter() {
         )}
 
         <div
-          className="flex items-center gap-2 border-b border-white/[0.08]"
+          className="flex flex-wrap items-center gap-1 border-b border-separator/70"
           role="tablist"
+          aria-label="Memory categories"
         >
           {(['pages', 'memories', 'sources'] as const).map((item) => (
             <button
@@ -445,13 +444,37 @@ export function MemoryCenter() {
               type="button"
               role="tab"
               aria-selected={tab === item}
+              tabIndex={tab === item ? 0 : -1}
+              onKeyDown={(event) => {
+                const tabs = Array.from(
+                  event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+                    '[role="tab"]',
+                  ),
+                );
+                const index = tabs.indexOf(event.currentTarget);
+                const next =
+                  event.key === 'ArrowRight'
+                    ? (index + 1) % tabs.length
+                    : event.key === 'ArrowLeft'
+                    ? (index + tabs.length - 1) % tabs.length
+                    : event.key === 'Home'
+                    ? 0
+                    : event.key === 'End'
+                    ? tabs.length - 1
+                    : -1;
+                if (next !== -1) {
+                  event.preventDefault();
+                  tabs[next].click();
+                  tabs[next].focus();
+                }
+              }}
               onClick={() => {
                 setTab(item);
                 setOffset(0);
                 setSelectedPage(null);
                 setSelectedSource(null);
               }}
-              className={`border-b-2 px-4 py-3 text-sm font-medium capitalize transition-colors ${
+              className={`min-h-11 border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
                 tab === item
                   ? 'border-nvidia-green text-nvidia-green'
                   : 'border-transparent text-dark-text-muted hover:text-dark-text-primary'
@@ -486,7 +509,7 @@ export function MemoryCenter() {
                   ? 'Search remembered facts'
                   : 'Search source IDs'
               }
-              className="min-h-touch-min w-full rounded-lg border border-white/[0.1] bg-black/20 py-2 pl-10 pr-3 text-sm text-dark-text-primary outline-none focus:border-nvidia-green/60"
+              className="min-h-touch-min w-full rounded-lg border border-separator/70 bg-fill/5 py-2 pl-10 pr-3 text-sm text-dark-text-primary outline-none focus:border-nvidia-green/60"
             />
           </label>
           {tab === 'memories' && (
@@ -497,7 +520,7 @@ export function MemoryCenter() {
                 setOffset(0);
               }}
               aria-label="Memory type"
-              className="min-h-touch-min rounded-lg border border-white/[0.1] bg-dark-bg-secondary px-3 text-sm text-dark-text-primary"
+              className="min-h-touch-min rounded-lg border border-separator/70 bg-dark-bg-secondary px-3 text-sm text-dark-text-primary"
             >
               <option value="">All types</option>
               <option value="world">Facts</option>
@@ -549,7 +572,7 @@ export function MemoryCenter() {
                   type="button"
                   aria-label="Close Knowledge Page"
                   onClick={() => setSelectedPage(null)}
-                  className="rounded-lg p-2 text-dark-text-muted hover:bg-white/[0.05]"
+                  className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
                 >
                   <IconX size={18} />
                 </button>
@@ -559,7 +582,7 @@ export function MemoryCenter() {
                   {selectedPage.description}
                 </p>
               )}
-              <article className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-white/[0.08] bg-black/20 p-4 text-sm text-dark-text-secondary">
+              <article className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-separator/70 bg-fill/5 p-4 text-sm text-dark-text-secondary">
                 {selectedPage.body || 'This page is still generating.'}
               </article>
             </GlassCard>
@@ -629,7 +652,7 @@ export function MemoryCenter() {
                       <button
                         type="button"
                         aria-label="Edit memory"
-                        className="rounded-lg p-2 text-dark-text-muted hover:bg-white/[0.05] hover:text-dark-text-primary"
+                        className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05] hover:text-dark-text-primary"
                         onClick={() => {
                           setEditing(memory);
                           setEditText(memory.text);
@@ -654,7 +677,7 @@ export function MemoryCenter() {
                     {memory.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="rounded bg-white/[0.05] px-2 py-1 text-[11px] text-dark-text-muted"
+                        className="rounded bg-fill/[0.05] px-2 py-1 text-[0.75rem] text-dark-text-muted"
                       >
                         {tag}
                       </span>
@@ -680,12 +703,12 @@ export function MemoryCenter() {
                 type="button"
                 aria-label="Close source"
                 onClick={() => setSelectedSource(null)}
-                className="rounded-lg p-2 text-dark-text-muted hover:bg-white/[0.05]"
+                className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
               >
                 <IconX size={18} />
               </button>
             </div>
-            <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-white/[0.08] bg-black/20 p-4 font-sans text-sm text-dark-text-secondary">
+            <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-separator/70 bg-fill/5 p-4 font-sans text-sm text-dark-text-secondary">
               {selectedSource.original_text ||
                 'Raw source text is unavailable.'}
             </pre>
@@ -735,9 +758,9 @@ export function MemoryCenter() {
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-3 text-sm text-dark-text-muted">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-dark-text-muted">
           <span>{page.total} total</span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="secondary"
               size="sm"
@@ -786,7 +809,10 @@ export function MemoryCenter() {
             </Button>
           ) : (
             <div className="space-y-2">
-              <label className="block text-sm text-dark-text-secondary">
+              <label
+                htmlFor="clear-memory-confirmation"
+                className="block text-sm text-dark-text-secondary"
+              >
                 Type{' '}
                 <span className="font-mono text-dark-text-primary">
                   {CLEAR_CONFIRMATION}
@@ -795,9 +821,10 @@ export function MemoryCenter() {
               </label>
               <div className="flex flex-wrap gap-2">
                 <input
+                  id="clear-memory-confirmation"
                   value={clearText}
                   onChange={(event) => setClearText(event.target.value)}
-                  className="min-h-touch-min min-w-[260px] flex-1 rounded-lg border border-nvidia-red/30 bg-black/20 px-3 text-sm text-dark-text-primary outline-none"
+                  className="min-h-touch-min min-w-0 w-full flex-auto rounded-lg border border-nvidia-red/30 bg-fill/5 px-3 text-sm text-dark-text-primary outline-none"
                 />
                 <Button
                   variant="danger"
@@ -825,11 +852,11 @@ export function MemoryCenter() {
       </div>
 
       {editing && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          role="dialog"
-          aria-modal="true"
+        <ModalSurface
+          open
+          onClose={() => setEditing(null)}
           aria-label="Edit memory"
+          className="w-full max-w-xl"
         >
           <GlassCard className="w-full max-w-xl space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -840,7 +867,7 @@ export function MemoryCenter() {
                 type="button"
                 aria-label="Close editor"
                 onClick={() => setEditing(null)}
-                className="rounded-lg p-2 text-dark-text-muted hover:bg-white/[0.05]"
+                className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
               >
                 <IconX size={18} />
               </button>
@@ -849,8 +876,8 @@ export function MemoryCenter() {
               value={editText}
               onChange={(event) => setEditText(event.target.value)}
               rows={6}
-              autoFocus
-              className="w-full rounded-lg border border-white/[0.1] bg-black/20 p-3 text-sm text-dark-text-primary outline-none focus:border-nvidia-green/60"
+              aria-label="Memory text"
+              className="w-full rounded-lg border border-separator/70 bg-fill/5 p-3 text-sm text-dark-text-primary outline-none focus:border-nvidia-green/60"
             />
             <div className="flex justify-end gap-2">
               <Button
@@ -871,7 +898,7 @@ export function MemoryCenter() {
               </Button>
             </div>
           </GlassCard>
-        </div>
+        </ModalSurface>
       )}
     </section>
   );

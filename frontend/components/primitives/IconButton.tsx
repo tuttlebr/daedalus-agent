@@ -15,44 +15,44 @@ export type IconButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 const variantClasses: Record<IconButtonVariant, string> = {
   default: `
-    bg-neutral-100/80 dark:bg-neutral-800/60
-    text-neutral-600 dark:text-neutral-400
-    hover:bg-neutral-200 dark:hover:bg-neutral-700
-    hover:text-neutral-900 dark:hover:text-neutral-100
+    bg-panel/80 dark:bg-control/60
+    text-muted
+    hover:bg-control
+    hover:text-primary
     active:scale-95
     focus-visible:ring-2 focus-visible:ring-neutral-400/40
   `,
   ghost: `
     bg-transparent
-    text-neutral-500 dark:text-neutral-400
-    hover:bg-neutral-100 dark:hover:bg-neutral-800
-    hover:text-neutral-900 dark:hover:text-neutral-100
+    text-muted
+    hover:bg-panel dark:hover:bg-control
+    hover:text-primary
     active:scale-95
     focus-visible:ring-2 focus-visible:ring-neutral-400/40
   `,
   solid: `
-    bg-black dark:bg-white text-white dark:text-black
-    hover:bg-neutral-800 dark:hover:bg-neutral-200
+    bg-primary text-panel
+    hover:opacity-90
     active:scale-95
     focus-visible:ring-2 focus-visible:ring-neutral-400/40
   `,
   accent: `
-    bg-nvidia-green text-white
-    hover:bg-nvidia-green-dark hover:shadow-[0_0_20px_rgba(118,185,0,0.4)]
+    bg-action text-on-action
+    hover:brightness-95
     active:scale-95
     focus-visible:ring-2 focus-visible:ring-nvidia-green/40
   `,
   outline: `
     bg-transparent
-    border border-neutral-300 dark:border-neutral-600
-    text-neutral-600 dark:text-neutral-400
-    hover:bg-neutral-100 dark:hover:bg-neutral-800
-    hover:border-neutral-400 dark:hover:border-neutral-500
+    border border-separator
+    text-muted
+    hover:bg-panel dark:hover:bg-control
+    hover:border-separator
     active:scale-95
     focus-visible:ring-2 focus-visible:ring-neutral-400/40
   `,
   danger: `
-    bg-transparent text-neutral-500 dark:text-neutral-400
+    bg-transparent text-muted
     hover:bg-red-100 dark:hover:bg-red-900/30
     hover:text-red-600 dark:hover:text-red-400
     active:scale-95
@@ -106,6 +106,7 @@ export const IconButton = memo(
           ref={ref}
           type="button"
           disabled={isDisabled}
+          aria-busy={isLoading || undefined}
           aria-label={ariaLabel}
           title={tooltip || ariaLabel}
           className={classNames(

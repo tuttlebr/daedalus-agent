@@ -35,11 +35,34 @@ export default defineConfig({
     },
     {
       name: 'mobile-chromium',
-      testMatch: /ui-layout\.spec\.ts/,
+      testMatch: /(?:ui-layout|hig-design)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 393, height: 852 },
         deviceScaleFactor: 3,
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: 'mobile-webkit',
+      testMatch: /(?:ui-layout|hig-design)\.spec\.ts/,
+      use: { ...devices['iPhone 15'], viewport: { width: 393, height: 852 } },
+    },
+    {
+      name: 'tablet-webkit',
+      testMatch: /hig-design\.spec\.ts/,
+      use: {
+        ...devices['iPad Pro 11'],
+        viewport: { width: 834, height: 1194 },
+      },
+    },
+    {
+      name: 'compact-chromium',
+      testMatch: /hig-design\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 320, height: 740 },
         hasTouch: true,
         isMobile: true,
       },

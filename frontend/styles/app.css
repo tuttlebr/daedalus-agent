@@ -1,0 +1,3 @@
+/* Keep the cascade explicit: import sorting must not reorder these layers. */
+@import './globals.css';
+@import './appearance.css';

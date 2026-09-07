@@ -103,14 +103,14 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
       <div>
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <div className="text-sm font-medium text-neutral-100">Settings</div>
+            <div className="text-sm font-medium text-primary">Settings</div>
           </div>
-          <span className="rounded-full bg-white/5 px-2 py-1 text-xs text-neutral-400 md:text-[10px]">
+          <span className="rounded-full bg-fill/5 px-2 py-1 text-xs text-muted md:text-[0.75rem]">
             {mode}
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-3">
           <Select
             label="Model"
             value={model}
@@ -173,7 +173,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
             }
           />
           {params.background === 'transparent' && (
-            <p className="col-span-2 text-[11px] leading-relaxed text-neutral-400">
+            <p className="col-span-full text-[0.75rem] leading-relaxed text-muted">
               Transparent output uses PNG or WebP. For best results, describe an
               isolated subject and avoid asking for a backdrop or scene.
             </p>
@@ -210,11 +210,12 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
       </div>
 
       {mode === 'edit' && (
-        <div className="border-t border-white/5 pt-4">
-          <label className="mb-2 block text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
+        <div className="border-t border-separator/70 pt-4">
+          <label className="mb-2 block text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
             Preserve list
           </label>
           <Textarea
+            aria-label="Preserve list"
             value={preserveList}
             onChange={(e) => setPreserveList(e.target.value)}
             placeholder="face, pose, clothing, camera angle, lighting"
@@ -277,10 +278,11 @@ function SizeControl({
   };
 
   return (
-    <div className="col-span-2">
+    <div className="col-span-full">
       <FieldLabel>Size</FieldLabel>
       <div className="grid grid-cols-[1fr_auto] gap-2">
         <select
+          aria-label="Size"
           value={customActive || draftingCustom ? 'custom' : value ?? ''}
           onChange={(e) => {
             setError(null);
@@ -305,7 +307,7 @@ function SizeControl({
         <button
           type="button"
           onClick={startCustom}
-          className="h-11 rounded-md border border-white/10 bg-black/30 px-2 text-sm text-neutral-300 transition-colors hover:bg-white/5 hover:text-neutral-100 md:h-9 md:text-xs"
+          className="h-11 rounded-md border border-separator/70 bg-control px-2 text-sm text-secondary transition-colors hover:bg-fill/5 hover:text-primary md:min-h-9 md:text-xs"
         >
           Custom
         </button>
@@ -320,6 +322,7 @@ function SizeControl({
             value={width}
             onChange={(e) => setWidth(e.target.value)}
             placeholder="Width"
+            aria-label="Image width"
             className={fieldClassName}
           />
           <input
@@ -330,25 +333,26 @@ function SizeControl({
             value={height}
             onChange={(e) => setHeight(e.target.value)}
             placeholder="Height"
+            aria-label="Image height"
             className={fieldClassName}
           />
           <button
             type="button"
             onClick={applyCustom}
-            className="h-11 rounded-md bg-white px-3 text-sm font-medium text-black transition-colors hover:bg-neutral-200 md:h-9 md:text-xs"
+            className="h-11 rounded-md bg-white px-3 text-sm font-medium text-black transition-colors hover:bg-control md:min-h-9 md:text-xs"
           >
             Apply
           </button>
         </div>
       )}
-      {error && <p className="mt-1 text-[11px] text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-[0.75rem] text-nvidia-red">{error}</p>}
     </div>
   );
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1 text-xs uppercase tracking-wider text-neutral-500 md:text-[10px]">
+    <div className="mb-1 text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
       {children}
     </div>
   );
@@ -369,6 +373,7 @@ function Select({
     <div>
       <FieldLabel>{label}</FieldLabel>
       <select
+        aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={fieldClassName}
@@ -401,6 +406,7 @@ function NumberInput({
       <FieldLabel>{label}</FieldLabel>
       <input
         type="number"
+        aria-label={label}
         min={min}
         max={max}
         value={value}
@@ -423,4 +429,4 @@ function formatSizeLabel(size: ImageSize): string {
 }
 
 const fieldClassName =
-  'h-11 w-full rounded-md border border-white/10 bg-black/30 px-2 text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-nvidia-green/60 md:h-9 md:text-xs';
+  'min-h-11 w-full min-w-0 rounded-lg border border-separator/70 bg-control px-2 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-nvidia-green/60 md:min-h-9 md:text-xs';

@@ -2,8 +2,6 @@
 
 import React, { memo } from 'react';
 
-import { useIsMobile } from '@/hooks/useMediaQuery';
-
 import { MobileShell } from './MobileShell';
 import { SplitPane } from './SplitPane';
 
@@ -20,17 +18,12 @@ export interface AppShellProps {
  */
 export const AppShell = memo(
   ({ sidebar, bottomNav, children }: AppShellProps) => {
-    const isMobile = useIsMobile();
-
-    if (isMobile) {
-      return (
-        <MobileShell sidebar={sidebar} bottomNav={bottomNav}>
-          {children}
-        </MobileShell>
-      );
-    }
-
-    return <SplitPane sidebar={sidebar}>{children}</SplitPane>;
+    // Keep the content tree mounted when a window crosses the breakpoint.
+    return (
+      <MobileShell sidebar={sidebar} bottomNav={bottomNav}>
+        <SplitPane sidebar={sidebar}>{children}</SplitPane>
+      </MobileShell>
+    );
   },
 );
 

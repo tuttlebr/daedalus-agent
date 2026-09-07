@@ -15,7 +15,7 @@ export interface ProgressBarProps {
 }
 
 const barColors: Record<NonNullable<ProgressBarProps['variant']>, string> = {
-  default: 'bg-neutral-400 dark:bg-neutral-500',
+  default: 'bg-control',
   accent: 'bg-nvidia-green',
   success: 'bg-nvidia-teal',
   error: 'bg-nvidia-red',
@@ -38,7 +38,7 @@ export const ProgressBar = memo(
         <div
           className={classNames(
             'w-full rounded-full overflow-hidden',
-            'bg-white/5',
+            'bg-fill/5',
             size === 'sm' ? 'h-1' : 'h-2',
           )}
           role="progressbar"

@@ -11,10 +11,9 @@ export interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 const variantClasses: Record<NonNullable<GlassCardProps['variant']>, string> = {
-  default: 'bg-surface-glass backdrop-blur-lg border border-border-glass',
-  elevated:
-    'bg-surface-glass backdrop-blur-2xl border border-surface-glass-border-strong shadow-lg',
-  subtle: 'bg-white/[0.03] backdrop-blur-sm border border-white/[0.04]',
+  default: 'app-card border',
+  elevated: 'app-card border shadow-sm',
+  subtle: 'bg-control/60 border border-separator/60',
 };
 
 const paddingClasses: Record<NonNullable<GlassCardProps['padding']>, string> = {
@@ -43,8 +42,7 @@ export const GlassCard = memo(
           'rounded-xl transition-all duration-200',
           variantClasses[variant],
           paddingClasses[padding],
-          hover &&
-            'hover:bg-surface-glass-hover hover:border-white/10 cursor-pointer',
+          hover && 'hover:bg-control cursor-pointer',
           className,
         )}
         {...props}

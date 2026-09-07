@@ -2,12 +2,15 @@
 
 import {
   IconBrain,
+  IconLayoutSidebar,
   IconMessageCircle,
   IconRobot,
   IconSparkles,
   IconPlugConnected,
 } from '@tabler/icons-react';
 import React, { useRef } from 'react';
+
+import { IconButton } from '@/components/primitives';
 
 import { useUISettingsStore, type AppView } from '@/state/uiSettingsStore';
 import classNames from 'classnames';
@@ -27,6 +30,7 @@ const TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
 export function ViewTabs() {
   const activeView = useUISettingsStore((s) => s.activeView);
   const setActiveView = useUISettingsStore((s) => s.setActiveView);
+  const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
@@ -44,41 +48,46 @@ export function ViewTabs() {
   };
 
   return (
-    <div
-      role="tablist"
-      aria-label="Views"
-      className="hidden items-center gap-1 border-b border-neutral-200 bg-white px-4 safe-top dark:border-neutral-800 dark:bg-dark-bg-primary md:flex"
-    >
-      {TABS.map((tab, index) => {
-        const active = activeView === tab.id;
-        return (
-          <button
-            key={tab.id}
-            ref={(el) => {
-              tabRefs.current[index] = el;
-            }}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            tabIndex={active ? 0 : -1}
-            onClick={() => setActiveView(tab.id)}
-            onKeyDown={(e) => handleKeyDown(e, index)}
-            className={classNames(
-              'relative inline-flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 focus-visible:ring-inset',
-              active
-                ? 'text-nvidia-green'
-                : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100',
-            )}
-          >
-            {tab.icon}
-            <span>{tab.label}</span>
-            {active && (
-              <span className="absolute inset-x-0 bottom-0 h-[2px] bg-nvidia-green" />
-            )}
-          </button>
-        );
-      })}
+    <div className="app-chrome hidden min-w-0 items-center gap-2 border-b px-3 py-2 safe-top md:flex">
+      <IconButton
+        icon={<IconLayoutSidebar size={20} />}
+        aria-label="Toggle sidebar"
+        variant="ghost"
+        onClick={toggleChatbar}
+      />
+      <div
+        role="tablist"
+        aria-label="Views"
+        className="flex min-w-0 flex-wrap items-center gap-1"
+      >
+        {TABS.map((tab, index) => {
+          const active = activeView === tab.id;
+          return (
+            <button
+              key={tab.id}
+              ref={(el) => {
+                tabRefs.current[index] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`view-tab-${tab.id}`}
+              aria-controls={`view-panel-${tab.id}`}
+              aria-selected={active}
+              tabIndex={active ? 0 : -1}
+              onClick={() => setActiveView(tab.id)}
+              onKeyDown={(e) => handleKeyDown(e, index)}
+              className={classNames(
+                'app-nav-item relative inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 focus-visible:ring-inset',
+                active ? 'text-nvidia-green' : 'text-muted hover:text-primary',
+              )}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

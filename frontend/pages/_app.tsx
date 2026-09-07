@@ -7,6 +7,8 @@ import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 
+import { useTheme } from '@/hooks/useTheme';
+
 import {
   registerServiceWorker,
   setupOfflineDetection,
@@ -20,10 +22,11 @@ import { InstallPrompt } from '@/components/pwa/InstallPrompt';
 import { OfflineIndicator } from '@/components/pwa/OfflineIndicator';
 import { UpdateToast } from '@/components/pwa/UpdateToast';
 
-import '@/styles/globals.css';
+import '@/styles/app.css';
 
 function App({ Component, pageProps }: AppProps<{}>) {
   const router = useRouter();
+  const { isDark } = useTheme();
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -40,9 +43,6 @@ function App({ Component, pageProps }: AppProps<{}>) {
   const [showUpdateToast, setShowUpdateToast] = useState(false);
 
   useEffect(() => {
-    // Apply dark mode immediately to prevent flash
-    document.documentElement.classList.add('dark');
-
     registerServiceWorker();
     setOnUpdateAvailable(() => setShowUpdateToast(true));
     setupOfflineDetection(
@@ -72,11 +72,13 @@ function App({ Component, pageProps }: AppProps<{}>) {
     <div>
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-nvidia-green focus:text-white focus:px-4 focus:py-2 focus:rounded-br-lg"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-action focus:text-on-action focus:px-4 focus:py-2 focus:rounded-br-lg"
       >
         Skip to main content
       </a>
       <Head>
+        <title>Daedalus</title>
+        <meta name="theme-color" content={isDark ? '#141416' : '#f2f2f7'} />
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
@@ -86,9 +88,9 @@ function App({ Component, pageProps }: AppProps<{}>) {
         toastOptions={{
           style: {
             maxWidth: 500,
-            background: '#1a1a1a',
-            color: '#f5f5f5',
-            border: '1px solid rgba(255,255,255,0.06)',
+            background: 'rgb(var(--panel))',
+            color: 'rgb(var(--label))',
+            border: '1px solid rgb(var(--separator))',
             borderRadius: '12px',
             fontSize: '14px',
           },

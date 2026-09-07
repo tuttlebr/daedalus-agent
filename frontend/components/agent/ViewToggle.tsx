@@ -34,7 +34,7 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
               onSearchChange('');
               setShowSearch(false);
             }}
-            className="p-1 hover:bg-white/10 rounded transition-colors text-white/40 hover:text-white/60"
+            className="p-1 hover:bg-fill/10 rounded transition-colors text-white/40 hover:text-white/60"
           >
             <IconX size={14} />
           </button>
@@ -42,7 +42,7 @@ export const ViewToggle: React.FC<ViewToggleProps> = ({
       ) : (
         <button
           onClick={() => setShowSearch(true)}
-          className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-white/30 hover:text-white/50"
+          className="p-1.5 hover:bg-fill/10 rounded-lg transition-colors text-white/30 hover:text-white/50"
           title="Search activity"
         >
           <IconSearch size={14} />

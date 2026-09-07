@@ -159,7 +159,7 @@ UserMessage.displayName = 'UserMessage';
 const AttachmentDisplay = memo(({ attachment }: { attachment: Attachment }) => {
   if (attachment.type === 'image' && attachment.imageRef) {
     return (
-      <div className="w-32 h-32 rounded-lg overflow-hidden bg-dark-bg-tertiary border border-white/5">
+      <div className="w-32 h-32 rounded-lg overflow-hidden bg-dark-bg-tertiary border border-separator/70">
         <img
           src={`/api/session/imageStorage?imageId=${attachment.imageRef.imageId}&thumbnail=true`}
           alt="Attached image"
@@ -172,7 +172,7 @@ const AttachmentDisplay = memo(({ attachment }: { attachment: Attachment }) => {
 
   if (attachment.type === 'document' && attachment.documentRef) {
     return (
-      <div className="px-3 py-2 rounded-lg bg-dark-bg-tertiary border border-white/5 text-xs text-dark-text-muted">
+      <div className="px-3 py-2 rounded-lg bg-dark-bg-tertiary border border-separator/70 text-xs text-dark-text-muted">
         {attachment.content || 'Document'}
       </div>
     );
@@ -180,7 +180,7 @@ const AttachmentDisplay = memo(({ attachment }: { attachment: Attachment }) => {
 
   if (attachment.type === 'video' && attachment.videoRef) {
     return (
-      <div className="px-3 py-2 rounded-lg bg-dark-bg-tertiary border border-white/5 text-xs text-dark-text-muted">
+      <div className="px-3 py-2 rounded-lg bg-dark-bg-tertiary border border-separator/70 text-xs text-dark-text-muted">
         Video: {attachment.content || 'Attached'}
       </div>
     );
@@ -210,7 +210,7 @@ const InlineDocumentCard = memo(
         <button
           type="button"
           onClick={() => setIsExpanded((v) => !v)}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-blue/40"
+          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fill/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-blue/40"
           aria-expanded={isExpanded}
         >
           <IconFileText
@@ -221,7 +221,7 @@ const InlineDocumentCard = memo(
           <span className="truncate text-xs font-medium text-dark-text-primary">
             {doc.filename}
           </span>
-          <span className="text-[11px] text-dark-text-muted whitespace-nowrap">
+          <span className="text-[0.75rem] text-dark-text-muted whitespace-nowrap">
             inline · {[pageLabel, charsLabel].filter(Boolean).join(' · ')}
           </span>
           {doc.truncated && (
@@ -238,7 +238,7 @@ const InlineDocumentCard = memo(
           </span>
         </button>
         {isExpanded && (
-          <div className="border-t border-white/[0.06] bg-dark-bg-tertiary/40 px-4 py-3">
+          <div className="border-t border-separator/70 bg-dark-bg-tertiary/40 px-4 py-3">
             <div className="max-h-[300px] overflow-y-auto pr-1">
               <MarkdownRenderer
                 content={doc.markdown}

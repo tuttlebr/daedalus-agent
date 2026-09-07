@@ -20,7 +20,7 @@ export type AppView = 'chat' | 'autonomy' | 'create' | 'memory' | 'connections';
 
 export interface UISettingsState {
   // Theme
-  lightMode: 'light' | 'dark';
+  lightMode: 'system' | 'light' | 'dark';
 
   // Primary view tab
   activeView: AppView;
@@ -37,7 +37,6 @@ export interface UISettingsState {
   intermediateStepsView: 'timeline' | 'category';
   intermediateStepsFilter: IntermediateStepCategory[];
 
-
   // Search
   searchTerm: string;
 
@@ -48,7 +47,7 @@ export interface UISettingsState {
 
 export interface UISettingsActions {
   // Theme
-  setLightMode: (mode: 'light' | 'dark') => void;
+  setLightMode: (mode: 'system' | 'light' | 'dark') => void;
   toggleLightMode: () => void;
 
   // View tab
@@ -67,7 +66,6 @@ export interface UISettingsActions {
   setIntermediateStepsView: (view: 'timeline' | 'category') => void;
   setIntermediateStepsFilter: (filter: IntermediateStepCategory[]) => void;
   toggleIntermediateStepCategory: (category: IntermediateStepCategory) => void;
-
 
   // Search
   setSearchTerm: (term: string) => void;
@@ -89,7 +87,7 @@ const DEFAULT_CHAT_HISTORY =
   process?.env?.NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON !== 'false';
 
 const initialState: UISettingsState = {
-  lightMode: 'dark',
+  lightMode: 'system',
   activeView: 'chat',
   showChatbar: false,
   chatbarWidth: 280,

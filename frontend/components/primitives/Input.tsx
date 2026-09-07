@@ -40,7 +40,7 @@ export const Input = memo(
         className={classNames('relative flex items-center', wrapperClassName)}
       >
         {leftIcon && (
-          <span className="absolute left-3 flex items-center text-neutral-400 dark:text-neutral-500 pointer-events-none">
+          <span className="absolute left-3 flex items-center text-muted pointer-events-none">
             {leftIcon}
           </span>
         )}
@@ -48,14 +48,14 @@ export const Input = memo(
           ref={ref}
           disabled={disabled}
           className={classNames(
-            'w-full font-sans',
+            'w-full min-h-[calc(1lh+1rem)] font-sans',
             'bg-dark-bg-tertiary text-dark-text-primary placeholder:text-dark-text-muted',
-            'border transition-colors duration-200',
+            'border transition-[border-color,box-shadow] duration-200',
             'focus:outline-none focus:ring-2 focus:ring-offset-0',
             'touch-manipulation',
             error
               ? 'border-nvidia-red/50 focus:ring-nvidia-red/30 focus:border-nvidia-red'
-              : 'border-white/10 focus:ring-nvidia-green/30 focus:border-nvidia-green/50',
+              : 'border-separator/70 focus:ring-nvidia-green/30 focus:border-nvidia-green/50',
             sizeClasses[size],
             Boolean(leftIcon) && 'pl-10',
             Boolean(rightIcon) && 'pr-10',
@@ -65,7 +65,7 @@ export const Input = memo(
           {...props}
         />
         {rightIcon && (
-          <span className="absolute right-3 flex items-center text-neutral-400 dark:text-neutral-500">
+          <span className="absolute right-3 flex items-center text-muted">
             {rightIcon}
           </span>
         )}

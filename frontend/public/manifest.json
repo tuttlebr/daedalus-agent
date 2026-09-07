@@ -5,8 +5,8 @@
   "id": "/daedalus-v2",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#76b900",
+  "background_color": "#f2f2f7",
+  "theme_color": "#f2f2f7",
   "orientation": "any",
   "scope": "/",
   "categories": ["productivity", "utilities", "artificial-intelligence"],
@@ -14,14 +14,14 @@
   "screenshots": [
     {
       "src": "/screenshots/user-chat.png",
-      "sizes": "2030x2214",
+      "sizes": "1179x2556",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Daedalus Chat Interface"
     },
     {
       "src": "/screenshots/user-login.png",
-      "sizes": "2036x2218",
+      "sizes": "1179x2556",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Daedalus Login Screen"
@@ -33,7 +33,12 @@
       "short_name": "New Chat",
       "description": "Start a new conversation",
       "url": "/?action=new-chat",
-      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ],
   "icons": [

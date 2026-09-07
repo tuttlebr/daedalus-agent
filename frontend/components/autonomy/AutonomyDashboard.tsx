@@ -416,7 +416,6 @@ export function AutonomyDashboard() {
     [refresh],
   );
 
-
   const cancelActiveRun = useCallback(async () => {
     if (!activeRun) return;
     setBusy('cancel');
@@ -473,7 +472,7 @@ export function AutonomyDashboard() {
 
   if (loading) {
     return (
-      <div className="h-full overflow-y-auto bg-[#0a0b0c]">
+      <div className="h-full overflow-y-auto bg-app">
         <div className="mx-auto max-w-[720px] px-4 py-12 md:px-6">
           <SkeletonFeed />
         </div>
@@ -484,7 +483,7 @@ export function AutonomyDashboard() {
   // A failed first load must not masquerade as an empty feed.
   if (loadError && !state.config && state.feed.length === 0) {
     return (
-      <div className="h-full overflow-y-auto bg-[#0a0b0c] text-dark-text-primary">
+      <div className="h-full overflow-y-auto bg-app text-dark-text-primary">
         <div className="mx-auto flex h-full max-w-[720px] flex-col items-center justify-center gap-4 px-4 text-center">
           <p className="text-sm text-dark-text-secondary">
             Could not load the autonomy dashboard. Check your connection and try
@@ -496,7 +495,7 @@ export function AutonomyDashboard() {
               setLoading(true);
               void refresh();
             }}
-            className="min-h-touch-min rounded-lg border border-white/[0.1] bg-white/[0.04] px-4 py-2 text-sm text-dark-text-primary transition-colors hover:border-nvidia-green/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+            className="min-h-touch-min rounded-lg border border-separator/70 bg-fill/[0.04] px-4 py-2 text-sm text-dark-text-primary transition-colors hover:border-nvidia-green/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
           >
             Retry
           </button>
@@ -506,7 +505,7 @@ export function AutonomyDashboard() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-[#0a0b0c] text-dark-text-primary">
+    <div className="h-full overflow-y-auto bg-app text-dark-text-primary">
       <BackgroundGrain />
       <div className="relative mx-auto w-full max-w-[760px] px-4 pt-1 pb-8 md:px-6">
         <StatusStrip
@@ -565,10 +564,10 @@ function SkeletonFeed() {
     <div className="space-y-8">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i} className="space-y-2">
-          <div className="h-3 w-20 animate-pulse rounded bg-white/[0.04]" />
-          <div className="h-5 w-3/4 animate-pulse rounded bg-white/[0.06]" />
-          <div className="h-4 w-full animate-pulse rounded bg-white/[0.04]" />
-          <div className="h-4 w-5/6 animate-pulse rounded bg-white/[0.03]" />
+          <div className="h-3 w-20 animate-pulse rounded bg-fill/[0.04]" />
+          <div className="h-5 w-3/4 animate-pulse rounded bg-fill/[0.06]" />
+          <div className="h-4 w-full animate-pulse rounded bg-fill/[0.04]" />
+          <div className="h-4 w-5/6 animate-pulse rounded bg-fill/[0.03]" />
         </div>
       ))}
     </div>

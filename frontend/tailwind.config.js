@@ -8,10 +8,10 @@ module.exports = {
   theme: {
     fontFamily: {
       sans: [
-        'NVIDIA Sans',
-        'system-ui',
         '-apple-system',
         'BlinkMacSystemFont',
+        'SF Pro Text',
+        'system-ui',
         'Segoe UI',
         'Roboto',
         'sans-serif',
@@ -84,11 +84,41 @@ module.exports = {
         'touch-lg': 'var(--touch-target-large)',
       },
       fontFamily: {
-        heading: ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
-        display: ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
-        nvidia: ['NVIDIA Sans', 'system-ui', '-apple-system', 'sans-serif'],
+        heading: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'SF Pro Text',
+          'system-ui',
+          'sans-serif',
+        ],
+        display: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'SF Pro Text',
+          'system-ui',
+          'sans-serif',
+        ],
+        nvidia: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'SF Pro Text',
+          'system-ui',
+          'sans-serif',
+        ],
       },
       colors: {
+        app: 'rgb(var(--app) / <alpha-value>)',
+        panel: 'rgb(var(--panel) / <alpha-value>)',
+        control: 'rgb(var(--control) / <alpha-value>)',
+        elevated: 'rgb(var(--elevated) / <alpha-value>)',
+        primary: 'rgb(var(--label) / <alpha-value>)',
+        secondary: 'rgb(var(--secondary-label) / <alpha-value>)',
+        muted: 'rgb(var(--muted-label) / <alpha-value>)',
+        separator: 'rgb(var(--separator) / <alpha-value>)',
+        fill: 'rgb(var(--fill) / <alpha-value>)',
+        accent: 'rgb(var(--accent) / <alpha-value>)',
+        action: 'rgb(var(--action) / <alpha-value>)',
+        'on-action': 'rgb(var(--on-action) / <alpha-value>)',
         // =============================================================
         // NVIDIA BRAND COLORS (from COLORS.md)
         // =============================================================

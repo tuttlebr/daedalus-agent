@@ -45,7 +45,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
             <h4 className="text-xs font-semibold mb-1.5 text-white/50 uppercase tracking-wider">
               {title}
             </h4>
-            <div className="bg-black/20 backdrop-blur p-3 rounded-lg overflow-x-auto border border-white/10">
+            <div className="bg-fill/5 backdrop-blur p-3 rounded-lg overflow-x-auto border border-separator/70">
               <MarkdownRenderer
                 content={normalizedContent}
                 className="prose prose-sm dark:prose-invert max-w-none [&_*]:!text-white/90"
@@ -61,7 +61,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
           <h4 className="text-xs font-semibold mb-1.5 text-white/50 uppercase tracking-wider">
             {title}
           </h4>
-          <div className="bg-black/20 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-white/10 text-white/80 whitespace-pre-wrap">
+          <div className="bg-fill/5 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-separator/70 text-white/80 whitespace-pre-wrap">
             {data}
           </div>
         </div>
@@ -73,7 +73,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
         <h4 className="text-xs font-semibold mb-1.5 text-white/50 uppercase tracking-wider">
           {title}
         </h4>
-        <pre className="bg-black/20 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-white/10 text-white/80 font-mono">
+        <pre className="bg-fill/5 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-separator/70 text-white/80 font-mono">
           {JSON.stringify(data, null, 2)}
         </pre>
       </div>
@@ -118,7 +118,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-white/10">
+      <div className="flex items-center justify-between p-4 border-b border-separator/70">
         <div className="min-w-0 flex-1">
           <h3 className="text-base font-semibold text-white/90 truncate">
             {consolidatedStep.friendlyName}
@@ -144,7 +144,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 hover:bg-white/10 rounded-lg transition-all text-white/50 hover:text-white flex-shrink-0"
+          className="p-1.5 hover:bg-fill/10 rounded-lg transition-all text-white/50 hover:text-primary flex-shrink-0"
         >
           <IconX size={18} />
         </button>
@@ -181,7 +181,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
         {/* Token usage — shown by default since it's useful */}
         {step.payload.usage_info && (
-          <div className="rounded-lg bg-white/[0.04] p-3">
+          <div className="rounded-lg bg-fill/[0.04] p-3">
             <div className="flex items-center gap-4 text-xs text-white/50">
               {step.payload.usage_info.token_usage?.total_tokens && (
                 <span>
@@ -200,7 +200,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
         )}
 
         {/* Advanced Details — collapsed by default */}
-        <div className="border-t border-white/[0.06] pt-3 mt-4">
+        <div className="border-t border-separator/70 pt-3 mt-4">
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
             className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/50 transition-colors"
@@ -216,7 +216,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
           {showAdvanced && (
             <div className="mt-3 space-y-3 animate-slide-in">
               {/* Raw event info */}
-              <div className="rounded-lg bg-white/[0.04] p-3 space-y-2 text-xs text-white/60">
+              <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-white/60">
                 <div className="flex justify-between">
                   <span className="text-white/30">Event Type</span>
                   <span className="font-mono">{step.payload.event_type}</span>
@@ -256,7 +256,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               </div>
 
               {/* Function ancestry */}
-              <div className="rounded-lg bg-white/[0.04] p-3 space-y-2 text-xs text-white/60">
+              <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-white/60">
                 <div className="text-white/30 font-semibold uppercase tracking-wider mb-1">
                   Function Ancestry
                 </div>
@@ -290,7 +290,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
               {/* Tags */}
               {step.payload.tags && step.payload.tags.length > 0 && (
-                <div className="rounded-lg bg-white/[0.04] p-3">
+                <div className="rounded-lg bg-fill/[0.04] p-3">
                   <div className="text-white/30 text-xs font-semibold uppercase tracking-wider mb-2">
                     Tags
                   </div>
@@ -298,7 +298,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
                     {step.payload.tags.map((tag, i) => (
                       <span
                         key={i}
-                        className="px-2 py-0.5 text-xs bg-white/10 rounded-full text-white/60 font-mono"
+                        className="px-2 py-0.5 text-xs bg-fill/10 rounded-full text-white/60 font-mono"
                       >
                         {tag}
                       </span>
@@ -308,7 +308,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               )}
 
               {/* UUID */}
-              <div className="rounded-lg bg-white/[0.04] p-3 text-xs">
+              <div className="rounded-lg bg-fill/[0.04] p-3 text-xs">
                 <div className="flex justify-between text-white/40">
                   <span className="text-white/30">UUID</span>
                   <span className="font-mono truncate max-w-[240px]">
@@ -319,7 +319,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
               {/* Full metadata dump */}
               {step.payload.metadata && (
-                <div className="rounded-lg bg-white/[0.04] p-3">
+                <div className="rounded-lg bg-fill/[0.04] p-3">
                   <div className="text-white/30 text-xs font-semibold uppercase tracking-wider mb-2">
                     Raw Metadata
                   </div>
@@ -331,7 +331,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
               {/* Full event data dump */}
               {step.payload.data && (
-                <div className="rounded-lg bg-white/[0.04] p-3">
+                <div className="rounded-lg bg-fill/[0.04] p-3">
                   <div className="text-white/30 text-xs font-semibold uppercase tracking-wider mb-2">
                     Raw Event Data
                   </div>

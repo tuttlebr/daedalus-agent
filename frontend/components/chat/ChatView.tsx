@@ -1129,17 +1129,18 @@ export const ChatView = memo(() => {
 
   return (
     <div className="flex flex-col h-full w-full bg-dark-bg-primary">
-      <header className="safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-white/[0.04] px-3 md:px-4">
+      <header className="app-chrome safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-separator/70 px-3 md:px-4">
         <div className="flex items-center gap-3 min-w-0">
           <IconButton
             icon={<IconMenu2 />}
             aria-label="Open conversation history"
+            className="md:hidden"
             variant="ghost"
             size="md"
             onClick={toggleChatbar}
           />
           {isAutonomousConversation && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-nvidia-purple/15 border border-nvidia-purple/30 text-nvidia-purple text-[10px] font-medium">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-nvidia-purple/15 border border-nvidia-purple/30 text-nvidia-purple text-[0.75rem] font-medium">
               <IconRobot size={12} />
               Autonomous
             </span>
@@ -1206,7 +1207,7 @@ export const ChatView = memo(() => {
                         ),
                       )
                     }
-                    className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-dark-text-muted hover:text-dark-text-primary"
+                    className="rounded-md border border-separator/70 bg-fill/[0.03] px-3 py-1.5 text-xs text-dark-text-muted hover:text-dark-text-primary"
                   >
                     Show{' '}
                     {Math.min(hiddenMessageCount, LOAD_OLDER_MESSAGES_STEP)}{' '}
@@ -1279,7 +1280,7 @@ export const ChatView = memo(() => {
             type="button"
             onClick={jumpToLatest}
             aria-label="Jump to latest messages"
-            className="absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.1] bg-dark-bg-elevated/90 text-dark-text-secondary shadow-lg backdrop-blur-md transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-10 md:w-10"
+            className="absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-separator/70 bg-dark-bg-elevated/90 text-dark-text-secondary shadow-lg backdrop-blur-md transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-10 md:w-10"
           >
             <IconArrowDown size={20} />
           </button>
@@ -1301,7 +1302,7 @@ export const ChatView = memo(() => {
                     className={
                       prompt.succeeded
                         ? 'inline-flex items-center gap-1.5 rounded-md border border-nvidia-green/40 bg-nvidia-green/15 px-3 py-1.5 text-xs font-medium text-nvidia-green'
-                        : 'inline-flex items-center gap-1.5 rounded-md bg-nvidia-green px-3 py-1.5 text-xs font-medium text-black hover:bg-nvidia-green/90'
+                        : 'inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-xs font-medium text-on-action hover:bg-nvidia-green/90'
                     }
                     onClick={
                       prompt.succeeded
@@ -1330,7 +1331,7 @@ export const ChatView = memo(() => {
 
       {/* Input - hidden for autonomous agent conversations (read-only) */}
       {isAutonomousConversation ? (
-        <div className="flex-shrink-0 border-t border-white/[0.04] py-3">
+        <div className="flex-shrink-0 border-t border-separator/70 py-3">
           <div className="chat-content-rail">
             <div className="flex items-center justify-center gap-2 py-2 text-xs text-dark-text-muted">
               <IconRobot size={14} className="text-nvidia-purple" />
@@ -1359,16 +1360,21 @@ const SUGGESTED_PROMPTS = [
 
 const EmptyState = memo(
   ({ onSuggestion }: { onSuggestion?: (text: string) => void }) => (
-    <div className="h-full flex flex-col items-center justify-center px-4">
-      <div className="text-center animate-morph-in space-y-5 max-w-sm">
+    <div className="min-h-full flex flex-col items-center justify-center px-5 py-8">
+      <div className="text-center space-y-5 w-full max-w-md">
         <img
           src="/favicon.png"
           alt="Daedalus"
-          className="h-20 w-auto mx-auto opacity-60"
+          className="h-14 w-auto mx-auto"
         />
-        <p className="text-sm text-dark-text-muted">
-          Ask a question, attach files, or try one of these:
-        </p>
+        <div className="space-y-2">
+          <h2 className="text-3xl font-semibold tracking-tight text-primary">
+            How can I help?
+          </h2>
+          <p className="text-base text-secondary">
+            Ask a question, create something, or work through an idea.
+          </p>
+        </div>
         {onSuggestion && (
           <div className="flex flex-col gap-2">
             {SUGGESTED_PROMPTS.map((prompt) => (
@@ -1376,7 +1382,7 @@ const EmptyState = memo(
                 key={prompt}
                 type="button"
                 onClick={() => onSuggestion(prompt)}
-                className="min-h-touch-min rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-dark-text-secondary transition-colors hover:border-nvidia-green/40 hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+                className="min-h-touch-min rounded-xl border border-separator/70 bg-fill/[0.03] px-4 py-2.5 text-sm text-dark-text-secondary transition-colors hover:border-nvidia-green/40 hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
               >
                 {prompt}
               </button>
