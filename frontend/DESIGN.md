@@ -39,6 +39,17 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
 - Permission and destructive-action confirmation remain explicit. Sign-in has
   persistent labels and associated validation. Connection and memory copy
   explains access and saved data without exposing internal storage details.
+- Populated Agent Activity uses the same semantic text colors and solid surfaces
+  as the rest of the app. Search is directly available; separate buttons expand
+  child steps and open details. Details use a scrollable modal with keyboard
+  dismissal and focus return, so they remain readable in a narrow chat column.
+- Create headers wrap when text grows. Custom image dimensions retain visible
+  labels and associate validation feedback with both inputs. Failed memory saves
+  display their error inside the editor and keep the draft available for retry.
+- Conversation selection and row actions are separate native buttons. Canceling
+  a rename returns focus without dismissing the history drawer. Autonomy dates
+  use the current appearance, feed articles have names and valid day grouping,
+  and feed shortcuts only handle keys while focus is inside the feed.
 - Installability, offline recovery, image creation/editing, chat streaming,
   attachments, approvals, and generated document previews are retained.
   The manifest uses the neutral launch background and current, correctly sized
@@ -72,6 +83,13 @@ actions and editing, chat photo previews, appearance persistence, tab state
 across window resizing, and focus return. API fixtures contain no personal
 conversation data. Install previews are in `public/screenshots/`.
 
+The populated-activity cases check contrast in light and dark appearances,
+keyboard disclosure independently of details, search with no matches, and
+details at 200% text. Additional cases exercise invalid custom dimensions and
+a failed memory save followed by a successful retry with the same draft,
+conversation rename cancellation, and populated Autonomy articles with text
+scaling and keyboard navigation.
+
 With Node 22, Docker, and Playwright browser dependencies available, run:
 
 ```sh
@@ -84,10 +102,17 @@ The e2e runner builds the production application and its workers and starts
 isolated Redis/object-store services. It removes its test services afterward.
 
 Validated locally on September 7, 2026: production build (including TypeScript
-and lint), 730 unit tests, and 46 browser regression tests passed. Three browser
-cases were intentionally skipped on platforms covered by another project.
-After the final compact-toolbar adjustment, all five affected phone-layout
-checks passed again, including keeping Create above the tab bar at 200% text.
+and lint), 740 unit tests, and 66 distinct browser regression cases passed across
+the full runs and focused rechecks. The browser coverage comprises 55 design
+cases and 11 authenticated integration/layout cases. Four unit cases and three
+browser cases remain intentionally skipped by the existing suite.
+
+After the final popover correction, all ten sheet and custom-dimension checks
+passed again across the five browser projects. They cover an open settings
+panel at 200% text and a tablet window resized to 780px. WebKit ran in the
+matching Playwright 1.61.1 container with Node 22 because the host lacked its
+system libraries. Test-generated service-worker precache entries are excluded
+from the source commit; the production build regenerates them.
 
 Browser emulation can verify the web implementation; it does not substitute
 for VoiceOver listening, physical iPhone keyboard behavior, or installation

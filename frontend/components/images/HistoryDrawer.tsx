@@ -40,6 +40,8 @@ export function HistoryToggleButton() {
   return (
     <button
       type="button"
+      aria-label="History"
+      title="History"
       onClick={toggleHistory}
       className={classNames(
         'inline-flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 md:min-h-0 md:py-1.5',
@@ -49,7 +51,7 @@ export function HistoryToggleButton() {
       )}
     >
       <IconHistory size={16} />
-      <span>History</span>
+      <span className="image-history-label">History</span>
       {historyCount > 0 && (
         <span className="text-xs text-muted tabular-nums md:text-[0.75rem]">
           {historyCount}

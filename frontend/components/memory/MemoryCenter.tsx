@@ -357,11 +357,11 @@ export function MemoryCenter() {
     <section className="app-page h-full overflow-y-auto bg-app px-4 pb-8 md:px-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <span className="rounded-xl bg-nvidia-green/15 p-2 text-nvidia-green">
               <IconBrain size={24} aria-hidden="true" />
             </span>
-            <div>
+            <div className="min-w-0 flex-1 basis-48">
               <h1 className="text-2xl font-semibold text-dark-text-primary">
                 Memory Center
               </h1>
@@ -533,7 +533,7 @@ export function MemoryCenter() {
           </Button>
         </form>
 
-        {error && (
+        {error && !editing && (
           <p
             role="alert"
             className="rounded-lg border border-nvidia-red/30 bg-nvidia-red/10 px-4 py-3 text-sm text-nvidia-red"
@@ -654,6 +654,7 @@ export function MemoryCenter() {
                         aria-label="Edit memory"
                         className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05] hover:text-dark-text-primary"
                         onClick={() => {
+                          setError(null);
                           setEditing(memory);
                           setEditText(memory.text);
                         }}
@@ -877,9 +878,19 @@ export function MemoryCenter() {
               onChange={(event) => setEditText(event.target.value)}
               rows={6}
               aria-label="Memory text"
+              aria-describedby={error ? 'memory-edit-error' : undefined}
               className="w-full rounded-lg border border-separator/70 bg-fill/5 p-3 text-sm text-dark-text-primary outline-none focus:border-nvidia-green/60"
             />
-            <div className="flex justify-end gap-2">
+            {error && (
+              <p
+                id="memory-edit-error"
+                role="alert"
+                className="text-sm text-nvidia-red"
+              >
+                {error}
+              </p>
+            )}
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 variant="secondary"
                 size="sm"

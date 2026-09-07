@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState, useId } from 'react';
 
 import {
   getImageModelCapabilities,
@@ -35,6 +35,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
   const preserveList = useImagePanelStore((s) => s.preserveList);
   const setPreserveList = useImagePanelStore((s) => s.setPreserveList);
   const mode = useImagePanelStore(selectMode);
+  const preserveId = useId();
 
   const caps = getImageModelCapabilities(model);
 
@@ -211,11 +212,14 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
 
       {mode === 'edit' && (
         <div className="border-t border-separator/70 pt-4">
-          <label className="mb-2 block text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
+          <label
+            htmlFor={preserveId}
+            className="mb-2 block text-xs font-medium text-muted"
+          >
             Preserve list
           </label>
           <Textarea
-            aria-label="Preserve list"
+            id={preserveId}
             value={preserveList}
             onChange={(e) => setPreserveList(e.target.value)}
             placeholder="face, pose, clothing, camera angle, lighting"
@@ -239,6 +243,10 @@ function SizeControl({
   customActive: boolean;
   onChange: (value: string) => void;
 }) {
+  const sizeId = useId();
+  const widthId = useId();
+  const heightId = useId();
+  const errorId = useId();
   const parsed = useMemo(() => parseImageSize(value), [value]);
   const [width, setWidth] = useState(parsed?.width ? String(parsed.width) : '');
   const [height, setHeight] = useState(
@@ -279,10 +287,10 @@ function SizeControl({
 
   return (
     <div className="col-span-full">
-      <FieldLabel>Size</FieldLabel>
+      <FieldLabel htmlFor={sizeId}>Size</FieldLabel>
       <div className="grid grid-cols-[1fr_auto] gap-2">
         <select
-          aria-label="Size"
+          id={sizeId}
           value={customActive || draftingCustom ? 'custom' : value ?? ''}
           onChange={(e) => {
             setError(null);
@@ -313,48 +321,73 @@ function SizeControl({
         </button>
       </div>
       {(customActive || draftingCustom || width || height) && (
-        <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2">
-          <input
-            type="number"
-            min={16}
-            max={3840}
-            step={16}
-            value={width}
-            onChange={(e) => setWidth(e.target.value)}
-            placeholder="Width"
-            aria-label="Image width"
-            className={fieldClassName}
-          />
-          <input
-            type="number"
-            min={16}
-            max={3840}
-            step={16}
-            value={height}
-            onChange={(e) => setHeight(e.target.value)}
-            placeholder="Height"
-            aria-label="Image height"
-            className={fieldClassName}
-          />
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <div className="min-w-0 flex-1 basis-20">
+            <FieldLabel htmlFor={widthId}>Width (px)</FieldLabel>
+            <input
+              id={widthId}
+              type="number"
+              min={16}
+              max={3840}
+              step={16}
+              value={width}
+              onChange={(e) => setWidth(e.target.value)}
+              placeholder="Width"
+              aria-label="Image width"
+              aria-invalid={!!error}
+              aria-describedby={error ? errorId : undefined}
+              className={fieldClassName}
+            />
+          </div>
+          <div className="min-w-0 flex-1 basis-20">
+            <FieldLabel htmlFor={heightId}>Height (px)</FieldLabel>
+            <input
+              id={heightId}
+              type="number"
+              min={16}
+              max={3840}
+              step={16}
+              value={height}
+              onChange={(e) => setHeight(e.target.value)}
+              placeholder="Height"
+              aria-label="Image height"
+              aria-invalid={!!error}
+              aria-describedby={error ? errorId : undefined}
+              className={fieldClassName}
+            />
+          </div>
           <button
             type="button"
             onClick={applyCustom}
-            className="h-11 rounded-md bg-white px-3 text-sm font-medium text-black transition-colors hover:bg-control md:min-h-9 md:text-xs"
+            className="min-h-11 rounded-lg bg-action px-3 py-2 text-sm font-medium text-on-action transition-colors hover:opacity-90"
           >
             Apply
           </button>
         </div>
       )}
-      {error && <p className="mt-1 text-[0.75rem] text-nvidia-red">{error}</p>}
+      {error && (
+        <p id={errorId} role="alert" className="mt-1 text-xs text-nvidia-red">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
+function FieldLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode;
+  htmlFor: string;
+}) {
   return (
-    <div className="mb-1 text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
+    <label
+      htmlFor={htmlFor}
+      className="mb-1 block text-xs font-medium text-muted"
+    >
       {children}
-    </div>
+    </label>
   );
 }
 
@@ -369,11 +402,12 @@ function Select({
   options: Option<string>[];
   onChange: (value: string) => void;
 }) {
+  const id = useId();
   return (
     <div>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <select
-        aria-label={label}
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={fieldClassName}
@@ -401,12 +435,13 @@ function NumberInput({
   max: number;
   onChange: (value: string) => void;
 }) {
+  const id = useId();
   return (
     <div>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <input
+        id={id}
         type="number"
-        aria-label={label}
         min={min}
         max={max}
         value={value}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useId } from 'react';
 
 import {
   searchSteps,
@@ -50,6 +50,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
     activeConversationId && streamingConversationIds.has(activeConversationId),
   );
 
+  const activityId = useId();
   const [searchTerm, setSearchTerm] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
   const [displayedSteps, setDisplayedSteps] = useState<IntermediateStep[]>([]);
@@ -207,12 +208,15 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
 
   return (
     <div
-      className={`apple-glass rounded-2xl overflow-hidden flex flex-col max-h-[40vh] sm:max-h-[50vh] ${className}`}
+      className={`app-card border rounded-2xl overflow-hidden flex flex-col max-h-[60dvh] ${className}`}
     >
       <div className="sticky top-0 z-10">
         <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-controls={activityId}
           onClick={() => setIsExpanded(!isExpanded)}
-          className="group w-full px-3 py-2 sm:px-4 sm:py-2.5 text-left text-sm font-medium text-white/90 hover:bg-fill/5 transition-all flex items-center justify-between backdrop-blur-sm"
+          className="group w-full px-3 py-2 sm:px-4 sm:py-2.5 text-left text-sm font-medium text-primary hover:bg-fill/5 transition-all flex items-center justify-between"
         >
           <span className="flex items-center gap-2.5">
             <span className="text-sm font-semibold tracking-tight">
@@ -222,7 +226,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
               className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-all ${
                 resolvedIsStreaming
                   ? 'bg-nvidia-green/15 text-nvidia-green border border-nvidia-green/20'
-                  : 'bg-fill/10 text-white/60 border border-separator/70'
+                  : 'bg-fill/10 text-secondary border border-separator/70'
               }`}
             >
               {resolvedIsStreaming && (
@@ -238,7 +242,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
             </span>
           </span>
           <svg
-            className={`w-4 h-4 transition-transform duration-200 ease-out text-white/40 ${
+            className={`w-4 h-4 transition-transform duration-200 ease-out text-muted ${
               isExpanded ? 'rotate-180' : ''
             }`}
             fill="currentColor"
@@ -257,7 +261,10 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
       </div>
 
       {isExpanded && (
-        <div className="flex-1 flex flex-col min-h-0 animate-slide-in">
+        <div
+          id={activityId}
+          className="flex-1 flex flex-col min-h-0 animate-slide-in"
+        >
           <div className="sticky top-0 z-10 border-b border-separator/70">
             <ViewToggle
               searchTerm={searchTerm}
@@ -273,13 +280,14 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
                   : displayedSteps
               }
               isStreaming={resolvedIsStreaming}
+              isSearching={!!searchTerm.trim()}
             />
 
             {hasMoreSteps && !isLoadingMore && (
               <div className="p-3 flex justify-center">
                 <button
                   onClick={handleLoadMore}
-                  className="px-3 py-1.5 text-xs font-medium text-white/50 bg-fill/[0.06] hover:bg-fill/10 rounded-lg transition-colors border border-separator/70"
+                  className="px-3 py-1.5 text-xs font-medium text-muted bg-fill/[0.06] hover:bg-fill/10 rounded-lg transition-colors border border-separator/70"
                 >
                   Load{' '}
                   {Math.min(STEPS_TO_LOAD_MORE, totalStepsCount - loadedCount)}{' '}
@@ -290,7 +298,7 @@ export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
 
             {isLoadingMore && (
               <div className="p-3 flex justify-center">
-                <div className="text-xs text-white/40">Loading...</div>
+                <div className="text-xs text-muted">Loading...</div>
               </div>
             )}
           </div>

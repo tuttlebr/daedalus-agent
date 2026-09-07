@@ -33,7 +33,7 @@ export const ParamsPopover = memo(function ParamsPopover({
         </DockIconTrigger>
       }
     >
-      <div className="w-full md:w-96 md:max-h-[70vh] md:overflow-y-auto">
+      <div className="w-full max-w-full md:w-96 md:max-h-[70vh] md:overflow-y-auto">
         <ImageSettingsPanel variant="sheet" />
       </div>
     </Popover>

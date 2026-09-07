@@ -34,6 +34,7 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const itemRefs = useRef(new Map<string, HTMLElement>());
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const feedRef = useRef<HTMLDivElement | null>(null);
 
   const counts = useMemo(() => {
     const acc: Record<LaneFilter, number> = {
@@ -110,6 +111,7 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
+      if (!target || !feedRef.current?.contains(target)) return;
       const tag = target?.tagName?.toLowerCase();
       if (
         tag === 'input' ||
@@ -165,7 +167,7 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
   }
 
   return (
-    <div>
+    <div ref={feedRef}>
       <LaneFilterChips value={lane} counts={counts} onChange={setLane} />
       {filtered.length === 0 ? (
         <EmptyState
@@ -174,27 +176,19 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
           filtered
         />
       ) : (
-        <div
-          role="feed"
-          aria-busy={false}
-          className="mx-auto max-w-[720px] px-1"
-        >
-          {grouped.map((bucket, bucketIdx) => {
-            let posCounter = grouped
-              .slice(0, bucketIdx)
-              .reduce((sum, b) => sum + b.items.length, 0);
+        <div className="mx-auto max-w-[720px] px-1">
+          {grouped.map((bucket) => {
             return (
               <DayGroup key={bucket.dayStart} label={bucket.label}>
-                {bucket.items.map((item) => {
-                  posCounter += 1;
+                {bucket.items.map((item, index) => {
                   return (
                     <FeedItem
                       key={item.id}
                       item={item}
                       isExpanded={expandedIds.has(item.id)}
                       onToggle={toggleExpanded}
-                      posinset={posCounter}
-                      setsize={visibleItems.length}
+                      posinset={index + 1}
+                      setsize={bucket.items.length}
                       focused={focusedId === item.id}
                       registerRef={registerRef}
                     />

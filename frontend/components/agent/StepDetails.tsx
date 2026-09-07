@@ -1,5 +1,5 @@
 import { IconX, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
-import React, { useState } from 'react';
+import React, { useState, useId } from 'react';
 
 import {
   ConsolidatedStep,
@@ -27,6 +27,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
   consolidatedStep,
   onClose,
 }) => {
+  const advancedId = useId();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const step = consolidatedStep.endStep || consolidatedStep.startStep;
   const category = consolidatedStep.category;
@@ -42,13 +43,17 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
       if (hasMarkdown || hasLatex) {
         return (
           <div className="mb-3">
-            <h4 className="text-xs font-semibold mb-1.5 text-white/50 uppercase tracking-wider">
+            <h4 className="text-xs font-semibold mb-1.5 text-muted uppercase tracking-wider">
               {title}
             </h4>
-            <div className="bg-fill/5 backdrop-blur p-3 rounded-lg overflow-x-auto border border-separator/70">
+            <div
+              tabIndex={0}
+              aria-label={title}
+              className="bg-fill/5 p-3 rounded-lg overflow-x-auto border border-separator/70"
+            >
               <MarkdownRenderer
                 content={normalizedContent}
-                className="prose prose-sm dark:prose-invert max-w-none [&_*]:!text-white/90"
+                className="prose prose-sm dark:prose-invert max-w-none"
                 enableMath={true}
               />
             </div>
@@ -58,10 +63,10 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
       return (
         <div className="mb-3">
-          <h4 className="text-xs font-semibold mb-1.5 text-white/50 uppercase tracking-wider">
+          <h4 className="text-xs font-semibold mb-1.5 text-muted uppercase tracking-wider">
             {title}
           </h4>
-          <div className="bg-fill/5 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-separator/70 text-white/80 whitespace-pre-wrap">
+          <div className="bg-fill/5 p-3 rounded-lg text-sm border border-separator/70 text-secondary whitespace-pre-wrap break-words">
             {data}
           </div>
         </div>
@@ -70,10 +75,14 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
     return (
       <div className="mb-3">
-        <h4 className="text-xs font-semibold mb-1.5 text-white/50 uppercase tracking-wider">
+        <h4 className="text-xs font-semibold mb-1.5 text-muted uppercase tracking-wider">
           {title}
         </h4>
-        <pre className="bg-fill/5 backdrop-blur p-3 rounded-lg text-xs overflow-x-auto border border-separator/70 text-white/80 font-mono">
+        <pre
+          tabIndex={0}
+          aria-label={title}
+          className="bg-fill/5 p-3 rounded-lg text-xs overflow-x-auto border border-separator/70 text-secondary font-mono"
+        >
           {JSON.stringify(data, null, 2)}
         </pre>
       </div>
@@ -116,21 +125,21 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
   );
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="min-w-0 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-separator/70">
         <div className="min-w-0 flex-1">
-          <h3 className="text-base font-semibold text-white/90 truncate">
+          <h3 className="text-base font-semibold text-primary break-words">
             {consolidatedStep.friendlyName}
           </h3>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-white/40">
+            <span className="text-xs text-muted">
               {getCategoryLabel(category)}
             </span>
             {consolidatedStep.duration && (
               <>
-                <span className="text-white/20">·</span>
-                <span className="text-xs text-white/40">
+                <span className="text-muted">·</span>
+                <span className="text-xs text-muted">
                   {formatDuration(consolidatedStep.duration)}
                 </span>
               </>
@@ -143,8 +152,10 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
           </div>
         </div>
         <button
+          type="button"
+          aria-label="Close activity details"
           onClick={onClose}
-          className="p-1.5 hover:bg-fill/10 rounded-lg transition-all text-white/50 hover:text-primary flex-shrink-0"
+          className="p-1.5 hover:bg-fill/10 rounded-lg transition-all text-muted hover:text-primary flex-shrink-0"
         >
           <IconX size={18} />
         </button>
@@ -154,7 +165,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
         {/* Context summary */}
         {consolidatedStep.context && (
           <div className="bg-nvidia-green/[0.06] border border-nvidia-green/10 rounded-lg p-3">
-            <p className="text-sm text-white/80">{consolidatedStep.context}</p>
+            <p className="text-sm text-secondary">{consolidatedStep.context}</p>
           </div>
         )}
 
@@ -182,7 +193,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
         {/* Token usage — shown by default since it's useful */}
         {step.payload.usage_info && (
           <div className="rounded-lg bg-fill/[0.04] p-3">
-            <div className="flex items-center gap-4 text-xs text-white/50">
+            <div className="flex items-center gap-4 text-xs text-muted">
               {step.payload.usage_info.token_usage?.total_tokens && (
                 <span>
                   {step.payload.usage_info.token_usage.total_tokens.toLocaleString()}{' '}
@@ -202,8 +213,11 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
         {/* Advanced Details — collapsed by default */}
         <div className="border-t border-separator/70 pt-3 mt-4">
           <button
+            type="button"
+            aria-expanded={showAdvanced}
+            aria-controls={advancedId}
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/50 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-muted hover:text-muted transition-colors"
           >
             {showAdvanced ? (
               <IconChevronDown size={14} />
@@ -214,28 +228,30 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
           </button>
 
           {showAdvanced && (
-            <div className="mt-3 space-y-3 animate-slide-in">
+            <div id={advancedId} className="mt-3 space-y-3 animate-slide-in">
               {/* Raw event info */}
-              <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-white/60">
-                <div className="flex justify-between">
-                  <span className="text-white/30">Event Type</span>
-                  <span className="font-mono">{step.payload.event_type}</span>
+              <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-secondary">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted">Event Type</span>
+                  <span className="min-w-0 break-all font-mono">
+                    {step.payload.event_type}
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-white/30">State</span>
-                  <span className="font-mono">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted">State</span>
+                  <span className="min-w-0 break-all font-mono">
                     {getEventState(step.payload.event_type)}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-white/30">Raw Name</span>
-                  <span className="font-mono">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted">Raw Name</span>
+                  <span className="min-w-0 break-all font-mono">
                     {step.payload.name || 'N/A'}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-white/30">Timestamp</span>
-                  <span className="font-mono">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted">Timestamp</span>
+                  <span className="min-w-0 break-all font-mono">
                     {new Date(
                       step.payload.event_timestamp * 1000,
                     ).toLocaleTimeString('en-US', {
@@ -248,41 +264,43 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
                   </span>
                 </div>
                 {step.payload.framework && (
-                  <div className="flex justify-between">
-                    <span className="text-white/30">Framework</span>
-                    <span className="font-mono">{step.payload.framework}</span>
+                  <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                    <span className="text-muted">Framework</span>
+                    <span className="min-w-0 break-all font-mono">
+                      {step.payload.framework}
+                    </span>
                   </div>
                 )}
               </div>
 
               {/* Function ancestry */}
-              <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-white/60">
-                <div className="text-white/30 font-semibold uppercase tracking-wider mb-1">
+              <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-secondary">
+                <div className="text-muted font-semibold uppercase tracking-wider mb-1">
                   Function Ancestry
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-white/30">Function</span>
-                  <span className="font-mono">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted">Function</span>
+                  <span className="min-w-0 break-all font-mono">
                     {step.function_ancestry.function_name}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-white/30">Node ID</span>
-                  <span className="font-mono text-white/40 truncate max-w-[200px]">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted">Node ID</span>
+                  <span className="font-mono text-muted break-all">
                     {step.function_ancestry.node_id}
                   </span>
                 </div>
                 {step.function_ancestry.parent_id && (
-                  <div className="flex justify-between">
-                    <span className="text-white/30">Parent ID</span>
-                    <span className="font-mono text-white/40 truncate max-w-[200px]">
+                  <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                    <span className="text-muted">Parent ID</span>
+                    <span className="font-mono text-muted break-all">
                       {step.function_ancestry.parent_id}
                     </span>
                   </div>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-white/30">Depth</span>
-                  <span className="font-mono">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+                  <span className="text-muted">Depth</span>
+                  <span className="min-w-0 break-all font-mono">
                     {step.function_ancestry.depth}
                   </span>
                 </div>
@@ -291,14 +309,14 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               {/* Tags */}
               {step.payload.tags && step.payload.tags.length > 0 && (
                 <div className="rounded-lg bg-fill/[0.04] p-3">
-                  <div className="text-white/30 text-xs font-semibold uppercase tracking-wider mb-2">
+                  <div className="text-muted text-xs font-semibold uppercase tracking-wider mb-2">
                     Tags
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {step.payload.tags.map((tag, i) => (
                       <span
                         key={i}
-                        className="px-2 py-0.5 text-xs bg-fill/10 rounded-full text-white/60 font-mono"
+                        className="px-2 py-0.5 text-xs bg-fill/10 rounded-full text-secondary font-mono"
                       >
                         {tag}
                       </span>
@@ -309,9 +327,9 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
               {/* UUID */}
               <div className="rounded-lg bg-fill/[0.04] p-3 text-xs">
-                <div className="flex justify-between text-white/40">
-                  <span className="text-white/30">UUID</span>
-                  <span className="font-mono truncate max-w-[240px]">
+                <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-muted">
+                  <span className="text-muted">UUID</span>
+                  <span className="font-mono break-all">
                     {step.payload.UUID}
                   </span>
                 </div>
@@ -320,10 +338,14 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               {/* Full metadata dump */}
               {step.payload.metadata && (
                 <div className="rounded-lg bg-fill/[0.04] p-3">
-                  <div className="text-white/30 text-xs font-semibold uppercase tracking-wider mb-2">
+                  <div className="text-muted text-xs font-semibold uppercase tracking-wider mb-2">
                     Raw Metadata
                   </div>
-                  <pre className="text-xs text-white/50 font-mono overflow-x-auto whitespace-pre-wrap">
+                  <pre
+                    tabIndex={0}
+                    aria-label="Raw metadata"
+                    className="text-xs text-muted font-mono overflow-x-auto whitespace-pre-wrap break-words"
+                  >
                     {JSON.stringify(step.payload.metadata, null, 2)}
                   </pre>
                 </div>
@@ -332,10 +354,14 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               {/* Full event data dump */}
               {step.payload.data && (
                 <div className="rounded-lg bg-fill/[0.04] p-3">
-                  <div className="text-white/30 text-xs font-semibold uppercase tracking-wider mb-2">
+                  <div className="text-muted text-xs font-semibold uppercase tracking-wider mb-2">
                     Raw Event Data
                   </div>
-                  <pre className="text-xs text-white/50 font-mono overflow-x-auto whitespace-pre-wrap">
+                  <pre
+                    tabIndex={0}
+                    aria-label="Raw event data"
+                    className="text-xs text-muted font-mono overflow-x-auto whitespace-pre-wrap break-words"
+                  >
                     {JSON.stringify(step.payload.data, null, 2)}
                   </pre>
                 </div>

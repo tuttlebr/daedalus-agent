@@ -100,15 +100,25 @@ export const Popover = memo(
       if (!open || useSheet) return;
       const el = panelRef.current;
       if (!el) return;
-      el.style.marginLeft = '';
-      const rect = el.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const edge = 8;
-      let dx = 0;
-      if (rect.right > viewportWidth - edge)
-        dx = viewportWidth - edge - rect.right;
-      if (rect.left + dx < edge) dx = edge - rect.left;
-      if (dx !== 0) el.style.marginLeft = `${dx}px`;
+      const reposition = () => {
+        el.style.marginLeft = '';
+        const rect = el.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const edge = 8;
+        let dx = 0;
+        if (rect.right > viewportWidth - edge)
+          dx = viewportWidth - edge - rect.right;
+        if (rect.left + dx < edge) dx = edge - rect.left;
+        if (dx !== 0) el.style.marginLeft = `${dx}px`;
+      };
+      reposition();
+      const observer = new ResizeObserver(reposition);
+      observer.observe(el);
+      window.addEventListener('resize', reposition);
+      return () => {
+        observer.disconnect();
+        window.removeEventListener('resize', reposition);
+      };
     }, [open, useSheet, children]);
 
     const positionClasses: Record<string, string> = {
@@ -191,7 +201,7 @@ export const Popover = memo(
             aria-label={accessibleLabel}
             className={classNames(
               'absolute z-50',
-              'bg-panel max-h-[70dvh] overflow-y-auto',
+              'bg-panel max-h-[70dvh] max-w-[calc(100vw-1rem)] overflow-y-auto',
               'border border-separator/70 rounded-xl shadow-xl',
               'animate-scale-in min-w-[200px]',
               positionClasses[position],

@@ -27,8 +27,7 @@ export function LaneFilterChips({
     <div
       role="radiogroup"
       aria-label="Filter by lane"
-      // Chips scroll horizontally on narrow screens instead of squeezing
-      className="no-scrollbar mx-auto flex max-w-[720px] items-center gap-1 overflow-x-auto px-1 pb-3"
+      className="mx-auto flex max-w-[720px] flex-wrap items-center gap-1 px-1 pb-3"
     >
       {FILTERS.map((filter) => {
         const active = filter === value;
@@ -41,6 +40,26 @@ export function LaneFilterChips({
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            onKeyDown={(event) => {
+              const index = FILTERS.indexOf(filter);
+              const next =
+                event.key === 'ArrowRight'
+                  ? (index + 1) % FILTERS.length
+                  : event.key === 'ArrowLeft'
+                  ? (index + FILTERS.length - 1) % FILTERS.length
+                  : event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                  ? FILTERS.length - 1
+                  : -1;
+              if (next === -1) return;
+              event.preventDefault();
+              onChange(FILTERS[next]);
+              event.currentTarget.parentElement
+                ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                [next]?.focus();
+            }}
             onClick={() => onChange(filter)}
             className={classNames(
               'group inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-[0.75rem] font-medium tracking-wide transition md:min-h-[36px]',

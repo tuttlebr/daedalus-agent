@@ -261,7 +261,11 @@ svg.tabler-icon {
 .image-composer {
   container-type: inline-size;
 }
+.image-workspace {
+  container-type: inline-size;
+}
 @container (max-width: 20rem) {
+  .image-history-label,
   .settings-summary,
   .adjust-label {
     display: none;

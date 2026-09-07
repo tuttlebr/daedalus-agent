@@ -37,6 +37,7 @@ function FeedItemImpl({
     <article
       ref={(el) => registerRef(item.id, el)}
       role="article"
+      aria-labelledby={`feed-title-${item.id}`}
       tabIndex={-1}
       aria-posinset={posinset}
       aria-setsize={setsize}
@@ -66,7 +67,7 @@ function FeedItemImpl({
         )}
       />
 
-      <header className="flex items-baseline gap-2 font-mono text-[0.75rem] uppercase tracking-[0.16em] text-dark-text-muted">
+      <header className="flex flex-wrap items-baseline gap-2 font-mono text-[0.75rem] uppercase tracking-[0.16em] text-dark-text-muted">
         <span>{LANE_LABELS[lane]}</span>
         <span aria-hidden>·</span>
         <time dateTime={new Date(item.createdAt).toISOString()}>
@@ -83,10 +84,11 @@ function FeedItemImpl({
       </header>
 
       <button
+        id={`feed-title-${item.id}`}
         type="button"
         onClick={() => hasBody && onToggle(item.id)}
         className={classNames(
-          'mt-1 block w-full text-left font-display text-[17px] font-semibold leading-snug tracking-[-0.005em] text-dark-text-primary',
+          'mt-1 block w-full text-left font-display text-[1.0625rem] font-semibold leading-snug tracking-[-0.005em] text-dark-text-primary',
           'transition-colors duration-150',
           hasBody && 'cursor-pointer hover:text-primary',
           !hasBody && 'cursor-default',
@@ -98,7 +100,7 @@ function FeedItemImpl({
         {item.title}
       </button>
 
-      <p className="mt-1.5 font-sans text-[15px] leading-[1.65] text-dark-text-secondary">
+      <p className="mt-1.5 font-sans text-[0.9375rem] leading-[1.65] text-dark-text-secondary">
         {item.bluf}
       </p>
 
@@ -113,7 +115,7 @@ function FeedItemImpl({
           )}
         >
           <div className="min-h-0">
-            <p className="whitespace-pre-line border-l border-separator/70 pl-3 font-sans text-[15px] leading-[1.7] text-dark-text-secondary">
+            <p className="whitespace-pre-line border-l border-separator/70 pl-3 font-sans text-[0.9375rem] leading-[1.7] text-dark-text-secondary">
               {item.body}
             </p>
           </div>
@@ -145,7 +147,7 @@ function FeedItemImpl({
             href={item.sourceUrl}
             target="_blank"
             rel="noreferrer noopener"
-            className="inline-flex items-center gap-0.5 text-nvidia-green/80 transition hover:text-nvidia-green focus-visible:outline-none focus-visible:text-nvidia-green"
+            className="inline-flex min-h-11 items-center gap-0.5 text-nvidia-green transition hover:underline focus-visible:outline-none focus-visible:text-nvidia-green"
           >
             <span>source</span>
             <IconArrowUpRight size={11} />

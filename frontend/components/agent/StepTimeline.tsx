@@ -7,7 +7,7 @@ import {
   IconCheck,
   IconLoader2,
 } from '@tabler/icons-react';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useId } from 'react';
 
 import {
   consolidateSteps,
@@ -20,17 +20,22 @@ import {
   IntermediateStepCategory,
 } from '@/types/intermediateSteps';
 
+import { ModalSurface } from '@/components/surfaces';
+
 import { StepDetails } from './StepDetails';
 
 interface StepTimelineProps {
   steps: IntermediateStep[];
   isStreaming: boolean;
+  isSearching?: boolean;
 }
 
 export const StepTimeline: React.FC<StepTimelineProps> = ({
   steps,
   isStreaming,
+  isSearching = false,
 }) => {
+  const timelineId = useId();
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [selectedStep, setSelectedStep] = useState<ConsolidatedStep | null>(
     null,
@@ -70,13 +75,13 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
     if (status === 'active') return 'text-nvidia-green';
     switch (category) {
       case IntermediateStepCategory.LLM:
-        return 'text-blue-400';
+        return 'text-nvidia-blue';
       case IntermediateStepCategory.TOOL:
-        return 'text-emerald-400';
+        return 'text-nvidia-teal';
       case IntermediateStepCategory.WORKFLOW:
-        return 'text-purple-400';
+        return 'text-nvidia-purple';
       default:
-        return 'text-white/50';
+        return 'text-muted';
     }
   };
 
@@ -103,89 +108,89 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
     return (
       <div key={step.id} className="group/step">
         <div
-          role="button"
-          tabIndex={0}
           className={`
-            flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer
-            transition-all duration-150
-            ${
-              selectedStep?.id === step.id
-                ? 'bg-fill/15 shadow-[0_0_8px_rgba(118,185,0,0.15)]'
-                : 'hover:bg-fill/[0.07]'
-            }
+            flex min-w-0 items-center gap-1 rounded-lg
             ${isActive ? 'bg-nvidia-green/[0.06]' : ''}
           `}
-          style={{ paddingLeft: `${12 + depth * 20}px` }}
-          onClick={() => setSelectedStep(step)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              setSelectedStep(step);
-            }
-          }}
+          style={{ paddingInlineStart: `${Math.min(depth, 3) * 12}px` }}
         >
           {/* Expand/collapse for children */}
           {hasChildren ? (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleNode(step.id);
-              }}
-              className="p-0.5 hover:bg-fill/15 rounded transition-all flex-shrink-0"
+              type="button"
+              aria-label={`${isExpanded ? 'Hide' : 'Show'} ${
+                step.friendlyName
+              } steps`}
+              aria-expanded={isExpanded}
+              aria-controls={`${timelineId}-${step.id}`}
+              onClick={() => toggleNode(step.id)}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-muted hover:bg-fill/10"
             >
               {isExpanded ? (
-                <IconChevronDown size={14} className="text-white/50" />
+                <IconChevronDown size={18} aria-hidden="true" />
               ) : (
-                <IconChevronRight size={14} className="text-white/50" />
+                <IconChevronRight size={18} aria-hidden="true" />
               )}
             </button>
           ) : (
-            <div className="w-[18px] flex-shrink-0" />
+            <span className="w-2 flex-shrink-0" aria-hidden="true" />
           )}
 
-          {/* Category icon */}
-          <span
-            className={`flex-shrink-0 ${getCategoryColor(
-              step.category,
-              step.status,
-            )}`}
+          <button
+            type="button"
+            aria-label={`View ${step.friendlyName} details`}
+            aria-haspopup="dialog"
+            className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-3 text-left hover:bg-fill/5"
+            onClick={(event) => {
+              event.currentTarget.focus({ preventScroll: true });
+              setSelectedStep(step);
+            }}
           >
-            {getCategoryIcon(step.category, step.status)}
-          </span>
-
-          {/* Name and context */}
-          <div className="flex-1 min-w-0">
+            {/* Category icon */}
             <span
-              className={`text-sm font-medium ${
-                isActive ? 'text-white/95' : 'text-white/80'
-              }`}
+              aria-hidden="true"
+              className={`mt-1 flex-shrink-0 ${getCategoryColor(
+                step.category,
+                step.status,
+              )}`}
             >
-              {step.friendlyName}
+              {getCategoryIcon(step.category, step.status)}
             </span>
-            {step.context && (
-              <span className="ml-2 text-xs text-white/40 truncate inline-block max-w-[200px] align-middle">
-                {step.context}
-              </span>
-            )}
-          </div>
 
-          {/* Duration or active indicator */}
-          <div className="flex-shrink-0 ml-auto">
-            {isActive ? (
-              <span className="text-xs text-nvidia-green font-medium">
-                working...
+            {/* Name and context */}
+            <span className="flex-1 min-w-0 break-words">
+              <span
+                className={`text-sm font-medium ${
+                  isActive ? 'text-primary' : 'text-secondary'
+                }`}
+              >
+                {step.friendlyName}
               </span>
-            ) : step.duration ? (
-              <span className="text-xs text-white/30">
-                {formatDuration(step.duration)}
-              </span>
-            ) : null}
-          </div>
+              {step.context && (
+                <span className="mt-1 block text-xs text-muted">
+                  {step.context}
+                </span>
+              )}
+            </span>
+
+            {/* Duration or active indicator */}
+            <span className="flex-shrink-0 ml-auto">
+              {isActive ? (
+                <span className="text-xs text-nvidia-green font-medium">
+                  working...
+                </span>
+              ) : step.duration ? (
+                <span className="text-xs text-muted">
+                  {formatDuration(step.duration)}
+                </span>
+              ) : null}
+            </span>
+          </button>
         </div>
 
         {/* Children */}
         {isExpanded && hasChildren && (
-          <div className="mt-0.5">
+          <div id={`${timelineId}-${step.id}`} className="mt-0.5">
             {step.children.map((child) => renderStep(child, depth + 1))}
           </div>
         )}
@@ -209,25 +214,32 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
 
   if (showEmptyState) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-white/40">
-        No activity recorded yet.
+      <div className="flex h-full items-center justify-center p-6 text-sm text-muted">
+        {isSearching
+          ? 'No activity matches your search.'
+          : 'No activity recorded yet.'}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full">
-      <div className="flex-1 min-h-0 py-2 px-1 space-y-0.5">
+    <div className="min-w-0">
+      <div className="min-w-0 py-2 px-1 space-y-0.5">
         {consolidated.map((step) => renderStep(step))}
       </div>
 
       {selectedStep && (
-        <div className="w-full md:w-96 lg:w-[28rem] xl:w-[32rem] 2xl:w-[36rem] max-w-[40rem] border-l border-separator/70 overflow-y-auto apple-glass-subtle">
+        <ModalSurface
+          open
+          onClose={() => setSelectedStep(null)}
+          aria-label={`${selectedStep.friendlyName} details`}
+          className="w-full max-w-3xl rounded-2xl border border-separator bg-panel"
+        >
           <StepDetails
             consolidatedStep={selectedStep}
             onClose={() => setSelectedStep(null)}
           />
-        </div>
+        </ModalSurface>
       )}
     </div>
   );

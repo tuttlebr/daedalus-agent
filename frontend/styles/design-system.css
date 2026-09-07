@@ -54,7 +54,7 @@
    3. TOUCH-FRIENDLY DIMENSIONS
    ================================================================ */
 :root {
-  /* Minimum touch target sizes (WCAG 2.1 AA: 44px) */
+  /* Project touch target size, informed by Apple's touch guidance. */
   --touch-target-min: 44px;
   --touch-target-comfortable: 48px;
   --touch-target-large: 56px;

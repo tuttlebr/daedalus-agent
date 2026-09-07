@@ -58,7 +58,7 @@ export const ImagesDock = memo(function ImagesDock({
   return (
     <div
       data-chat-input
-      className="flex-none max-h-full overflow-y-auto px-2 pb-2 pt-2 md:px-4 md:pb-safe-bottom"
+      className="relative z-20 flex-none max-h-full overflow-y-auto px-2 pb-2 pt-2 md:overflow-visible md:px-4 md:pb-safe-bottom"
     >
       <div
         className={classNames(
@@ -137,7 +137,7 @@ const DockActionsRow = memo(function DockActionsRow({
   return (
     <div
       data-create-actions
-      className="flex flex-wrap items-center justify-between gap-2 px-2 pb-2"
+      className="flex flex-wrap items-center justify-between gap-1 px-1 pb-2 md:gap-2 md:px-2"
     >
       <div className="flex shrink-0 items-center gap-0.5">
         <div className="md:hidden">
@@ -149,7 +149,7 @@ const DockActionsRow = memo(function DockActionsRow({
         </div>
       </div>
 
-      <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2 pr-1">
+      <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
         <SettingsSummary />
         {loading && onStop ? (
           <StopButton onClick={onStop} />

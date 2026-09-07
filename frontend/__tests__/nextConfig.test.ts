@@ -2,7 +2,8 @@ import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const nextConfig = require('../next.config.js') as {
+const { PHASE_PRODUCTION_SERVER } = require('next/constants');
+const nextConfig = require('../next.config.js')(PHASE_PRODUCTION_SERVER) as {
   headers: () => Promise<
     Array<{
       source: string;

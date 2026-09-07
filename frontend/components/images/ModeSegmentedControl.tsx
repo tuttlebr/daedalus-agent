@@ -1,6 +1,5 @@
 'use client';
 
-import { IconEdit, IconSparkles } from '@tabler/icons-react';
 import React, { memo } from 'react';
 
 import { useImagePanelStore, type ImageMode } from '@/state/imagePanelStore';
@@ -9,10 +8,9 @@ import classNames from 'classnames';
 const MODES: Array<{
   value: ImageMode;
   label: string;
-  icon: React.ReactNode;
 }> = [
-  { value: 'generate', label: 'Generate', icon: <IconSparkles size={14} /> },
-  { value: 'edit', label: 'Edit', icon: <IconEdit size={14} /> },
+  { value: 'generate', label: 'Generate' },
+  { value: 'edit', label: 'Edit' },
 ];
 
 export const ModeSegmentedControl = memo(function ModeSegmentedControl({
@@ -29,7 +27,7 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
       role="radiogroup"
       aria-label="Image creation mode"
       className={classNames(
-        'inline-grid grid-cols-2 rounded-lg border border-separator/70 bg-fill/5 p-0.5',
+        'inline-grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] rounded-lg border border-separator/70 bg-fill/5 p-0.5',
         fullWidth && 'w-full md:w-auto',
       )}
     >
@@ -48,13 +46,12 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
             />
             <span
               className={classNames(
-                'flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm text-secondary transition-colors md:min-h-9',
+                'flex min-h-11 flex-wrap items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm text-secondary transition-colors md:min-h-9',
                 'peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent',
                 selected && 'bg-panel font-semibold text-primary shadow-sm',
                 loading && 'cursor-not-allowed opacity-50',
               )}
             >
-              {item.icon}
               {item.label}
             </span>
           </label>

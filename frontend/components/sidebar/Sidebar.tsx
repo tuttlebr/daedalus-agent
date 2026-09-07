@@ -261,7 +261,16 @@ export const Sidebar = memo(() => {
                       onChange={(e) => setRenameValue(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') commitRename();
-                        if (e.key === 'Escape') setRenamingId(null);
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setRenamingId(null);
+                          requestAnimationFrame(() =>
+                            document
+                              .getElementById(`rename-conversation-${conv.id}`)
+                              ?.focus(),
+                          );
+                        }
                       }}
                       onBlur={commitRename}
                       className="min-w-0 flex-1 rounded-md border border-separator/70 bg-dark-bg-tertiary px-2 py-1.5 text-sm text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-nvidia-green/40"
@@ -323,19 +332,8 @@ export const Sidebar = memo(() => {
             return (
               <li key={conv.id}>
                 <div
-                  role="button"
-                  tabIndex={0}
-                  aria-current={isActive ? 'true' : undefined}
-                  onClick={() => handleSelect(conv.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      handleSelect(conv.id);
-                    }
-                  }}
                   className={classNames(
-                    'group w-full cursor-pointer select-none rounded-lg px-3 py-2 text-left transition-all duration-150 min-h-touch-min',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
+                    'group w-full rounded-lg px-2 py-1 text-left transition-colors duration-150',
                     isActive
                       ? isAutonomous
                         ? 'bg-nvidia-purple/10 border-l-2 border-nvidia-purple text-dark-text-primary'
@@ -343,8 +341,13 @@ export const Sidebar = memo(() => {
                       : 'text-dark-text-secondary hover:bg-fill/[0.04] border-l-2 border-transparent',
                   )}
                 >
-                  <div className="flex items-center justify-between gap-1">
-                    <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <button
+                      type="button"
+                      aria-current={isActive ? 'true' : undefined}
+                      onClick={() => handleSelect(conv.id)}
+                      className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-1 text-left"
+                    >
                       {isAutonomous && (
                         <IconRobot
                           size={14}
@@ -352,11 +355,12 @@ export const Sidebar = memo(() => {
                         />
                       )}
                       <span className="truncate text-sm">{conv.name}</span>
-                    </div>
+                    </button>
                     {!isAutonomous && (
                       <div className="flex flex-shrink-0 items-center opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                         <button
                           type="button"
+                          id={`rename-conversation-${conv.id}`}
                           aria-label="Rename conversation"
                           title="Rename"
                           className={classNames(
