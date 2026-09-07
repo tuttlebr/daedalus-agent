@@ -3,7 +3,7 @@ name: bubblewrap-agent-workflow
 description: Integrate agent workflows with this repository's Kubernetes Bubblewrap API for safe command execution, workspaces, and artifacts.
 license: Apache-2.0
 metadata:
-  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  author: Brandon Tuttle <tuttlebr@duck.com>
   version: 1.0.0
   tags:
     - bubblewrap

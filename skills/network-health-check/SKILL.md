@@ -4,7 +4,7 @@ description: >-
   Run a read-only UniFi health check for devices, alarms, firmware, controller,
   WAN, LAN, WLAN, and VPN. Use UniFi Network for changes.
 metadata:
-  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  author: Brandon Tuttle <tuttlebr@duck.com>
   version: 1.0.0
   tags:
     - unifi

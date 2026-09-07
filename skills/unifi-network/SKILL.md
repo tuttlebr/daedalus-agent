@@ -5,7 +5,7 @@ description: >-
   MCP. Do not use for connection setup or firewall-rule management.
 allowed-tools: unifi_tool_index, unifi_execute, unifi_batch, unifi_batch_status
 metadata:
-  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  author: Brandon Tuttle <tuttlebr@duck.com>
   version: 1.0.0
   tags:
     - unifi

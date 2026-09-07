@@ -5,7 +5,7 @@ description: >-
   write-policy gates. Use UniFi Network after the connection works.
 allowed-tools: Read, Bash, AskUserQuestion
 metadata:
-  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  author: Brandon Tuttle <tuttlebr@duck.com>
   version: 1.0.0
   tags:
     - unifi

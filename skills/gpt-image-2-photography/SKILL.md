@@ -166,7 +166,7 @@ Editing patterns:
 - **Identity preservation** (try-on, person in scene): "Do not change her
   face, facial features, skin tone, body shape, pose, or identity in any
   way. Preserve her exact likeness, expression, hairstyle, and
-  proportions." Set `input_fidelity="high"`.
+  proportions." Leave `input_fidelity="high"`, as it is the default.
 - **Style transfer**: keep the reference's visual language (palette,
   texture, brushwork, film grain) while changing the subject. Add hard
   constraints on background, framing, and "no extra elements".

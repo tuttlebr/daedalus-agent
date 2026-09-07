@@ -5,7 +5,7 @@ description: >-
   personal, public, and operational sources.
 license: Apache-2.0
 metadata:
-  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  author: Brandon Tuttle <tuttlebr@duck.com>
   version: 4.0.1
   tags:
     - daily-briefing

@@ -3,7 +3,7 @@ name: dynamo-kv-replay-parity
 description: Run byte-parity and paired performance campaigns for Dynamo offline KV-aware replay across vLLM, SGLang, and KVBM paths.
 license: Apache-2.0
 metadata:
-  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  author: Brandon Tuttle <tuttlebr@duck.com>
   version: 1.0.0
   tags:
     - dynamo

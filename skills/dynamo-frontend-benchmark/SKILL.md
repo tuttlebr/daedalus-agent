@@ -4,7 +4,7 @@ description: Benchmark and profile the Dynamo frontend against mock workers for 
 allowed-tools: Read, Bash, WebFetch
 license: Apache-2.0
 metadata:
-  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  author: Brandon Tuttle <tuttlebr@duck.com>
   version: 1.0.0
   tags:
     - dynamo

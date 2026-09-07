@@ -3,7 +3,7 @@ name: dynamo-docs
 description: Maintain NVIDIA Dynamo Fern docs, navigation, recipes, examples, translations, and links. Use for docs changes, not code bugs.
 license: Apache-2.0
 metadata:
-  author: NVIDIA Corporation and Affiliates <noreply@nvidia.com>
+  author: Brandon Tuttle <tuttlebr@duck.com>
   version: 1.0.0
   tags:
     - dynamo
