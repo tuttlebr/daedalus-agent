@@ -16,6 +16,8 @@ import { getImageOutputMimeType } from '@/utils/app/imageModelCapabilities';
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
 import { ModalSurface } from '@/components/surfaces';
 
+import { ImagePromptDetail } from './ImagePromptDetail';
+
 import type { GalleryImage, ImageRef } from '@/state/imagePanelStore';
 import classNames from 'classnames';
 
@@ -119,9 +121,7 @@ export function OutputActionSheet({
             />
           </div>
 
-          <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-neutral-300">
-            {image.prompt}
-          </p>
+          <ImagePromptDetail image={image} />
 
           <div className="mt-4 grid grid-cols-2 gap-2">
             <SheetAction

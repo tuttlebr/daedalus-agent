@@ -370,6 +370,165 @@ def main() -> None:
 
     asyncio.run(assert_agent_skills_dispatch_contract())
 
+    # Validate nested image briefs through NAT's real FunctionInfo adapter.
+    # Provider/storage calls are stubbed: build checks never generate images.
+    from unittest.mock import AsyncMock, patch
+
+    import visual_media.visual_media_function as visual_media_module
+    from nat_helpers.image_brief import ImageBrief, ImageOptions
+
+    async def assert_image_guidance_contract() -> None:
+        image = SimpleNamespace(b64_json="aW1n", mime_type="image/png")
+        generate = AsyncMock(return_value=[image])
+        store = AsyncMock(return_value="contract-image")
+        with (
+            patch.object(visual_media_module, "generate_images", generate),
+            patch.object(visual_media_module, "store_image_in_redis", store),
+            patch.object(
+                visual_media_module,
+                "resolve_authenticated_user_id",
+                return_value="contract-user",
+            ),
+        ):
+            config = visual_media_module.VisualMediaFunctionConfig(
+                generation_api_key="runtime-contract-key",
+                description="Configured image policy.",
+            )
+            async with visual_media_module.visual_media_function(
+                config, SimpleNamespace()
+            ) as info:
+                if (
+                    "Configured image policy." not in info.description
+                    or "gpt-image-2-photography" not in info.description
+                ):
+                    raise RuntimeError(
+                        "Image guidance lost its runtime routing description"
+                    )
+                request = visual_media_module.VisualMediaInput(
+                    operation="generate",
+                    prompt="A blue bird",
+                    brief=ImageBrief(subject="bird"),
+                    options=ImageOptions(quality="high", background="transparent", n=2),
+                )
+                output = await info.single_fn(request)
+                if "contract-image" not in output:
+                    raise RuntimeError(
+                        "Image guidance failed through NAT's input adapter"
+                    )
+                sent = generate.call_args.kwargs
+                if (
+                    sent["quality"] != "high"
+                    or sent["n"] != 2
+                    or sent["output_format"] != "png"
+                ):
+                    raise RuntimeError("NAT dropped per-request image settings")
+                if (
+                    store.call_args.kwargs["image_context"]["originalPrompt"]
+                    != "A blue bird"
+                ):
+                    raise RuntimeError("NAT image output lost its brief")
+
+    asyncio.run(assert_image_guidance_contract())
+
+    # Exercise the actual FastAPI image routes and response serialization too.
+    import base64
+    import io
+
+    import httpx
+    import image_api as panel_images
+    import nat_helpers.image_brief as image_briefs
+    from fastapi import FastAPI
+    from PIL import Image
+
+    async def assert_panel_image_guidance_contract() -> None:
+        app = FastAPI()
+        app.include_router(panel_images.router)
+        source = io.BytesIO()
+        Image.new("RGBA", (16, 16), (20, 40, 60, 0)).save(source, format="PNG")
+        png = base64.b64encode(source.getvalue()).decode()
+        provider_result = SimpleNamespace(b64_json=png, mime_type="image/png")
+        generate = AsyncMock(return_value=[provider_result])
+        edit = AsyncMock(return_value=[provider_result])
+        store = AsyncMock(return_value="panel-contract-image")
+        planner = AsyncMock(
+            return_value=ImageBrief(subject="bird", preserve=["identity"])
+        )
+        with (
+            patch.dict(
+                os.environ, {"DAEDALUS_INTERNAL_API_TOKEN": "image-contract-token"}
+            ),
+            patch.object(
+                panel_images,
+                "_config_for",
+                return_value=("gpt-image-2", "contract-key", None),
+            ),
+            patch.object(panel_images, "_get_client", return_value=SimpleNamespace()),
+            patch.object(panel_images, "_get_redis", return_value=SimpleNamespace()),
+            patch.object(panel_images, "generate_images", generate),
+            patch.object(panel_images, "edit_images", edit),
+            patch.object(panel_images, "store_image_in_redis", store),
+            patch.object(
+                panel_images,
+                "fetch_image_from_redis",
+                AsyncMock(return_value=(png, "image/png")),
+            ),
+            patch.object(
+                panel_images, "fetch_image_context", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                image_briefs,
+                "photography_guidance",
+                return_value=("Contract photography guidance", "contract-hash"),
+            ),
+            patch.object(image_briefs, "_plan_brief", planner),
+        ):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://contract"
+            ) as client:
+                headers = {
+                    "x-user-id": "contract-user",
+                    "x-daedalus-internal-token": "image-contract-token",
+                }
+                response = await client.post(
+                    "/v1/images/generate", headers=headers, json={"prompt": "A bird"}
+                )
+                if (
+                    response.status_code != 200
+                    or response.json()["imageContext"]["originalPrompt"] != "A bird"
+                ):
+                    raise RuntimeError("Create image brief failed through FastAPI")
+                request = {
+                    "prompt": "Make the lighting warmer",
+                    "imageRefs": [{"imageId": "source", "sessionId": "session"}],
+                }
+                response = await client.post(
+                    "/v1/images/edit", headers=headers, json=request
+                )
+                if (
+                    response.status_code != 200
+                    or "Make the lighting warmer" not in edit.call_args.kwargs["prompt"]
+                ):
+                    raise RuntimeError("Edit image brief failed through FastAPI")
+                if edit.call_args.kwargs["image"][1] != source.getvalue():
+                    raise RuntimeError("Panel edit changed a compatible source image")
+                request["prompt"] = "  Change only the coat.\n"
+                request["guidance"] = "exact"
+                response = await client.post(
+                    "/v1/images/edit", headers=headers, json=request
+                )
+                if (
+                    response.status_code != 200
+                    or edit.call_args.kwargs["prompt"] != request["prompt"]
+                    or planner.await_count != 2
+                ):
+                    raise RuntimeError(
+                        "Exact image prompts no longer bypass preparation"
+                    )
+                if not store.call_args.kwargs.get("image_context"):
+                    raise RuntimeError("Panel image storage lost its brief")
+
+    asyncio.run(assert_panel_image_guidance_contract())
+
     # User interaction also uses one explicit dispatch function. A toolkit
     # function builder is an async context manager and consumes exactly one
     # yield; yielding one FunctionInfo per operation silently exposed only

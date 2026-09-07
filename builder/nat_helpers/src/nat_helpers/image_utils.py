@@ -239,6 +239,7 @@ async def store_image_in_redis(
     source: str = "image_generation",
     user_id: str | None = None,
     session_id: str | None = None,
+    image_context: dict | None = None,
 ) -> str:
     """Store a generated or augmented image in Redis.
 
@@ -258,6 +259,8 @@ async def store_image_in_redis(
         image_record["userId"] = user_id
     if session_id:
         image_record["sessionId"] = session_id
+    if image_context is not None:
+        image_record["imageContext"] = image_context
 
     try:
         await asyncio.to_thread(
@@ -273,3 +276,30 @@ async def store_image_in_redis(
         raise
 
     return image_id
+
+
+async def fetch_image_context(redis_client, image_ref: dict, user_id: str):
+    """Read generated-image provenance only for its authenticated owner."""
+    from nat_helpers.image_brief import ImageContext
+
+    if not user_id or not image_ref.get("imageId"):
+        return None
+    if image_ref.get("userId") not in (None, "", user_id):
+        return None
+    try:
+        # Fetch metadata only; do not read the potentially large image again.
+        raw = await asyncio.to_thread(
+            redis_client.execute_command,
+            "JSON.GET",
+            f"generated:image:{image_ref['imageId']}",
+            ".userId",
+            ".imageContext",
+        )
+        if not raw:
+            return None
+        record = json.loads(raw)
+        if record.get(".userId") != user_id or not record.get(".imageContext"):
+            return None
+        return ImageContext.model_validate(record[".imageContext"])
+    except (redis_lib.RedisError, ValueError, TypeError):
+        return None

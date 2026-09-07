@@ -19,6 +19,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
+from nat_helpers.image_brief import normalize_image_options
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
@@ -188,7 +189,11 @@ async def generate_images(
 
     Raises on API error so callers can decide how to report it.
     """
-    kwargs = {"model": model, "prompt": prompt, **_prune(options, _GENERATE_KEYS)}
+    kwargs = {
+        "model": model,
+        "prompt": prompt,
+        **_prune(normalize_image_options(model, options, "generate"), _GENERATE_KEYS),
+    }
     logger.info(
         "images.generate model=%s n=%s quality=%s size=%s",
         model,
@@ -220,7 +225,9 @@ async def stream_generate_images(
         "model": model,
         "prompt": prompt,
         "stream": True,
-        **_prune(options, _GENERATE_STREAM_KEYS),
+        **_prune(
+            normalize_image_options(model, options, "generate"), _GENERATE_STREAM_KEYS
+        ),
     }
     logger.info(
         "images.generate stream model=%s n=%s quality=%s size=%s partial_images=%s",
@@ -255,7 +262,7 @@ async def edit_images(
         "model": model,
         "image": image,
         "prompt": prompt,
-        **_prune(options, _EDIT_KEYS),
+        **_prune(normalize_image_options(model, options, "edit"), _EDIT_KEYS),
     }
     if mask is not None:
         kwargs["mask"] = mask
@@ -296,7 +303,7 @@ async def stream_edit_images(
         "image": image,
         "prompt": prompt,
         "stream": True,
-        **_prune(options, _EDIT_STREAM_KEYS),
+        **_prune(normalize_image_options(model, options, "edit"), _EDIT_STREAM_KEYS),
     }
     if mask is not None:
         kwargs["mask"] = mask

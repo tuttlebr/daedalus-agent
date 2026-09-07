@@ -1,3 +1,4 @@
+import type { ImageContext } from './imageBrief';
 import { IntermediateStep } from './intermediateSteps';
 
 export interface MessageError {
@@ -27,6 +28,7 @@ export interface Message {
   attachments?: Array<{
     content: string;
     type: string;
+    imageContext?: ImageContext;
     imageRef?: {
       imageId: string;
       sessionId: string;

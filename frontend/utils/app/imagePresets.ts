@@ -28,7 +28,7 @@ export const IMAGE_PRESETS: ImagePreset[] = [
       'Shot like a 35 mm film photograph — soft natural light, shallow depth of field, subtle grain.',
     modes: ['generate', 'edit'],
     promptTemplate:
-      'Photorealistic image of {{subject}}. Shot on 35mm film, 50mm lens at f/2.8, shallow depth of field, soft natural light, subtle film grain. No watermark, no extra text.',
+      'Photorealistic image of {{subject}}. Shot on 35mm film, 50mm lens at f/2.8, shallow depth of field, soft natural light, subtle film grain. Natural material textures and subtle imperfections. No watermark or text beyond what is explicitly requested.',
     params: { quality: 'high', size: '1024x1024', output_format: 'png' },
   },
   {
@@ -43,6 +43,8 @@ export const IMAGE_PRESETS: ImagePreset[] = [
       quality: 'high',
       size: '1024x1024',
       n: 4,
+      background: 'transparent',
+      output_format: 'png',
     },
   },
   {
@@ -85,7 +87,7 @@ export const IMAGE_PRESETS: ImagePreset[] = [
     description: 'Studio product photograph on seamless backdrop.',
     modes: ['generate', 'edit'],
     promptTemplate:
-      'Studio product photograph of {{subject}}. Seamless neutral backdrop, soft key light from camera left, subtle fill, gentle rim light. Sharp focus on the product, tack-sharp detail on materials and finish. No hands, no people, no text.',
+      'Studio product photograph of {{subject}}. Seamless neutral backdrop, soft key light from camera left, subtle fill, gentle rim light. Sharp focus on the product, tack-sharp detail on materials and finish. Include only the requested props, people, and packaging text.',
     params: {
       quality: 'high',
       size: '1024x1024',

@@ -30,7 +30,12 @@ from typing import Annotated, Any, Literal
 import redis
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from nat_helpers.image_utils import fetch_image_from_redis, store_image_in_redis
+from nat_helpers.image_brief import ImageBrief, ImageContext, prepare_image_request
+from nat_helpers.image_utils import (
+    fetch_image_context,
+    fetch_image_from_redis,
+    store_image_in_redis,
+)
 from nat_helpers.internal_auth import require_trusted_user as _require_trusted_user
 from nat_helpers.openai_images import (
     ImageResult,
@@ -221,8 +226,11 @@ class ImageRef(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    guidance: Literal["auto", "exact"] = "auto"
+    brief: ImageBrief | None = None
+    preserve: str = ""
     prompt: str = Field(..., min_length=1)
-    n: int | None = Field(None, ge=1, le=10)
+    n: int | None = Field(None, ge=1, le=8)
     quality: Literal["auto", "low", "medium", "high"] | None = None
     size: str | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None
@@ -236,10 +244,13 @@ class GenerateRequest(BaseModel):
 
 
 class EditRequest(BaseModel):
+    guidance: Literal["auto", "exact"] = "auto"
+    brief: ImageBrief | None = None
+    preserve: str = ""
     prompt: str = Field(..., min_length=1)
     imageRefs: list[ImageRef] = Field(..., min_length=1)
     maskRef: ImageRef | None = None
-    n: int | None = Field(None, ge=1, le=10)
+    n: int | None = Field(None, ge=1, le=8)
     quality: Literal["auto", "low", "medium", "high"] | None = None
     size: str | None = None
     input_fidelity: Literal["low", "high"] | None = None
@@ -253,6 +264,7 @@ class EditRequest(BaseModel):
 
 
 class ImageResponse(BaseModel):
+    imageContext: ImageContext | None = None
     imageIds: list[str]
     model: str
     prompt: str
@@ -328,6 +340,7 @@ async def _store_results(
     source: str,
     user_id: str,
     session_id: str | None,
+    image_context: ImageContext | None = None,
 ) -> list[str]:
     redis_client = _get_redis()
     ids: list[str] = []
@@ -340,6 +353,7 @@ async def _store_results(
             source=source,
             user_id=user_id,
             session_id=session_id,
+            image_context=image_context.model_dump() if image_context else None,
         )
         ids.append(image_id)
     return ids
@@ -351,8 +365,13 @@ async def _store_result(
     source: str,
     user_id: str,
     session_id: str | None,
+    image_context: ImageContext | None = None,
 ) -> str:
-    return (await _store_results([result], prompt, source, user_id, session_id))[0]
+    return (
+        await _store_results(
+            [result], prompt, source, user_id, session_id, image_context
+        )
+    )[0]
 
 
 def _sse(event: str, payload: dict[str, Any]) -> str:
@@ -367,6 +386,7 @@ async def _stream_stored_images(
     user_id: str,
     session_id: str | None,
     model: str,
+    image_context: ImageContext | None = None,
 ) -> AsyncIterator[str]:
     final_ids: list[str] = []
     try:
@@ -377,6 +397,7 @@ async def _stream_stored_images(
                 source=f"{source}.partial" if event.partial else source,
                 user_id=user_id,
                 session_id=session_id,
+                image_context=image_context,
             )
             if event.partial:
                 yield _sse(
@@ -398,7 +419,12 @@ async def _stream_stored_images(
             return
         yield _sse(
             "completed",
-            ImageResponse(imageIds=final_ids, model=model, prompt=prompt).model_dump(),
+            ImageResponse(
+                imageIds=final_ids,
+                model=model,
+                prompt=prompt,
+                imageContext=image_context,
+            ).model_dump(),
         )
         yield "data: [DONE]\n\n"
     except OpenAIError:
@@ -435,23 +461,49 @@ async def generate(
 
     options = req.model_dump(
         exclude_none=True,
-        exclude={"prompt", "sessionId", "user", "stream", "partial_images"},
+        exclude={
+            "prompt",
+            "sessionId",
+            "user",
+            "stream",
+            "partial_images",
+            "guidance",
+            "brief",
+            "preserve",
+        },
     )
-    if req.stream:
+    try:
+        context = await prepare_image_request(
+            prompt=req.prompt,
+            model=model,
+            mode="generate",
+            options=options,
+            refs=[],
+            brief=req.brief,
+            preserve=req.preserve,
+            guidance=req.guidance,
+            parent=None,
+            use_model=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    options = context.params
+    if req.stream and options.get("n", 1) == 1:
         return StreamingResponse(
             _stream_stored_images(
                 stream_generate_images(
                     client,
                     model=model,
-                    prompt=req.prompt,
+                    prompt=context.prompt,
                     partial_images=req.partial_images,
                     **options,
                 ),
-                prompt=req.prompt,
+                prompt=context.prompt,
                 source="image_panel_generate",
                 user_id=user_id,
                 session_id=(x_session_id or req.sessionId or None),
                 model=model,
+                image_context=context,
             ),
             media_type="text/event-stream",
             headers={
@@ -462,7 +514,7 @@ async def generate(
 
     try:
         results = await generate_images(
-            client, model=model, prompt=req.prompt, **options
+            client, model=model, prompt=context.prompt, **options
         )
     except OpenAIError as e:
         logger.exception("images.generate failed")
@@ -477,12 +529,15 @@ async def generate(
 
     ids = await _store_results(
         results,
-        req.prompt,
+        context.prompt,
         source="image_panel_generate",
         user_id=user_id,
         session_id=(x_session_id or req.sessionId or None),
+        image_context=context,
     )
-    return ImageResponse(imageIds=ids, model=model, prompt=req.prompt)
+    return ImageResponse(
+        imageIds=ids, model=model, prompt=context.prompt, imageContext=context
+    )
 
 
 @router.post("/edit", response_model=ImageResponse)
@@ -571,25 +626,47 @@ async def edit(
             "user",
             "stream",
             "partial_images",
+            "guidance",
+            "brief",
+            "preserve",
         },
     )
-    if req.stream:
+    try:
+        context = await prepare_image_request(
+            prompt=req.prompt,
+            model=model,
+            mode="edit",
+            options=options,
+            refs=[ref.model_dump(exclude_none=True) for ref in req.imageRefs],
+            brief=req.brief,
+            preserve=req.preserve,
+            guidance=req.guidance,
+            parent=await fetch_image_context(
+                redis_client, req.imageRefs[0].model_dump(), user_id
+            ),
+            use_model=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    options = context.params
+    if req.stream and options.get("n", 1) == 1:
         return StreamingResponse(
             _stream_stored_images(
                 stream_edit_images(
                     client,
                     model=model,
                     image=source_files[0] if len(source_files) == 1 else source_files,
-                    prompt=req.prompt,
+                    prompt=context.prompt,
                     mask=mask_file,
                     partial_images=req.partial_images,
                     **options,
                 ),
-                prompt=req.prompt,
+                prompt=context.prompt,
                 source="image_panel_edit",
                 user_id=user_id,
                 session_id=(x_session_id or req.sessionId or None),
                 model=model,
+                image_context=context,
             ),
             media_type="text/event-stream",
             headers={
@@ -603,7 +680,7 @@ async def edit(
             client,
             model=model,
             image=source_files[0] if len(source_files) == 1 else source_files,
-            prompt=req.prompt,
+            prompt=context.prompt,
             mask=mask_file,
             **options,
         )
@@ -620,9 +697,12 @@ async def edit(
 
     ids = await _store_results(
         results,
-        req.prompt,
+        context.prompt,
         source="image_panel_edit",
         user_id=user_id,
         session_id=(x_session_id or req.sessionId or None),
+        image_context=context,
     )
-    return ImageResponse(imageIds=ids, model=model, prompt=req.prompt)
+    return ImageResponse(
+        imageIds=ids, model=model, prompt=context.prompt, imageContext=context
+    )

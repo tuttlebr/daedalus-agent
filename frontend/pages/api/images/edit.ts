@@ -1,7 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-import { isBackendUnavailable, removeUnsafeBrowserKeys } from '@/server/images/requestHelpers';
-
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
 import {
   cleanImageParamsForModel,
@@ -16,6 +14,10 @@ import {
 } from '@/utils/server/backendAuth';
 import { proxyJsonToBackend } from '@/utils/server/httpProxy';
 
+import {
+  isBackendUnavailable,
+  removeUnsafeBrowserKeys,
+} from '@/server/images/requestHelpers';
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
@@ -36,8 +38,6 @@ export const config = {
 
 const EDIT_TIMEOUT_MS = 330_000;
 const STREAM_PARTIAL_IMAGES = 2;
-
-
 
 export default async function handler(
   req: NextApiRequest,
@@ -82,7 +82,7 @@ export default async function handler(
     const payload = {
       ...removeImageParamKeys(safeBody),
       ...cleanImageParamsForModel(safeBody, model, 'edit'),
-      prompt: prompt.trim(),
+      prompt: safeBody.guidance === 'exact' ? prompt : prompt.trim(),
       model,
       sessionId,
       user: userId,

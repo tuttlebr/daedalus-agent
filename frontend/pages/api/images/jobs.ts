@@ -1,7 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { imageHistoryKey, removeUnsafeBrowserKeys } from '@/server/images/requestHelpers';
-
 import { buildBackendUrl, getBackendHost } from '@/utils/app/backendApi';
 import {
   cleanImageParamsForModel,
@@ -17,6 +15,12 @@ import {
   withTimezoneHeader,
 } from '@/utils/server/backendAuth';
 
+import type { ImageContext } from '@/types/imageBrief';
+
+import {
+  imageHistoryKey,
+  removeUnsafeBrowserKeys,
+} from '@/server/images/requestHelpers';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
@@ -52,6 +56,7 @@ const IMAGE_JOB_RATE_LIMIT = ruleFromEnv(
 );
 
 type ImageJobState = {
+  imageContext?: ImageContext;
   jobId: string;
   userId: string;
   sessionId: string;
@@ -73,6 +78,7 @@ type ImageJobState = {
 };
 
 type ImageHistoryEntry = {
+  imageContext?: ImageContext;
   id: string;
   mode: ImageMode;
   prompt: string;
@@ -86,6 +92,7 @@ type ImageHistoryEntry = {
 };
 
 type ImageGenerationResponse = {
+  imageContext?: ImageContext;
   imageIds: string[];
   model?: string;
   prompt?: string;
@@ -113,12 +120,10 @@ function userJobsKey(userId: string): string {
   return sessionKey(['user', userId, 'imageJobs']);
 }
 
-
 function publicJobState(status: ImageJobState): Omit<ImageJobState, 'userId'> {
   const { userId: _userId, ...publicStatus } = status;
   return publicStatus;
 }
-
 
 function statusCodeForError(error: unknown): number {
   if (error instanceof ImageBackendError) return error.statusCode;
@@ -211,6 +216,7 @@ function createHistoryEntry(job: ImageJobState): ImageHistoryEntry {
     id: `hist_${job.completedAt ?? Date.now()}_${job.jobId.slice(0, 8)}`,
     mode: job.mode,
     prompt: job.prompt,
+    imageContext: job.imageContext,
     params: job.params,
     inputImages: job.inputImages,
     maskImage: job.maskImage,
@@ -426,6 +432,9 @@ async function runImageJob(
     const historyEntry = createHistoryEntry({
       ...current,
       model: data.model ?? String(payload.model ?? ''),
+      prompt: data.prompt ?? current.prompt,
+      params: data.imageContext?.params ?? current.params,
+      imageContext: data.imageContext,
       outputImageIds: data.imageIds,
       usage: data.usage,
       completedAt,
@@ -433,6 +442,9 @@ async function runImageJob(
     const completed = (await updateJobStatus(jobId, {
       status: 'completed',
       model: data.model ?? String(payload.model ?? ''),
+      prompt: data.prompt ?? current.prompt,
+      params: data.imageContext?.params ?? current.params,
+      imageContext: data.imageContext,
       outputImageIds: data.imageIds,
       usage: data.usage,
       completedAt,
@@ -505,7 +517,7 @@ function buildPayload(
   const payload = {
     ...basePayload,
     ...params,
-    prompt: prompt.trim(),
+    prompt: safeBody.guidance === 'exact' ? prompt : prompt.trim(),
     model,
     sessionId,
     user: userId,
@@ -519,7 +531,7 @@ function buildPayload(
 
   return {
     payload,
-    prompt: prompt.trim(),
+    prompt: safeBody.guidance === 'exact' ? prompt : prompt.trim(),
     model,
     params,
     inputImages: Array.isArray(imageRefs) ? imageRefs : [],

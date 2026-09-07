@@ -37,6 +37,8 @@ import { BottomNav } from '@/components/mobile/BottomNav';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 
 import { useConversationStore, useUISettingsStore } from '@/state';
+import { useImageChatDraftStore } from '@/state/imageChatDraftStore';
+import { useImagePanelStore } from '@/state/imagePanelStore';
 import { v4 as uuidv4 } from 'uuid';
 
 const Home = () => {
@@ -343,7 +345,18 @@ function ActiveView() {
   const activeView = useUISettingsStore((s) => s.activeView);
 
   if (activeView === 'create') {
-    return <ImagePanel />;
+    return (
+      <ImagePanel
+        onSendToChat={(imageId) => {
+          const image = useImagePanelStore
+            .getState()
+            .gallery.find((item) => item.imageId === imageId);
+          if (!image) return;
+          useImageChatDraftStore.getState().queue(image);
+          useUISettingsStore.getState().setActiveView('chat');
+        }}
+      />
+    );
   }
   if (activeView === 'autonomy') {
     return <AutonomyDashboard />;

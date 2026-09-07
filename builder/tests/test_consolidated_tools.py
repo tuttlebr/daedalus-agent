@@ -3,7 +3,7 @@
 import asyncio
 import base64
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from nat_nv_ingest.nat_nv_ingest import NvIngestFunctionConfig, UserDocumentInput
@@ -18,6 +18,13 @@ from visual_media.visual_media_function import (
     _validated_user_id,
     visual_media_function,
 )
+
+
+@pytest.fixture(autouse=True)
+def async_image_client_cleanup(monkeypatch):
+    import visual_media.visual_media_function as mod
+
+    monkeypatch.setattr(mod.AsyncOpenAI.return_value, "close", AsyncMock())
 
 
 def test_identity_fields_are_absent_from_llm_facing_tool_schemas():

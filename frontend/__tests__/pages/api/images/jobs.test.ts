@@ -1,5 +1,7 @@
 import handler from '@/pages/api/images/jobs';
 
+import { imageContext } from '../../../fixtures/imageContext';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -102,6 +104,57 @@ describe('/api/images/jobs', () => {
     });
     mocks.enforceRateLimit.mockResolvedValue(true);
     vi.stubGlobal('fetch', mocks.fetch);
+  });
+
+  it('persists the actual prepared prompt and options from an SSE completion', async () => {
+    mocks.fetch.mockResolvedValue(
+      new Response(
+        `event: completed\ndata: ${JSON.stringify({
+          imageIds: ['final-brief'],
+          prompt: imageContext.prompt,
+          imageContext,
+        })}\n\n`,
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+    const { req, res } = createMockReqRes('POST', {
+      prompt: imageContext.originalPrompt,
+      guidance: 'auto',
+      preserve: 'palette',
+    });
+    await handler(req, res);
+    const jobId = res.json.mock.calls[0][0].jobId;
+    await drainUntil(
+      () => mocks.store.get(`image-job:${jobId}`)?.status === 'completed',
+    );
+    const status = mocks.store.get(`image-job:${jobId}`);
+    expect(status.imageContext).toEqual(imageContext);
+    expect(status.params).toEqual(imageContext.params);
+    expect(status.historyEntry.prompt).toBe(imageContext.prompt);
+    expect(
+      mocks.store.get('user:alice:imagePanelHistory')[0].imageContext,
+    ).toEqual(imageContext);
+    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body)).toMatchObject({
+      guidance: 'auto',
+      preserve: 'palette',
+    });
+  });
+
+  it('preserves whitespace and lettering for an exact prompt', async () => {
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ imageIds: ['exact'] }), { status: 200 }),
+    );
+    const prompt = '  Render "ACME" exactly.\n';
+    const { req, res } = createMockReqRes('POST', {
+      prompt,
+      guidance: 'exact',
+    });
+    await handler(req, res);
+    const jobId = res.json.mock.calls[0][0].jobId;
+    await drainUntil(
+      () => mocks.store.get(`image-job:${jobId}`)?.status === 'completed',
+    );
+    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).prompt).toBe(prompt);
   });
 
   it('returns a job id immediately and completes generate work in the background', async () => {

@@ -11,7 +11,9 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.identity import resolve_authenticated_user_id
+from nat_helpers.image_brief import ImageBrief, ImageOptions, prepare_image_request
 from nat_helpers.image_utils import (
+    fetch_image_context,
     fetch_image_from_redis,
     fetch_video_from_redis,
     parse_ref,
@@ -25,8 +27,25 @@ from pydantic import BaseModel, ConfigDict, Field
 logger = logging.getLogger(__name__)
 
 
+IMAGE_GUIDANCE_DESCRIPTION = (
+    "For an explicit image generation or editing request, first load "
+    "gpt-image-2-photography using agent_skills_tool(operation='load_skill', "
+    "skill_name='gpt-image-2-photography'), unless already loaded in this conversation. "
+    "Keep prompt as the user's current request and supply a complete updated brief following the skill. "
+    "Use options for requested quality, size, n, output_format, output_compression, and background. "
+    "The latest request overrides inherited context; clear obsolete preserve/exact_text constraints in the brief. "
+    "Describe references in their input order. Never invent unseen image contents. "
+    "Use guidance='exact' when the user asks to use their prompt verbatim. "
+    "Image analysis does not require this skill. Do not generate images for source-only daily summaries. "
+)
+
+
 class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
     """Unified image generation, image editing, and media analysis tool."""
+
+    description: str = Field(
+        default="Unified visual media tool: generate, edit, or analyze images. Return image markdown URLs verbatim."
+    )
 
     redis_url: str = Field(
         "redis://redis:6379",
@@ -88,8 +107,8 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
     n: int | None = Field(
         default=None,
         ge=1,
-        le=10,
-        description="Optional number of variations to produce (1-10).",
+        le=8,
+        description="Optional number of variations to produce (1-8).",
     )
     moderation: Literal["auto", "low"] | None = Field(
         default=None,
@@ -138,7 +157,16 @@ class VisualMediaInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation: Literal["generate", "edit", "analyze"]
-    prompt: str = ""
+    prompt: str = Field(
+        default="",
+        description="The user's current image request, preserving their literal wording.",
+    )
+    brief: ImageBrief | None = Field(
+        default=None,
+        description="Complete image brief prepared with the loaded photography skill. The backend renders it without another model call.",
+    )
+    options: ImageOptions | None = None
+    guidance: Literal["auto", "exact"] = "auto"
     imageRef: str | dict | list[dict] | None = None
     image_url: str | None = None
     videoRef: str | dict | None = None
@@ -252,10 +280,26 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             )
         return vlm_client
 
+    def _image_options(options: ImageOptions | None, background: str | None) -> dict:
+        defaults = {key: getattr(config, key) for key in ImageOptions.model_fields}
+        defaults.update(
+            moderation=config.moderation,
+            input_fidelity=config.input_fidelity,
+            user=config.user,
+        )
+        defaults = {key: value for key, value in defaults.items() if value is not None}
+        defaults.update(options.model_dump(exclude_none=True) if options else {})
+        if background is not None:
+            defaults["background"] = background
+        return defaults
+
     async def _generate(
         prompt: str,
         user_id: str | None,
         background: Literal["auto", "transparent", "opaque"] | None,
+        brief: ImageBrief | None,
+        options: ImageOptions | None,
+        guidance: str,
     ) -> str:
         if not prompt or not prompt.strip():
             return "Error: prompt is required for operation='generate'."
@@ -263,18 +307,19 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         if not owner_user_id:
             return "Error: authenticated request identity is required for generation."
 
+        context = await prepare_image_request(
+            prompt=prompt,
+            model=config.generation_model,
+            mode="generate",
+            options=_image_options(options, background),
+            brief=brief,
+            guidance=guidance,
+        )
         results = await generate_images(
             _get_image_client("generate"),
             model=config.generation_model,
-            prompt=prompt,
-            quality=config.quality,
-            size=config.size,
-            n=config.n,
-            moderation=config.moderation,
-            output_format=config.output_format,
-            output_compression=config.output_compression,
-            background=background or config.background,
-            user=config.user,
+            prompt=context.prompt,
+            **context.params,
         )
         refs = []
         for result in results:
@@ -282,7 +327,8 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 redis_client,
                 result.b64_json,
                 result.mime_type,
-                prompt,
+                context.prompt,
+                image_context=context.model_dump(),
                 source="visual_media.generate",
                 user_id=owner_user_id,
             )
@@ -294,6 +340,9 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         imageRef: str | dict | list[dict] | None,
         user_id: str | None,
         background: Literal["auto", "transparent", "opaque"] | None,
+        brief: ImageBrief | None,
+        options: ImageOptions | None,
+        guidance: str,
     ) -> str:
         if not prompt or not prompt.strip():
             return "Error: prompt is required for operation='edit'."
@@ -318,7 +367,11 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         source_files: list[tuple[str, bytes, str]] = []
         for idx, ref in enumerate(image_refs):
             image_base64, mime_type_or_error = await fetch_image_from_redis(
-                redis_client, ref, expected_user_id=expected_user_id
+                redis_client,
+                ref,
+                expected_user_id=expected_user_id,
+                prefer_vlm_data=False,
+                prefer_edit_data=True,
             )
             if image_base64 is None:
                 return f"Error fetching image {idx + 1}: {mime_type_or_error}"
@@ -331,19 +384,25 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             extension = "jpg" if "jpeg" in mime_type else mime_type.split("/")[-1]
             source_files.append((f"image_{idx}.{extension}", image_bytes, mime_type))
 
+        parent = await fetch_image_context(
+            redis_client, image_refs[0], expected_user_id
+        )
+        context = await prepare_image_request(
+            prompt=prompt,
+            model=config.edit_model,
+            mode="edit",
+            refs=image_refs,
+            options=_image_options(options, background),
+            brief=brief,
+            guidance=guidance,
+            parent=parent,
+        )
         results = await edit_images(
             _get_image_client("edit"),
             model=config.edit_model,
             image=source_files[0] if len(source_files) == 1 else source_files,
-            prompt=prompt,
-            quality=config.quality,
-            input_fidelity=config.input_fidelity,
-            size=config.size,
-            n=config.n,
-            output_format=config.output_format,
-            output_compression=config.output_compression,
-            background=background or config.background,
-            user=config.user,
+            prompt=context.prompt,
+            **context.params,
         )
         refs = []
         for result in results:
@@ -351,7 +410,8 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                 redis_client,
                 result.b64_json,
                 result.mime_type,
-                prompt,
+                context.prompt,
+                image_context=context.model_dump(),
                 source="visual_media.edit",
                 user_id=expected_user_id,
             )
@@ -454,6 +514,9 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         question: str = "",
         background: Literal["auto", "transparent", "opaque"] | None = None,
         user_id: str = "",
+        brief: ImageBrief | None = None,
+        options: ImageOptions | None = None,
+        guidance: Literal["auto", "exact"] = "auto",
     ) -> str:
         """Generate, edit, or analyze visual media.
 
@@ -489,10 +552,24 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                     )
                     return f"Error: visual media request denied: {exc}."
 
+            if isinstance(brief, dict):
+                brief = ImageBrief.model_validate(brief)
+            if isinstance(options, dict):
+                options = ImageOptions.model_validate(options)
             if op == "generate":
-                return await _generate(prompt, effective_user_id, background)
+                return await _generate(
+                    prompt, effective_user_id, background, brief, options, guidance
+                )
             if op == "edit":
-                return await _edit(prompt, imageRef, effective_user_id, background)
+                return await _edit(
+                    prompt,
+                    imageRef,
+                    effective_user_id,
+                    background,
+                    brief,
+                    options,
+                    guidance,
+                )
             if op == "analyze":
                 if isinstance(imageRef, list):
                     return (
@@ -527,18 +604,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
     try:
         yield FunctionInfo.from_fn(
             visual_media,
-            description=(
-                "Unified visual media tool. Args: operation='generate' to create "
-                "a new image from prompt; operation='edit' to modify uploaded "
-                "imageRef with prompt; operation='analyze' to answer a question "
-                "about imageRef, image_url, videoRef, or video_url. The backend "
-                "derives media ownership from the authenticated request; never "
-                "pass user_id. Set background='transparent' when the user asks "
-                "for a transparent generated or edited asset. Image outputs "
-                "return markdown refs. Forward them "
-                "verbatim in Markdown responses; for a standalone HTML artifact, "
-                "preserve only the returned URL exactly as an img src."
-            ),
+            description=config.description + " " + IMAGE_GUIDANCE_DESCRIPTION,
             input_schema=VisualMediaInput,
         )
     except GeneratorExit:
@@ -546,3 +612,5 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
     finally:
         if vlm_client is not None:
             await vlm_client.aclose()
+        for client in image_clients.values():
+            await client.close()

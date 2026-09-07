@@ -32,6 +32,7 @@ import { ProgressBar } from '@/components/primitives';
 import { GlassToolbar } from '@/components/surfaces';
 
 import { UPLOAD_LIMITS, validateFileSize } from '@/constants/uploadLimits';
+import { useImageChatDraftStore } from '@/state/imageChatDraftStore';
 import classNames from 'classnames';
 
 type Attachment = NonNullable<Message['attachments']>[number];
@@ -116,6 +117,19 @@ export const ChatInput = memo(
   ({ onSend, onStop, isStreaming = false }: ChatInputProps) => {
     const [content, setContent] = useState('');
     const [attachments, setAttachments] = useState<Attachment[]>([]);
+    const pendingImage = useImageChatDraftStore((state) => state.pending);
+    useEffect(() => {
+      if (!pendingImage) return;
+      const attachment = useImageChatDraftStore.getState().take();
+      if (attachment) {
+        setAttachments((current) => [
+          ...current.filter(
+            (item) => item.imageRef?.imageId !== attachment.imageRef?.imageId,
+          ),
+          attachment,
+        ]);
+      }
+    }, [pendingImage]);
     const [uploading, setUploading] = useState<UploadingFile[]>([]);
     const [selectedCollection, setSelectedCollection] = useState<string>('');
     const [showCollections, setShowCollections] = useState(false);

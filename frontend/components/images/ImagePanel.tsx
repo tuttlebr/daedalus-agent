@@ -29,8 +29,11 @@ import {
   useInvalidateImageHistory,
 } from '@/utils/app/queries';
 
+import type { ImageContext } from '@/types/imageBrief';
+
 import { EditAssetsPanel } from './AttachmentsPopover';
 import { HistoryDrawer, HistoryToggleButton } from './HistoryDrawer';
+import { ImagePromptDetail } from './ImagePromptDetail';
 import { ImageSettingsPanel } from './ImageSettingsPanel';
 import { ImagesCanvas } from './ImagesCanvas';
 import { ImagesDock } from './ImagesDock';
@@ -54,17 +57,8 @@ interface ImagePanelProps {
   onSendToChat?: (imageId: string) => void;
 }
 
-function buildFinalPrompt(
-  base: string,
-  preserveList: string,
-  mode: string,
-): string {
-  const trimmed = base.trim();
-  if (mode !== 'edit' || !preserveList.trim()) return trimmed;
-  return `${trimmed}\n\nKeep everything else the same, specifically: ${preserveList.trim()}.`;
-}
-
 interface ImageJobStatus {
+  imageContext?: ImageContext;
   jobId: string;
   sessionId: string;
   mode: 'generate' | 'edit';
@@ -245,6 +239,7 @@ function galleryFromJob(
   return imageIds.map((imageId) => ({
     imageId,
     prompt: job.prompt,
+    imageContext: job.imageContext,
     mode: job.mode,
     model,
     params: cleanImageParamsForModel(job.params, model, job.mode),
@@ -258,6 +253,7 @@ function historyEntryFromJob(job: ImageJobStatus): HistoryEntry {
     id: `hist_${job.completedAt ?? Date.now()}_${job.jobId.slice(0, 8)}`,
     mode: job.mode,
     prompt: job.prompt,
+    imageContext: job.imageContext,
     params: cleanImageParamsForModel(job.params, job.model, job.mode),
     inputImages: job.inputImages,
     maskImage: job.maskImage,
@@ -467,6 +463,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     const {
       prompt,
       preserveList,
+      guidance,
       params,
       inputImages,
       maskImage,
@@ -497,12 +494,13 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     setPartialGallery([]);
     setGenerationStatus('queued', Date.now());
     try {
-      const finalPrompt = buildFinalPrompt(prompt, preserveList, mode);
       const cleanedParams = cleanImageParamsForModel(params, model, mode);
 
       const body: Record<string, unknown> = {
         mode,
-        prompt: finalPrompt,
+        prompt,
+        preserve: preserveList,
+        guidance,
         model,
         ...cleanedParams,
       };
@@ -734,7 +732,7 @@ function OutputDetailPanel({
           Remove from workspace
         </OutputAction>
       </div>
-      <OutputMeta label="Prompt">{image.prompt}</OutputMeta>
+      <ImagePromptDetail image={image} />
       <OutputMeta label="Model">{image.model}</OutputMeta>
       <OutputMeta label="Params">
         {JSON.stringify(image.params, null, 2)}

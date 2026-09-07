@@ -18,6 +18,8 @@ import {
   type ImageParams,
 } from '@/utils/app/imageModelCapabilities';
 
+import type { ImageContext } from '@/types/imageBrief';
+
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
@@ -52,6 +54,7 @@ export interface ImageRef {
 }
 
 export interface GalleryImage {
+  imageContext?: ImageContext;
   imageId: string;
   prompt: string;
   mode: ImageMode;
@@ -62,6 +65,7 @@ export interface GalleryImage {
 }
 
 export interface HistoryEntry {
+  imageContext?: ImageContext;
   id: string;
   mode: ImageMode;
   prompt: string;
@@ -82,6 +86,7 @@ export interface ImagePanelState {
   inputImages: ImageRef[];
   maskImage: ImageRef | null;
   preserveList: string;
+  guidance: 'auto' | 'exact';
   gallery: GalleryImage[];
   partialGallery: GalleryImage[];
   selectedImageId: string | null;
@@ -110,6 +115,7 @@ export interface ImagePanelActions {
   setMaskImage: (ref: ImageRef | null) => void;
 
   setPreserveList: (text: string) => void;
+  setGuidance: (guidance: 'auto' | 'exact') => void;
 
   reuseOutputAsInput: (ref: ImageRef) => void;
 
@@ -138,7 +144,7 @@ export interface ImagePanelActions {
 
 export type ImagePanelStore = ImagePanelState & ImagePanelActions;
 
-const DEFAULT_PARAMS: ImageParams = { quality: 'medium' };
+const DEFAULT_PARAMS: ImageParams = {};
 
 const INITIAL_STATE: ImagePanelState = {
   mode: 'generate',
@@ -148,6 +154,7 @@ const INITIAL_STATE: ImagePanelState = {
   inputImages: [],
   maskImage: null,
   preserveList: '',
+  guidance: 'auto',
   gallery: [],
   partialGallery: [],
   selectedImageId: null,
@@ -217,15 +224,25 @@ export const useImagePanelStore = create<ImagePanelStore>()(
         setMaskImage: (ref) => set({ maskImage: ref }),
 
         setPreserveList: (preserveList) => set({ preserveList }),
+        setGuidance: (guidance) => set({ guidance }),
 
         reuseOutputAsInput: (ref) =>
           set((s) => {
-            const byId = new Map(s.inputImages.map((r) => [r.imageId, r]));
-            byId.set(ref.imageId, ref);
+            const image = s.gallery.find(
+              (item) => item.imageId === ref.imageId,
+            );
             return {
-              inputImages: Array.from(byId.values()),
+              inputImages: [ref],
+              maskImage: null,
+              prompt: '',
+              preserveList: '',
+              guidance: 'auto',
               mode: 'edit',
-              params: cleanImageParamsForModel(s.params, s.model, 'edit'),
+              params: cleanImageParamsForModel(
+                { ...(image?.params ?? s.params), n: 1 },
+                s.model,
+                'edit',
+              ),
             };
           }),
 
@@ -279,7 +296,10 @@ export const useImagePanelStore = create<ImagePanelStore>()(
           set({
             mode: entry.mode,
             model: resolveEntryModel(entry.model),
-            prompt: entry.prompt,
+            prompt: entry.imageContext?.originalPrompt ?? entry.prompt,
+            preserveList: entry.imageContext?.brief.preserve.join('; ') ?? '',
+            guidance:
+              entry.imageContext?.guidance === 'exact' ? 'exact' : 'auto',
             params: cleanImageParamsForModel(
               entry.params,
               entry.model,
@@ -324,6 +344,7 @@ export const useImagePanelStore = create<ImagePanelStore>()(
           model: state.model,
           params: state.params,
           preserveList: state.preserveList,
+          guidance: state.guidance,
         }),
         merge: (persisted, current) => {
           const saved = (persisted ?? {}) as Partial<ImagePanelState>;
@@ -334,6 +355,7 @@ export const useImagePanelStore = create<ImagePanelStore>()(
             ...current,
             model,
             preserveList: saved.preserveList ?? current.preserveList,
+            guidance: saved.guidance === 'exact' ? 'exact' : 'auto',
             // Re-validate saved params against the (possibly updated)
             // model capabilities instead of trusting stale localStorage.
             params: cleanImageParamsForModel(
@@ -362,6 +384,7 @@ function galleryFromHistoryEntry(entry: HistoryEntry): GalleryImage[] {
   return entry.outputImageIds.map((imageId) => ({
     imageId,
     prompt: entry.prompt,
+    imageContext: entry.imageContext,
     mode: entry.mode,
     model: resolveEntryModel(entry.model),
     params: cleanImageParamsForModel(entry.params, entry.model, entry.mode),

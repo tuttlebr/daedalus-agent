@@ -23,7 +23,9 @@ describe('image presets', () => {
       const applied = applyPreset(preset, 'an object', 'gpt-image-2');
       expect(applied.prompt).not.toContain('{{subject}}');
       expect(applied.params).not.toHaveProperty('input_fidelity');
-      expect(applied.params.background).not.toBe('transparent');
+      if (applied.params.background === 'transparent') {
+        expect(['png', 'webp']).toContain(applied.params.output_format);
+      }
     }
   });
 });

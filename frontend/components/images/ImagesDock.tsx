@@ -31,6 +31,8 @@ export const ImagesDock = memo(function ImagesDock({
   const prompt = useImagePanelStore((s) => s.prompt);
   const setPrompt = useImagePanelStore((s) => s.setPrompt);
   const loading = useImagePanelStore((s) => s.loading);
+  const guidance = useImagePanelStore((s) => s.guidance);
+  const setGuidance = useImagePanelStore((s) => s.setGuidance);
   const mode = useImagePanelStore(selectMode);
   const inputCount = useImagePanelStore((s) => s.inputImages.length);
 
@@ -92,6 +94,18 @@ export const ImagesDock = memo(function ImagesDock({
             'max-h-[30vh] overflow-y-auto',
           )}
         />
+
+        <label className="flex items-center gap-2 px-4 py-2 text-xs text-neutral-400">
+          <input
+            type="checkbox"
+            checked={guidance === 'exact'}
+            disabled={loading}
+            onChange={(event) =>
+              setGuidance(event.target.checked ? 'exact' : 'auto')
+            }
+          />
+          Use my prompt exactly
+        </label>
 
         <DockActionsRow
           loading={loading}

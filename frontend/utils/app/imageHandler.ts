@@ -234,6 +234,21 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
           }
         }
 
+        const imageContexts = message.attachments
+          .filter(
+            (att: any) =>
+              att.type === 'image' && att.imageContext && att.imageRef,
+          )
+          .map((att: any) => ({
+            imageId: att.imageRef.imageId,
+            ...att.imageContext,
+          }));
+        if (imageContexts.length) {
+          contentAdditions += `\n\nPrevious image context (reference data; the current request takes precedence):\n${JSON.stringify(
+            imageContexts,
+          )}`;
+        }
+
         if (videoCount > 0) {
           const videoText =
             videoCount === 1

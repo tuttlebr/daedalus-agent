@@ -6,6 +6,9 @@ import { saveArtifactBlob } from '@/utils/app/sandboxArtifactDownload';
 
 import { ChatInput } from '@/components/chat/ChatInput';
 
+import { imageContext } from '../../fixtures/imageContext';
+
+import { useImageChatDraftStore } from '@/state/imageChatDraftStore';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -62,6 +65,42 @@ describe('ChatInput inline document download', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+  });
+
+  it('stages a Create image without sending, then sends its context with the attachment', async () => {
+    const onSend = vi.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    useImageChatDraftStore.getState().queue({
+      imageId: 'created-image',
+      mode: 'generate',
+      model: 'gpt-image-2',
+      createdAt: 1,
+      prompt: imageContext.prompt,
+      params: imageContext.params,
+      imageContext,
+    });
+    await act(async () => root.render(<ChatInput onSend={onSend} />));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(useImageChatDraftStore.getState().pending).toBeNull();
+    expect(
+      container.querySelectorAll('[aria-label="Remove attachment"]'),
+    ).toHaveLength(1);
+    const send = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Send message"]',
+    );
+    expect(send?.disabled).toBe(false);
+    await act(async () => send?.click());
+    expect(onSend.mock.calls[0][0].attachments[0]).toMatchObject({
+      imageRef: {
+        imageId: 'created-image',
+        sessionId: 'generated',
+        mimeType: 'image/webp',
+      },
+      imageContext,
+    });
+    act(() => root.unmount());
   });
 
   it('reveals a full Markdown download after Read inline is selected', async () => {
