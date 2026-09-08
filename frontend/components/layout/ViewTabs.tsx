@@ -48,7 +48,7 @@ export function ViewTabs() {
   };
 
   return (
-    <div className="app-chrome hidden min-w-0 items-center gap-2 border-b px-3 py-2 safe-top md:flex">
+    <div className="app-view-tabs app-chrome hidden min-w-0 items-center gap-2 border-b px-3 py-2 safe-top md:flex">
       <IconButton
         icon={<IconLayoutSidebar size={20} />}
         aria-label="Toggle sidebar"

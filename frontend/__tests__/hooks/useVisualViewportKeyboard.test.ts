@@ -340,6 +340,21 @@ describe('visual viewport lifecycle', () => {
     expect(state.top).toBeNull();
   });
 
+  it('detects body-pan recovery without a final viewport event', () => {
+    bodyTop = -84;
+    act(() => input.focus());
+    changeViewport(500, 84);
+    expect(state).toMatchObject({ keyboardOpen: true, top: 84 });
+
+    act(() => input.blur());
+    changeViewport(852, 84);
+    expect(state).toMatchObject({ keyboardOpen: false, top: 84 });
+
+    bodyTop = 0;
+    act(() => vi.advanceTimersByTime(100));
+    expect(state).toMatchObject({ keyboardOpen: false, top: null });
+  });
+
   it('leaves the layout alone during pinch zoom', () => {
     act(() => input.focus());
     changeViewport(426, 100, 2);
@@ -369,6 +384,34 @@ describe('visual viewport lifecycle', () => {
     vi.stubGlobal('innerHeight', 393);
     changeViewport(200);
     expect(state).toMatchObject({ keyboardOpen: true, height: 200 });
+    changeViewport(393);
+    expect(state).toMatchObject({
+      keyboardOpen: false,
+      height: null,
+      top: null,
+    });
+  });
+
+  it('re-samples dimensions after WebKit reports stale rotation sizes', () => {
+    act(() => input.focus());
+    changeViewport(500);
+
+    act(() => {
+      window.dispatchEvent(new Event('orientationchange'));
+      vi.stubGlobal('innerWidth', 852);
+      // The first resize can retain the old portrait height.
+      vi.stubGlobal('innerHeight', 852);
+      Object.assign(viewport, { height: 200 });
+      viewport.dispatchEvent(new Event('resize'));
+      vi.advanceTimersByTime(400);
+    });
+    expect(state).toMatchObject({ keyboardOpen: true, height: 200 });
+
+    // WebKit can correct the dimensions without another resize event.
+    vi.stubGlobal('innerHeight', 393);
+    act(() => vi.advanceTimersByTime(400));
+    expect(state).toMatchObject({ keyboardOpen: true, height: 200 });
+
     changeViewport(393);
     expect(state).toMatchObject({
       keyboardOpen: false,

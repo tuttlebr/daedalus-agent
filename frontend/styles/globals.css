@@ -447,11 +447,18 @@ html:has(.app-viewport) #__next {
   overscroll-behavior: none;
 }
 
-/* A native WebKit keyboard pan can move the body's clipping rectangle while
-   the corrected app shell remains inside the visible viewport. Keep the root
-   locked, but let the shifted ancestors paint and hit-test that shell. */
-html:has(.app-viewport[data-viewport-shifted='true']) body,
-html:has(.app-viewport[data-viewport-shifted='true']) #__next {
+/* When WebKit restores viewport.height before releasing its body pan, the
+   full-height shell briefly extends past the shifted body's clipping edge.
+   Relax clipping only for that closing frame; while the keyboard is open the
+   resized shell fits inside the locked root and must not expose a blank strip. */
+html:has(
+    .app-viewport[data-viewport-shifted='true'][data-keyboard-open='false']
+  )
+  body,
+html:has(
+    .app-viewport[data-viewport-shifted='true'][data-keyboard-open='false']
+  )
+  #__next {
   overflow: visible;
 }
 
@@ -460,6 +467,33 @@ html:has(.app-viewport[data-viewport-shifted='true']) #__next {
   top: 0;
   inset-inline: 0;
   height: 100dvh;
+}
+
+/* Installed iOS web apps with a translucent status bar can report 100dvh and
+   the percentage-height containing block without the status-bar region. The
+   web layer still begins at screen y=0, which leaves that missing region as a
+   band below the bottom navigation. In standalone mode, 100vh includes the
+   complete screen. Apply it to the whole containing-block chain so an
+   overflow-locked ancestor cannot clip the shell or a body-portaled dialog.
+   Keyboard-open measurements remain inline on both surfaces and therefore
+   take precedence. The data attribute is set before Next.js mounts; the media
+   query is the CSS fallback. */
+html[data-app-display-mode='standalone']:has(.app-viewport),
+html[data-app-display-mode='standalone']:has(.app-viewport) body,
+html[data-app-display-mode='standalone']:has(.app-viewport) #__next,
+html[data-app-display-mode='standalone'] .app-viewport,
+html[data-app-display-mode='standalone'] .app-dialog {
+  height: 100vh;
+}
+
+@media (display-mode: standalone) {
+  html:has(.app-viewport),
+  html:has(.app-viewport) body,
+  html:has(.app-viewport) #__next,
+  .app-viewport,
+  .app-dialog {
+    height: 100vh;
+  }
 }
 
 .safari-safe-area {
@@ -2198,6 +2232,78 @@ details div {
 @media (max-width: 767px) {
   .chat-scroll-container {
     scrollbar-gutter: auto;
+  }
+
+  /* Keep touch controls at their 44px target when Dynamic Type or browser text
+     zoom increases rem-based dimensions. This preserves useful textarea width
+     and keeps the entire composer inside a short keyboard viewport. */
+  [data-chat-input] .chat-content-rail {
+    padding-inline: 16px;
+  }
+
+  .chat-input-row {
+    gap: 8px;
+  }
+
+  .chat-input-action {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+}
+
+/* A phone in landscape is wider than the mobile breakpoint while its software
+   keyboard leaves less vertical room than portrait. Keyboard state is the
+   reliable compact-layout signal for both orientations. */
+[data-keyboard-open='true'] .chat-header {
+  min-height: 44px;
+}
+
+[data-keyboard-open='true'] .app-view-tabs {
+  display: none;
+}
+
+[data-keyboard-open='true'] .chat-header-action,
+[data-keyboard-open='true'] .chat-input-action {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+
+[data-keyboard-open='true'] [data-chat-input] .chat-content-rail {
+  padding-inline: 16px;
+}
+
+[data-keyboard-open='true'] .chat-input-row {
+  gap: 8px;
+}
+
+[data-keyboard-open='true'] .chat-input-extras {
+  max-height: 80px;
+  margin-bottom: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+[data-keyboard-open='true'] .chat-message-pane {
+  min-height: 24px;
+}
+
+@media (max-height: 479px) {
+  [data-keyboard-open='true'] .chat-input-extras {
+    max-height: 48px;
+  }
+
+  [data-keyboard-open='true'] .chat-attachment-chip {
+    min-height: 44px;
+    padding-block: 0;
+  }
+
+  [data-keyboard-open='true'] [data-chat-input] textarea {
+    min-height: 56px;
+    padding-block: 8px;
   }
 }
 

@@ -7,6 +7,8 @@ import { resolve } from 'node:path';
 
 test.use({ serviceWorkers: 'block' });
 
+const IPHONE_17_PRO = { width: 402, height: 874 } as const;
+
 // Deterministic content isolates frontend behavior from personal data and live
 // model services. The existing agentic suite covers authenticated integration.
 async function openApp(page: Page, conversations: Conversation[] = []) {
@@ -229,6 +231,161 @@ test('destinations reflow in both appearances and at twice the text size', async
   }
 });
 
+test('new-chat content uses the top of the mobile pane and centers on desktop', async ({
+  page,
+}, testInfo) => {
+  await openApp(page);
+  await settleTransitions(page);
+  const mobile = page.viewportSize()!.width < 768;
+  const heading = page.getByRole('heading', { name: 'How can I help?' });
+  const welcome = heading.locator('../..');
+  const messages = page.getByLabel('Conversation messages');
+  const contentBox = (await welcome.boundingBox())!;
+  const paneBox = (await messages.boundingBox())!;
+
+  if (mobile) {
+    const gap = contentBox.y - paneBox.y;
+    expect(gap).toBeGreaterThanOrEqual(16);
+    expect(gap).toBeLessThanOrEqual(32);
+  } else {
+    expect(contentBox.y + contentBox.height / 2).toBeCloseTo(
+      paneBox.y + paneBox.height / 2,
+      0,
+    );
+  }
+
+  await expect(heading).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: testInfo.outputPath('new-chat.png') });
+});
+
+test('installed iPhone shell covers the screen outside the shortened percentage root', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-webkit');
+
+  const statusRegion = 62;
+  const shortenedRootHeight = IPHONE_17_PRO.height - statusRegion;
+  const homeIndicatorInset = 34;
+
+  await page.setViewportSize(IPHONE_17_PRO);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'standalone', {
+      configurable: true,
+      get: () => true,
+    });
+  });
+  await openApp(page);
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-app-display-mode',
+    'standalone',
+  );
+
+  // Headless WebKit does not reproduce the installed-PWA containing block
+  // defect. Model the device's exact 874 - 62 = 812px percentage root.
+  // These selectors override the normal percentage rules, while the more
+  // specific standalone 100vh rules must still win.
+  await page.evaluate(
+    ({ bottomInset }) => {
+      document.documentElement.setAttribute(
+        'data-test-short-percentage-root',
+        '',
+      );
+      document.documentElement.style.setProperty(
+        '--safe-area-inset-bottom',
+        `${bottomInset}px`,
+      );
+    },
+    { bottomInset: homeIndicatorInset },
+  );
+  await page.addStyleTag({
+    content: `
+      html[data-test-short-percentage-root],
+      html[data-test-short-percentage-root] body,
+      html[data-test-short-percentage-root] #__next {
+        height: ${shortenedRootHeight}px;
+      }
+      .app-dialog {
+        height: ${shortenedRootHeight}px;
+      }
+      .safe-top {
+        padding-top: ${statusRegion}px;
+      }
+    `,
+  });
+  await settleTransitions(page);
+
+  const geometry = await page.evaluate(() => {
+    const rect = (element: Element) => element.getBoundingClientRect();
+    const root = document.getElementById('__next')!;
+    const shell = document.getElementById('main-content')!;
+    const navigation = document.querySelector<HTMLElement>(
+      'nav[aria-label="Primary navigation"]',
+    )!;
+    const lastTab = navigation.querySelector('button:last-of-type')!;
+    const header = document.querySelector<HTMLElement>('.chat-header')!;
+    const bottomHit = document.elementFromPoint(
+      window.innerWidth / 2,
+      window.innerHeight - 1,
+    );
+
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      deviceScaleFactor: window.devicePixelRatio,
+      rootHeight: rect(root).height,
+      shellTop: rect(shell).top,
+      shellHeight: rect(shell).height,
+      shellBottom: rect(shell).bottom,
+      shellInlineHeight: shell.style.height,
+      keyboardOpen: shell.dataset.keyboardOpen,
+      navigationBottom: rect(navigation).bottom,
+      navigationGap: window.innerHeight - rect(navigation).bottom,
+      lastTabGap: window.innerHeight - rect(lastTab).bottom,
+      headerPaddingTop: parseFloat(getComputedStyle(header).paddingTop),
+      bottomOwnedByNavigation:
+        bottomHit instanceof Element && navigation.contains(bottomHit),
+    };
+  });
+
+  expect(geometry).toMatchObject({
+    viewport: IPHONE_17_PRO,
+    deviceScaleFactor: 3,
+    shellInlineHeight: '',
+    keyboardOpen: 'false',
+    headerPaddingTop: statusRegion,
+    bottomOwnedByNavigation: true,
+  });
+  expect(geometry.rootHeight).toBeCloseTo(IPHONE_17_PRO.height, 0);
+  expect(geometry.shellTop).toBeCloseTo(0, 0);
+  expect(geometry.shellHeight).toBeCloseTo(IPHONE_17_PRO.height, 0);
+  expect(geometry.shellBottom).toBeCloseTo(IPHONE_17_PRO.height, 0);
+  expect(geometry.navigationBottom).toBeCloseTo(IPHONE_17_PRO.height, 0);
+  expect(geometry.navigationGap).toBeCloseTo(0, 0);
+  expect(geometry.lastTabGap).toBeCloseTo(homeIndicatorInset, 0);
+
+  await openSidebar(page);
+  await settleTransitions(page);
+  const dialog = page.getByRole('dialog', { name: 'Navigation menu' });
+  const history = page.getByRole('navigation', {
+    name: 'Conversation history',
+  });
+  const panel = history.locator('..');
+  const [dialogBox, panelBox] = await Promise.all([
+    dialog.boundingBox(),
+    panel.boundingBox(),
+  ]);
+  expect(dialogBox).not.toBeNull();
+  expect(panelBox).not.toBeNull();
+  expect(dialogBox!.y).toBeCloseTo(0, 0);
+  expect(dialogBox!.height).toBeCloseTo(IPHONE_17_PRO.height, 0);
+  expect(dialogBox!.y + dialogBox!.height).toBeCloseTo(IPHONE_17_PRO.height, 0);
+  expect(panelBox!.y + panelBox!.height).toBeCloseTo(IPHONE_17_PRO.height, 0);
+
+  await page.screenshot({
+    path: testInfo.outputPath('iphone-17-pro-standalone-shell.png'),
+  });
+});
+
 test('navigation fits the screen and the drawer uses a single safe inset', async ({
   page,
 }, testInfo) => {
@@ -366,7 +523,7 @@ test('navigation fits the screen and the drawer uses a single safe inset', async
 test('sheets contain keyboard focus, isolate the page, and return focus', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 393, height: 852 });
+  await page.setViewportSize(IPHONE_17_PRO);
   await openApp(page);
   await navigate(page, 'Create');
   const trigger = page.getByRole('button', { name: 'Adjust image' });
@@ -421,7 +578,7 @@ test('tab changes preserve drafts and memory state; memory editing is a modal', 
   await expect(draft).toHaveValue('A draft to return to');
   await page.setViewportSize({ width: 834, height: 1194 });
   await expect(draft).toHaveValue('A draft to return to');
-  await page.setViewportSize({ width: 393, height: 852 });
+  await page.setViewportSize(IPHONE_17_PRO);
   await expect(draft).toHaveValue('A draft to return to');
 });
 
@@ -459,7 +616,7 @@ test('sign-in and offline recovery use readable appearance and named controls', 
 test('saved images remain visible and can continue into editing', async ({
   page,
 }, testInfo) => {
-  await page.setViewportSize({ width: 393, height: 852 });
+  await page.setViewportSize(IPHONE_17_PRO);
   await openApp(page);
   await page.route('**/api/images/history', (route) =>
     route.fulfill({

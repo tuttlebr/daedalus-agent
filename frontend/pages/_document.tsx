@@ -98,6 +98,10 @@ export default function Document() {
             var dark = mode === 'dark' || (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
             document.documentElement.classList.toggle('dark', dark);
           } catch(e) {}
+          try {
+            var standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+            if (standalone) document.documentElement.setAttribute('data-app-display-mode', 'standalone');
+          } catch(e) {}
         `,
           }}
         />

@@ -9,7 +9,10 @@ import {
   useKeyboardShortcuts,
   commonShortcuts,
 } from '@/hooks/useKeyboardShortcuts';
-import { useVisualViewportKeyboard } from '@/hooks/useVisualViewportKeyboard';
+import {
+  AppVisualViewportContext,
+  useVisualViewportKeyboard,
+} from '@/hooks/useVisualViewportKeyboard';
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 import { apiGet } from '@/utils/app/api';
@@ -289,33 +292,35 @@ const Home = () => {
         <link rel="icon" href={branding.assets['/favicon.png']} />
       </Head>
 
-      <main
-        className="app-viewport flex min-h-0 flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
-        id="main-content"
-        tabIndex={-1}
-        data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
-        data-viewport-shifted={
-          visualViewport.top !== null && Math.abs(visualViewport.top) > 0.5
-            ? 'true'
-            : 'false'
-        }
-        style={{
-          height: visualViewport.height ?? undefined,
-          top: visualViewport.top ?? undefined,
-        }}
-      >
-        <AppShell
-          sidebar={<Sidebar />}
-          bottomNav={<BottomNav keyboardOpen={visualViewport.keyboardOpen} />}
+      <AppVisualViewportContext.Provider value={visualViewport}>
+        <main
+          className="app-viewport flex min-h-0 flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
+          id="main-content"
+          tabIndex={-1}
+          data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
+          data-viewport-shifted={
+            visualViewport.top !== null && Math.abs(visualViewport.top) > 0.5
+              ? 'true'
+              : 'false'
+          }
+          style={{
+            height: visualViewport.height ?? undefined,
+            top: visualViewport.top ?? undefined,
+          }}
         >
-          <div className="flex h-full w-full min-w-0 flex-col">
-            <ViewTabs />
-            <div className="flex-1 min-h-0 w-full overflow-hidden">
-              <ActiveView />
+          <AppShell
+            sidebar={<Sidebar />}
+            bottomNav={<BottomNav keyboardOpen={visualViewport.keyboardOpen} />}
+          >
+            <div className="flex h-full w-full min-w-0 flex-col">
+              <ViewTabs />
+              <div className="flex-1 min-h-0 w-full overflow-hidden">
+                <ActiveView />
+              </div>
             </div>
-          </div>
-        </AppShell>
-      </main>
+          </AppShell>
+        </main>
+      </AppVisualViewportContext.Provider>
     </ProtectedRoute>
   );
 };

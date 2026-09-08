@@ -1,10 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 
 const KEYBOARD_OCCLUSION_THRESHOLD_PX = 100;
 const BODY_PAN_THRESHOLD_PX = 0.5;
 const BLUR_GRACE_PERIOD_MS = 600;
+const BODY_PAN_RECOVERY_POLL_MS = 50;
+const BODY_PAN_RECOVERY_TIMEOUT_MS = 2_000;
+const DIMENSION_SETTLE_MS = 700;
 
 export interface VisualViewportState {
   height: number | null;
@@ -20,6 +23,13 @@ const initialState: VisualViewportState = {
   occludedHeight: 0,
   keyboardOpen: false,
 };
+
+export const AppVisualViewportContext =
+  createContext<VisualViewportState>(initialState);
+
+export function useAppVisualViewport(): VisualViewportState {
+  return useContext(AppVisualViewportContext);
+}
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
@@ -143,6 +153,9 @@ export function useVisualViewportKeyboard(): VisualViewportState {
     let frameId: number | null = null;
     let settleTimer: number | null = null;
     let blurTimer: number | null = null;
+    let bodyRecoveryTimer: number | null = null;
+    let dimensionSettleTimer: number | null = null;
+    let bodyRecoveryDeadline = 0;
     let keyboardOpen = false;
     let bodyPanMode = false;
     let blurGraceExpired = false;
@@ -155,10 +168,12 @@ export function useVisualViewportKeyboard(): VisualViewportState {
 
       const nextHeight = viewport?.height ?? window.innerHeight;
       const focused = isEditableElement(document.activeElement);
-      if ((!focused && !keyboardOpen) || window.innerWidth !== layoutWidth) {
+      const widthChanged = window.innerWidth !== layoutWidth;
+      if ((!focused && !keyboardOpen) || widthChanged) {
         baselineHeight = Math.max(window.innerHeight, nextHeight);
         layoutWidth = window.innerWidth;
       }
+      if (widthChanged) scheduleDimensionSettle();
 
       const scrollY = window.scrollY;
       const renderedBodyTop = document.body.getBoundingClientRect().top;
@@ -190,6 +205,11 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       keyboardOpen = next.keyboardOpen;
       if (!keyboardOpen && renderedBodyPan <= BODY_PAN_THRESHOLD_PX) {
         bodyPanMode = false;
+        stopBodyRecoveryPolling();
+      } else if (!keyboardOpen && bodyPanMode) {
+        scheduleBodyRecoveryMeasure();
+      } else {
+        stopBodyRecoveryPolling();
       }
 
       setState((current) => {
@@ -200,6 +220,33 @@ export function useVisualViewportKeyboard(): VisualViewportState {
           ? current
           : next;
       });
+    };
+
+    const stopBodyRecoveryPolling = () => {
+      if (bodyRecoveryTimer !== null) {
+        window.clearTimeout(bodyRecoveryTimer);
+        bodyRecoveryTimer = null;
+      }
+      bodyRecoveryDeadline = 0;
+    };
+
+    const scheduleBodyRecoveryMeasure = () => {
+      if (bodyRecoveryTimer !== null) return;
+      const now = Date.now();
+      if (bodyRecoveryDeadline === 0) {
+        bodyRecoveryDeadline = now + BODY_PAN_RECOVERY_TIMEOUT_MS;
+      }
+      if (now >= bodyRecoveryDeadline) {
+        bodyRecoveryDeadline = 0;
+        return;
+      }
+      // WebKit does not always emit a final viewport event when its visual body
+      // pan returns to zero. Poll only during the bounded keyboard-close phase.
+      bodyRecoveryTimer = window.setTimeout(() => {
+        bodyRecoveryTimer = null;
+        if (frameId !== null) cancelAnimationFrame(frameId);
+        frameId = requestAnimationFrame(measure);
+      }, BODY_PAN_RECOVERY_POLL_MS);
     };
 
     const scheduleMeasure = () => {
@@ -214,17 +261,33 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       }, 300);
     };
 
-    const resetBaseline = () => {
-      baselineHeight = Math.max(
-        window.innerHeight,
-        viewport?.height ?? window.innerHeight,
-      );
+    const scheduleDimensionSettle = () => {
+      if (dimensionSettleTimer !== null)
+        window.clearTimeout(dimensionSettleTimer);
+      // WKWebView can publish the old or a square viewport during rotation and
+      // never send a resize with the final dimensions. Re-sample after WebKit's
+      // layout round trip rather than retaining the first width-change value.
+      dimensionSettleTimer = window.setTimeout(() => {
+        dimensionSettleTimer = null;
+        baselineHeight = Math.max(
+          window.innerHeight,
+          viewport?.height ?? window.innerHeight,
+        );
+        layoutWidth = window.innerWidth;
+        scheduleMeasure();
+      }, DIMENSION_SETTLE_MS);
+    };
+
+    const handleOrientationChange = () => {
+      stopBodyRecoveryPolling();
       bodyPanMode = false;
       blurGraceExpired = false;
+      scheduleDimensionSettle();
       scheduleMeasure();
     };
 
     const handleFocusIn = () => {
+      stopBodyRecoveryPolling();
       blurGraceExpired = false;
       if (blurTimer !== null) {
         window.clearTimeout(blurTimer);
@@ -253,7 +316,7 @@ export function useVisualViewportKeyboard(): VisualViewportState {
     viewport?.addEventListener('scrollend', scheduleMeasure);
     window.addEventListener('resize', scheduleMeasure);
     window.addEventListener('scroll', scheduleMeasure, { passive: true });
-    window.addEventListener('orientationchange', resetBaseline);
+    window.addEventListener('orientationchange', handleOrientationChange);
     window.addEventListener('pageshow', scheduleMeasure);
     document.addEventListener('visibilitychange', scheduleMeasure);
     document.addEventListener('focusin', handleFocusIn);
@@ -264,12 +327,15 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       if (frameId !== null) cancelAnimationFrame(frameId);
       if (settleTimer !== null) window.clearTimeout(settleTimer);
       if (blurTimer !== null) window.clearTimeout(blurTimer);
+      if (bodyRecoveryTimer !== null) window.clearTimeout(bodyRecoveryTimer);
+      if (dimensionSettleTimer !== null)
+        window.clearTimeout(dimensionSettleTimer);
       viewport?.removeEventListener('resize', scheduleMeasure);
       viewport?.removeEventListener('scroll', scheduleMeasure);
       viewport?.removeEventListener('scrollend', scheduleMeasure);
       window.removeEventListener('resize', scheduleMeasure);
       window.removeEventListener('scroll', scheduleMeasure);
-      window.removeEventListener('orientationchange', resetBaseline);
+      window.removeEventListener('orientationchange', handleOrientationChange);
       window.removeEventListener('pageshow', scheduleMeasure);
       document.removeEventListener('visibilitychange', scheduleMeasure);
       document.removeEventListener('focusin', handleFocusIn);

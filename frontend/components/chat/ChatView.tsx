@@ -1132,12 +1132,12 @@ export const ChatView = memo(() => {
 
   return (
     <div className="flex flex-col h-full w-full bg-dark-bg-primary">
-      <header className="app-chrome safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-separator/70 px-3 md:px-4">
+      <header className="chat-header app-chrome safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-separator/70 px-3 md:px-4">
         <div className="flex items-center gap-3 min-w-0">
           <IconButton
             icon={<IconMenu2 />}
             aria-label="Open conversation history"
-            className="md:hidden"
+            className="chat-header-action md:hidden"
             variant="ghost"
             size="md"
             onClick={toggleChatbar}
@@ -1164,7 +1164,7 @@ export const ChatView = memo(() => {
           variant="ghost"
           size="md"
           onClick={handleNewConversation}
-          className="flex-shrink-0"
+          className="chat-header-action flex-shrink-0"
         />
       </header>
       <div className="sr-only" role="status" aria-live="polite">
@@ -1172,7 +1172,7 @@ export const ChatView = memo(() => {
       </div>
 
       {/* Messages */}
-      <div className="relative min-h-0 flex-1">
+      <div className="chat-message-pane relative min-h-0 flex-1">
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
@@ -1362,7 +1362,7 @@ const SUGGESTED_PROMPTS = [
 const EmptyState = memo(
   ({ onSuggestion }: { onSuggestion?: (text: string) => void }) => (
     <div className="chat-empty-state flex min-h-full flex-col items-center px-5 py-6 md:py-8">
-      <div className="my-auto w-full max-w-md space-y-5 text-center">
+      <div className="w-full max-w-md space-y-5 text-center md:my-auto">
         <img
           src={branding.assets['/favicon.png']}
           alt="Daedalus"

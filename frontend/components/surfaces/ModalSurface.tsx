@@ -3,6 +3,8 @@
 import React, { memo, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { useAppVisualViewport } from '@/hooks/useVisualViewportKeyboard';
+
 import classNames from 'classnames';
 
 export type ModalSurfacePosition =
@@ -40,6 +42,7 @@ export const ModalSurface = memo(
     const [mounted, setMounted] = useState(false);
     const dialogRef = useRef<HTMLDialogElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
+    const visualViewport = useAppVisualViewport();
     useEffect(() => setMounted(true), []);
 
     useEffect(() => {
@@ -78,7 +81,9 @@ export const ModalSurface = memo(
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
-        className="app-dialog fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-hidden border-0 bg-transparent p-0"
+        data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
+        className="app-dialog fixed inset-0 m-0 h-full max-h-none w-full max-w-none overflow-hidden border-0 bg-transparent p-0"
+        style={{ height: visualViewport.height ?? undefined }}
         onKeyDown={(event) => {
           if (
             event.key !== 'Tab' ||

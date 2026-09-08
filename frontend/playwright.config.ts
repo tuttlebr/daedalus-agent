@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const iphone17ProViewport = { width: 402, height: 874 };
+
 export default defineConfig({
   testDir: './e2e/tests',
   fullyParallel: false,
@@ -38,7 +40,7 @@ export default defineConfig({
       testMatch: /(?:ui-layout|hig-design)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
-        viewport: { width: 393, height: 852 },
+        viewport: iphone17ProViewport,
         deviceScaleFactor: 3,
         hasTouch: true,
         isMobile: true,
@@ -47,7 +49,7 @@ export default defineConfig({
     {
       name: 'mobile-webkit',
       testMatch: /(?:ui-layout|hig-design)\.spec\.ts/,
-      use: { ...devices['iPhone 15'], viewport: { width: 393, height: 852 } },
+      use: { ...devices['iPhone 15'], viewport: iphone17ProViewport },
     },
     {
       name: 'tablet-webkit',

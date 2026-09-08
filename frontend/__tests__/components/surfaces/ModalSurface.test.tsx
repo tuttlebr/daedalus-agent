@@ -2,6 +2,8 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { AppVisualViewportContext } from '@/hooks/useVisualViewportKeyboard';
+
 import { ModalSurface } from '@/components/surfaces/ModalSurface';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -67,5 +69,29 @@ describe('ModalSurface', () => {
 
     expect(document.querySelector('dialog')).toBeNull();
     expect(document.body.style.overflow).toBe('');
+  });
+
+  it('uses the measured keyboard viewport inside its body portal', () => {
+    act(() => {
+      root.render(
+        <AppVisualViewportContext.Provider
+          value={{
+            height: 500,
+            top: 84,
+            occludedHeight: 352,
+            keyboardOpen: true,
+          }}
+        >
+          <ModalSurface open onClose={() => {}} aria-label="Navigation menu">
+            <input aria-label="Search" />
+          </ModalSurface>
+        </AppVisualViewportContext.Provider>,
+      );
+      vi.runOnlyPendingTimers();
+    });
+
+    const dialog = document.querySelector('dialog')!;
+    expect(dialog.style.height).toBe('500px');
+    expect(dialog.dataset.keyboardOpen).toBe('true');
   });
 });
