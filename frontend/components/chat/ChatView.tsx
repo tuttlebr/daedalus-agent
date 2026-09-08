@@ -203,7 +203,6 @@ export const ChatView = memo(() => {
 
   // Streaming follows by default, but the first explicit upward gesture pauses
   // it immediately. Content growth never gets to reinterpret reading intent.
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const isFollowingRef = useRef(true);
@@ -240,7 +239,10 @@ export const ChatView = memo(() => {
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     isFollowingRef.current = true;
     setShowScrollToBottom(false);
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    const container = scrollContainerRef.current;
+    // scrollIntoView can scroll every ancestor, including WebKit's document
+    // viewport while the keyboard is open. Only move the message pane.
+    container?.scrollTo({ top: container.scrollHeight, behavior });
   }, []);
 
   const jumpToLatest = useCallback(() => {
@@ -1269,8 +1271,6 @@ export const ChatView = memo(() => {
                   </div>
                 )
               )}
-
-              <div ref={messagesEndRef} />
             </div>
           )}
         </div>

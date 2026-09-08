@@ -64,7 +64,7 @@ describe('ChatView OAuth banner', () => {
     vi.clearAllMocks();
     localStorage.clear();
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+    Object.defineProperty(Element.prototype, 'scrollTo', {
       configurable: true,
       value: vi.fn(),
     });
@@ -217,9 +217,35 @@ describe('ChatView OAuth banner', () => {
     act(() => root.unmount());
   });
 
+  it('jumps to the latest message by scrolling only the conversation pane', () => {
+    const { root } = renderChatView();
+    const scroller = document.querySelector(
+      '[aria-label="Conversation messages"]',
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollHeight', { value: 2400 });
+    act(() => {
+      scroller.dispatchEvent(
+        new WheelEvent('wheel', { bubbles: true, deltaY: -40 }),
+      );
+    });
+    const scrollTo = vi.mocked(Element.prototype.scrollTo);
+    scrollTo.mockClear();
+    const jump = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Jump to latest messages"]',
+    )!;
+    act(() => jump.click());
+
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({
+      top: 2400,
+      behavior: 'smooth',
+    });
+    expect(scrollTo.mock.contexts[0]).toBe(scroller);
+    act(() => root.unmount());
+  });
+
   it('keeps a paused reading position when streaming completes', async () => {
     const { root } = renderChatView();
-    const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
+    const scrollTo = vi.mocked(Element.prototype.scrollTo);
     const scroller = document.querySelector(
       '[aria-label="Conversation messages"]',
     ) as HTMLDivElement;
@@ -229,7 +255,7 @@ describe('ChatView OAuth banner', () => {
         new WheelEvent('wheel', { bubbles: true, deltaY: -40 }),
       );
     });
-    scrollIntoView.mockClear();
+    scrollTo.mockClear();
 
     await act(async () => {
       mocks.asyncOptions.onToken({
@@ -248,7 +274,7 @@ describe('ChatView OAuth banner', () => {
       );
     });
 
-    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(scrollTo).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain('Response complete');
 
     act(() => root.unmount());

@@ -64,138 +64,112 @@ test('mobile Create controls stay separated and the keyboard collapses navigatio
   const composerGap = 500 - (inputBox!.y + inputBox!.height);
   expect(composerGap).toBeGreaterThanOrEqual(8);
   expect(composerGap).toBeLessThanOrEqual(16);
-
-  // Installed WebKit may pan the rendered body while both Visual Viewport
-  // offsets still report zero. Measure the rendered displacement directly.
-  const emulatedBodyPan = 72;
-  await page.evaluate((bodyPan) => {
-    const viewport = window.visualViewport;
-    if (!viewport) throw new Error('visualViewport is unavailable');
-    document.body.style.transform = `translateY(-${bodyPan}px)`;
-    Object.defineProperty(viewport, 'offsetTop', {
-      configurable: true,
-      get: () => 0,
-    });
-    Object.defineProperty(viewport, 'pageTop', {
-      configurable: true,
-      get: () => window.scrollY,
-    });
-    viewport.dispatchEvent(new Event('scroll'));
-  }, emulatedBodyPan);
-
-  await expect(
-    page.getByRole('navigation', { name: 'Primary navigation' }),
-  ).toBeHidden();
-  await expect
-    .poll(() =>
-      page
-        .locator('#main-content')
-        .evaluate((element) => element.getBoundingClientRect().top),
-    )
-    .toBe(0);
-
-  const shiftedGeometry = await page.evaluate(() => {
-    const main = document.getElementById('main-content');
-    const composer = document.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Send a message..."]',
-    );
-    if (!main || !composer) throw new Error('Application shell is unavailable');
-    return {
-      main: main.getBoundingClientRect().toJSON(),
-      composer: composer.getBoundingClientRect().toJSON(),
-    };
-  });
-  const shiftedComposerGap = 500 - shiftedGeometry.composer.bottom;
-  expect(shiftedComposerGap).toBeGreaterThanOrEqual(8);
-  expect(shiftedComposerGap).toBeLessThanOrEqual(16);
 });
 
-test('mobile composer follows document scroll while the keyboard is open', async ({
-  page,
-}, testInfo) => {
-  test.skip(!testInfo.project.name.startsWith('mobile-'));
-  await login(page);
+// Keep the layout viewport at its normal size, as iOS does with the keyboard.
+// Do not translate the body to imitate native panning: CSS transforms change
+// containing blocks, which is a different layout than the browser's viewport.
+async function setVisualViewport(
+  page: Page,
+  height: number,
+  offsetTop = 0,
+  scale = 1,
+) {
+  await page.evaluate(
+    ({ height, offsetTop, scale }) => {
+      const viewport = window.visualViewport!;
+      Object.defineProperties(viewport, {
+        height: { configurable: true, get: () => height },
+        offsetTop: { configurable: true, get: () => offsetTop },
+        pageTop: {
+          configurable: true,
+          get: () => window.scrollY + offsetTop,
+        },
+        scale: { configurable: true, get: () => scale },
+      });
+      viewport.dispatchEvent(new Event('resize'));
+      viewport.dispatchEvent(new Event('scroll'));
+    },
+    { height, offsetTop, scale },
+  );
+}
 
-  const input = page.getByPlaceholder('Send a message...');
-  await input.focus();
-  // iOS can keep a full-height document behind the smaller visual viewport,
-  // then scroll that document to reveal the focused control.
-  await page.evaluate(() => {
-    document.body.style.minHeight = '852px';
-    document.getElementById('__next')!.style.minHeight = '852px';
+async function viewportGeometry(page: Page) {
+  return page.evaluate(() => {
+    const viewport = window.visualViewport!;
+    const main = document.getElementById('main-content')!;
+    const composer = document.querySelector('[data-chat-input]')!;
+    const messages = document.querySelector('.chat-scroll-container')!;
+    const mainRect = main.getBoundingClientRect();
+    const composerRect = composer.getBoundingClientRect();
+    return {
+      innerHeight: window.innerHeight,
+      viewportHeight: viewport.height,
+      viewportTop: viewport.offsetTop,
+      mainTop: mainRect.top,
+      mainHeight: mainRect.height,
+      transform: getComputedStyle(main).transform,
+      composerGap: viewport.offsetTop + viewport.height - composerRect.bottom,
+      contentOverlapsComposer:
+        messages.getBoundingClientRect().bottom > composerRect.top,
+      documentScroll: window.scrollY,
+      rootScroll: document.getElementById('__next')!.scrollTop,
+    };
   });
-  await page.setViewportSize({ width: 393, height: 500 });
+}
+
+async function expectKeyboardFits(page: Page, height: number, top = 0) {
   await expect(page.locator('#main-content')).toHaveAttribute(
     'data-keyboard-open',
     'true',
   );
+  await expect
+    .poll(() => viewportGeometry(page))
+    .toMatchObject({
+      viewportHeight: height,
+      mainTop: top,
+      mainHeight: height,
+      transform: 'none',
+      composerGap: 0,
+      contentOverlapsComposer: false,
+      documentScroll: 0,
+      rootScroll: 0,
+    });
+}
+
+test('mobile keyboard resizes the visible shell without scrolling the document', async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile-'));
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await login(page);
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'How can I help?' }),
+  ).toBeVisible();
+  const input = page.getByPlaceholder('Send a message...');
+  const main = page.locator('#main-content');
+  await input.focus();
+  await setVisualViewport(page, 500);
+  await expectKeyboardFits(page, 500);
+  expect((await viewportGeometry(page)).innerHeight).toBe(852);
+
+  // There is no outer page to scroll even while the keyboard exposes a much
+  // smaller area. Text input and conversation scrolling keep their own scroll.
   await page.evaluate(() => {
     window.scrollTo(0, 144);
-    window.visualViewport!.dispatchEvent(new Event('resize'));
+    document.getElementById('__next')!.scrollTop = 144;
   });
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(144);
+  await expectKeyboardFits(page, 500);
+  await input.fill('First line\nSecond line\nThird line\nFourth line');
+  await expectKeyboardFits(page, 500);
 
-  const geometry = () =>
-    page.evaluate(() => {
-      const main = document.getElementById('main-content')!;
-      const composer = document.querySelector('[data-chat-input]')!;
-      const input = composer.querySelector('textarea')!;
-      const messages = document.querySelector('.chat-scroll-container')!;
-      return {
-        scrollY: window.scrollY,
-        viewportHeight: window.visualViewport!.height,
-        viewportOffsetTop: window.visualViewport!.offsetTop,
-        viewportPageTop: window.visualViewport!.pageTop,
-        appliedTranslation: getComputedStyle(main).transform,
-        mainTop: main.getBoundingClientRect().top,
-        composerBottom: composer.getBoundingClientRect().bottom,
-        inputBottom: input.getBoundingClientRect().bottom,
-        messagesBottom: messages.getBoundingClientRect().bottom,
-        composerTop: composer.getBoundingClientRect().top,
-      };
-    });
-
-  await expect.poll(async () => (await geometry()).mainTop).toBe(0);
-  const scrolled = await geometry();
-  expect(scrolled.composerBottom).toBe(scrolled.viewportHeight);
-  expect(scrolled.viewportHeight - scrolled.inputBottom).toBeGreaterThanOrEqual(
-    8,
-  );
-  expect(scrolled.viewportHeight - scrolled.inputBottom).toBeLessThanOrEqual(
-    16,
-  );
-  expect(scrolled.messagesBottom).toBeLessThanOrEqual(scrolled.composerTop);
-  await testInfo.attach('document-scroll', {
-    body: await page.screenshot(),
-    contentType: 'image/png',
-  });
-
-  // A subsequent layout-viewport scroll need not fire visualViewport.scroll.
-  await page.evaluate(() => window.scrollTo(0, 200));
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(200);
-  await expect.poll(async () => (await geometry()).mainTop).toBe(0);
-
-  // Reported and rendered pan describe the same shift; neither should be
-  // added twice when the document has also scrolled.
-  await page.evaluate(() => {
-    const viewport = window.visualViewport!;
-    document.body.style.transform = 'translateY(-72px)';
-    Object.defineProperty(viewport, 'offsetTop', {
-      configurable: true,
-      get: () => 72,
-    });
-    Object.defineProperty(viewport, 'pageTop', {
-      configurable: true,
-      get: () => window.scrollY + 72,
-    });
-    viewport.dispatchEvent(new Event('scroll'));
-  });
-  await expect.poll(async () => (await geometry()).mainTop).toBe(0);
-
-  // Accessory rows change the available height without requiring a fixed
-  // keyboard height or another bottom inset.
-  await page.setViewportSize({ width: 393, height: 420 });
-  await expect.poll(async () => (await geometry()).composerBottom).toBe(420);
+  // A delayed native pan and changes to accessory height use one pair of
+  // viewport bounds, without document offsets or extra keyboard padding.
+  await setVisualViewport(page, 500, 72);
+  await expectKeyboardFits(page, 500, 72);
+  await setVisualViewport(page, 420, 72);
+  await expectKeyboardFits(page, 420, 72);
   const lastSuggestion = page.getByRole('button', {
     name: 'What will the weather be like today?',
   });
@@ -203,38 +177,79 @@ test('mobile composer follows document scroll while the keyboard is open', async
     element.scrollTop = element.scrollHeight;
   });
   await expect(lastSuggestion).toBeInViewport({ ratio: 1 });
-  const suggestionBox = await lastSuggestion.boundingBox();
-  expect(suggestionBox).not.toBeNull();
-  expect(suggestionBox!.y + suggestionBox!.height).toBeLessThanOrEqual(
-    (await geometry()).composerTop,
-  );
-  await testInfo.attach('keyboard-layout', {
-    body: JSON.stringify(await geometry(), null, 2),
+  await expectKeyboardFits(page, 420, 72);
+
+  await testInfo.attach('visual-viewport-layout', {
+    body: JSON.stringify(await viewportGeometry(page), null, 2),
     contentType: 'application/json',
   });
-  await testInfo.attach('keyboard-layout', {
-    body: await page.screenshot(),
-    contentType: 'image/png',
+  // Capture only the simulated visible region, not an invented native keyboard.
+  await page.screenshot({
+    path: testInfo.outputPath('keyboard-visible-region.png'),
+    clip: { x: 0, y: 72, width: 393, height: 420 },
   });
 
   await input.blur();
-  await page.evaluate(() => {
-    document.body.style.minHeight = '';
-    document.body.style.transform = '';
-    document.getElementById('__next')!.style.minHeight = '';
-    Reflect.deleteProperty(window.visualViewport!, 'offsetTop');
-    Reflect.deleteProperty(window.visualViewport!, 'pageTop');
-    window.scrollTo(0, 0);
-  });
-  await page.setViewportSize({ width: 393, height: 852 });
-  await expect(page.locator('#main-content')).toHaveAttribute(
-    'data-keyboard-open',
-    'false',
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
   );
+  await expectKeyboardFits(page, 420, 72);
+  // iOS can report the old offset after restoring the visible height.
+  await setVisualViewport(page, 852, 72);
+  await expect(main).toHaveAttribute('data-keyboard-open', 'false');
+  await expect
+    .poll(() => viewportGeometry(page))
+    .toMatchObject({
+      mainTop: 0,
+      mainHeight: 852,
+      transform: 'none',
+      documentScroll: 0,
+    });
   await expect(
     page.getByRole('navigation', { name: 'Primary navigation' }),
   ).toBeVisible();
-  await expect.poll(async () => (await geometry()).mainTop).toBe(0);
+
+  // Repeat opening and closing: neither pan nor an old height may accumulate.
+  for (const height of [480, 500]) {
+    await setVisualViewport(page, 852);
+    await input.focus();
+    await setVisualViewport(page, height);
+    await expectKeyboardFits(page, height);
+    await input.blur();
+    await setVisualViewport(page, 852);
+    await expect(main).toHaveAttribute('data-keyboard-open', 'false');
+  }
+});
+
+test('mobile viewport preserves zoom and recovers after keyboard rotation', async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile-'));
+  await login(page);
+  const input = page.getByPlaceholder('Send a message...');
+  const main = page.locator('#main-content');
+  await input.focus();
+  await setVisualViewport(page, 426, 100, 2);
+  await expect(main).toHaveAttribute('data-keyboard-open', 'false');
+  await expect
+    .poll(() => viewportGeometry(page))
+    .toMatchObject({ mainHeight: 852, mainTop: 0 });
+  await setVisualViewport(page, 500);
+  await expectKeyboardFits(page, 500);
+
+  // On rotation, iOS keeps a full landscape layout viewport behind the keyboard.
+  await setVisualViewport(page, 200);
+  await page.setViewportSize({ width: 852, height: 393 });
+  await expectKeyboardFits(page, 200);
+  await input.blur();
+  await setVisualViewport(page, 393);
+  await expect(main).toHaveAttribute('data-keyboard-open', 'false');
+  await expect
+    .poll(() => viewportGeometry(page))
+    .toMatchObject({ mainHeight: 393, mainTop: 0 });
 });
 
 test('fullscreen preserves HTML preview and Markdown formatting', async ({

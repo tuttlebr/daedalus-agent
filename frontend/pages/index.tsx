@@ -1,12 +1,6 @@
 'use client';
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-  useRef,
-  type CSSProperties,
-} from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 
 import { GetServerSideProps } from 'next';
 import Head from 'next/head';
@@ -300,24 +294,14 @@ const Home = () => {
       </Head>
 
       <main
-        className="flex h-[var(--app-viewport-height,100dvh)] min-h-0 w-screen flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
+        className="app-viewport flex min-h-0 flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
         id="main-content"
         tabIndex={-1}
         data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
-        style={
-          {
-            '--app-viewport-height': visualViewport.height
-              ? `${visualViewport.height}px`
-              : '100dvh',
-            '--app-viewport-offset-top': visualViewport.keyboardOpen
-              ? `${visualViewport.offsetTop}px`
-              : '0px',
-            '--keyboard-occluded-height': `${visualViewport.occludedHeight}px`,
-            transform: visualViewport.keyboardOpen
-              ? `translate3d(0, ${visualViewport.offsetTop}px, 0)`
-              : 'none',
-          } as CSSProperties
-        }
+        style={{
+          height: visualViewport.height ?? undefined,
+          top: visualViewport.offsetTop,
+        }}
       >
         <AppShell
           sidebar={<Sidebar />}

@@ -450,6 +450,30 @@ body {
   position: relative;
 }
 
+/* The application has its own scrolling panes. Keep the document out of the
+   keyboard's scroll chain, including the old 100vh minimums above. Scope this
+   to the mounted app so login and error pages retain normal page scrolling. */
+html:has(.app-viewport),
+html:has(.app-viewport) body,
+html:has(.app-viewport) #__next {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html:has(.app-viewport) body {
+  position: fixed;
+  inset: 0;
+}
+
+.app-viewport {
+  position: fixed;
+  top: 0;
+  inset-inline: 0;
+  height: 100dvh;
+}
+
 .safari-safe-area {
   padding-top: 0;
 }
@@ -2236,21 +2260,6 @@ details div {
   input[type='url'],
   input[type='number'] {
     font-size: 16px !important;
-  }
-
-  /* Fix for iOS keyboard push behavior */
-  .fixed {
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
-    -webkit-transform: translateZ(0);
-    transform: translateZ(0);
-  }
-
-  /* Chat input specific fixes */
-  [data-chat-input] {
-    position: relative;
-    -webkit-transform: translateZ(0);
-    transform: translateZ(0);
   }
 }
 

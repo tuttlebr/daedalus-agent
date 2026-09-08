@@ -6,7 +6,7 @@ const KEYBOARD_OCCLUSION_THRESHOLD_PX = 100;
 
 export interface VisualViewportState {
   height: number | null;
-  // Translation for the in-flow app shell, including document scroll.
+  // Top of the visual viewport within the layout viewport, for a fixed shell.
   offsetTop: number;
   occludedHeight: number;
   keyboardOpen: boolean;
@@ -25,12 +25,14 @@ export function calculateVisualViewportState({
   offsetTop,
   editableFocused,
   touchCapable,
+  wasKeyboardOpen = false,
 }: {
   baselineHeight: number;
   viewportHeight: number;
   offsetTop: number;
   editableFocused: boolean;
   touchCapable: boolean;
+  wasKeyboardOpen?: boolean;
 }): VisualViewportState {
   // Treat the viewport pan and the keyboard's height reduction as independent
   // signals. On iOS the pan can be almost identical to the height loss; adding
@@ -39,12 +41,14 @@ export function calculateVisualViewportState({
   const candidateOcclusion = Math.max(0, baselineHeight - viewportHeight);
   const keyboardOpen =
     touchCapable &&
-    editableFocused &&
+    (editableFocused || wasKeyboardOpen) &&
     candidateOcclusion >= KEYBOARD_OCCLUSION_THRESHOLD_PX;
 
   return {
     height: Math.round(viewportHeight),
-    offsetTop: Math.round(offsetTop),
+    // WebKit can retain its last pan after dismissal. Do not move the shell
+    // once the visible height has recovered.
+    offsetTop: keyboardOpen ? Math.round(Math.max(0, offsetTop)) : 0,
     occludedHeight: Math.round(keyboardOpen ? candidateOcclusion : 0),
     keyboardOpen,
   };
@@ -53,8 +57,14 @@ export function calculateVisualViewportState({
 function isEditableElement(element: Element | null): boolean {
   if (!(element instanceof HTMLElement)) return false;
   if (element.isContentEditable) return true;
-  if (element instanceof HTMLTextAreaElement) return !element.disabled;
-  if (!(element instanceof HTMLInputElement) || element.disabled) return false;
+  if (element instanceof HTMLTextAreaElement)
+    return !element.disabled && !element.readOnly;
+  if (
+    !(element instanceof HTMLInputElement) ||
+    element.disabled ||
+    element.readOnly
+  )
+    return false;
 
   return ![
     'button',
@@ -84,46 +94,41 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       window.innerHeight,
       viewport?.height ?? window.innerHeight,
     );
+    let layoutWidth = window.innerWidth;
     const touchCapable =
       navigator.maxTouchPoints > 0 ||
       window.matchMedia?.('(pointer: coarse)').matches === true;
     let frameId: number | null = null;
     let settleTimer: number | null = null;
+    let keyboardOpen = false;
 
     const measure = () => {
       frameId = null;
+      // Pinch zoom also shrinks visualViewport.height. Leave the app's layout
+      // alone while zoomed so that zooming cannot open the keyboard layout.
+      if (viewport && Math.abs(viewport.scale - 1) > 0.01) return;
       const nextHeight = viewport?.height ?? window.innerHeight;
-      // The app shell stays in document flow, so its translation must include
-      // layout-viewport scrolling as well as the visual viewport's own pan.
-      // Using only offsetTop (or pageTop - scrollY) leaves a gap equal to the
-      // document scroll when iOS scrolls to reveal the focused composer.
-      const scrollY = window.scrollY;
-      const pageOffsetTop = Math.max(
-        0,
-        viewport?.pageTop ?? scrollY,
-        scrollY + (viewport?.offsetTop ?? 0),
-      );
-      // Recent installed WebKit builds can visually pan the rendered body
-      // without updating either scrollY or the Visual Viewport offsets. The
-      // body's rect is the final source of truth for that unreported shift.
-      const renderedBodyOffsetTop = Math.max(
-        0,
-        -document.body.getBoundingClientRect().top,
-      );
-      const offsetTop = Math.max(pageOffsetTop, renderedBodyOffsetTop);
       const focused = isEditableElement(document.activeElement);
+      // A genuine resize with no keyboard establishes a new baseline. Keeping
+      // the largest height forever misclassifies the next focus after rotation
+      // or a smaller window as another keyboard opening.
+      if ((!focused && !keyboardOpen) || window.innerWidth !== layoutWidth) {
+        baselineHeight = Math.max(window.innerHeight, nextHeight);
+        layoutWidth = window.innerWidth;
+      }
       const next = calculateVisualViewportState({
         baselineHeight,
         viewportHeight: nextHeight,
-        offsetTop,
+        // Fixed positioning already accounts for document scrolling. Mixing
+        // pageTop, scrollY or body bounds into this moves the shell twice.
+        offsetTop: viewport?.offsetTop ?? 0,
         editableFocused: focused,
         touchCapable,
+        wasKeyboardOpen: keyboardOpen,
       });
-      const candidateOcclusion = Math.max(0, baselineHeight - nextHeight);
-
-      if (!focused && candidateOcclusion < KEYBOARD_OCCLUSION_THRESHOLD_PX) {
-        baselineHeight = Math.max(baselineHeight, nextHeight);
-      }
+      // Blur precedes the keyboard's closing animation; keep navigation hidden
+      // until the viewport recovers instead of inserting it above the keyboard.
+      keyboardOpen = next.keyboardOpen;
 
       setState((current) => {
         return current.height === next.height &&
@@ -144,7 +149,7 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       settleTimer = window.setTimeout(() => {
         settleTimer = null;
         measure();
-      }, 80);
+      }, 300);
     };
 
     const resetBaseline = () => {
@@ -159,8 +164,9 @@ export function useVisualViewportKeyboard(): VisualViewportState {
     viewport?.addEventListener('resize', scheduleMeasure);
     viewport?.addEventListener('scroll', scheduleMeasure);
     window.addEventListener('resize', scheduleMeasure);
-    window.addEventListener('scroll', scheduleMeasure, { passive: true });
     window.addEventListener('orientationchange', resetBaseline);
+    window.addEventListener('pageshow', scheduleMeasure);
+    document.addEventListener('visibilitychange', scheduleMeasure);
     document.addEventListener('focusin', scheduleMeasure);
     document.addEventListener('focusout', scheduleMeasure);
 
@@ -170,8 +176,9 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       viewport?.removeEventListener('resize', scheduleMeasure);
       viewport?.removeEventListener('scroll', scheduleMeasure);
       window.removeEventListener('resize', scheduleMeasure);
-      window.removeEventListener('scroll', scheduleMeasure);
       window.removeEventListener('orientationchange', resetBaseline);
+      window.removeEventListener('pageshow', scheduleMeasure);
+      document.removeEventListener('visibilitychange', scheduleMeasure);
       document.removeEventListener('focusin', scheduleMeasure);
       document.removeEventListener('focusout', scheduleMeasure);
     };
