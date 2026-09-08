@@ -46,7 +46,8 @@ const Home = () => {
   const userId = user?.username || 'anon';
 
   const workflow = getWorkflowName() || 'Daedalus';
-  const visualViewport = useVisualViewportKeyboard();
+  const appViewportRef = useRef<HTMLElement>(null);
+  const visualViewport = useVisualViewportKeyboard(appViewportRef);
 
   // Keyboard shortcuts
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
@@ -285,22 +286,19 @@ const Home = () => {
       <Head>
         <title>{workflow}</title>
         <meta name="description" content={workflow} />
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
-        />
         <meta name="format-detection" content="telephone=no" />
         <link rel="icon" href={branding.assets['/favicon.png']} />
       </Head>
 
       <main
+        ref={appViewportRef}
         className="app-viewport flex min-h-0 flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
         id="main-content"
         tabIndex={-1}
         data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
         style={{
           height: visualViewport.height ?? undefined,
-          top: visualViewport.offsetTop,
+          top: visualViewport.top ?? undefined,
         }}
       >
         <AppShell

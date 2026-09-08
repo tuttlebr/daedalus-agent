@@ -67,30 +67,29 @@ test('mobile Create controls stay separated and the keyboard collapses navigatio
 });
 
 // Keep the layout viewport at its normal size, as iOS does with the keyboard.
-// Do not translate the body to imitate native panning: CSS transforms change
-// containing blocks, which is a different layout than the browser's viewport.
 async function setVisualViewport(
   page: Page,
   height: number,
   offsetTop = 0,
   scale = 1,
+  pageTop = offsetTop,
 ) {
   await page.evaluate(
-    ({ height, offsetTop, scale }) => {
+    ({ height, offsetTop, scale, pageTop }) => {
       const viewport = window.visualViewport!;
       Object.defineProperties(viewport, {
         height: { configurable: true, get: () => height },
         offsetTop: { configurable: true, get: () => offsetTop },
         pageTop: {
           configurable: true,
-          get: () => window.scrollY + offsetTop,
+          get: () => pageTop,
         },
         scale: { configurable: true, get: () => scale },
       });
       viewport.dispatchEvent(new Event('resize'));
       viewport.dispatchEvent(new Event('scroll'));
     },
-    { height, offsetTop, scale },
+    { height, offsetTop, scale, pageTop },
   );
 }
 
@@ -102,14 +101,27 @@ async function viewportGeometry(page: Page) {
     const messages = document.querySelector('.chat-scroll-container')!;
     const mainRect = main.getBoundingClientRect();
     const composerRect = composer.getBoundingClientRect();
+    const visualTop = Math.max(
+      0,
+      viewport.offsetTop,
+      viewport.pageTop - window.scrollY,
+    );
     return {
       innerHeight: window.innerHeight,
       viewportHeight: viewport.height,
       viewportTop: viewport.offsetTop,
+      viewportPageTop: viewport.pageTop,
+      visualTop,
       mainTop: mainRect.top,
       mainHeight: mainRect.height,
+      position: getComputedStyle(main).position,
       transform: getComputedStyle(main).transform,
-      composerGap: viewport.offsetTop + viewport.height - composerRect.bottom,
+      inlineHeight: main.style.height,
+      inlineTop: main.style.top,
+      safeAreaBottom: getComputedStyle(main)
+        .getPropertyValue('--safe-area-inset-bottom')
+        .trim(),
+      composerGap: visualTop + viewport.height - composerRect.bottom,
       contentOverlapsComposer:
         messages.getBoundingClientRect().bottom > composerRect.top,
       documentScroll: window.scrollY,
@@ -129,6 +141,7 @@ async function expectKeyboardFits(page: Page, height: number, top = 0) {
       viewportHeight: height,
       mainTop: top,
       mainHeight: height,
+      position: 'absolute',
       transform: 'none',
       composerGap: 0,
       contentOverlapsComposer: false,
@@ -153,6 +166,13 @@ test('mobile keyboard resizes the visible shell without scrolling the document',
   await setVisualViewport(page, 500);
   await expectKeyboardFits(page, 500);
   expect((await viewportGeometry(page)).innerHeight).toBe(852);
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty(
+      '--safe-area-inset-bottom',
+      '34px',
+    );
+  });
+  expect((await viewportGeometry(page)).safeAreaBottom).toBe('0px');
 
   // There is no outer page to scroll even while the keyboard exposes a much
   // smaller area. Text input and conversation scrolling keep their own scroll.
@@ -164,11 +184,17 @@ test('mobile keyboard resizes the visible shell without scrolling the document',
   await input.fill('First line\nSecond line\nThird line\nFourth line');
   await expectKeyboardFits(page, 500);
 
-  // A delayed native pan and changes to accessory height use one pair of
-  // viewport bounds, without document offsets or extra keyboard padding.
-  await setVisualViewport(page, 500, 72);
-  await expectKeyboardFits(page, 500, 72);
-  await setVisualViewport(page, 420, 72);
+  // Installed WebKit can pan the rendered page farther than its viewport
+  // offsets report. This used to leave an 84px dead band above the keyboard.
+  await page.evaluate(() => {
+    document.body.style.transform = 'translateY(-84px)';
+  });
+  await setVisualViewport(page, 500, 24);
+  await expectKeyboardFits(page, 500, 24);
+
+  // pageTop can settle before offsetTop. Accessory-height changes still use
+  // one measured viewport rectangle and do not accumulate either correction.
+  await setVisualViewport(page, 420, 24, 1, 72);
   await expectKeyboardFits(page, 420, 72);
   const lastSuggestion = page.getByRole('button', {
     name: 'What will the weather be like today?',
@@ -177,6 +203,12 @@ test('mobile keyboard resizes the visible shell without scrolling the document',
     element.scrollTop = element.scrollHeight;
   });
   await expect(lastSuggestion).toBeInViewport({ ratio: 1 });
+  await expectKeyboardFits(page, 420, 72);
+
+  await page.evaluate(() => {
+    document.body.style.removeProperty('transform');
+    window.visualViewport!.dispatchEvent(new Event('scroll'));
+  });
   await expectKeyboardFits(page, 420, 72);
 
   await testInfo.attach('visual-viewport-layout', {
@@ -205,12 +237,19 @@ test('mobile keyboard resizes the visible shell without scrolling the document',
     .toMatchObject({
       mainTop: 0,
       mainHeight: 852,
+      position: 'absolute',
       transform: 'none',
+      inlineHeight: '',
+      inlineTop: '',
+      safeAreaBottom: '34px',
       documentScroll: 0,
     });
   await expect(
     page.getByRole('navigation', { name: 'Primary navigation' }),
   ).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.style.removeProperty('--safe-area-inset-bottom');
+  });
 
   // Repeat opening and closing: neither pan nor an old height may accumulate.
   for (const height of [480, 500]) {

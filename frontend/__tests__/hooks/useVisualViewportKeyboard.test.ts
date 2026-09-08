@@ -21,7 +21,7 @@ describe('visual viewport keyboard state', () => {
       }),
     ).toEqual({
       height: 500,
-      offsetTop: 0,
+      top: 0,
       occludedHeight: 352,
       keyboardOpen: true,
     });
@@ -50,7 +50,7 @@ describe('visual viewport keyboard state', () => {
       }),
     ).toEqual({
       height: 500,
-      offsetTop: 352,
+      top: 352,
       occludedHeight: 352,
       keyboardOpen: true,
     });
@@ -67,6 +67,67 @@ describe('visual viewport keyboard state', () => {
       }).keyboardOpen,
     ).toBe(false);
   });
+
+  it('uses pageTop when WebKit under-reports offsetTop', () => {
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 500,
+        offsetTop: 24,
+        pageTop: 72,
+        editableFocused: true,
+        touchCapable: true,
+      }).top,
+    ).toBe(72);
+  });
+
+  it('corrects an unreported rendered body pan without stacking offsets', () => {
+    const corrected = calculateVisualViewportState({
+      baselineHeight: 852,
+      viewportHeight: 500,
+      offsetTop: 24,
+      pageTop: 24,
+      shellAppliedTop: 24,
+      shellRenderedTop: -60,
+      editableFocused: true,
+      touchCapable: true,
+    });
+    expect(corrected.top).toBe(108);
+
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 500,
+        offsetTop: 24,
+        pageTop: 24,
+        shellAppliedTop: corrected.top!,
+        shellRenderedTop: 24,
+        editableFocused: true,
+        touchCapable: true,
+      }).top,
+    ).toBe(108);
+  });
+
+  it('releases stale inline geometry after the viewport recovers', () => {
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 852,
+        offsetTop: 72,
+        pageTop: 72,
+        shellAppliedTop: 72,
+        shellRenderedTop: 72,
+        editableFocused: true,
+        touchCapable: true,
+        wasKeyboardOpen: true,
+      }),
+    ).toEqual({
+      height: null,
+      top: null,
+      occludedHeight: 0,
+      keyboardOpen: false,
+    });
+  });
 });
 
 describe('visual viewport lifecycle', () => {
@@ -79,9 +140,10 @@ describe('visual viewport lifecycle', () => {
     scale: number;
   };
   let state: VisualViewportState;
+  const shellRef: { current: HTMLElement | null } = { current: null };
 
   function Probe() {
-    state = useVisualViewportKeyboard();
+    state = useVisualViewportKeyboard(shellRef);
     return null;
   }
 
@@ -107,8 +169,12 @@ describe('visual viewport lifecycle', () => {
     });
     vi.stubGlobal('visualViewport', viewport);
     input = document.createElement('textarea');
+    const shell = document.createElement('main');
+    shell.style.position = 'absolute';
+    shell.style.top = '0px';
+    shellRef.current = shell;
     const container = document.createElement('div');
-    document.body.append(input, container);
+    document.body.append(input, shell, container);
     root = createRoot(container);
     act(() => root.render(createElement(Probe)));
   });
@@ -117,6 +183,7 @@ describe('visual viewport lifecycle', () => {
     act(() => root.unmount());
     expect(vi.getTimerCount()).toBe(0);
     document.body.innerHTML = '';
+    shellRef.current = null;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -133,25 +200,24 @@ describe('visual viewport lifecycle', () => {
     expect(state).toMatchObject({
       keyboardOpen: true,
       height: 500,
-      offsetTop: 72,
+      top: 72,
     });
     changeViewport(852, 72);
     expect(state).toMatchObject({
       keyboardOpen: false,
-      height: 852,
-      offsetTop: 0,
+      height: null,
+      top: null,
     });
   });
 
-  it('does not add document or body displacement to a fixed viewport offset', () => {
-    vi.stubGlobal('scrollY', 200);
-    viewport.pageTop = 272;
-    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue({
-      top: -272,
+  it('corrects the shell from its rendered position when WebKit pans the body', () => {
+    vi.spyOn(shellRef.current!, 'getBoundingClientRect').mockReturnValue({
+      top: -84,
     } as DOMRect);
+    viewport.pageTop = 24;
     act(() => input.focus());
-    changeViewport(500, 72);
-    expect(state.offsetTop).toBe(72);
+    changeViewport(500, 24);
+    expect(state.top).toBe(108);
   });
 
   it('leaves the layout alone during pinch zoom, even with a focused input', () => {
@@ -159,8 +225,8 @@ describe('visual viewport lifecycle', () => {
     changeViewport(426, 100, 2);
     expect(state).toMatchObject({
       keyboardOpen: false,
-      height: 852,
-      offsetTop: 0,
+      height: null,
+      top: null,
     });
     changeViewport(500);
     expect(state).toMatchObject({ keyboardOpen: true, height: 500 });
@@ -186,8 +252,8 @@ describe('visual viewport lifecycle', () => {
     changeViewport(393);
     expect(state).toMatchObject({
       keyboardOpen: false,
-      height: 393,
-      offsetTop: 0,
+      height: null,
+      top: null,
     });
   });
 

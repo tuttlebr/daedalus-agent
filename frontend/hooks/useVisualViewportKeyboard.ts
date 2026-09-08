@@ -1,20 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { type RefObject, useEffect, useState } from 'react';
 
 const KEYBOARD_OCCLUSION_THRESHOLD_PX = 100;
 
 export interface VisualViewportState {
   height: number | null;
-  // Top of the visual viewport within the layout viewport, for a fixed shell.
-  offsetTop: number;
+  // CSS top needed to put the rendered shell on the visual viewport.
+  top: number | null;
   occludedHeight: number;
   keyboardOpen: boolean;
 }
 
 const initialState: VisualViewportState = {
   height: null,
-  offsetTop: 0,
+  top: null,
   occludedHeight: 0,
   keyboardOpen: false,
 };
@@ -23,6 +23,10 @@ export function calculateVisualViewportState({
   baselineHeight,
   viewportHeight,
   offsetTop,
+  pageTop = offsetTop,
+  scrollY = 0,
+  shellAppliedTop = 0,
+  shellRenderedTop = shellAppliedTop,
   editableFocused,
   touchCapable,
   wasKeyboardOpen = false,
@@ -30,6 +34,10 @@ export function calculateVisualViewportState({
   baselineHeight: number;
   viewportHeight: number;
   offsetTop: number;
+  pageTop?: number;
+  scrollY?: number;
+  shellAppliedTop?: number;
+  shellRenderedTop?: number;
   editableFocused: boolean;
   touchCapable: boolean;
   wasKeyboardOpen?: boolean;
@@ -44,12 +52,25 @@ export function calculateVisualViewportState({
     (editableFocused || wasKeyboardOpen) &&
     candidateOcclusion >= KEYBOARD_OCCLUSION_THRESHOLD_PX;
 
+  // offsetTop and pageTop - scrollY describe the same visual edge. Current
+  // WebKit builds can update one before the other, especially in an installed
+  // web app, so use whichever has reached the larger non-negative value.
+  const visualTop = keyboardOpen
+    ? Math.max(0, offsetTop, pageTop - scrollY)
+    : 0;
+  // WebKit can pan the rendered body without exposing the full movement in
+  // either viewport offset. Correct from the shell's observed position rather
+  // than adding another inferred keyboard or body offset.
+  const correctedTop = shellAppliedTop + visualTop - shellRenderedTop;
+  const top =
+    keyboardOpen || Math.abs(correctedTop) >= 0.5 ? correctedTop : null;
+
   return {
-    height: Math.round(viewportHeight),
-    // WebKit can retain its last pan after dismissal. Do not move the shell
-    // once the visible height has recovered.
-    offsetTop: keyboardOpen ? Math.round(Math.max(0, offsetTop)) : 0,
-    occludedHeight: Math.round(keyboardOpen ? candidateOcclusion : 0),
+    // Once the keyboard closes, return sizing to CSS. Installed WebKit can
+    // retain a stale visualViewport height after dismissal and rotation.
+    height: keyboardOpen ? viewportHeight : null,
+    top,
+    occludedHeight: keyboardOpen ? candidateOcclusion : 0,
     keyboardOpen,
   };
 }
@@ -85,7 +106,9 @@ function isEditableElement(element: Element | null): boolean {
  * with the software keyboard. The focus check prevents rotation, split-view,
  * and browser chrome changes from being misclassified as keyboard input.
  */
-export function useVisualViewportKeyboard(): VisualViewportState {
+export function useVisualViewportKeyboard(
+  shellRef: RefObject<HTMLElement>,
+): VisualViewportState {
   const [state, setState] = useState<VisualViewportState>(initialState);
 
   useEffect(() => {
@@ -116,12 +139,20 @@ export function useVisualViewportKeyboard(): VisualViewportState {
         baselineHeight = Math.max(window.innerHeight, nextHeight);
         layoutWidth = window.innerWidth;
       }
+      const shell = shellRef.current;
+      const computedTop = shell
+        ? Number.parseFloat(window.getComputedStyle(shell).top) || 0
+        : 0;
+      const renderedTop = shell?.getBoundingClientRect().top ?? computedTop;
       const next = calculateVisualViewportState({
         baselineHeight,
         viewportHeight: nextHeight,
-        // Fixed positioning already accounts for document scrolling. Mixing
-        // pageTop, scrollY or body bounds into this moves the shell twice.
         offsetTop: viewport?.offsetTop ?? 0,
+        pageTop:
+          viewport?.pageTop ?? window.scrollY + (viewport?.offsetTop ?? 0),
+        scrollY: window.scrollY,
+        shellAppliedTop: computedTop,
+        shellRenderedTop: renderedTop,
         editableFocused: focused,
         touchCapable,
         wasKeyboardOpen: keyboardOpen,
@@ -132,7 +163,7 @@ export function useVisualViewportKeyboard(): VisualViewportState {
 
       setState((current) => {
         return current.height === next.height &&
-          current.offsetTop === next.offsetTop &&
+          current.top === next.top &&
           current.occludedHeight === next.occludedHeight &&
           current.keyboardOpen === next.keyboardOpen
           ? current
@@ -140,15 +171,24 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       });
     };
 
-    const scheduleMeasure = () => {
+    const scheduleFrames = () => {
       if (frameId !== null) cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        measure();
+        // A second frame observes the shell after React applies the first
+        // correction. This prevents native page panning from accumulating.
+        frameId = requestAnimationFrame(measure);
+      });
+    };
+
+    const scheduleMeasure = () => {
+      scheduleFrames();
       if (settleTimer !== null) window.clearTimeout(settleTimer);
-      frameId = requestAnimationFrame(measure);
       // WebKit can initially report offsetTop as zero in standalone mode and
       // correct it shortly afterward without a dependable second event.
       settleTimer = window.setTimeout(() => {
         settleTimer = null;
-        measure();
+        scheduleFrames();
       }, 300);
     };
 
@@ -163,26 +203,32 @@ export function useVisualViewportKeyboard(): VisualViewportState {
     measure();
     viewport?.addEventListener('resize', scheduleMeasure);
     viewport?.addEventListener('scroll', scheduleMeasure);
+    viewport?.addEventListener('scrollend', scheduleMeasure);
     window.addEventListener('resize', scheduleMeasure);
+    window.addEventListener('scroll', scheduleMeasure, { passive: true });
     window.addEventListener('orientationchange', resetBaseline);
     window.addEventListener('pageshow', scheduleMeasure);
     document.addEventListener('visibilitychange', scheduleMeasure);
     document.addEventListener('focusin', scheduleMeasure);
     document.addEventListener('focusout', scheduleMeasure);
+    document.addEventListener('touchend', scheduleMeasure, { passive: true });
 
     return () => {
       if (frameId !== null) cancelAnimationFrame(frameId);
       if (settleTimer !== null) window.clearTimeout(settleTimer);
       viewport?.removeEventListener('resize', scheduleMeasure);
       viewport?.removeEventListener('scroll', scheduleMeasure);
+      viewport?.removeEventListener('scrollend', scheduleMeasure);
       window.removeEventListener('resize', scheduleMeasure);
+      window.removeEventListener('scroll', scheduleMeasure);
       window.removeEventListener('orientationchange', resetBaseline);
       window.removeEventListener('pageshow', scheduleMeasure);
       document.removeEventListener('visibilitychange', scheduleMeasure);
       document.removeEventListener('focusin', scheduleMeasure);
       document.removeEventListener('focusout', scheduleMeasure);
+      document.removeEventListener('touchend', scheduleMeasure);
     };
-  }, []);
+  }, [shellRef]);
 
   return state;
 }
