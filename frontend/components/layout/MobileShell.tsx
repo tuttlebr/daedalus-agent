@@ -5,7 +5,6 @@ import React, { memo } from 'react';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 
 import { GlassOverlay } from '@/components/surfaces';
-import { GlassPanel } from '@/components/surfaces';
 
 import { useUISettingsStore } from '@/state';
 import classNames from 'classnames';
@@ -44,12 +43,9 @@ export const MobileShell = memo(
           position="left"
           aria-label="Navigation menu"
         >
-          <GlassPanel
-            position="left"
-            className="w-[min(22rem,calc(100vw-2rem))] h-full safe-bottom"
-          >
+          <div className="h-full min-h-0 w-[min(22rem,calc(100vw-2rem))]">
             {sidebar}
-          </GlassPanel>
+          </div>
         </GlassOverlay>
       </div>
     );

@@ -30,7 +30,7 @@ import classNames from 'classnames';
 import { v4 as uuidv4 } from 'uuid';
 
 const rowActionClasses =
-  'flex h-9 w-9 items-center justify-center rounded-md text-dark-text-muted transition-all md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40';
+  'flex h-[44px] w-[44px] items-center justify-center rounded-md text-dark-text-muted transition-all md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40';
 
 export const Sidebar = memo(() => {
   const { logout } = useAuth();
@@ -197,8 +197,8 @@ export const Sidebar = memo(() => {
   );
 
   return (
-    <GlassPanel className="w-full h-full flex flex-col">
-      <div className="flex min-h-14 items-center justify-between px-5 pt-safe-top">
+    <GlassPanel className="app-sidebar w-full h-full min-h-0 flex flex-col">
+      <div className="flex min-h-14 shrink-0 items-center justify-between px-5 pt-safe-top">
         <span className="text-lg font-semibold tracking-tight text-primary">
           Daedalus
         </span>
@@ -236,7 +236,7 @@ export const Sidebar = memo(() => {
       {/* Conversation list */}
       <nav
         aria-label="Conversation history"
-        className="flex-1 overflow-y-auto overscroll-contain px-2 py-1"
+        className="min-h-[6rem] flex-1 overflow-y-auto overscroll-contain px-2 py-1"
       >
         {sorted.length === 0 && (
           <p className="text-center text-xs text-dark-text-muted py-8">
@@ -346,7 +346,7 @@ export const Sidebar = memo(() => {
                       type="button"
                       aria-current={isActive ? 'true' : undefined}
                       onClick={() => handleSelect(conv.id)}
-                      className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-1 text-left"
+                      className="flex min-h-11 min-w-0 flex-[1_1_7rem] items-center gap-2 rounded-lg px-1 text-left"
                     >
                       {isAutonomous && (
                         <IconRobot
@@ -418,69 +418,71 @@ export const Sidebar = memo(() => {
       </nav>
 
       {/* Footer */}
-      <div className="flex-shrink-0 max-h-[45%] overflow-y-auto p-3 border-t border-separator space-y-1">
-        <AppearanceSettings />
-        <button
-          onClick={() => {
-            setActiveView('memory');
-            closeSidebarOnMobile();
-          }}
-          className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
-        >
-          <IconBrain size={16} />
-          <span>Memory Center</span>
-        </button>
-        <button
-          onClick={() => {
-            setActiveView('connections');
-            closeSidebarOnMobile();
-          }}
-          className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
-        >
-          <IconPlugConnected size={16} />
-          <span>Connections</span>
-        </button>
+      <div className="app-sidebar-footer flex min-h-0 flex-shrink flex-col max-h-[45%] border-t border-separator">
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pt-3 space-y-1">
+          <AppearanceSettings />
+          <button
+            onClick={() => {
+              setActiveView('memory');
+              closeSidebarOnMobile();
+            }}
+            className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+          >
+            <IconBrain size={16} />
+            <span>Memory Center</span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveView('connections');
+              closeSidebarOnMobile();
+            }}
+            className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+          >
+            <IconPlugConnected size={16} />
+            <span>Connections</span>
+          </button>
 
-        {/* Clear all conversations */}
-        {conversations.length > 0 && (
-          <div>
-            {isConfirmingClear ? (
-              <div className="flex items-center gap-2 px-3 py-2 text-sm text-nvidia-red">
-                <span className="flex-1">Clear all conversations?</span>
-                <IconButton
-                  icon={<IconCheck size={16} />}
-                  aria-label="Confirm clear"
-                  variant="danger"
-                  size="sm"
-                  onClick={handleClearAll}
-                />
-                <IconButton
-                  icon={<IconX size={16} />}
-                  aria-label="Cancel"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsConfirmingClear(false)}
-                />
-              </div>
-            ) : (
-              <button
-                onClick={() => setIsConfirmingClear(true)}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-nvidia-red rounded-lg hover:bg-nvidia-red/5 transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40"
-              >
-                <IconTrash size={16} />
-                <span>Clear Conversations</span>
-              </button>
-            )}
-          </div>
-        )}
+          {/* Clear all conversations */}
+          {conversations.length > 0 && (
+            <div>
+              {isConfirmingClear ? (
+                <div className="flex items-center gap-2 px-3 py-2 text-sm text-nvidia-red">
+                  <span className="flex-1">Clear all conversations?</span>
+                  <IconButton
+                    icon={<IconCheck size={16} />}
+                    aria-label="Confirm clear"
+                    variant="danger"
+                    size="sm"
+                    onClick={handleClearAll}
+                  />
+                  <IconButton
+                    icon={<IconX size={16} />}
+                    aria-label="Cancel"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsConfirmingClear(false)}
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsConfirmingClear(true)}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-nvidia-red rounded-lg hover:bg-nvidia-red/5 transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40"
+                >
+                  <IconTrash size={16} />
+                  <span>Clear Conversations</span>
+                </button>
+              )}
+            </div>
+          )}
 
-        <button
-          onClick={() => logout()}
-          className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-dark-text-primary rounded-lg hover:bg-fill/[0.04] transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
-        >
-          <IconLogout size={16} />
-          <span>Sign Out</span>
-        </button>
+          <button
+            onClick={() => logout()}
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-dark-text-primary rounded-lg hover:bg-fill/[0.04] transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
+          >
+            <IconLogout size={16} />
+            <span>Sign Out</span>
+          </button>
+        </div>
       </div>
     </GlassPanel>
   );

@@ -1,3 +1,5 @@
+import type { Conversation } from '@/types/chat';
+
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -7,13 +9,14 @@ test.use({ serviceWorkers: 'block' });
 
 // Deterministic content isolates frontend behavior from personal data and live
 // model services. The existing agentic suite covers authenticated integration.
-async function openApp(page: Page) {
+async function openApp(page: Page, conversations: Conversation[] = []) {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     let body: unknown = {};
     if (path === '/api/auth/me')
       body = { user: { id: 'hig', username: 'hig', name: 'Design Review' } };
-    else if (path === '/api/conversations') body = [];
+    else if (path === '/api/session/conversationHistory') body = conversations;
+    else if (path === '/api/session/selectedConversation') body = null;
     else if (path === '/api/images/history') body = [];
     else if (path === '/api/memory/status') body = { total: 0, counts: {} };
     else if (path === '/api/memory/memories')
@@ -224,6 +227,140 @@ test('destinations reflow in both appearances and at twice the text size', async
       path: testInfo.outputPath(`${view}-large-text.png`),
     });
   }
+});
+
+test('navigation fits the screen and the drawer uses a single safe inset', async ({
+  page,
+}, testInfo) => {
+  const conversations = Array.from({ length: 20 }, (_, index) => ({
+    id: `layout-${index}`,
+    name: `Conversation ${index + 1}`,
+    messages: [],
+    folderId: null,
+    updatedAt: 20 - index,
+  }));
+  await openApp(page, conversations);
+  const mobile = (page.viewportSize()?.width || 0) < 768;
+  const navigation = page.getByRole('navigation', {
+    name: 'Primary navigation',
+  });
+  if (mobile) {
+    const labels = await navigation
+      .locator('.app-nav-label')
+      .evaluateAll((elements) =>
+        elements.map((el) => ({
+          height: el.getBoundingClientRect().height,
+          lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+        })),
+      );
+    for (const label of labels)
+      expect(label.height).toBeLessThanOrEqual(label.lineHeight + 1);
+    for (const button of await navigation.getByRole('button').all()) {
+      const box = (await button.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+  }
+
+  // Browser emulation has no home indicator. Exercise the same safe-area
+  // token with and without an inset; it must consume space exactly once.
+  for (const inset of [0, 34]) {
+    await page.evaluate((value) => {
+      document.documentElement.style.setProperty(
+        '--safe-area-inset-bottom',
+        `${value}px`,
+      );
+    }, inset);
+    if (mobile) {
+      const box = (await navigation.boundingBox())!;
+      expect(box.y + box.height).toBeCloseTo(page.viewportSize()!.height, 0);
+      const lastTab = (await navigation
+        .getByRole('button')
+        .last()
+        .boundingBox())!;
+      expect(box.y + box.height - lastTab.y - lastTab.height).toBeCloseTo(
+        Math.max(6, inset),
+        0,
+      );
+    }
+    await openSidebar(page);
+    await settleTransitions(page);
+    const history = page.getByRole('navigation', {
+      name: 'Conversation history',
+    });
+    const panel = history.locator('..');
+    const panelBox = (await panel.boundingBox())!;
+    expect(panelBox.y + panelBox.height).toBeCloseTo(
+      page.viewportSize()!.height,
+      0,
+    );
+    const lastConversation = history.getByRole('button', {
+      name: 'Conversation 20',
+      exact: true,
+    });
+    await lastConversation.scrollIntoViewIfNeeded();
+    await expect(lastConversation).toBeInViewport({ ratio: 1 });
+    const signOut = page.getByRole('button', { name: 'Sign Out' });
+    await signOut.scrollIntoViewIfNeeded();
+    const buttonBox = (await signOut.boundingBox())!;
+    await testInfo.attach(`menu-geometry-${inset}`, {
+      body: JSON.stringify(
+        await signOut.evaluate((element) => {
+          const footer = element.closest('.app-sidebar-footer') as HTMLElement;
+          const scroll = footer.firstElementChild as HTMLElement;
+          return {
+            footer: footer.getBoundingClientRect().toJSON(),
+            padding: getComputedStyle(footer).paddingBottom,
+            scroll: scroll.getBoundingClientRect().toJSON(),
+            scrollTop: scroll.scrollTop,
+            scrollHeight: scroll.scrollHeight,
+            clientHeight: scroll.clientHeight,
+            scrollWidth: scroll.scrollWidth,
+            clientWidth: scroll.clientWidth,
+          };
+        }),
+      ),
+      contentType: 'application/json',
+    });
+    expect(
+      panelBox.y + panelBox.height - buttonBox.y - buttonBox.height,
+    ).toBeCloseTo(Math.max(12, inset), 0);
+    await expect(
+      page.getByRole('button', { name: 'Close sidebar' }),
+    ).toBeInViewport({ ratio: 1 });
+    await assertFits(page);
+    await page.screenshot({
+      path: testInfo.outputPath(`menu-inset-${inset}.png`),
+    });
+    await page.getByRole('button', { name: 'Close sidebar' }).click();
+    await settleTransitions(page);
+  }
+
+  await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
+  await openSidebar(page);
+  await settleTransitions(page);
+  await assertFits(page);
+  const lastConversation = page.getByRole('button', {
+    name: 'Conversation 20',
+    exact: true,
+  });
+  await lastConversation.scrollIntoViewIfNeeded();
+  await expect(lastConversation).toBeInViewport({ ratio: 1 });
+  const signOut = page.getByRole('button', { name: 'Sign Out' });
+  await signOut.scrollIntoViewIfNeeded();
+  await expect(signOut).toBeInViewport({ ratio: 1 });
+  const signOutBox = (await signOut.boundingBox())!;
+  expect(signOutBox.y + signOutBox.height).toBeLessThanOrEqual(
+    page.viewportSize()!.height - 34,
+  );
+  await expect(
+    page.getByRole('button', { name: 'Close sidebar' }),
+  ).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: testInfo.outputPath('menu-large-text.png') });
+  const accessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
+  expect(accessibility.violations.map((violation) => violation.id)).toEqual([]);
 });
 
 test('sheets contain keyboard focus, isolate the page, and return focus', async ({

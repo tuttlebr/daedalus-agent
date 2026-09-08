@@ -143,6 +143,26 @@ svg.tabler-icon {
   min-width: 0;
   overflow-y: auto;
 }
+/* The sheet receives programmatic focus for its announcement. Its controls
+   retain their focus rings when navigating with a keyboard. */
+.app-dialog-panel:focus-visible {
+  outline: none !important;
+}
+.app-sidebar {
+  /* History is text-heavy: a solid surface keeps the page behind the drawer
+     from competing with its labels, including in WebKit's modal top layer. */
+  background: rgb(var(--panel));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.app-sidebar-footer {
+  /* The panel reaches the screen edge; only its controls need a safe inset. */
+  padding-bottom: max(0.75rem, var(--safe-area-inset-bottom));
+  overflow-wrap: anywhere;
+}
+.app-sidebar-footer button {
+  text-align: left;
+}
 .app-safe-x {
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
@@ -169,14 +189,15 @@ svg.tabler-icon {
 }
 .app-bottom-nav {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* Let longer labels use more width before wrapping at larger text sizes. */
+  grid-template-columns: repeat(5, auto);
   gap: 2px;
   padding: 0.375rem max(0.25rem, env(safe-area-inset-right))
-    max(0.375rem, env(safe-area-inset-bottom))
+    max(0.375rem, var(--safe-area-inset-bottom))
     max(0.25rem, env(safe-area-inset-left));
 }
 .app-bottom-nav .app-nav-item {
-  min-width: 0;
+  min-width: 44px;
   padding: 0.375rem 0.125rem;
   border-radius: 1rem;
 }

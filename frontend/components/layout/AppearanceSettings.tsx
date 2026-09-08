@@ -14,9 +14,12 @@ export function AppearanceSettings() {
   return (
     <fieldset className="min-w-0 px-3 py-2">
       <legend className="text-xs font-medium text-muted">Appearance</legend>
-      <div className="flex rounded-xl bg-control p-1">
+      <div className="flex flex-wrap rounded-xl bg-control p-1">
         {choices.map(({ value, label, Icon }) => (
-          <label key={value} className="relative min-w-0 flex-1 cursor-pointer">
+          <label
+            key={value}
+            className="relative min-w-0 flex-[1_1_4rem] cursor-pointer"
+          >
             <input
               className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
               type="radio"
