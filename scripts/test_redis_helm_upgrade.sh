@@ -41,6 +41,7 @@ STREAM_STARTED_KEY="async-stream-backend-started:$STREAM_JOB_ID"
 STREAM_ENTRY_ID=""
 AUTONOMY_CLAIM_KEY=""
 TLS_WORK_DIR=""
+KIND_KUBECONFIG=""
 CLUSTER_CREATED=0
 FORCE_ROLLOUT=0
 
@@ -55,7 +56,8 @@ require_command() {
 cleanup() {
   local status=$?
   if [[ "$CLUSTER_CREATED" == "1" && "${KEEP_KIND_CLUSTER:-0}" != "1" ]]; then
-    kind delete cluster --name "$CLUSTER_NAME" >/dev/null 2>&1 || true
+    kind delete cluster --name "$CLUSTER_NAME" \
+      --kubeconfig "$KIND_KUBECONFIG" >/dev/null 2>&1 || true
   fi
   if [[ -n "$TLS_WORK_DIR" && -d "$TLS_WORK_DIR" ]]; then
     rm -rf -- "$TLS_WORK_DIR"
@@ -73,6 +75,10 @@ TLS_V1_DIR="$TLS_WORK_DIR/v1"
 TLS_V2_DIR="$TLS_WORK_DIR/v2"
 TLS_CA_BUNDLE="$TLS_WORK_DIR/ca-overlap.crt"
 KIND_CONFIG="$TLS_WORK_DIR/kind-config.yaml"
+KIND_KUBECONFIG="$TLS_WORK_DIR/kubeconfig"
+# `make ci` also runs on operator workstations. Keep Kind from switching or
+# deleting the current context in the user's default kubeconfig.
+export KUBECONFIG="$KIND_KUBECONFIG"
 
 generate_tls_material() {
   local output_dir="$1" ca_common_name="$2"
@@ -131,7 +137,8 @@ networking:
   podSubnet: "$KIND_POD_SUBNET"
   serviceSubnet: "$KIND_SERVICE_SUBNET"
 YAML
-kind create cluster --name "$CLUSTER_NAME" --config "$KIND_CONFIG" --wait 120s
+kind create cluster --name "$CLUSTER_NAME" --config "$KIND_CONFIG" \
+  --kubeconfig "$KIND_KUBECONFIG" --wait 120s
 CLUSTER_CREATED=1
 # Kind's readiness wait covers the control plane, but CoreDNS can still be
 # starting. This fixture connects through the production Service FQDN, so make
