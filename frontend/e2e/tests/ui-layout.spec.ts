@@ -110,6 +110,133 @@ test('mobile Create controls stay separated and the keyboard collapses navigatio
   expect(shiftedComposerGap).toBeLessThanOrEqual(16);
 });
 
+test('mobile composer follows document scroll while the keyboard is open', async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile-'));
+  await login(page);
+
+  const input = page.getByPlaceholder('Send a message...');
+  await input.focus();
+  // iOS can keep a full-height document behind the smaller visual viewport,
+  // then scroll that document to reveal the focused control.
+  await page.evaluate(() => {
+    document.body.style.minHeight = '852px';
+    document.getElementById('__next')!.style.minHeight = '852px';
+  });
+  await page.setViewportSize({ width: 393, height: 500 });
+  await expect(page.locator('#main-content')).toHaveAttribute(
+    'data-keyboard-open',
+    'true',
+  );
+  await page.evaluate(() => {
+    window.scrollTo(0, 144);
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(144);
+
+  const geometry = () =>
+    page.evaluate(() => {
+      const main = document.getElementById('main-content')!;
+      const composer = document.querySelector('[data-chat-input]')!;
+      const input = composer.querySelector('textarea')!;
+      const messages = document.querySelector('.chat-scroll-container')!;
+      return {
+        scrollY: window.scrollY,
+        viewportHeight: window.visualViewport!.height,
+        viewportOffsetTop: window.visualViewport!.offsetTop,
+        viewportPageTop: window.visualViewport!.pageTop,
+        appliedTranslation: getComputedStyle(main).transform,
+        mainTop: main.getBoundingClientRect().top,
+        composerBottom: composer.getBoundingClientRect().bottom,
+        inputBottom: input.getBoundingClientRect().bottom,
+        messagesBottom: messages.getBoundingClientRect().bottom,
+        composerTop: composer.getBoundingClientRect().top,
+      };
+    });
+
+  await expect.poll(async () => (await geometry()).mainTop).toBe(0);
+  const scrolled = await geometry();
+  expect(scrolled.composerBottom).toBe(scrolled.viewportHeight);
+  expect(scrolled.viewportHeight - scrolled.inputBottom).toBeGreaterThanOrEqual(
+    8,
+  );
+  expect(scrolled.viewportHeight - scrolled.inputBottom).toBeLessThanOrEqual(
+    16,
+  );
+  expect(scrolled.messagesBottom).toBeLessThanOrEqual(scrolled.composerTop);
+  await testInfo.attach('document-scroll', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+
+  // A subsequent layout-viewport scroll need not fire visualViewport.scroll.
+  await page.evaluate(() => window.scrollTo(0, 200));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(200);
+  await expect.poll(async () => (await geometry()).mainTop).toBe(0);
+
+  // Reported and rendered pan describe the same shift; neither should be
+  // added twice when the document has also scrolled.
+  await page.evaluate(() => {
+    const viewport = window.visualViewport!;
+    document.body.style.transform = 'translateY(-72px)';
+    Object.defineProperty(viewport, 'offsetTop', {
+      configurable: true,
+      get: () => 72,
+    });
+    Object.defineProperty(viewport, 'pageTop', {
+      configurable: true,
+      get: () => window.scrollY + 72,
+    });
+    viewport.dispatchEvent(new Event('scroll'));
+  });
+  await expect.poll(async () => (await geometry()).mainTop).toBe(0);
+
+  // Accessory rows change the available height without requiring a fixed
+  // keyboard height or another bottom inset.
+  await page.setViewportSize({ width: 393, height: 420 });
+  await expect.poll(async () => (await geometry()).composerBottom).toBe(420);
+  const lastSuggestion = page.getByRole('button', {
+    name: 'What will the weather be like today?',
+  });
+  await page.locator('.chat-scroll-container').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(lastSuggestion).toBeInViewport({ ratio: 1 });
+  const suggestionBox = await lastSuggestion.boundingBox();
+  expect(suggestionBox).not.toBeNull();
+  expect(suggestionBox!.y + suggestionBox!.height).toBeLessThanOrEqual(
+    (await geometry()).composerTop,
+  );
+  await testInfo.attach('keyboard-layout', {
+    body: JSON.stringify(await geometry(), null, 2),
+    contentType: 'application/json',
+  });
+  await testInfo.attach('keyboard-layout', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+
+  await input.blur();
+  await page.evaluate(() => {
+    document.body.style.minHeight = '';
+    document.body.style.transform = '';
+    document.getElementById('__next')!.style.minHeight = '';
+    Reflect.deleteProperty(window.visualViewport!, 'offsetTop');
+    Reflect.deleteProperty(window.visualViewport!, 'pageTop');
+    window.scrollTo(0, 0);
+  });
+  await page.setViewportSize({ width: 393, height: 852 });
+  await expect(page.locator('#main-content')).toHaveAttribute(
+    'data-keyboard-open',
+    'false',
+  );
+  await expect(
+    page.getByRole('navigation', { name: 'Primary navigation' }),
+  ).toBeVisible();
+  await expect.poll(async () => (await geometry()).mainTop).toBe(0);
+});
+
 test('fullscreen preserves HTML preview and Markdown formatting', async ({
   page,
 }, testInfo) => {

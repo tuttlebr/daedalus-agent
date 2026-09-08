@@ -6,6 +6,7 @@ const KEYBOARD_OCCLUSION_THRESHOLD_PX = 100;
 
 export interface VisualViewportState {
   height: number | null;
+  // Translation for the in-flow app shell, including document scroll.
   offsetTop: number;
   occludedHeight: number;
   keyboardOpen: boolean;
@@ -92,24 +93,24 @@ export function useVisualViewportKeyboard(): VisualViewportState {
     const measure = () => {
       frameId = null;
       const nextHeight = viewport?.height ?? window.innerHeight;
-      // pageTop settles more reliably than offsetTop in standalone WebKit.
-      // Subtract the layout viewport's real scroll to obtain the visual pan.
+      // The app shell stays in document flow, so its translation must include
+      // layout-viewport scrolling as well as the visual viewport's own pan.
+      // Using only offsetTop (or pageTop - scrollY) leaves a gap equal to the
+      // document scroll when iOS scrolls to reveal the focused composer.
+      const scrollY = window.scrollY;
       const pageOffsetTop = Math.max(
         0,
-        (viewport?.pageTop ?? window.scrollY) - window.scrollY,
+        viewport?.pageTop ?? scrollY,
+        scrollY + (viewport?.offsetTop ?? 0),
       );
       // Recent installed WebKit builds can visually pan the rendered body
       // without updating either scrollY or the Visual Viewport offsets. The
       // body's rect is the final source of truth for that unreported shift.
       const renderedBodyOffsetTop = Math.max(
         0,
-        -document.body.getBoundingClientRect().top - window.scrollY,
+        -document.body.getBoundingClientRect().top,
       );
-      const offsetTop = Math.max(
-        viewport?.offsetTop ?? 0,
-        pageOffsetTop,
-        renderedBodyOffsetTop,
-      );
+      const offsetTop = Math.max(pageOffsetTop, renderedBodyOffsetTop);
       const focused = isEditableElement(document.activeElement);
       const next = calculateVisualViewportState({
         baselineHeight,
@@ -158,6 +159,7 @@ export function useVisualViewportKeyboard(): VisualViewportState {
     viewport?.addEventListener('resize', scheduleMeasure);
     viewport?.addEventListener('scroll', scheduleMeasure);
     window.addEventListener('resize', scheduleMeasure);
+    window.addEventListener('scroll', scheduleMeasure, { passive: true });
     window.addEventListener('orientationchange', resetBaseline);
     document.addEventListener('focusin', scheduleMeasure);
     document.addEventListener('focusout', scheduleMeasure);
@@ -168,6 +170,7 @@ export function useVisualViewportKeyboard(): VisualViewportState {
       viewport?.removeEventListener('resize', scheduleMeasure);
       viewport?.removeEventListener('scroll', scheduleMeasure);
       window.removeEventListener('resize', scheduleMeasure);
+      window.removeEventListener('scroll', scheduleMeasure);
       window.removeEventListener('orientationchange', resetBaseline);
       document.removeEventListener('focusin', scheduleMeasure);
       document.removeEventListener('focusout', scheduleMeasure);
