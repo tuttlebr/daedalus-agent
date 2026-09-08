@@ -28,12 +28,24 @@ async function login(page: Page) {
   await expect(page.getByPlaceholder('Send a message...')).toBeVisible();
 }
 
-async function sendMessage(page: Page, message: string) {
+async function sendMessage(
+  page: Page,
+  message: string,
+  { expectActive = true }: { expectActive?: boolean } = {},
+) {
+  const submitted = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/chat/async'),
+  );
   await page.getByPlaceholder('Send a message...').fill(message);
   await page.getByRole('button', { name: 'Send message' }).click();
-  await expect(
-    page.getByRole('button', { name: 'Stop generating' }),
-  ).toBeVisible();
+  expect((await submitted).ok()).toBeTruthy();
+  if (expectActive) {
+    await expect(
+      page.getByRole('button', { name: 'Stop generating' }),
+    ).toBeVisible();
+  }
 }
 
 function isJobStatusGet(response: Response) {
@@ -232,6 +244,9 @@ test('approves one exact MCP action without another model turn', async ({
   page,
 }) => {
   await login(page);
+  // Serial retries replay earlier tests against the same durable E2E user.
+  // Isolate this fixture so prior attempts cannot duplicate approval cards.
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
   const redis = new Redis(redisUrl);
   const requestId = 'e2e_approval_request_123';
   const canonicalArguments = '{"document_id":"doc-e2e","text":"hello"}';
@@ -240,6 +255,7 @@ test('approves one exact MCP action without another model turn', async ({
     .digest('hex')
     .slice(0, 16);
   const pendingKey = `approval-pending:${safeUser}:${requestId}`;
+  const statusKey = `mcp-approval-status:${safeUser}:${requestId}`;
   const approval = {
     request_id: requestId,
     user_id: 'e2e-user',
@@ -255,9 +271,12 @@ test('approves one exact MCP action without another model turn', async ({
       .digest('hex'),
     created_at: Math.floor(Date.now() / 1000),
   };
+  const staleTokenKeys = await redis.keys(`approval:${safeUser}:*`);
+  if (staleTokenKeys.length > 0) await redis.del(...staleTokenKeys);
+  await redis.del(pendingKey, statusKey);
   await redis.setex(pendingKey, 300, JSON.stringify(approval));
 
-  await sendMessage(page, 'E2E_APPROVAL_REQUEST');
+  await sendMessage(page, 'E2E_APPROVAL_REQUEST', { expectActive: false });
   await expect(
     page.getByText('Update Google document doc-e2e (1 KiB payload)', {
       exact: true,

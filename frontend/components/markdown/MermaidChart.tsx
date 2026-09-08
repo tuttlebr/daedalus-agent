@@ -10,7 +10,9 @@ import {
 } from 'react';
 
 import { toPng } from 'html-to-image';
-import mermaid from 'mermaid';
+// Mermaid 11.16.1's browser bundle contains the matching parser. Its default
+// core entry imports parser 1.2.0, which is not available in npm metadata.
+import mermaid from 'mermaid/dist/mermaid.esm.min.mjs';
 
 interface Props {
   value: string;

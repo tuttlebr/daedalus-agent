@@ -225,9 +225,29 @@ def test_frontend_forces_a_security_fixed_postcss_for_next_runtime():
     package = json.loads(_FRONTEND_PACKAGE.read_text())
     lock = json.loads(_FRONTEND_LOCK.read_text())
 
-    assert package["devDependencies"]["postcss"] == "^8.5.10"
+    assert package["devDependencies"]["postcss"] == "^8.5.23"
     assert package["overrides"]["postcss"] == "$postcss"
     assert "node_modules/next/node_modules/postcss" not in lock["packages"]
 
     version = lock["packages"]["node_modules/postcss"]["version"]
-    assert tuple(int(part) for part in version.split(".")[:3]) >= (8, 5, 10)
+    assert tuple(int(part) for part in version.split(".")[:3]) >= (8, 5, 23)
+
+
+def test_frontend_pins_the_fixed_mermaid_sanitization_graph():
+    package = json.loads(_FRONTEND_PACKAGE.read_text())
+    lock = json.loads(_FRONTEND_LOCK.read_text())
+
+    assert package["dependencies"]["mermaid"] == "11.16.1"
+    assert package["overrides"]["@mermaid-js/parser"] == "1.1.0"
+    assert package["overrides"]["dompurify"] == "^3.4.13"
+
+    versions = {
+        name: lock["packages"][f"node_modules/{name}"]["version"]
+        for name in ("mermaid", "dompurify")
+    }
+    assert versions["mermaid"] == "11.16.1"
+    assert tuple(int(part) for part in versions["dompurify"].split(".")) >= (
+        3,
+        4,
+        13,
+    )

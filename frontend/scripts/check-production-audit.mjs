@@ -17,59 +17,9 @@ const SEVERITY = new Map([
   ['critical', 4],
 ]);
 
-// These exact moderate advisories have no published fix. Keep this list
-// source-ID-specific so any new advisory, severity increase, or available fix
-// fails the gate and requires an explicit review.
-const ALLOWED_NO_FIX_ADVISORIES = new Map([
-  [
-    1138538,
-    {
-      name: 'dompurify',
-      severity: 'moderate',
-      url: 'https://github.com/advisories/GHSA-55q2-fjhq-7xh7',
-    },
-  ],
-  [
-    1138099,
-    {
-      name: 'mermaid',
-      severity: 'moderate',
-      url: 'https://github.com/advisories/GHSA-6x64-9x62-f2gx',
-    },
-  ],
-  [
-    1138100,
-    {
-      name: 'mermaid',
-      severity: 'moderate',
-      url: 'https://github.com/advisories/GHSA-3rrr-jr9j-h3q3',
-    },
-  ],
-  [
-    1138101,
-    {
-      name: 'mermaid',
-      severity: 'moderate',
-      url: 'https://github.com/advisories/GHSA-2v8p-3f2j-5mp7',
-    },
-  ],
-  [
-    1138113,
-    {
-      name: 'mermaid',
-      severity: 'moderate',
-      url: 'https://github.com/advisories/GHSA-rhh3-jpg6-66xh',
-    },
-  ],
-  [
-    1130709,
-    {
-      name: 'postcss',
-      severity: 'moderate',
-      url: 'https://github.com/advisories/GHSA-fxqj-rqcc-2cmp',
-    },
-  ],
-]);
+// No moderate-or-higher advisories currently have an approved exception.
+// Any finding must fail closed until it is fixed or reviewed here explicitly.
+const ALLOWED_NO_FIX_ADVISORIES = new Map();
 
 function isAtLeastModerate(severity) {
   return (SEVERITY.get(severity) ?? Number.POSITIVE_INFINITY) >= 2;

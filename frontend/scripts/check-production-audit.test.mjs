@@ -14,7 +14,7 @@ const postcssAdvisory = {
 };
 
 describe('production npm audit policy', () => {
-  it('allows only the exact reviewed no-fix advisory chain', () => {
+  it('rejects a formerly reviewed advisory after a fix is published', () => {
     const evaluation = evaluateAuditReport(
       report({
         postcss: {
@@ -30,8 +30,11 @@ describe('production npm audit policy', () => {
       }),
     );
 
-    expect(evaluation.violations).toEqual([]);
-    expect(evaluation.allowed).toHaveLength(1);
+    expect(evaluation.violations).toEqual([
+      'postcss: unapproved moderate advisory https://github.com/advisories/GHSA-fxqj-rqcc-2cmp',
+      'next: unapproved moderate advisory https://github.com/advisories/GHSA-fxqj-rqcc-2cmp',
+    ]);
+    expect(evaluation.allowed).toEqual([]);
   });
 
   it('rejects an unknown moderate advisory', () => {
