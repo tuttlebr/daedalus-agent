@@ -69,6 +69,19 @@ def test_makefile_builder_mirrors_ci_pytest_flags():
     )
 
 
+def test_playwright_installs_webkit_for_ci_and_local_gate():
+    ci = yaml.safe_load(_CI.read_text())
+    browser_install = next(
+        step["run"]
+        for step in ci["jobs"]["frontend-e2e"]["steps"]
+        if step.get("name") == "Install pinned browser runtimes"
+    )
+    makefile = _MAKEFILE.read_text()
+
+    assert browser_install == "npx playwright install --with-deps chromium webkit"
+    assert "npx playwright install chromium webkit" in makefile
+
+
 def test_trivy_fails_ci_and_local_gate_on_high_or_critical_findings():
     ci = yaml.safe_load(_CI.read_text())
     security_steps = ci["jobs"]["security"]["steps"]

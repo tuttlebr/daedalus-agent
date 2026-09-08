@@ -199,13 +199,14 @@ export const Sidebar = memo(() => {
   return (
     <GlassPanel className="app-sidebar w-full h-full min-h-0 flex flex-col">
       <div className="flex min-h-14 shrink-0 items-center justify-between px-5 pt-safe-top">
-        <span className="text-lg font-semibold tracking-tight text-primary">
+        <span className="min-w-0 truncate text-lg font-semibold tracking-tight text-primary">
           Daedalus
         </span>
         <IconButton
           icon={<IconX size={18} />}
           aria-label="Close sidebar"
           variant="ghost"
+          className="shrink-0"
           onClick={() => setShowChatbar(false)}
         />
       </div>

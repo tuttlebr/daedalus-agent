@@ -1,13 +1,23 @@
 // @vitest-environment node
 import {
+  cancelQueuedRequest,
+  cancelRun,
+  createGoal,
   enqueueAllActiveGoals,
   enqueueRun,
   getConfig,
+  getRun,
+  importGoals,
   isAllActiveGoalsRunRequest,
+  listEvents,
+  listFeed,
+  listQueuedRequests,
+  listRuns,
   NoActiveGoalsError,
   normalizeImportedGoals,
   QueueFullError,
   sanitizeConfigPatch,
+  saveConfig,
 } from '@/server/autonomy/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,12 +25,15 @@ const mocks = vi.hoisted(() => ({
   getRedis: vi.fn(),
   llen: vi.fn(),
   lpush: vi.fn(),
+  lrange: vi.fn(),
+  lrem: vi.fn(),
   get: vi.fn(),
   setex: vi.fn(),
   set: vi.fn(),
   eval: vi.fn(),
   jsonGet: vi.fn(),
   jsonSet: vi.fn(),
+  publishSyncEvent: vi.fn(),
 }));
 
 vi.mock('@/server/session/redis', () => ({
@@ -32,10 +45,15 @@ vi.mock('@/server/session/redis', () => ({
 }));
 
 vi.mock('@/utils/sync/publish', () => ({
-  publishSyncEvent: vi.fn().mockResolvedValue(undefined),
+  publishSyncEvent: mocks.publishSyncEvent,
 }));
 
 describe('autonomy store config sanitization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.publishSyncEvent.mockResolvedValue(undefined);
+  });
+
   it('whitelists and clamps source policy fields', () => {
     expect(
       sanitizeConfigPatch({
@@ -81,6 +99,76 @@ describe('autonomy store config sanitization', () => {
 
     expect(config.sourcePolicy?.requirePlanApproval).toBe(false);
   });
+
+  it('creates and persists the default config when none exists', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+    mocks.jsonGet.mockResolvedValue(null);
+
+    const config = await getConfig('test-user');
+
+    expect(config).toMatchObject({
+      enabled: true,
+      userId: 'test-user',
+      intervalSeconds: 14_400,
+      createdAt: 1700000000000,
+      updatedAt: 1700000000000,
+    });
+    expect(mocks.jsonSet).toHaveBeenCalledWith(
+      'autonomy:test-user:config',
+      '$',
+      config,
+    );
+    vi.restoreAllMocks();
+  });
+
+  it('persists a sanitized config patch and publishes the result', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+    mocks.jsonGet.mockResolvedValue(null);
+
+    const config = await saveConfig('test-user', {
+      enabled: false,
+      mode: 'task_executor',
+      runtime: 'dedicated_worker',
+      actionPolicy: 'read_memory_only',
+      intervalSeconds: 1,
+      maxRunsStored: 5000,
+      maxFeedItems: 0,
+      feedDedupeEnabled: false,
+      feedDedupeWindowDays: 365,
+    });
+
+    expect(config).toMatchObject({
+      enabled: false,
+      mode: 'task_executor',
+      actionPolicy: 'read_memory_only',
+      intervalSeconds: 300,
+      maxRunsStored: 1000,
+      maxFeedItems: 1,
+      feedDedupeEnabled: false,
+      feedDedupeWindowDays: 90,
+      userId: 'test-user',
+    });
+    expect(mocks.publishSyncEvent).toHaveBeenCalledWith(
+      'test-user',
+      expect.objectContaining({
+        type: 'autonomy_status',
+        data: { config },
+      }),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it('drops invalid config shapes and non-finite numeric values', () => {
+    expect(sanitizeConfigPatch(null as any)).toEqual({});
+    expect(
+      sanitizeConfigPatch({
+        mode: 'invalid' as any,
+        runtime: 'invalid' as any,
+        actionPolicy: 'invalid' as any,
+        intervalSeconds: Number.NaN,
+      }),
+    ).toEqual({});
+  });
 });
 
 describe('normalizeImportedGoals', () => {
@@ -122,6 +210,229 @@ describe('normalizeImportedGoals', () => {
 
     vi.spyOn(Date, 'now').mockRestore();
   });
+
+  it('deduplicates ids and supplies safe defaults for incomplete goals', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+
+    const goals = normalizeImportedGoals(
+      [
+        { id: 'goal_existing', title: ' First ', priority: 'invalid' },
+        { id: 'goal_existing', title: 'Second', status: 'invalid' },
+        { id: 12, title: 'Generated', tags: 'invalid' },
+        null,
+      ],
+      [{ id: 'goal_existing' } as any],
+    );
+
+    expect(goals).toHaveLength(3);
+    expect(goals[0]).toMatchObject({
+      id: 'goal_existing_2',
+      title: 'First',
+      description: '',
+      status: 'active',
+      priority: 3,
+    });
+    expect(goals[1].id).toBe('goal_existing_3');
+    expect(goals[2].id).toMatch(/^goal_[a-f0-9]{32}$/);
+    expect(goals[2]).not.toHaveProperty('tags');
+    vi.restoreAllMocks();
+  });
+});
+
+describe('autonomy goal persistence', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.publishSyncEvent.mockResolvedValue(undefined);
+  });
+
+  it('appends imported goals ahead of existing goals and reports skips', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+    const existing = {
+      id: 'goal_existing',
+      title: 'Existing',
+      status: 'paused',
+      priority: 2,
+    };
+    mocks.jsonGet.mockResolvedValue([existing]);
+
+    const result = await importGoals(
+      'user-a',
+      [{ id: 'new', title: 'New' }, { title: '' }],
+      'append',
+    );
+
+    expect(result.imported).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.goals.map((goal) => goal.id)).toEqual([
+      'goal_new',
+      'goal_existing',
+    ]);
+    expect(mocks.jsonSet).toHaveBeenCalledWith(
+      'autonomy:user-a:goals',
+      '$',
+      result.goals,
+    );
+    expect(mocks.publishSyncEvent).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('creates a goal with trimmed values and stores it first', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+    mocks.jsonGet.mockResolvedValue([
+      { id: 'goal_existing', title: 'Existing' },
+    ]);
+
+    const goal = await createGoal('user-a', {
+      title: ' New goal ',
+      description: ' Details ',
+      status: 'paused',
+      priority: 1,
+    });
+
+    expect(goal).toMatchObject({
+      title: 'New goal',
+      description: 'Details',
+      status: 'paused',
+      priority: 1,
+    });
+    expect(goal.id).toMatch(/^goal_[a-f0-9]{32}$/);
+    expect(mocks.jsonSet.mock.calls.at(-1)?.[2]).toEqual([
+      goal,
+      { id: 'goal_existing', title: 'Existing' },
+    ]);
+    vi.restoreAllMocks();
+  });
+});
+
+describe('autonomy queue reads and cancellation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.publishSyncEvent.mockResolvedValue(undefined);
+    mocks.getRedis.mockReturnValue({
+      lrange: mocks.lrange,
+      lrem: mocks.lrem,
+    });
+  });
+
+  it('normalizes queued records in display order and ignores corrupt entries', async () => {
+    mocks.lrange.mockResolvedValue([
+      JSON.stringify({ id: 'new', createdAt: 20, requestedBy: 'worker' }),
+      '{not-json',
+      JSON.stringify({ trigger: 'goal', goalId: 'goal_a', prompt: 'Run' }),
+      'null',
+    ]);
+
+    await expect(listQueuedRequests('user-a')).resolves.toEqual([
+      {
+        id: 'queued_2',
+        trigger: 'goal',
+        goalId: 'goal_a',
+        prompt: 'Run',
+        requestedBy: 'unknown',
+        createdAt: 0,
+        position: 2,
+      },
+      {
+        id: 'new',
+        trigger: 'manual',
+        goalId: null,
+        prompt: '',
+        requestedBy: 'worker',
+        createdAt: 20,
+        position: 4,
+      },
+    ]);
+  });
+
+  it('rejects empty or missing queued request ids without removing data', async () => {
+    mocks.lrange.mockResolvedValue(['{bad-json', JSON.stringify({ id: 'a' })]);
+
+    await expect(cancelQueuedRequest('user-a', ' ')).resolves.toBe(false);
+    await expect(cancelQueuedRequest('user-a', 'missing')).resolves.toBe(false);
+    expect(mocks.lrem).not.toHaveBeenCalled();
+  });
+
+  it('reports a dequeue race and publishes successful queue cancellation', async () => {
+    const raw = JSON.stringify({ id: 'request_1' });
+    mocks.lrange.mockResolvedValue([raw]);
+    mocks.lrem.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+    await expect(cancelQueuedRequest('user-a', 'request_1')).resolves.toBe(
+      false,
+    );
+    await expect(cancelQueuedRequest('user-a', 'request_1')).resolves.toBe(
+      true,
+    );
+    expect(mocks.publishSyncEvent).toHaveBeenCalledWith(
+      'user-a',
+      expect.objectContaining({ data: { dequeued: 'request_1' } }),
+    );
+  });
+});
+
+describe('autonomy run, event, and feed persistence', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.publishSyncEvent.mockResolvedValue(undefined);
+    mocks.getRedis.mockReturnValue({ set: mocks.set });
+    mocks.set.mockResolvedValue('OK');
+  });
+
+  it('lists runs, finds a selected run, and returns null when absent', async () => {
+    const runs = [{ id: 'run_a' }, { id: 'run_b' }];
+    mocks.jsonGet.mockResolvedValue(runs);
+
+    await expect(listRuns('user-a')).resolves.toEqual(runs);
+    await expect(getRun('user-a', 'run_b')).resolves.toEqual({ id: 'run_b' });
+    await expect(getRun('user-a', 'missing')).resolves.toBeNull();
+  });
+
+  it('filters events by run and lists feed items', async () => {
+    mocks.jsonGet.mockImplementation(async (key: string) =>
+      key.endsWith(':events')
+        ? [{ runId: 'run_a' }, { runId: 'run_b' }]
+        : [{ id: 'feed_a' }],
+    );
+
+    await expect(listEvents('user-a')).resolves.toHaveLength(2);
+    await expect(listEvents('user-a', 'run_b')).resolves.toEqual([
+      { runId: 'run_b' },
+    ]);
+    await expect(listFeed('user-a')).resolves.toEqual([{ id: 'feed_a' }]);
+  });
+
+  it('marks only cancellable runs and writes a durable cancellation flag', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+    mocks.jsonGet.mockResolvedValue([
+      { id: 'run_a', status: 'running' },
+      { id: 'run_b', status: 'completed' },
+    ]);
+
+    await cancelRun('user-a', 'run_a');
+
+    expect(mocks.set).toHaveBeenCalledWith(
+      'autonomy:user-a:cancel:run_a',
+      '1',
+      'EX',
+      13_800,
+    );
+    expect(mocks.jsonSet).toHaveBeenCalledWith('autonomy:user-a:runs', '$', [
+      {
+        id: 'run_a',
+        status: 'cancelled',
+        updatedAt: 1700000000000,
+        completedAt: 1700000000000,
+      },
+      { id: 'run_b', status: 'completed' },
+    ]);
+    expect(mocks.publishSyncEvent).toHaveBeenCalledWith(
+      'user-a',
+      expect.objectContaining({
+        data: { runId: 'run_a', status: 'cancelled' },
+      }),
+    );
+    vi.restoreAllMocks();
+  });
 });
 
 describe('autonomy enqueueRun depth cap', () => {
@@ -135,9 +446,9 @@ describe('autonomy enqueueRun depth cap', () => {
   it('throws QueueFullError when at capacity and the cap is enforced (API path)', async () => {
     mocks.llen.mockResolvedValue(100); // >= default AUTONOMY_MAX_QUEUE_DEPTH
 
-    await expect(
-      enqueueRun('user-a', { prompt: 'go' }),
-    ).rejects.toBeInstanceOf(QueueFullError);
+    await expect(enqueueRun('user-a', { prompt: 'go' })).rejects.toBeInstanceOf(
+      QueueFullError,
+    );
     expect(mocks.lpush).not.toHaveBeenCalled();
   });
 
@@ -214,10 +525,9 @@ describe('autonomy run-all-active-goals enqueue', () => {
       },
     ]);
 
-    const result = await enqueueAllActiveGoals(
-      'user-a',
-      { prompt: 'operator note' },
-    );
+    const result = await enqueueAllActiveGoals('user-a', {
+      prompt: 'operator note',
+    });
 
     const [, ...serialized] = mocks.lpush.mock.calls[0];
     const payloads = serialized.map((raw) => JSON.parse(raw));
@@ -261,9 +571,9 @@ describe('autonomy run-all-active-goals enqueue', () => {
     ]);
     mocks.llen.mockResolvedValue(99);
 
-    await expect(
-      enqueueAllActiveGoals('user-a', {}),
-    ).rejects.toBeInstanceOf(QueueFullError);
+    await expect(enqueueAllActiveGoals('user-a', {})).rejects.toBeInstanceOf(
+      QueueFullError,
+    );
     expect(mocks.lpush).not.toHaveBeenCalled();
   });
 });

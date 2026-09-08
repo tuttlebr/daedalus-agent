@@ -62,7 +62,7 @@ frontend: ## frontend lint, typecheck, test, build  (CI job: frontend)
 
 frontend-e2e: ## real-browser frontend workflows  (CI job: frontend-e2e)
 	cd frontend && npm ci --legacy-peer-deps
-	cd frontend && npx playwright install chromium
+	cd frontend && npx playwright install chromium webkit
 	cd frontend && npm run e2e
 
 helm: ## helm lint + template render  (CI job: helm)

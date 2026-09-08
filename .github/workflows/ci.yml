@@ -127,8 +127,8 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Install pinned Chromium runtime
-        run: npx playwright install --with-deps chromium
+      - name: Install pinned browser runtimes
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Run real-browser agentic workflows
         run: npm run e2e
