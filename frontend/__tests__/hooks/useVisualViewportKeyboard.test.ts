@@ -35,28 +35,121 @@ describe('visual viewport keyboard state', () => {
         offsetTop: 0,
         editableFocused: true,
         touchCapable: false,
-      }).keyboardOpen,
-    ).toBe(false);
+      }),
+    ).toEqual({
+      height: null,
+      top: null,
+      occludedHeight: 0,
+      keyboardOpen: false,
+    });
   });
 
-  it('keeps the keyboard open when iOS pans by the full height loss', () => {
+  it('uses the reported page position when the body has not moved', () => {
     expect(
       calculateVisualViewportState({
         baselineHeight: 852,
         viewportHeight: 500,
-        offsetTop: 352,
+        offsetTop: 24,
+        pageTop: 72,
         editableFocused: true,
         touchCapable: true,
-      }),
-    ).toEqual({
-      height: 500,
-      top: 352,
-      occludedHeight: 352,
-      keyboardOpen: true,
-    });
+      }).top,
+    ).toBe(72);
+
+    // A newer, smaller pageTop wins over a stale larger offsetTop.
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 500,
+        offsetTop: 72,
+        pageTop: 24,
+        editableFocused: true,
+        touchCapable: true,
+      }).top,
+    ).toBe(24);
   });
 
-  it('ignores small viewport shifts beneath the keyboard threshold', () => {
+  it('includes document scroll once when pageTop is unavailable', () => {
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 500,
+        offsetTop: 24,
+        scrollY: 100,
+        renderedBodyTop: -100,
+        editableFocused: true,
+        touchCapable: true,
+      }).top,
+    ).toBe(124);
+  });
+
+  it('treats rendered body pan and viewport offsets as alternatives', () => {
+    const correlated = calculateVisualViewportState({
+      baselineHeight: 852,
+      viewportHeight: 500,
+      offsetTop: 84,
+      pageTop: 84,
+      renderedBodyTop: -84,
+      editableFocused: true,
+      touchCapable: true,
+    });
+    expect(correlated.top).toBe(84);
+
+    const underReported = calculateVisualViewportState({
+      baselineHeight: 852,
+      viewportHeight: 500,
+      offsetTop: 24,
+      pageTop: 24,
+      renderedBodyTop: -84,
+      editableFocused: true,
+      touchCapable: true,
+    });
+    expect(underReported.top).toBe(84);
+  });
+
+  it('keeps the rendered body authoritative as its pan decreases', () => {
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 500,
+        offsetTop: 72,
+        pageTop: 72,
+        renderedBodyTop: -24,
+        preferRenderedBodyPosition: true,
+        editableFocused: true,
+        touchCapable: true,
+      }).top,
+    ).toBe(24);
+
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 500,
+        offsetTop: 72,
+        pageTop: 72,
+        renderedBodyTop: 0,
+        preferRenderedBodyPosition: true,
+        editableFocused: true,
+        touchCapable: true,
+      }).top,
+    ).toBe(0);
+  });
+
+  it('keeps the resized shell inside its clipping rectangle', () => {
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 500,
+        offsetTop: 704,
+        pageTop: 704,
+        renderedBodyTop: -704,
+        editableFocused: true,
+        touchCapable: true,
+      }).top,
+    ).toBe(352);
+  });
+
+  it('ignores viewport changes below the keyboard threshold', () => {
     expect(
       calculateVisualViewportState({
         baselineHeight: 852,
@@ -68,55 +161,15 @@ describe('visual viewport keyboard state', () => {
     ).toBe(false);
   });
 
-  it('uses pageTop when WebKit under-reports offsetTop', () => {
-    expect(
-      calculateVisualViewportState({
-        baselineHeight: 852,
-        viewportHeight: 500,
-        offsetTop: 24,
-        pageTop: 72,
-        editableFocused: true,
-        touchCapable: true,
-      }).top,
-    ).toBe(72);
-  });
-
-  it('corrects an unreported rendered body pan without stacking offsets', () => {
-    const corrected = calculateVisualViewportState({
-      baselineHeight: 852,
-      viewportHeight: 500,
-      offsetTop: 24,
-      pageTop: 24,
-      shellAppliedTop: 24,
-      shellRenderedTop: -60,
-      editableFocused: true,
-      touchCapable: true,
-    });
-    expect(corrected.top).toBe(108);
-
-    expect(
-      calculateVisualViewportState({
-        baselineHeight: 852,
-        viewportHeight: 500,
-        offsetTop: 24,
-        pageTop: 24,
-        shellAppliedTop: corrected.top!,
-        shellRenderedTop: 24,
-        editableFocused: true,
-        touchCapable: true,
-      }).top,
-    ).toBe(108);
-  });
-
-  it('releases stale inline geometry after the viewport recovers', () => {
+  it('releases stale viewport values when the keyboard is closed', () => {
     expect(
       calculateVisualViewportState({
         baselineHeight: 852,
         viewportHeight: 852,
         offsetTop: 72,
         pageTop: 72,
-        shellAppliedTop: 72,
-        shellRenderedTop: 72,
+        renderedBodyTop: 0,
+        preferRenderedBodyPosition: true,
         editableFocused: true,
         touchCapable: true,
         wasKeyboardOpen: true,
@@ -124,6 +177,27 @@ describe('visual viewport keyboard state', () => {
     ).toEqual({
       height: null,
       top: null,
+      occludedHeight: 0,
+      keyboardOpen: false,
+    });
+  });
+
+  it('can compensate a body pan while the keyboard finishes closing', () => {
+    expect(
+      calculateVisualViewportState({
+        baselineHeight: 852,
+        viewportHeight: 852,
+        offsetTop: 84,
+        pageTop: 84,
+        renderedBodyTop: -84,
+        preferRenderedBodyPosition: true,
+        compensateBodyAfterClose: true,
+        editableFocused: false,
+        touchCapable: true,
+      }),
+    ).toEqual({
+      height: null,
+      top: 84,
       occludedHeight: 0,
       keyboardOpen: false,
     });
@@ -140,16 +214,21 @@ describe('visual viewport lifecycle', () => {
     scale: number;
   };
   let state: VisualViewportState;
-  const shellRef: { current: HTMLElement | null } = { current: null };
+  let bodyTop: number;
 
   function Probe() {
-    state = useVisualViewportKeyboard(shellRef);
+    state = useVisualViewportKeyboard();
     return null;
   }
 
-  function changeViewport(height: number, offsetTop = 0, scale = 1) {
+  function changeViewport(
+    height: number,
+    offsetTop = 0,
+    scale = 1,
+    pageTop = offsetTop,
+  ) {
     act(() => {
-      Object.assign(viewport, { height, offsetTop, scale });
+      Object.assign(viewport, { height, offsetTop, scale, pageTop });
       viewport.dispatchEvent(new Event('resize'));
       vi.advanceTimersByTime(400);
     });
@@ -160,6 +239,7 @@ describe('visual viewport lifecycle', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('innerHeight', 852);
     vi.stubGlobal('innerWidth', 393);
+    vi.stubGlobal('scrollY', 0);
     vi.stubGlobal('matchMedia', () => ({ matches: true }));
     viewport = Object.assign(new EventTarget(), {
       height: 852,
@@ -168,13 +248,13 @@ describe('visual viewport lifecycle', () => {
       scale: 1,
     });
     vi.stubGlobal('visualViewport', viewport);
+    bodyTop = 0;
+    vi.spyOn(document.body, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: bodyTop } as DOMRect),
+    );
     input = document.createElement('textarea');
-    const shell = document.createElement('main');
-    shell.style.position = 'absolute';
-    shell.style.top = '0px';
-    shellRef.current = shell;
     const container = document.createElement('div');
-    document.body.append(input, shell, container);
+    document.body.append(input, container);
     root = createRoot(container);
     act(() => root.render(createElement(Probe)));
   });
@@ -183,13 +263,12 @@ describe('visual viewport lifecycle', () => {
     act(() => root.unmount());
     expect(vi.getTimerCount()).toBe(0);
     document.body.innerHTML = '';
-    shellRef.current = null;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
-  it('keeps the keyboard layout through blur, then discards a stale pan on close', () => {
+  it('keeps the keyboard layout through blur, then discards stale offsets on close', () => {
     act(() => input.focus());
     changeViewport(500, 72);
     expect(state.keyboardOpen).toBe(true);
@@ -210,17 +289,58 @@ describe('visual viewport lifecycle', () => {
     });
   });
 
-  it('corrects the shell from its rendered position when WebKit pans the body', () => {
-    vi.spyOn(shellRef.current!, 'getBoundingClientRect').mockReturnValue({
-      top: -84,
-    } as DOMRect);
-    viewport.pageTop = 24;
+  it('does not stay open when WebKit leaves a stale shrunken viewport after blur', () => {
     act(() => input.focus());
-    changeViewport(500, 24);
-    expect(state.top).toBe(108);
+    changeViewport(500);
+    act(() => {
+      input.blur();
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(state).toMatchObject({
+      keyboardOpen: false,
+      height: null,
+      top: null,
+    });
   });
 
-  it('leaves the layout alone during pinch zoom, even with a focused input', () => {
+  it('latches rendered body movement without accumulating API offsets', () => {
+    bodyTop = -84;
+    act(() => input.focus());
+    changeViewport(500, 84);
+    expect(state.top).toBe(84);
+
+    bodyTop = -24;
+    changeViewport(500, 72);
+    expect(state.top).toBe(24);
+
+    bodyTop = 0;
+    changeViewport(500, 72);
+    expect(state.top).toBe(0);
+  });
+
+  it('keeps a closing body pan aligned until its rendered position recovers', () => {
+    bodyTop = -84;
+    act(() => input.focus());
+    changeViewport(500, 24);
+    expect(state).toMatchObject({ keyboardOpen: true, top: 84 });
+
+    act(() => input.blur());
+    changeViewport(852, 84);
+    expect(state).toMatchObject({
+      keyboardOpen: false,
+      height: null,
+      top: 84,
+    });
+
+    bodyTop = 0;
+    act(() => {
+      viewport.dispatchEvent(new Event('scrollend'));
+      vi.advanceTimersByTime(400);
+    });
+    expect(state.top).toBeNull();
+  });
+
+  it('leaves the layout alone during pinch zoom', () => {
     act(() => input.focus());
     changeViewport(426, 100, 2);
     expect(state).toMatchObject({

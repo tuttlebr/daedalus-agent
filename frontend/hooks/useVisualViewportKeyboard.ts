@@ -1,12 +1,14 @@
 'use client';
 
-import { type RefObject, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const KEYBOARD_OCCLUSION_THRESHOLD_PX = 100;
+const BODY_PAN_THRESHOLD_PX = 0.5;
+const BLUR_GRACE_PERIOD_MS = 600;
 
 export interface VisualViewportState {
   height: number | null;
-  // CSS top needed to put the rendered shell on the visual viewport.
+  // Absolute CSS top that keeps the shell inside the visible viewport.
   top: number | null;
   occludedHeight: number;
   keyboardOpen: boolean;
@@ -19,14 +21,19 @@ const initialState: VisualViewportState = {
   keyboardOpen: false,
 };
 
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
 export function calculateVisualViewportState({
   baselineHeight,
   viewportHeight,
   offsetTop,
-  pageTop = offsetTop,
   scrollY = 0,
-  shellAppliedTop = 0,
-  shellRenderedTop = shellAppliedTop,
+  pageTop = scrollY + offsetTop,
+  renderedBodyTop = -scrollY,
+  preferRenderedBodyPosition = false,
+  compensateBodyAfterClose = false,
   editableFocused,
   touchCapable,
   wasKeyboardOpen = false,
@@ -36,38 +43,53 @@ export function calculateVisualViewportState({
   offsetTop: number;
   pageTop?: number;
   scrollY?: number;
-  shellAppliedTop?: number;
-  shellRenderedTop?: number;
+  renderedBodyTop?: number;
+  preferRenderedBodyPosition?: boolean;
+  compensateBodyAfterClose?: boolean;
   editableFocused: boolean;
   touchCapable: boolean;
   wasKeyboardOpen?: boolean;
 }): VisualViewportState {
-  // Treat the viewport pan and the keyboard's height reduction as independent
-  // signals. On iOS the pan can be almost identical to the height loss; adding
-  // offsetTop here would cancel the keyboard signal and make the app expand
-  // while the keyboard is still visible.
   const candidateOcclusion = Math.max(0, baselineHeight - viewportHeight);
   const keyboardOpen =
     touchCapable &&
     (editableFocused || wasKeyboardOpen) &&
     candidateOcclusion >= KEYBOARD_OCCLUSION_THRESHOLD_PX;
 
-  // offsetTop and pageTop - scrollY describe the same visual edge. Current
-  // WebKit builds can update one before the other, especially in an installed
-  // web app, so use whichever has reached the larger non-negative value.
-  const visualTop = keyboardOpen
-    ? Math.max(0, offsetTop, pageTop - scrollY)
-    : 0;
-  // WebKit can pan the rendered body without exposing the full movement in
-  // either viewport offset. Correct from the shell's observed position rather
-  // than adding another inferred keyboard or body offset.
-  const correctedTop = shellAppliedTop + visualTop - shellRenderedTop;
-  const top =
-    keyboardOpen || Math.abs(correctedTop) >= 0.5 ? correctedTop : null;
+  // pageTop and the body's rendered position are alternative observations of
+  // the same viewport pan. Some installed WebKit builds leave pageTop and
+  // offsetTop stale while getBoundingClientRect exposes the actual movement.
+  // Choose one source; adding them recreates the keyboard gap.
+  const reportedPageTop = Number.isFinite(pageTop)
+    ? Math.max(0, pageTop)
+    : Math.max(0, scrollY + offsetTop);
+  const bodyPageTop = Math.max(0, -renderedBodyTop);
+  const renderedBodyPan = Math.max(0, bodyPageTop - scrollY);
+  const useRenderedBodyPosition =
+    preferRenderedBodyPosition || renderedBodyPan > BODY_PAN_THRESHOLD_PX;
+
+  let top: number | null = null;
+  if (keyboardOpen) {
+    // Keeping top + height within the layout viewport prevents an overflow
+    // ancestor from clipping the composer during a full-height keyboard pan.
+    top = clamp(
+      useRenderedBodyPosition ? bodyPageTop : reportedPageTop,
+      0,
+      candidateOcclusion,
+    );
+  } else if (
+    compensateBodyAfterClose &&
+    useRenderedBodyPosition &&
+    renderedBodyPan > BODY_PAN_THRESHOLD_PX
+  ) {
+    // WebKit can restore viewport.height before releasing its rendered body
+    // pan. Keep the full-height shell aligned during that short close phase.
+    top = bodyPageTop;
+  }
 
   return {
-    // Once the keyboard closes, return sizing to CSS. Installed WebKit can
-    // retain a stale visualViewport height after dismissal and rotation.
+    // CSS resumes control as soon as the keyboard is closed, even if WebKit
+    // leaves an old visualViewport height behind after dismissal.
     height: keyboardOpen ? viewportHeight : null,
     top,
     occludedHeight: keyboardOpen ? candidateOcclusion : 0,
@@ -102,13 +124,10 @@ function isEditableElement(element: Element | null): boolean {
 }
 
 /**
- * Tracks the visible iOS viewport instead of assuming that `100dvh` shrinks
- * with the software keyboard. The focus check prevents rotation, split-view,
- * and browser chrome changes from being misclassified as keyboard input.
+ * Sizes the app to the visual viewport while a touch keyboard is visible.
+ * The layout viewport remains fixed so the conversation pane owns scrolling.
  */
-export function useVisualViewportKeyboard(
-  shellRef: RefObject<HTMLElement>,
-): VisualViewportState {
+export function useVisualViewportKeyboard(): VisualViewportState {
   const [state, setState] = useState<VisualViewportState>(initialState);
 
   useEffect(() => {
@@ -123,43 +142,55 @@ export function useVisualViewportKeyboard(
       window.matchMedia?.('(pointer: coarse)').matches === true;
     let frameId: number | null = null;
     let settleTimer: number | null = null;
+    let blurTimer: number | null = null;
     let keyboardOpen = false;
+    let bodyPanMode = false;
+    let blurGraceExpired = false;
 
     const measure = () => {
       frameId = null;
-      // Pinch zoom also shrinks visualViewport.height. Leave the app's layout
-      // alone while zoomed so that zooming cannot open the keyboard layout.
+      // Pinch zoom also shrinks visualViewport.height. Leave application
+      // geometry untouched while zoomed.
       if (viewport && Math.abs(viewport.scale - 1) > 0.01) return;
+
       const nextHeight = viewport?.height ?? window.innerHeight;
       const focused = isEditableElement(document.activeElement);
-      // A genuine resize with no keyboard establishes a new baseline. Keeping
-      // the largest height forever misclassifies the next focus after rotation
-      // or a smaller window as another keyboard opening.
       if ((!focused && !keyboardOpen) || window.innerWidth !== layoutWidth) {
         baselineHeight = Math.max(window.innerHeight, nextHeight);
         layoutWidth = window.innerWidth;
       }
-      const shell = shellRef.current;
-      const computedTop = shell
-        ? Number.parseFloat(window.getComputedStyle(shell).top) || 0
-        : 0;
-      const renderedTop = shell?.getBoundingClientRect().top ?? computedTop;
+
+      const scrollY = window.scrollY;
+      const renderedBodyTop = document.body.getBoundingClientRect().top;
+      const renderedBodyPan = Math.max(0, -renderedBodyTop - scrollY);
+      if (
+        (focused || keyboardOpen) &&
+        renderedBodyPan > BODY_PAN_THRESHOLD_PX
+      ) {
+        // Latch this source for the keyboard session. If WebKit later leaves a
+        // stale positive offset while the rendered body returns to zero, the
+        // stale API value cannot move the shell down again.
+        bodyPanMode = true;
+      }
+
       const next = calculateVisualViewportState({
         baselineHeight,
         viewportHeight: nextHeight,
         offsetTop: viewport?.offsetTop ?? 0,
-        pageTop:
-          viewport?.pageTop ?? window.scrollY + (viewport?.offsetTop ?? 0),
-        scrollY: window.scrollY,
-        shellAppliedTop: computedTop,
-        shellRenderedTop: renderedTop,
+        pageTop: viewport?.pageTop ?? scrollY + (viewport?.offsetTop ?? 0),
+        scrollY,
+        renderedBodyTop,
+        preferRenderedBodyPosition: bodyPanMode,
+        compensateBodyAfterClose: bodyPanMode,
         editableFocused: focused,
         touchCapable,
-        wasKeyboardOpen: keyboardOpen,
+        wasKeyboardOpen: keyboardOpen && !blurGraceExpired,
       });
-      // Blur precedes the keyboard's closing animation; keep navigation hidden
-      // until the viewport recovers instead of inserting it above the keyboard.
+
       keyboardOpen = next.keyboardOpen;
+      if (!keyboardOpen && renderedBodyPan <= BODY_PAN_THRESHOLD_PX) {
+        bodyPanMode = false;
+      }
 
       setState((current) => {
         return current.height === next.height &&
@@ -171,24 +202,15 @@ export function useVisualViewportKeyboard(
       });
     };
 
-    const scheduleFrames = () => {
-      if (frameId !== null) cancelAnimationFrame(frameId);
-      frameId = requestAnimationFrame(() => {
-        measure();
-        // A second frame observes the shell after React applies the first
-        // correction. This prevents native page panning from accumulating.
-        frameId = requestAnimationFrame(measure);
-      });
-    };
-
     const scheduleMeasure = () => {
-      scheduleFrames();
+      if (frameId !== null) cancelAnimationFrame(frameId);
       if (settleTimer !== null) window.clearTimeout(settleTimer);
-      // WebKit can initially report offsetTop as zero in standalone mode and
-      // correct it shortly afterward without a dependable second event.
+      frameId = requestAnimationFrame(measure);
+      // Standalone WebKit can finish viewport and body-pan updates without a
+      // dependable final event.
       settleTimer = window.setTimeout(() => {
         settleTimer = null;
-        scheduleFrames();
+        frameId = requestAnimationFrame(measure);
       }, 300);
     };
 
@@ -197,7 +219,32 @@ export function useVisualViewportKeyboard(
         window.innerHeight,
         viewport?.height ?? window.innerHeight,
       );
+      bodyPanMode = false;
+      blurGraceExpired = false;
       scheduleMeasure();
+    };
+
+    const handleFocusIn = () => {
+      blurGraceExpired = false;
+      if (blurTimer !== null) {
+        window.clearTimeout(blurTimer);
+        blurTimer = null;
+      }
+      scheduleMeasure();
+    };
+
+    const handleFocusOut = () => {
+      scheduleMeasure();
+      if (blurTimer !== null) window.clearTimeout(blurTimer);
+      // Blur precedes the keyboard animation. Give it time to close, then stop
+      // trusting a stale shrunken visualViewport if WebKit never restores it.
+      blurTimer = window.setTimeout(() => {
+        blurTimer = null;
+        if (!isEditableElement(document.activeElement)) {
+          blurGraceExpired = true;
+          scheduleMeasure();
+        }
+      }, BLUR_GRACE_PERIOD_MS);
     };
 
     measure();
@@ -209,13 +256,14 @@ export function useVisualViewportKeyboard(
     window.addEventListener('orientationchange', resetBaseline);
     window.addEventListener('pageshow', scheduleMeasure);
     document.addEventListener('visibilitychange', scheduleMeasure);
-    document.addEventListener('focusin', scheduleMeasure);
-    document.addEventListener('focusout', scheduleMeasure);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('focusout', handleFocusOut);
     document.addEventListener('touchend', scheduleMeasure, { passive: true });
 
     return () => {
       if (frameId !== null) cancelAnimationFrame(frameId);
       if (settleTimer !== null) window.clearTimeout(settleTimer);
+      if (blurTimer !== null) window.clearTimeout(blurTimer);
       viewport?.removeEventListener('resize', scheduleMeasure);
       viewport?.removeEventListener('scroll', scheduleMeasure);
       viewport?.removeEventListener('scrollend', scheduleMeasure);
@@ -224,11 +272,11 @@ export function useVisualViewportKeyboard(
       window.removeEventListener('orientationchange', resetBaseline);
       window.removeEventListener('pageshow', scheduleMeasure);
       document.removeEventListener('visibilitychange', scheduleMeasure);
-      document.removeEventListener('focusin', scheduleMeasure);
-      document.removeEventListener('focusout', scheduleMeasure);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('focusout', handleFocusOut);
       document.removeEventListener('touchend', scheduleMeasure);
     };
-  }, [shellRef]);
+  }, []);
 
   return state;
 }

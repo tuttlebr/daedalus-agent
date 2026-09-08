@@ -447,18 +447,19 @@ html:has(.app-viewport) #__next {
   overscroll-behavior: none;
 }
 
+/* A native WebKit keyboard pan can move the body's clipping rectangle while
+   the corrected app shell remains inside the visible viewport. Keep the root
+   locked, but let the shifted ancestors paint and hit-test that shell. */
+html:has(.app-viewport[data-viewport-shifted='true']) body,
+html:has(.app-viewport[data-viewport-shifted='true']) #__next {
+  overflow: visible;
+}
+
 .app-viewport {
   position: absolute;
   top: 0;
   inset-inline: 0;
   height: 100dvh;
-}
-
-/* WebKit can retain the home-indicator inset while its software keyboard is
-   visible. The visual viewport already ends above the complete keyboard and
-   accessory stack, so descendants must not reserve that inset a second time. */
-.app-viewport[data-keyboard-open='true'] {
-  --safe-area-inset-bottom: 0px;
 }
 
 .safari-safe-area {
@@ -2267,7 +2268,7 @@ details div {
 }
 
 .safe-bottom {
-  padding-bottom: var(--safe-area-inset-bottom, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .safe-left {
@@ -2282,7 +2283,7 @@ details div {
 @media (max-width: 768px) {
   .safe-bottom {
     /* Ensure at least 16px padding on mobile, even without notch */
-    padding-bottom: max(var(--safe-area-inset-bottom, 0px), 16px);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
   }
 
   .safe-top {
@@ -2294,7 +2295,7 @@ details div {
 /* Mobile bottom navigation safe area - accounts for fixed nav */
 .mobile-content-bottom-padding {
   /* 64px (h-16 bottom nav) + safe area */
-  padding-bottom: calc(64px + var(--safe-area-inset-bottom, 0px));
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
 }
 
 /* =================================================================

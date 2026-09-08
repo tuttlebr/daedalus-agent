@@ -46,8 +46,7 @@ const Home = () => {
   const userId = user?.username || 'anon';
 
   const workflow = getWorkflowName() || 'Daedalus';
-  const appViewportRef = useRef<HTMLElement>(null);
-  const visualViewport = useVisualViewportKeyboard(appViewportRef);
+  const visualViewport = useVisualViewportKeyboard();
 
   // Keyboard shortcuts
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
@@ -291,11 +290,15 @@ const Home = () => {
       </Head>
 
       <main
-        ref={appViewportRef}
         className="app-viewport flex min-h-0 flex-col overflow-hidden bg-dark-bg-primary text-sm text-dark-text-primary"
         id="main-content"
         tabIndex={-1}
         data-keyboard-open={visualViewport.keyboardOpen ? 'true' : 'false'}
+        data-viewport-shifted={
+          visualViewport.top !== null && Math.abs(visualViewport.top) > 0.5
+            ? 'true'
+            : 'false'
+        }
         style={{
           height: visualViewport.height ?? undefined,
           top: visualViewport.top ?? undefined,
