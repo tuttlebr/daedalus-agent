@@ -229,6 +229,60 @@ test('destinations reflow in both appearances and at twice the text size', async
   }
 });
 
+test('new-chat content starts below the mobile toolbar', async ({
+  page,
+}, testInfo) => {
+  await openApp(page);
+  await settleTransitions(page);
+  const mobile = page.viewportSize()!.width < 768;
+  const heading = page.getByRole('heading', { name: 'How can I help?' });
+  const welcome = heading.locator('../..');
+  const messages = page.getByLabel('Conversation messages');
+  const contentBox = (await welcome.boundingBox())!;
+  const paneBox = (await messages.boundingBox())!;
+  if (mobile) {
+    // The first useful content should sit just below the toolbar, regardless
+    // of how much empty space is available in a new conversation.
+    const gap = contentBox.y - paneBox.y;
+    expect(gap).toBeGreaterThanOrEqual(16);
+    expect(gap).toBeLessThanOrEqual(32);
+  } else {
+    expect(contentBox.y + contentBox.height / 2).toBeCloseTo(
+      paneBox.y + paneBox.height / 2,
+      0,
+    );
+  }
+  await expect(heading).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: testInfo.outputPath('new-chat.png') });
+
+  if (mobile) {
+    await page.getByPlaceholder('Send a message...').focus();
+    await page.setViewportSize({
+      width: page.viewportSize()!.width,
+      height: 420,
+    });
+    await expect(
+      page.getByRole('navigation', { name: 'Primary navigation' }),
+    ).toBeHidden();
+    await messages.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(
+      page.getByRole('button', {
+        name: 'What will the weather be like today?',
+      }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(page.getByPlaceholder('Send a message...')).toBeInViewport({
+      ratio: 1,
+    });
+    const scroll = await page.evaluate(() => ({
+      document: window.scrollY,
+      root: document.getElementById('__next')!.scrollTop,
+    }));
+    expect(scroll).toEqual({ document: 0, root: 0 });
+  }
+});
+
 test('navigation fits the screen and the drawer uses a single safe inset', async ({
   page,
 }, testInfo) => {

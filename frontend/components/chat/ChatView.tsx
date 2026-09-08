@@ -1361,7 +1361,7 @@ const SUGGESTED_PROMPTS = [
 
 const EmptyState = memo(
   ({ onSuggestion }: { onSuggestion?: (text: string) => void }) => (
-    <div className="min-h-full flex flex-col items-center justify-center px-5 py-8">
+    <div className="chat-empty-state min-h-full flex flex-col items-center justify-start px-5 py-6 md:justify-center md:py-8">
       <div className="text-center space-y-5 w-full max-w-md">
         <img
           src={branding.assets['/favicon.png']}
