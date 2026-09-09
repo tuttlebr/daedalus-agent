@@ -32,7 +32,7 @@ IMAGE_GUIDANCE_DESCRIPTION = (
     "gpt-image-2-photography using agent_skills_tool(operation='load_skill', "
     "skill_name='gpt-image-2-photography'), unless already loaded in this conversation. "
     "Keep prompt as the user's current request and supply a complete updated brief following the skill. "
-    "Use options for requested quality, size, n, output_format, output_compression, and background. "
+    "Chat always uses automatic image quality. Use options for requested size, n, output_format, output_compression, and background. "
     "The latest request overrides inherited context; clear obsolete preserve/exact_text constraints in the brief. "
     "Describe references in their input order. Never invent unseen image contents. "
     "Use guidance='exact' when the user asks to use their prompt verbatim. "
@@ -77,22 +77,24 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
     )
     image_timeout: float = Field(300.0, description="Image API timeout in seconds.")
     generation_model: str = Field(
-        "gpt-image-2", description="Model used for text-to-image generation."
+        "gpt-image-2.5-sunburst",
+        description="Model used for text-to-image generation.",
     )
-    edit_model: str = Field("gpt-image-2", description="Model used for image editing.")
-    quality: Literal["low", "medium", "high", "auto"] | None = Field(
-        default=None,
+    edit_model: str = Field(
+        "gpt-image-2.5-sunburst", description="Model used for image editing."
+    )
+    quality: Literal["low", "medium", "high", "xhigh", "max", "auto"] | None = Field(
+        default="auto",
         description=(
-            "Optional rendering quality. 'low' for fast drafts, 'medium' as "
-            "a balance, 'high' for detail-heavy scenes, 'auto' for SDK default."
+            "Compatibility setting retained for standalone configs. Chat "
+            "generation and editing always use automatic quality."
         ),
     )
     input_fidelity: Literal["low", "high"] | None = Field(
         default=None,
         description=(
-            "Optional image-edit fidelity. 'high' preserves the source "
-            "subject's likeness, geometry, and layout (try-on, sketch-to-render, "
-            "targeted swaps); 'low' allows freer interpretation."
+            "Legacy image-edit fidelity setting retained for compatible models. "
+            "It is omitted from GPT Image 2.5 Sunburst requests."
         ),
     )
     size: str | None = Field(
@@ -127,7 +129,7 @@ class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
     background: Literal["auto", "transparent", "opaque"] | None = Field(
         default=None,
         description=(
-            "Default output background. GPT Image 2 supports transparent "
+            "Default output background. GPT Image 2.5 Sunburst supports transparent "
             "backgrounds with PNG or WebP output."
         ),
     )
@@ -291,6 +293,10 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         defaults.update(options.model_dump(exclude_none=True) if options else {})
         if background is not None:
             defaults["background"] = background
+        # Chat intentionally delegates the quality/latency tradeoff to
+        # Sunburst. Create calls the shared Image API routes directly and can
+        # still send any supported explicit quality setting.
+        defaults["quality"] = "auto"
         return defaults
 
     async def _generate(

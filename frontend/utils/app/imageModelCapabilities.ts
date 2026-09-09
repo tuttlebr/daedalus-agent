@@ -1,7 +1,7 @@
 export type ImageMode = 'generate' | 'edit';
-export type ImageModel = 'gpt-image-2';
+export type ImageModel = 'gpt-image-2.5-sunburst';
 
-export type ImageQuality = 'auto' | 'low' | 'medium' | 'high';
+export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ImageSize = 'auto' | `${number}x${number}`;
 export type ImageOutputFormat = 'png' | 'jpeg' | 'webp';
 export type ImageBackground = 'transparent' | 'opaque' | 'auto';
@@ -62,9 +62,9 @@ export interface ImageModelCapabilities {
   };
 }
 
-export const DEFAULT_IMAGE_MODEL: ImageModel = 'gpt-image-2';
+export const DEFAULT_IMAGE_MODEL: ImageModel = 'gpt-image-2.5-sunburst';
 
-const GPT_IMAGE_2_POPULAR_SIZES = [
+const GPT_IMAGE_2_5_SUNBURST_POPULAR_SIZES = [
   '1024x1024',
   '1024x1536',
   '1536x1024',
@@ -81,11 +81,11 @@ const GPT_IMAGE_2_POPULAR_SIZES = [
   '2160x3840',
 ] as const satisfies readonly ImageSize[];
 
-const GPT_IMAGE_2_CAPABILITIES: ImageModelCapabilities = {
-  model: 'gpt-image-2',
-  label: 'GPT Image 2',
-  qualities: ['auto', 'low', 'medium', 'high'],
-  sizes: ['auto', ...GPT_IMAGE_2_POPULAR_SIZES],
+const GPT_IMAGE_2_5_SUNBURST_CAPABILITIES: ImageModelCapabilities = {
+  model: 'gpt-image-2.5-sunburst',
+  label: 'GPT Image 2.5 Sunburst',
+  qualities: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+  sizes: ['auto', ...GPT_IMAGE_2_5_SUNBURST_POPULAR_SIZES],
   outputFormats: ['png', 'jpeg', 'webp'],
   backgrounds: ['auto', 'transparent', 'opaque'],
   moderation: ['auto', 'low'],
@@ -120,7 +120,7 @@ export function getImageModelCapabilities(
   model: unknown,
 ): ImageModelCapabilities {
   resolveImageModel(model);
-  return GPT_IMAGE_2_CAPABILITIES;
+  return GPT_IMAGE_2_5_SUNBURST_CAPABILITIES;
 }
 
 export function parseImageSize(
@@ -260,9 +260,9 @@ export function cleanImageParamsForModel(
     cleaned.background = source.background;
   }
 
-  // GPT Image 2 transparency is available only with alpha-capable output
-  // formats. Keep the user's transparency choice authoritative and resolve an
-  // incompatible JPEG selection to the API's default PNG format.
+  // GPT Image 2.5 Sunburst transparency is available only with alpha-capable
+  // output formats. Keep the user's transparency choice authoritative and
+  // resolve an incompatible JPEG selection to the API's default PNG format.
   if (
     cleaned.background === 'transparent' &&
     cleaned.output_format === 'jpeg'

@@ -65,11 +65,14 @@ exploration is actually requested.
 
 Use the current tool's `ImageOptions` contract:
 
-- `quality`: `auto`, `low`, `medium`, or `high`. Medium suits most
-  assets; use low for requested speed and high for demanding edits/dense text.
-- `size`: `auto` or `WIDTHxHEIGHT`. GPT Image 2 accepts edges divisible
-  by 16, maximum edge 3840 inclusive, aspect ratio at most 3:1, and total
-  pixels from 655,360 through 8,294,400. Examples: `1024x1024`,
+- `quality`: Create supports `auto`, `low`, `medium`, `high`, `xhigh`, and
+  `max`. Keep chat on `auto`; omit a chat quality suggestion because the
+  application always delegates that choice to Sunburst. In Create, use
+  `xhigh` or `max` only when it addresses an unmet quality requirement within
+  the user's latency budget.
+- `size`: `auto` or `WIDTHxHEIGHT`. GPT Image 2.5 Sunburst accepts edges
+  divisible by 16, maximum edge 3840 inclusive, aspect ratio at most 3:1, and
+  total pixels from 655,360 through 8,294,400. Examples: `1024x1024`,
   `1024x1536`, `1536x1024`, `3840x2160`.
 - `n`: 1–8; default to one unless the user requests variants.
 - `output_format`: `png`, `jpeg`, or `webp`.
@@ -78,8 +81,8 @@ Use the current tool's `ImageOptions` contract:
 - `output_compression`: 0–100 for JPEG/WebP; omit for PNG.
 
 Honor explicit output choices over recommendations. Do not pass `model` or
-`input_fidelity` as per-call options. GPT Image 2 processes inputs at high
-fidelity and the application omits that legacy field.
+`input_fidelity` as per-call options. The application fixes the provider model
+to GPT Image 2.5 Sunburst and omits the legacy fidelity field.
 
 ## Verification and delivery
 
@@ -96,5 +99,5 @@ For analysis-only requests, use `operation=analyze` directly.
 invokes generation/editing; do not replace missing reporting images with art.
 
 Prompt craft follows the
-[OpenAI prompting guide](https://developers.openai.com/cookbook/examples/multimodal/image-gen-models-prompting-guide).
+[OpenAI GPT Image 2.5 prompting guide](https://developers.openai.com/api/docs/guides/image-prompting).
 The local shared brief and option validation govern Daedalus calls.

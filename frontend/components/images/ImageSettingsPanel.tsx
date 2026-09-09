@@ -115,9 +115,9 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
           <Select
             label="Model"
             value={model}
-            options={[{ value: 'gpt-image-2', label: caps.label }]}
+            options={[{ value: caps.model, label: caps.label }]}
             onChange={(value) => {
-              if (value === 'gpt-image-2') setModel(value);
+              if (value === caps.model) setModel(caps.model);
             }}
           />
           <Select

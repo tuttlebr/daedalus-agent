@@ -4,12 +4,12 @@ The unified visual_media agent tool and the dedicated user-facing panel's
 FastAPI routes both call these helpers so the SDK surface is consumed in
 exactly one place.
 
-Targets the gpt-image-2 schema — all optional kwargs listed in that
+Targets the gpt-image-2.5-sunburst schema — all optional kwargs listed in that
 schema are forwarded verbatim when the caller sets them, and dropped
 when they're None (so SDK defaults kick in). The helper is also
 parameter-compatible with earlier gpt-image-1.x models for the shared
-kwargs. GPT Image 2 transparent backgrounds are normalized to an alpha-capable
-PNG or WebP output before the request is sent.
+kwargs. GPT Image 2.5 Sunburst transparent backgrounds are normalized to an
+alpha-capable PNG or WebP output before the request is sent.
 """
 
 from __future__ import annotations

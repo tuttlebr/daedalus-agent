@@ -50,7 +50,7 @@ async def _collect(client):
         event
         async for event in stream_generate_images(
             client,
-            model="gpt-image-2",
+            model="gpt-image-2.5-sunburst",
             prompt="draw a river",
             output_format="webp",
             partial_images=2,
@@ -63,7 +63,7 @@ async def _collect_edit(client):
         event
         async for event in stream_edit_images(
             client,
-            model="gpt-image-2",
+            model="gpt-image-2.5-sunburst",
             image=("source.png", b"image", "image/png"),
             prompt="change the color",
             moderation="low",
@@ -80,7 +80,7 @@ async def _collect_transparent_generate(client):
         event
         async for event in stream_generate_images(
             client,
-            model="gpt-image-2",
+            model="gpt-image-2.5-sunburst",
             prompt="draw an isolated river icon",
             background="transparent",
             partial_images=2,
@@ -99,7 +99,7 @@ def test_stream_generate_images_forwards_stream_options_and_finalizes_last_parti
     events = _run(_collect(client))
 
     assert client.images.kwargs == {
-        "model": "gpt-image-2",
+        "model": "gpt-image-2.5-sunburst",
         "prompt": "draw a river",
         "stream": True,
         "output_format": "webp",
@@ -135,7 +135,7 @@ def test_stream_generate_images_uses_png_for_transparent_output_by_default():
     events = _run(_collect_transparent_generate(client))
 
     assert client.images.kwargs == {
-        "model": "gpt-image-2",
+        "model": "gpt-image-2.5-sunburst",
         "prompt": "draw an isolated river icon",
         "stream": True,
         "background": "transparent",
@@ -151,7 +151,7 @@ def test_stream_edit_images_drops_moderation_and_normalizes_transparent_jpeg():
     events = _run(_collect_edit(client))
 
     assert client.images.kwargs == {
-        "model": "gpt-image-2",
+        "model": "gpt-image-2.5-sunburst",
         "image": ("source.png", b"image", "image/png"),
         "prompt": "change the color",
         "stream": True,

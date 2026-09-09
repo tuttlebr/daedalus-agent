@@ -13,7 +13,7 @@ const image = {
   imageId: '7f4e6e7a-9176-4b69-aed7-56a8018b3e5a',
   prompt: 'A bright product photograph',
   mode: 'generate' as const,
-  model: 'gpt-image-2' as const,
+  model: 'gpt-image-2.5-sunburst' as const,
   params: { output_format: 'png' as const },
   createdAt: 1,
 };

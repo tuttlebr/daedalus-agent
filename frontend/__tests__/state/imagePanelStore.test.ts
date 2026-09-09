@@ -5,7 +5,7 @@ const output = {
   imageId: 'output-1',
   prompt: 'A concise prompt',
   mode: 'generate' as const,
-  model: 'gpt-image-2' as const,
+  model: 'gpt-image-2.5-sunburst' as const,
   params: { output_format: 'png' as const },
   createdAt: 1,
 };

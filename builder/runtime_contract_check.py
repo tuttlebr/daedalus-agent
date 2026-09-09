@@ -408,7 +408,7 @@ def main() -> None:
                     operation="generate",
                     prompt="A blue bird",
                     brief=ImageBrief(subject="bird"),
-                    options=ImageOptions(quality="high", background="transparent", n=2),
+                    options=ImageOptions(quality="max", background="transparent", n=2),
                 )
                 output = await info.single_fn(request)
                 if "contract-image" not in output:
@@ -417,7 +417,7 @@ def main() -> None:
                     )
                 sent = generate.call_args.kwargs
                 if (
-                    sent["quality"] != "high"
+                    sent["quality"] != "auto"
                     or sent["n"] != 2
                     or sent["output_format"] != "png"
                 ):
@@ -460,7 +460,7 @@ def main() -> None:
             patch.object(
                 panel_images,
                 "_config_for",
-                return_value=("gpt-image-2", "contract-key", None),
+                return_value=("gpt-image-2.5-sunburst", "contract-key", None),
             ),
             patch.object(panel_images, "_get_client", return_value=SimpleNamespace()),
             patch.object(panel_images, "_get_redis", return_value=SimpleNamespace()),
@@ -490,16 +490,20 @@ def main() -> None:
                     "x-daedalus-internal-token": "image-contract-token",
                 }
                 response = await client.post(
-                    "/v1/images/generate", headers=headers, json={"prompt": "A bird"}
+                    "/v1/images/generate",
+                    headers=headers,
+                    json={"prompt": "A bird", "quality": "max"},
                 )
                 if (
                     response.status_code != 200
                     or response.json()["imageContext"]["originalPrompt"] != "A bird"
+                    or generate.call_args.kwargs["quality"] != "max"
                 ):
                     raise RuntimeError("Create image brief failed through FastAPI")
                 request = {
                     "prompt": "Make the lighting warmer",
                     "imageRefs": [{"imageId": "source", "sessionId": "session"}],
+                    "quality": "xhigh",
                 }
                 response = await client.post(
                     "/v1/images/edit", headers=headers, json=request
@@ -507,6 +511,7 @@ def main() -> None:
                 if (
                     response.status_code != 200
                     or "Make the lighting warmer" not in edit.call_args.kwargs["prompt"]
+                    or edit.call_args.kwargs["quality"] != "xhigh"
                 ):
                     raise RuntimeError("Edit image brief failed through FastAPI")
                 if edit.call_args.kwargs["image"][1] != source.getvalue():

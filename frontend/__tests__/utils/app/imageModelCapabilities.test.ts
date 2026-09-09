@@ -1,6 +1,9 @@
 import {
+  DEFAULT_IMAGE_MODEL,
   cleanImageParamsForModel,
+  getImageModelCapabilities,
   getImageOutputMimeType,
+  resolveImageModel,
   validateImageSize,
   validateImageParamsForSubmit,
 } from '@/utils/app/imageModelCapabilities';
@@ -8,7 +11,20 @@ import {
 import { describe, expect, it } from 'vitest';
 
 describe('image model capabilities', () => {
-  it('cleans unsupported GPT Image 2 params', () => {
+  it('uses Sunburst and exposes every GPT Image 2.5 quality level', () => {
+    expect(DEFAULT_IMAGE_MODEL).toBe('gpt-image-2.5-sunburst');
+    expect(getImageModelCapabilities(DEFAULT_IMAGE_MODEL).qualities).toEqual([
+      'auto',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ]);
+    expect(resolveImageModel('gpt-image-2')).toBe(DEFAULT_IMAGE_MODEL);
+  });
+
+  it('cleans unsupported GPT Image 2.5 Sunburst params', () => {
     expect(
       cleanImageParamsForModel(
         {
@@ -21,7 +37,7 @@ describe('image model capabilities', () => {
           input_fidelity: 'high',
           n: 99,
         },
-        'gpt-image-2',
+        'gpt-image-2.5-sunburst',
       ),
     ).toEqual({
       quality: 'high',
@@ -57,12 +73,16 @@ describe('image model capabilities', () => {
     expect(
       cleanImageParamsForModel(
         { moderation: 'low' },
-        'gpt-image-2',
+        'gpt-image-2.5-sunburst',
         'generate',
       ),
     ).toEqual({ moderation: 'low' });
     expect(
-      cleanImageParamsForModel({ moderation: 'low' }, 'gpt-image-2', 'edit'),
+      cleanImageParamsForModel(
+        { moderation: 'low' },
+        'gpt-image-2.5-sunburst',
+        'edit',
+      ),
     ).toEqual({});
   });
 
@@ -84,7 +104,7 @@ describe('image model capabilities', () => {
     expect(validateImageSize('3840x2160').valid).toBe(true);
   });
 
-  it('rejects custom sizes that violate GPT Image 2 constraints', () => {
+  it('rejects custom sizes that violate GPT Image 2.5 Sunburst constraints', () => {
     expect(validateImageSize('1024x4096').reason).toContain('Maximum edge');
     expect(validateImageSize('1000x1000').reason).toContain('multiples of 16');
     expect(validateImageSize('512x512').reason).toContain('at least');

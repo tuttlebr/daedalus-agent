@@ -75,7 +75,7 @@ describe('/api/images generate/edit proxy routes', () => {
       const res = args[4];
       res.status(200).json({
         imageIds: ['abc-123'],
-        model: 'gpt-image-2',
+        model: 'gpt-image-2.5-sunburst',
         prompt: 'a product photo',
       });
     });
@@ -84,9 +84,9 @@ describe('/api/images generate/edit proxy routes', () => {
   it('cleans generate params and forwards user/session context', async () => {
     const { req, res } = createMockReqRes('POST', {
       prompt: '  a product photo  ',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
       n: 99,
-      quality: 'high',
+      quality: 'max',
       size: '2048x1152',
       output_format: 'png',
       output_compression: 50,
@@ -107,9 +107,9 @@ describe('/api/images generate/edit proxy routes', () => {
     expect(url).toBe('http://backend.test/v1/images/generate');
     expect(JSON.parse(body)).toEqual({
       prompt: 'a product photo',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
       n: 8,
-      quality: 'high',
+      quality: 'max',
       size: '2048x1152',
       output_format: 'png',
       background: 'transparent',
@@ -130,7 +130,7 @@ describe('/api/images generate/edit proxy routes', () => {
   it('requests partial streaming for single-output generate requests', async () => {
     const { req, res } = createMockReqRes('POST', {
       prompt: 'a product photo',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
       quality: 'medium',
     });
 
@@ -139,7 +139,7 @@ describe('/api/images generate/edit proxy routes', () => {
     const [, body] = mocks.proxyJsonToBackend.mock.calls[0];
     expect(JSON.parse(body)).toMatchObject({
       prompt: 'a product photo',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
       quality: 'medium',
       sessionId: 'session-1',
       user: 'alice',
@@ -163,8 +163,8 @@ describe('/api/images generate/edit proxy routes', () => {
     };
     const { req, res } = createMockReqRes('POST', {
       prompt: 'Change the label color',
-      model: 'gpt-image-2',
-      quality: 'high',
+      model: 'gpt-image-2.5-sunburst',
+      quality: 'xhigh',
       moderation: 'low',
       imageRefs,
       maskRef,
@@ -179,8 +179,8 @@ describe('/api/images generate/edit proxy routes', () => {
     const [, body] = mocks.proxyJsonToBackend.mock.calls[0];
     expect(JSON.parse(body)).toEqual({
       prompt: 'Change the label color',
-      model: 'gpt-image-2',
-      quality: 'high',
+      model: 'gpt-image-2.5-sunburst',
+      quality: 'xhigh',
       imageRefs,
       maskRef,
       sessionId: 'session-1',
@@ -194,7 +194,7 @@ describe('/api/images generate/edit proxy routes', () => {
   it('rejects blank prompts before calling the backend', async () => {
     const { req, res } = createMockReqRes('POST', {
       prompt: '   ',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
     });
 
     await generateHandler(req, res);
@@ -207,7 +207,7 @@ describe('/api/images generate/edit proxy routes', () => {
   it('rejects edit requests without input images', async () => {
     const { req, res } = createMockReqRes('POST', {
       prompt: 'Change the label color',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
       imageRefs: [],
     });
 
@@ -223,7 +223,7 @@ describe('/api/images generate/edit proxy routes', () => {
   it('rejects invalid custom sizes before calling the backend', async () => {
     const { req, res } = createMockReqRes('POST', {
       prompt: 'a product photo',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
       size: '1000x1000',
     });
 
@@ -242,7 +242,7 @@ describe('/api/images generate/edit proxy routes', () => {
     );
     const { req, res } = createMockReqRes('POST', {
       prompt: 'a product photo',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
     });
 
     await generateHandler(req, res);
@@ -259,7 +259,7 @@ describe('/api/images generate/edit proxy routes', () => {
     );
     const { req, res } = createMockReqRes('POST', {
       prompt: 'a product photo',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
     });
 
     await generateHandler(req, res);

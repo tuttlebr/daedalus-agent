@@ -12,7 +12,7 @@ from nat_helpers.image_utils import fetch_image_context
 def prepare(**kwargs):
     return asyncio.run(
         mod.prepare_image_request(
-            model="gpt-image-2",
+            model="gpt-image-2.5-sunburst",
             mode=kwargs.pop("mode", "generate"),
             prompt=kwargs.pop("prompt", "A watercolor bird"),
             options=kwargs.pop("options", {}),
@@ -47,6 +47,11 @@ def test_create_and_chat_render_the_same_brief_once(monkeypatch):
     assert create.skillVersion == chat.skillVersion
     assert "photorealistic" not in create.prompt
     planner.assert_awaited_once()
+
+
+def test_sunburst_accepts_extended_quality_levels():
+    assert prepare(options={"quality": "xhigh"}).params["quality"] == "xhigh"
+    assert prepare(options={"quality": "max"}).params["quality"] == "max"
 
 
 def test_preparation_failure_preserves_request_and_explicit_constraints(monkeypatch):
@@ -155,7 +160,7 @@ def test_invalid_sizes_rejected_before_optional_model(size, monkeypatch):
 
 def test_api_normalization_omits_fidelity_and_preserves_alpha():
     result = mod.normalize_image_options(
-        "gpt-image-2",
+        "gpt-image-2.5-sunburst",
         {
             "input_fidelity": "high",
             "size": "3840x2160",
@@ -209,7 +214,9 @@ def test_create_route_returns_and_stores_prepared_context(monkeypatch):
 
     monkeypatch.setattr(image_api, "_require_trusted_user", lambda *_: "alice")
     monkeypatch.setattr(
-        image_api, "_config_for", lambda *_: ("gpt-image-2", "test-key", None)
+        image_api,
+        "_config_for",
+        lambda *_: ("gpt-image-2.5-sunburst", "test-key", None),
     )
     monkeypatch.setattr(image_api, "_get_client", lambda *_: object())
     generate = AsyncMock(
@@ -221,9 +228,12 @@ def test_create_route_returns_and_stores_prepared_context(monkeypatch):
     monkeypatch.setattr(
         mod, "_plan_brief", AsyncMock(return_value=ImageBrief(subject="bird"))
     )
-    result = asyncio.run(image_api.generate(image_api.GenerateRequest(prompt="A bird")))
+    result = asyncio.run(
+        image_api.generate(image_api.GenerateRequest(prompt="A bird", quality="max"))
+    )
     assert result.imageContext.originalPrompt == "A bird"
     assert generate.call_args.kwargs["prompt"] == result.imageContext.prompt
+    assert generate.call_args.kwargs["quality"] == "max"
     assert storage.call_args.kwargs["image_context"] == result.imageContext
 
 
@@ -247,7 +257,7 @@ def test_stream_completion_retains_prepared_context(monkeypatch):
                 source="test",
                 user_id="alice",
                 session_id="session",
-                model="gpt-image-2",
+                model="gpt-image-2.5-sunburst",
                 image_context=context,
             )
         ]
@@ -288,13 +298,14 @@ def test_chat_runtime_schema_options_description_and_no_second_model_call(monkey
                 operation="generate",
                 prompt="Four logo ideas",
                 brief={"subject": "logo", "medium": "flat vector-like design"},
-                options={"n": 4, "background": "transparent", "quality": "high"},
+                options={"n": 4, "background": "transparent", "quality": "max"},
             )
         finally:
             await generator.aclose()
 
     assert "output" in asyncio.run(run())
     assert generate.call_args.kwargs["n"] == 4
+    assert generate.call_args.kwargs["quality"] == "auto"
     assert generate.call_args.kwargs["output_format"] == "png"
     assert (
         storage.call_args.kwargs["image_context"]["originalPrompt"] == "Four logo ideas"

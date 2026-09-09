@@ -162,7 +162,7 @@ describe('/api/images/jobs', () => {
       new Response(
         JSON.stringify({
           imageIds: ['final-1'],
-          model: 'gpt-image-2',
+          model: 'gpt-image-2.5-sunburst',
           prompt: 'a product photo',
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
@@ -171,8 +171,8 @@ describe('/api/images/jobs', () => {
     const { req, res } = createMockReqRes('POST', {
       mode: 'generate',
       prompt: '  a product photo  ',
-      model: 'gpt-image-2',
-      quality: 'medium',
+      model: 'gpt-image-2.5-sunburst',
+      quality: 'max',
       output_format: 'jpeg',
       output_compression: 50,
       background: 'transparent',
@@ -197,8 +197,8 @@ describe('/api/images/jobs', () => {
     );
     expect(JSON.parse(init.body)).toMatchObject({
       prompt: 'a product photo',
-      model: 'gpt-image-2',
-      quality: 'medium',
+      model: 'gpt-image-2.5-sunburst',
+      quality: 'max',
       output_format: 'png',
       background: 'transparent',
       sessionId: 'session-1',
@@ -223,7 +223,7 @@ describe('/api/images/jobs', () => {
     expect(mocks.store.get('user:alice:imagePanelHistory')[0]).toMatchObject({
       prompt: 'a product photo',
       params: {
-        quality: 'medium',
+        quality: 'max',
         output_format: 'png',
         background: 'transparent',
       },
@@ -237,7 +237,7 @@ describe('/api/images/jobs', () => {
       'data: {"type":"partial","imageId":"partial-1","imageIds":["partial-1"]}',
       '',
       'event: completed',
-      'data: {"type":"completed","imageIds":["final-1"],"model":"gpt-image-2","prompt":"a cat"}',
+      'data: {"type":"completed","imageIds":["final-1"],"model":"gpt-image-2.5-sunburst","prompt":"a cat"}',
       '',
       'data: [DONE]',
       '',
@@ -251,7 +251,7 @@ describe('/api/images/jobs', () => {
     const { req, res } = createMockReqRes('POST', {
       mode: 'generate',
       prompt: 'a cat',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
     });
 
     await handler(req, res);
@@ -288,7 +288,7 @@ describe('/api/images/jobs', () => {
     const { req, res } = createMockReqRes('POST', {
       mode: 'generate',
       prompt: 'a cat',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
     });
 
     await handler(req, res);
@@ -323,7 +323,7 @@ describe('/api/images/jobs', () => {
     const { req, res } = createMockReqRes('POST', {
       mode: 'generate',
       prompt: 'a cat',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
     });
 
     await handler(req, res);
@@ -343,7 +343,7 @@ describe('/api/images/jobs', () => {
       new Response(
         JSON.stringify({
           imageIds: ['edited-1'],
-          model: 'gpt-image-2',
+          model: 'gpt-image-2.5-sunburst',
           prompt: 'change the label color',
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
@@ -360,7 +360,7 @@ describe('/api/images/jobs', () => {
     const { req, res } = createMockReqRes('POST', {
       mode: 'edit',
       prompt: 'change the label color',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
       moderation: 'low',
       imageRefs,
       maskRef,
@@ -392,7 +392,7 @@ describe('/api/images/jobs', () => {
     const { req, res } = createMockReqRes('POST', {
       mode: 'edit',
       prompt: 'change the label color',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
       imageRefs: [],
     });
 
@@ -447,7 +447,7 @@ describe('/api/images/jobs', () => {
     const { req, res } = createMockReqRes('POST', {
       mode: 'generate',
       prompt: 'a cat',
-      model: 'gpt-image-2',
+      model: 'gpt-image-2.5-sunburst',
     });
 
     await handler(req, res);

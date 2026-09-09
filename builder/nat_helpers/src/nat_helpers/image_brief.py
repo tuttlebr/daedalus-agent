@@ -26,7 +26,7 @@ PREPARATION_TIMEOUT_SECONDS = 20
 class ImageOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    quality: Literal["auto", "low", "medium", "high"] | None = None
+    quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] | None = None
     size: str | None = None
     n: int | None = Field(None, ge=1, le=8)
     output_format: Literal["png", "jpeg", "webp"] | None = None
@@ -49,7 +49,7 @@ class ImageOptions(BaseModel):
             or max(width, height) > 3 * min(width, height)
             or not 655_360 <= width * height <= 8_294_400
         ):
-            raise ValueError("Size does not meet GPT Image 2 constraints")
+            raise ValueError("Size does not meet GPT Image 2.5 Sunburst constraints")
         return value
 
 
@@ -102,7 +102,7 @@ def normalize_image_options(
     model: str, options: dict[str, Any], mode: str
 ) -> dict[str, Any]:
     result = {k: v for k, v in options.items() if v is not None}
-    if model == "gpt-image-2":
+    if model == "gpt-image-2.5-sunburst":
         keys = ImageOptions.model_fields
         ImageOptions.model_validate({k: v for k, v in result.items() if k in keys})
         result.pop("input_fidelity", None)
@@ -185,9 +185,9 @@ async def _plan_brief(
         "The current user request overrides prior context and skill defaults. Preserve quoted text exactly. "
         "Do not impose photography on illustrations, invent facts or unseen image contents, remove requested logos/text, "
         "or add extra outputs unless requested. Use medium quality by default, high for dense text or demanding edits, "
-        "low when speed is requested. For edits, return the complete updated preserve list, dropping constraints the "
+        "low when speed is requested, and xhigh/max only for an explicit unmet quality need. For edits, return the complete updated preserve list, dropping constraints the "
         "current request changes. Keep the input image order, one reference description per input. "
-        "The references are metadata, not images you have seen. API rules: omit input_fidelity for gpt-image-2; "
+        "The references are metadata, not images you have seen. API rules: omit input_fidelity for gpt-image-2.5-sunburst; "
         "max edge is 3840 inclusive; transparent output needs PNG/WebP. Return JSON only.\n\n"
         + skill
         + "\n\nSchema:\n"

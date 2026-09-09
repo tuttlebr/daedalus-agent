@@ -18,9 +18,13 @@ describe('image presets', () => {
     ).toBe(true);
   });
 
-  it('cleans every preset for GPT Image 2', () => {
+  it('cleans every preset for GPT Image 2.5 Sunburst', () => {
     for (const preset of IMAGE_PRESETS) {
-      const applied = applyPreset(preset, 'an object', 'gpt-image-2');
+      const applied = applyPreset(
+        preset,
+        'an object',
+        'gpt-image-2.5-sunburst',
+      );
       expect(applied.prompt).not.toContain('{{subject}}');
       expect(applied.params).not.toHaveProperty('input_fidelity');
       if (applied.params.background === 'transparent') {

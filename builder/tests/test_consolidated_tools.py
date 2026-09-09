@@ -73,15 +73,15 @@ def test_visual_media_rejects_legacy_cross_user_assertion(monkeypatch):
 def test_visual_media_config_groups_image_and_vlm_settings():
     config = VisualMediaFunctionConfig(
         image_api_endpoint="https://images.example.com/v1",
-        generation_model="gpt-image-2",
-        edit_model="gpt-image-2",
+        generation_model="gpt-image-2.5-sunburst",
+        edit_model="gpt-image-2.5-sunburst",
         comprehension_api_endpoint="https://vlm.example.com/v1",
         comprehension_model="nvidia/custom-vlm",
     )
 
     assert config.image_api_endpoint == "https://images.example.com/v1"
-    assert config.generation_model == "gpt-image-2"
-    assert config.edit_model == "gpt-image-2"
+    assert config.generation_model == "gpt-image-2.5-sunburst"
+    assert config.edit_model == "gpt-image-2.5-sunburst"
     assert config.comprehension_api_endpoint == "https://vlm.example.com/v1"
     assert config.comprehension_model == "nvidia/custom-vlm"
 
@@ -141,7 +141,8 @@ def test_visual_media_chat_forwards_transparent_background_for_generation(
 
     captured, result = asyncio.run(_run())
 
-    assert captured["model"] == "gpt-image-2"
+    assert captured["model"] == "gpt-image-2.5-sunburst"
+    assert captured["quality"] == "auto"
     assert captured["background"] == "transparent"
     assert "transparent-output" in result
 
@@ -185,7 +186,8 @@ def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch
 
     captured, result = asyncio.run(_run())
 
-    assert captured["model"] == "gpt-image-2"
+    assert captured["model"] == "gpt-image-2.5-sunburst"
+    assert captured["quality"] == "auto"
     assert captured["background"] == "transparent"
     assert "transparent-edit" in result
 

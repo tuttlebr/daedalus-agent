@@ -14,24 +14,24 @@ workflow:
   # Generation (text-to-image)
   generation_api_endpoint: null # Optional: override OpenAI base URL
   generation_api_key: null # Falls back to OPENAI_API_KEY env var
-  generation_model: 'gpt-image-2'
+  generation_model: 'gpt-image-2.5-sunburst'
   # Editing (image-to-image)
   edit_api_endpoint: null # Falls back to generation_api_endpoint
   edit_api_key: null # Falls back to generation_api_key
-  edit_model: 'gpt-image-2'
+  edit_model: 'gpt-image-2.5-sunburst'
   # Analysis (VLM)
   comprehension_api_endpoint: http://localhost:8000
   comprehension_api_key: null # Falls back to NVIDIA_API_KEY
   comprehension_model: 'gpt-image-2'
   # Shared options
-  quality: low # "low" (fast drafts), "medium", "high", or "auto"
+  quality: auto # Chat always lets GPT Image 2.5 Sunburst choose quality
   size: null # "1024x1024", "1536x1024", "1024x1536", "2048x2048", "3840x2160", "auto", or any spec-compliant resolution
-  n: 1 # 1-10 variations
+  n: 1 # 1-8 variations
   # moderation: low # "auto" (default) or "low"
   # output_format: jpeg # "png" (default), "jpeg", or "webp"
   # output_compression: 80 # 0-100 for jpeg / webp
   # background: transparent # "auto", "transparent" (PNG/WebP), or "opaque"
-  # input_fidelity: high # "low" or "high" — preserves source identity during edits
+  # input_fidelity: high # Legacy compatibility option; omitted for Sunburst
   # user: null # End-user identifier forwarded for abuse monitoring
   image_timeout: 300.0
   comprehension_timeout: 300.0
