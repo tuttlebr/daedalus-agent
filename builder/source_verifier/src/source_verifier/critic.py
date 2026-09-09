@@ -23,13 +23,13 @@ class CriticResponseError(RuntimeError):
 class ClaimVerification(BaseModel):
     """Normalized verdict returned by a source-verification critic."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     verdict: VerifierVerdict
     confidence: float = Field(ge=0.0, le=1.0)
     evidence: str | None = None
-    reasoning: str = Field(min_length=1)
-    claim_issues: list[str] = Field(default_factory=list)
+    reasoning: str = Field(min_length=1, max_length=2000)
+    claim_issues: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("evidence")
     @classmethod
@@ -55,7 +55,7 @@ class ClaimVerification(BaseModel):
     @field_validator("claim_issues")
     @classmethod
     def _normalize_claim_issues(cls, values: list[str]) -> list[str]:
-        return [str(value).strip() for value in values if str(value).strip()]
+        return [str(value).strip()[:500] for value in values if str(value).strip()]
 
 
 _VERIFY_CLAIM_SYSTEM = """\

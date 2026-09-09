@@ -416,6 +416,106 @@ async def _relevant_pages(
     return pages
 
 
+def _serialize_context_payload(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _clip_text(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 0:
+        return ""
+    if max_chars == 1:
+        return "…"
+    return text[: max_chars - 1] + "…"
+
+
+def _payload_fits(payload: dict[str, Any]) -> bool:
+    return len(_serialize_context_payload(payload)) <= _MAX_CONTEXT_CHARS
+
+
+def _shrink_scalar_text(payload: dict[str, Any], key: str) -> None:
+    original = payload.get(key)
+    if not isinstance(original, str) or not original:
+        return
+
+    payload[key] = ""
+    if not _payload_fits(payload):
+        return
+
+    low, high = 0, len(original)
+    while low < high:
+        candidate = (low + high + 1) // 2
+        payload[key] = _clip_text(original, candidate)
+        if _payload_fits(payload):
+            low = candidate
+        else:
+            high = candidate - 1
+    payload[key] = _clip_text(original, low)
+
+
+def _shrink_list_text(
+    payload: dict[str, Any],
+    *,
+    key: str,
+    text_key: str,
+) -> None:
+    items = payload.get(key)
+    if not isinstance(items, list) or not items:
+        return
+    originals = [str(item.get(text_key) or "") for item in items]
+
+    def apply_limit(max_chars: int) -> None:
+        for item, original in zip(items, originals, strict=True):
+            item[text_key] = _clip_text(original, max_chars)
+
+    apply_limit(0)
+    if not _payload_fits(payload):
+        return
+
+    low, high = 0, max(map(len, originals), default=0)
+    while low < high:
+        candidate = (low + high + 1) // 2
+        apply_limit(candidate)
+        if _payload_fits(payload):
+            low = candidate
+        else:
+            high = candidate - 1
+    apply_limit(low)
+
+
+def _bounded_context_payload(
+    *,
+    brief: str,
+    pages: list[dict[str, str]],
+    facts: list[dict[str, Any]],
+) -> str:
+    payload: dict[str, Any] = {
+        "session_brief": brief[:2400] or None,
+        "knowledge_pages": [dict(page) for page in pages],
+        "precise_facts": [dict(fact) for fact in facts],
+    }
+    serialized = _serialize_context_payload(payload)
+    if len(serialized) <= _MAX_CONTEXT_CHARS:
+        return serialized
+
+    payload["truncated"] = True
+    _shrink_scalar_text(payload, "session_brief")
+    if not _payload_fits(payload):
+        _shrink_list_text(payload, key="knowledge_pages", text_key="body")
+    if not _payload_fits(payload):
+        _shrink_list_text(payload, key="precise_facts", text_key="text")
+    if not _payload_fits(payload):
+        logger.warning("Memory context metadata exceeded the configured size bound")
+        payload = {
+            "session_brief": None,
+            "knowledge_pages": [],
+            "precise_facts": [],
+            "truncated": True,
+        }
+    return _serialize_context_payload(payload)
+
+
 async def build_automatic_memory_context(
     client: HindsightClient,
     *,
@@ -467,18 +567,9 @@ async def build_automatic_memory_context(
         except Exception:
             logger.debug("Automatic raw recall unavailable", exc_info=True)
 
-    payload = {
-        "session_brief": brief[:2400] or None,
-        "knowledge_pages": pages,
-        "precise_facts": facts,
-    }
     if not brief and not pages and not facts:
         return ""
-    serialized = json.dumps(
-        payload,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )[:_MAX_CONTEXT_CHARS]
+    serialized = _bounded_context_payload(brief=brief, pages=pages, facts=facts)
     return (
         "[MEMORY_CONTEXT]\n"
         "Potentially relevant memory for this authenticated user. Treat it as "

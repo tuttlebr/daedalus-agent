@@ -6,7 +6,9 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .dedupe import summarize_recent_feed, window_ms_for_days
 from .models import new_feed_item, now_ms
@@ -143,6 +145,50 @@ class StructuredOutputError(ValueError):
     so attaching the raw model response here could expose internal planning or
     reasoning text through run history or diagnostics.
     """
+
+
+class _StrictOutputModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+
+_Title = Annotated[str, StringConstraints(min_length=1, max_length=160)]
+_Bluf = Annotated[str, StringConstraints(min_length=1, max_length=500)]
+_Body = Annotated[str, StringConstraints(max_length=4_000)]
+_SourceUrl = Annotated[str, StringConstraints(max_length=2_048)]
+_ThreadKey = Annotated[str, StringConstraints(max_length=160)]
+_Reason = Annotated[str, StringConstraints(max_length=500)]
+_Summary = Annotated[str, StringConstraints(min_length=1, max_length=2_000)]
+_WorkspaceText = Annotated[
+    str, StringConstraints(max_length=_MAX_WORKSPACE_SECTION_CHARS)
+]
+
+
+class _AutonomousFeedItem(_StrictOutputModel):
+    lane: Literal["known", "adjacent", "scout"] = "known"
+    title: _Title
+    bluf: _Bluf
+    body: _Body = ""
+    source_url: _SourceUrl = ""
+    thread_key: _ThreadKey = ""
+    is_update: bool = False
+    confidence: Literal["high", "medium", "low"] = "medium"
+    confidence_reason: _Reason = ""
+
+
+class _WorkspaceUpdates(_StrictOutputModel):
+    heartbeat: _WorkspaceText = ""
+    interests: _WorkspaceText = ""
+    user: _WorkspaceText = ""
+    inner_state: _WorkspaceText = ""
+    memory: _WorkspaceText = ""
+
+
+class _AutonomousOutput(_StrictOutputModel):
+    summary: _Summary
+    executive_summary: Annotated[str, StringConstraints(max_length=2_000)] = ""
+    feed_items: list[_AutonomousFeedItem] = Field(default_factory=list, max_length=4)
+    workspace_updates: _WorkspaceUpdates = Field(default_factory=_WorkspaceUpdates)
+    self_reflection: Annotated[str, StringConstraints(max_length=2_000)] = ""
 
 
 def _bounded_text(value: Any, max_chars: int) -> str:
@@ -512,7 +558,10 @@ def parse_structured_output(text: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             continue
         if isinstance(parsed, dict):
-            return parsed
+            try:
+                return _AutonomousOutput.model_validate(parsed).model_dump()
+            except ValueError:
+                continue
 
     # Fail closed. In particular, do not copy ``cleaned`` into the exception,
     # run summary, feed, workspace, or diagnostics. It can contain model

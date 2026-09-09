@@ -533,6 +533,7 @@ functions:
     use_reranker: true
     reranker_api_key: ${RERANKER_API_KEY}
     reranker_endpoint: ${RERANKER_BASE_URL}
+    reranker_min_score: 0.0002
     reranker_model: ${RERANKER_MODEL}
     reranker_top_n: 5
     domain_collections:
@@ -644,6 +645,7 @@ functions:
     reranker_model: ${RERANKER_MODEL}
     reranker_max_passage_tokens: 192
     reranker_max_total_tokens: 7000
+    scrape_max_output_tokens: 8000
     verbose: false
   content_distiller_tool:
     _type: content_distiller
@@ -919,6 +921,7 @@ workflow:
   llm_name: tool_calling_llm
   max_iterations: 128
   max_history: 50
+  max_history_tokens: 32000
   # Compact only large JSON-shaped tool results. The exact original remains in
   # user-isolated Redis and is recoverable through tool_output_retriever_tool.
   # Plain text, code, small results, parse failures, and cache failures pass

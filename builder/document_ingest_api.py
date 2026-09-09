@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
 MAX_DOCUMENTS_PER_REQUEST = int(os.getenv("DOCUMENT_INGEST_REQUEST_LIMIT", "500"))
+_DOCUMENT_OPERATION_ERROR = "Document operation failed."
 
 
 class DocumentRef(BaseModel):
@@ -254,7 +255,7 @@ def _raise_for_extract_failure(message: str) -> None:
         raise HTTPException(status_code=504, detail=message)
     if "invalid" in lower or "required" in lower or "empty" in lower:
         raise HTTPException(status_code=400, detail=message)
-    raise HTTPException(status_code=500, detail=message)
+    raise HTTPException(status_code=500, detail=_DOCUMENT_OPERATION_ERROR)
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -287,7 +288,7 @@ async def ingest(
         )
     except Exception as e:
         logger.exception("documents.ingest failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=_DOCUMENT_OPERATION_ERROR) from e
 
     return IngestResponse(
         status=_classify_status(output),
@@ -370,9 +371,9 @@ async def ingest_stream(
                     },
                 )
             )
-        except Exception as e:
+        except Exception:
             logger.exception("documents.ingest stream failed")
-            await queue.put(("error", {"detail": str(e)}))
+            await queue.put(("error", {"detail": _DOCUMENT_OPERATION_ERROR}))
         finally:
             await queue.put(("__done__", {}))
 
@@ -449,7 +450,7 @@ async def extract(
         )
     except Exception as e:
         logger.exception("documents.extract failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=_DOCUMENT_OPERATION_ERROR) from e
 
     if result["status"] == "failure":
         # Map ownership/missing-doc failures to 4xx so the frontend can
@@ -485,7 +486,7 @@ async def _create_markdown_download_response(
         )
     except Exception as e:
         logger.exception("documents.markdown failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=_DOCUMENT_OPERATION_ERROR) from e
 
     if result["status"] == "failure":
         _raise_for_extract_failure(result["error"])

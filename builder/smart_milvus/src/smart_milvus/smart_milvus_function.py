@@ -335,8 +335,11 @@ class MilvusRetriever(Retriever):
 
             # Reorder documents based on rankings
             reranked_docs = []
+            min_score = self._reranker_config.get("min_score")
 
             for i, ranking in enumerate(rankings[:top_n]):
+                if min_score is not None and ranking.relevance_score < min_score:
+                    continue
                 doc = documents[ranking.index]
                 doc.metadata["rerank_score"] = ranking.relevance_score
                 doc.metadata["rerank_position"] = i + 1

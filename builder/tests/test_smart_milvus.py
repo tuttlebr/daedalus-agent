@@ -1,11 +1,14 @@
 """Unit tests for smart_milvus utility functions and data models."""
 
 import asyncio
+import json
 import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from nat.retriever.models import Document
+from smart_milvus.register import _format_domain_results
 from smart_milvus.smart_milvus_function import (
     CollectionNotFoundError,
     MilvusRetriever,
@@ -22,6 +25,7 @@ def test_reranker_uses_vllm_documents_and_relevance_scores_without_api_key():
             "endpoint": "http://reranker:8000/rerank",
             "model": "nvidia/reranker",
             "top_n": 2,
+            "min_score": 0.0002,
             "api_key": None,
         },
     )
@@ -30,7 +34,7 @@ def test_reranker_uses_vllm_documents_and_relevance_scores_without_api_key():
     response.json.return_value = {
         "results": [
             {"index": 1, "relevance_score": 0.9},
-            {"index": 0, "relevance_score": 0.1},
+            {"index": 0, "relevance_score": 0.0001},
         ]
     }
     session = MagicMock()
@@ -40,7 +44,7 @@ def test_reranker_uses_vllm_documents_and_relevance_scores_without_api_key():
 
     reranked = asyncio.run(retriever._rerank("question", documents))
 
-    assert [document.page_content for document in reranked] == ["second", "first"]
+    assert [document.page_content for document in reranked] == ["second"]
     assert reranked[0].metadata["rerank_score"] == 0.9
     request = session.post.call_args
     assert request.kwargs["json"] == {
@@ -50,6 +54,33 @@ def test_reranker_uses_vllm_documents_and_relevance_scores_without_api_key():
         "top_n": 2,
     }
     assert "Authorization" not in request.kwargs["headers"]
+
+
+def test_domain_results_expose_ranking_confidence():
+    output = SimpleNamespace(
+        results=[
+            Document(
+                page_content="Relevant passage",
+                metadata={
+                    "source": "https://example.com/source",
+                    "distance": 0.75,
+                    "rerank_score": 0.9,
+                },
+            )
+        ]
+    )
+
+    payload = json.loads(_format_domain_results(output, "nvidia"))
+
+    assert payload["ranking_status"] == "reranked"
+    assert payload["results"] == [
+        {
+            "content": "Relevant passage",
+            "source": "https://example.com/source",
+            "distance": 0.75,
+            "rerank_score": 0.9,
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +263,17 @@ def test_domain_config_prefers_token_auth(monkeypatch):
     )
 
     assert config.connection_args == {"token": "root:secret"}
+
+
+def test_domain_config_rejects_unbounded_top_k():
+    from smart_milvus.register import DomainRetrieverConfig
+
+    with pytest.raises(ValueError):
+        DomainRetrieverConfig(
+            uri="http://milvus:19530",
+            embedding_model="embedder",
+            top_k=51,
+        )
 
 
 class TestMilvusRetrieverSearch:
@@ -476,6 +518,7 @@ class TestAsyncMilvusCalls:
 
             def search(self, **_kwargs):
                 call_threads["search"] = threading.get_ident()
+                call_threads["limit"] = _kwargs["limit"]
                 return [[]]
 
             def close(self):
@@ -501,8 +544,15 @@ class TestAsyncMilvusCalls:
             registration = domain_retriever_function(config, FakeBuilder())
             function_info = await registration.__anext__()
             try:
-                result = await function_info.fn("query", "nvidia")
-                assert result == "No nvidia results found."
+                result = await function_info.fn("query", "nvidia", top_k=500)
+                payload = json.loads(result)
+                assert payload == {
+                    "domain": "nvidia",
+                    "ranking_status": "no_results",
+                    "retrieved_count": 0,
+                    "results_truncated": False,
+                    "results": [],
+                }
             finally:
                 await registration.aclose()
 
@@ -511,6 +561,7 @@ class TestAsyncMilvusCalls:
         expected_calls = {"construct", "list", "describe", "search", "embed", "close"}
         assert expected_calls <= call_threads.keys()
         assert all(call_threads[name] != event_loop_thread for name in expected_calls)
+        assert call_threads["limit"] == 50
         assert str(call_threads["alias"]).startswith("daedalus-domain-retriever-")
 
     def test_metadata_is_cached_with_a_bounded_size(self):

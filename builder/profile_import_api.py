@@ -255,7 +255,7 @@ async def import_profile(
         result = await import_profile_memories(req, user_id)
     except Exception as exc:
         logger.exception("profile.import failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Profile import failed.") from exc
 
     return build_profile_import_response(
         req=req,

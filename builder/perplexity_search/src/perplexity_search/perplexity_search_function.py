@@ -414,7 +414,7 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
             return _http_error_for_user(exc.response)
         except httpx.RequestError as exc:
             logger.error("Perplexity Search request failed: %s", exc)
-            return f"Error: Could not reach Perplexity Search: {exc}"
+            return "Error: Could not reach Perplexity Search."
         except ValueError as exc:
             logger.error("Perplexity Search returned invalid JSON: %s", exc)
             return "Error: Perplexity Search returned invalid JSON."

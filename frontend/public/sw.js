@@ -59,7 +59,7 @@ const BUILD_PRECACHE = [
   '/_next/static/chunks/pages/_app-c77e4b637c6bb690.js',
   '/_next/static/chunks/2bd9703c-1a649cebe01df6da.js',
   '/_next/static/chunks/8942-c90b4cc746758b74.js',
-  '/_next/static/chunks/pages/index-255c29057cfdc75a.js',
+  '/_next/static/chunks/pages/index-d2d288c176a8e5f7.js',
   '/_next/static/chunks/pages/login-c240302514405d5b.js',
 ];
 const ALL_PRECACHE = STATIC_ASSETS.concat(BUILD_PRECACHE);

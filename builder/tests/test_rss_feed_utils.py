@@ -8,6 +8,7 @@ import pytest
 import rss_feed.rss_feed_function as rss_mod
 from rss_feed.rss_feed_function import (
     RssEntry,
+    RssFeedFunctionConfig,
     RssSearchRequest,
     RssSearchResponse,
     _build_reranker_passages,
@@ -146,14 +147,16 @@ class TestRerankerPassageHelpers:
         assert "<p>" not in passages[0]["text"]
         assert len(passages[0]["text"]) <= 32 * 4
 
-    def test_reranker_error_message_includes_response_body(self):
+    def test_reranker_error_message_does_not_expose_response_body(self):
         response = MagicMock()
         response.status_code = 400
-        response.text = '{"message":"Input length exceeds maximum allowed token size"}'
+        private_error = '{"message":"secret-host token=private"}'
+        response.text = private_error
 
-        assert "Input length exceeds maximum allowed token size" in (
-            _reranker_error_message(response)
-        )
+        message = _reranker_error_message(response)
+
+        assert message == "Reranker request failed with HTTP 400."
+        assert private_error not in message
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +222,11 @@ class TestRssSearchRequest:
 
 
 class TestRssSearchResponse:
+    def test_default_scraped_content_budget_is_8000_tokens(self):
+        config = RssFeedFunctionConfig()
+
+        assert config.scrape_max_output_tokens == 8000
+
     def test_success_response(self):
         resp = RssSearchResponse(
             success=True,
@@ -231,6 +239,7 @@ class TestRssSearchResponse:
         assert resp.error is None
         assert resp.top_result is None
         assert resp.scraped_content is None
+        assert resp.content_truncated is False
 
     def test_failure_response(self):
         resp = RssSearchResponse(

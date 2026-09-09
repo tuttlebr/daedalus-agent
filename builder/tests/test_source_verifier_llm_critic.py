@@ -11,6 +11,31 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def test_claim_focused_excerpt_preserves_middle_and_boundary_evidence():
+    from source_verifier.source_verifier_function import _claim_focused_excerpt
+
+    content = (
+        "HEAD EVIDENCE\n"
+        + ("unrelated filler " * 100)
+        + "The critical build identifier is ZXQ-9.4.7."
+        + ("more filler " * 100)
+        + "\nTAIL EVIDENCE"
+    )
+
+    excerpt, truncated = _claim_focused_excerpt(
+        content,
+        "The critical build identifier is ZXQ-9.4.7.",
+        600,
+    )
+
+    assert truncated is True
+    assert len(excerpt) <= 600
+    assert excerpt.startswith("HEAD EVIDENCE")
+    assert "critical build identifier is ZXQ-9.4.7" in excerpt
+    assert excerpt.endswith("TAIL EVIDENCE")
+    assert "source content omitted" in excerpt
+
+
 def test_llm_critic_validates_and_normalizes_a_verdict():
     from source_verifier.critic import LLMClaimCritic
 
@@ -79,6 +104,16 @@ def test_llm_critic_validates_and_normalizes_a_verdict():
                 "claim_issues": [],
             }
         ),
+        json.dumps(
+            {
+                "verdict": "supported",
+                "confidence": 0.9,
+                "evidence": "Evidence",
+                "reasoning": "Valid fields plus an undeclared field.",
+                "claim_issues": [],
+                "unrequested_field": "must be rejected",
+            }
+        ),
     ],
 )
 def test_llm_critic_rejects_invalid_responses(response):
@@ -100,10 +135,12 @@ def test_llm_critic_rejects_invalid_responses(response):
 
 def test_verify_claim_uses_the_configured_toolkit_llm(monkeypatch):
     import source_verifier.source_verifier_function as mod
+    from langchain_core.messages import HumanMessage
 
     config = mod.SourceVerifierConfig(
         enabled_operations=["verify_claim"],
         llm_name="portable_verifier",
+        max_source_chars=1000,
     )
     model_response = MagicMock()
     model_response.content = json.dumps(
@@ -122,7 +159,16 @@ def test_verify_claim_uses_the_configured_toolkit_llm(monkeypatch):
     monkeypatch.setattr(
         mod,
         "_fetch_source",
-        AsyncMock(return_value=mod.FetchResult(status="ok", content="source body")),
+        AsyncMock(
+            return_value=mod.FetchResult(
+                status="ok",
+                content=(
+                    "Head material. "
+                    + ("unrelated filler " * 120)
+                    + "Tail evidence: the project ships a supported release."
+                ),
+            )
+        ),
     )
 
     async def _run():
@@ -139,6 +185,10 @@ def test_verify_claim_uses_the_configured_toolkit_llm(monkeypatch):
     assert llm.ainvoke.await_count == 1
     assert result["verdict"] == "supported"
     assert result["source_reachable"] is True
+    assert result["source_truncated"] is True
+    verifier_prompt = HumanMessage.call_args.kwargs["content"]
+    assert "Tail evidence: the project ships a supported release." in verifier_prompt
+    assert "source content omitted" in verifier_prompt
     assert result["critic"] == {
         "type": "llm",
         "llm_name": "portable_verifier",

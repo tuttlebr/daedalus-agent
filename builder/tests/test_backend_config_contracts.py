@@ -596,6 +596,7 @@ def test_workflow_uses_responses_api_agent_schema():
         # turn (trim_messages strategy="last"); it must keep enough that in-chat
         # history survives well beyond the latest turn.
         assert workflow.get("max_history", 0) >= 50, path
+        assert workflow["max_history_tokens"] == 32000, path
         assert not set(removed_agent_names) & set(config["functions"]), path
 
 
@@ -700,6 +701,18 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
         workflow_tools = set(config["workflow"]["nat_tools"])
         for tool_name in expected:
             assert tool_name in workflow_tools, path
+
+
+def test_rss_tool_has_bounded_scraped_content_budget():
+    tool = _config()["functions"]["curated_feed_search_tool"]
+
+    assert tool["scrape_max_output_tokens"] == 8000
+
+
+def test_domain_retriever_has_calibrated_relevance_floor():
+    tool = _config()["functions"]["domain_retriever_tool"]
+
+    assert tool["reranker_min_score"] == 0.0002
 
 
 def test_visual_media_tool_is_top_level():

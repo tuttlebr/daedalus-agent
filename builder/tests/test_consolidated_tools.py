@@ -163,6 +163,7 @@ def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch
             return "transparent-edit"
 
         monkeypatch.setattr(mod, "fetch_image_from_redis", _fetch_image)
+        monkeypatch.setattr(mod, "fetch_image_context", AsyncMock(return_value=None))
         monkeypatch.setattr(mod, "edit_images", _edit_images)
         monkeypatch.setattr(mod, "store_image_in_redis", _store_image)
         monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
@@ -187,6 +188,34 @@ def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch
     assert captured["model"] == "gpt-image-2"
     assert captured["background"] == "transparent"
     assert "transparent-edit" in result
+
+
+def test_visual_media_failure_does_not_expose_exception_detail(monkeypatch):
+    async def _run():
+        import visual_media.visual_media_function as mod
+
+        private_error = "provider secret-host rejected token=private"
+        monkeypatch.setattr(
+            mod,
+            "generate_images",
+            AsyncMock(side_effect=RuntimeError(private_error)),
+        )
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
+
+        generator = visual_media_function(
+            VisualMediaFunctionConfig(generation_api_key="test-key"), MagicMock()
+        )
+        function_info = await generator.__anext__()
+        try:
+            result = await function_info.fn(operation="generate", prompt="a test")
+        finally:
+            await generator.aclose()
+        return result, private_error
+
+    result, private_error = asyncio.run(_run())
+
+    assert result == "Error: visual media operation failed."
+    assert private_error not in result
 
 
 def test_visual_media_chat_completions_url_accepts_v1_base():

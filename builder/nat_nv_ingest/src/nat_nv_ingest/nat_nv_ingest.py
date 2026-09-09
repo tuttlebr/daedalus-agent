@@ -165,7 +165,14 @@ def _apply_char_limit(raw_md: str, char_limit: int | None) -> tuple[str, bool]:
     """
     if char_limit is None or len(raw_md) <= char_limit:
         return raw_md, False
-    return raw_md[:char_limit], True
+    marker = "\n\n[... middle omitted to fit inline document limit ...]\n\n"
+    if char_limit <= len(marker):
+        return raw_md[:char_limit], True
+    remaining = char_limit - len(marker)
+    head_chars = (remaining + 1) // 2
+    tail_chars = remaining - head_chars
+    tail = raw_md[-tail_chars:] if tail_chars else ""
+    return raw_md[:head_chars] + marker + tail, True
 
 
 def _estimated_decoded_size(document_base64: str) -> int:

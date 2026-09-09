@@ -8,6 +8,7 @@ simple utility function imports.
 
 import asyncio
 import inspect
+import json
 import os
 import socket
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -446,7 +447,7 @@ class TestRssFeedInnerFunctions:
         assert len(fn_infos) == 1
 
     def test_rss_search_no_feed_url(self):
-        """Returns an Error: string when feed_url is not configured."""
+        """Returns a structured error when feed_url is not configured."""
 
         async def _run():
             import rss_feed.rss_feed_function as rss_mod
@@ -470,12 +471,13 @@ class TestRssFeedInnerFunctions:
             return await search_fn("test query")
 
         result = run(_run())
-        assert isinstance(result, str)
-        assert result.startswith("Error: ")
-        assert "feed_url" in result.lower() or "not configured" in result.lower()
+        payload = json.loads(result)
+
+        assert payload["success"] is False
+        assert "feed_url" in payload["error"].lower()
 
     def test_rss_search_empty_entries(self):
-        """Returns an Error: string when no entries are found in the feed."""
+        """Returns a structured error when no entries are found in the feed."""
 
         async def _run():
             import rss_feed.rss_feed_function as rss_mod
@@ -517,12 +519,13 @@ class TestRssFeedInnerFunctions:
                     return await search_fn("test")
 
         result = run(_run())
-        # search_rss returns an Error string when entries are empty
-        assert isinstance(result, str)
-        assert result.startswith("Error: ")
+        payload = json.loads(result)
 
-    def test_search_rss_returns_error_string_on_failure(self):
-        """search_rss returns an Error: string when the feed is not configured."""
+        assert payload["success"] is False
+        assert payload["error"] == "No entries found in RSS feed"
+
+    def test_search_rss_returns_structured_error_on_failure(self):
+        """search_rss returns stable JSON when the feed is not configured."""
 
         async def _run():
             import rss_feed.rss_feed_function as rss_mod
@@ -546,8 +549,11 @@ class TestRssFeedInnerFunctions:
             return await search_fn("AI news")
 
         result = run(_run())
-        assert isinstance(result, str)
-        assert result.startswith("Error: ")
+        payload = json.loads(result)
+
+        assert payload["success"] is False
+        assert payload["query"] == "AI news"
+        assert "not configured" in payload["error"].lower()
 
     def test_rss_search_allows_unauthenticated_vllm_reranker(self):
         """An in-cluster vLLM reranker does not require a bearer token."""
@@ -601,7 +607,7 @@ class TestRssFeedInnerFunctions:
                     with patch.object(
                         rss_mod,
                         "_scrape_content",
-                        return_value=("# Article", False),
+                        return_value=("# Article", True),
                     ):
                         with patch.dict(os.environ, env_no_key, clear=True):
                             search_fn = fn_infos[0].fn
@@ -610,7 +616,23 @@ class TestRssFeedInnerFunctions:
                             return result, headers
 
         result, headers = run(_run())
-        assert result == "# Article"
+        payload = json.loads(result)
+
+        assert payload == {
+            "success": True,
+            "query": "AI news",
+            "feed_scope": "auto",
+            "source": {
+                "title": "Article 1",
+                "url": "https://example.com/1",
+                "feed_scope": "default",
+                "feed_url": "https://8.8.8.8/rss",
+            },
+            "content": "# Article",
+            "content_truncated": True,
+            "entries_count": 1,
+            "cached": False,
+        }
         assert "Authorization" not in headers
 
     def test_rss_search_sends_compact_reranker_passages(self):
@@ -687,14 +709,14 @@ class TestRssFeedInnerFunctions:
             payload = mock_client.post.call_args.kwargs["json"]
             return result, payload
 
-        result, payload = run(_run())
+        result, reranker_payload = run(_run())
+        tool_payload = json.loads(result)
 
-        # search_rss returns the scraped markdown string on success
-        assert isinstance(result, str)
-        assert "Relevant" in result
-        assert payload["query"] == "AI news"
-        assert payload["top_n"] == 1
-        assert len(payload["documents"]) == 2
-        assert "<p>" not in payload["documents"][0]
-        assert len(payload["documents"][0]) <= 32 * 4
-        assert "passages" not in payload
+        assert tool_payload["content"] == "# Relevant"
+        assert tool_payload["source"]["url"] == "https://example.com/relevant"
+        assert reranker_payload["query"] == "AI news"
+        assert reranker_payload["top_n"] == 1
+        assert len(reranker_payload["documents"]) == 2
+        assert "<p>" not in reranker_payload["documents"][0]
+        assert len(reranker_payload["documents"][0]) <= 32 * 4
+        assert "passages" not in reranker_payload

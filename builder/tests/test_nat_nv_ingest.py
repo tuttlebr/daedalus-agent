@@ -1377,6 +1377,25 @@ class TestApplyCharLimit:
     def test_over_limit_truncates(self):
         assert _apply_char_limit("abcdef", 3) == ("abc", True)
 
+    def test_over_limit_preserves_head_and_tail_evidence(self):
+        raw = "HEAD-EVIDENCE\n" + ("middle " * 40) + "\nTAIL-EVIDENCE"
+
+        markdown, truncated = _apply_char_limit(raw, 100)
+
+        assert truncated is True
+        assert len(markdown) == 100
+        assert markdown.startswith("HEAD-EVIDENCE")
+        assert markdown.endswith("TAIL-EVIDENCE")
+        assert "middle omitted" in markdown
+
+    def test_all_character_limits_are_hard_bounds(self):
+        raw = "x" * 200
+
+        for limit in range(len(raw)):
+            markdown, truncated = _apply_char_limit(raw, limit)
+            assert truncated is True
+            assert len(markdown) <= limit
+
     def test_empty_markdown(self):
         assert _apply_char_limit("", None) == ("", False)
         assert _apply_char_limit("", 5) == ("", False)

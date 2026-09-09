@@ -125,6 +125,25 @@ def test_parse_structured_output_rejects_unstructured_text_without_echoing_it():
     assert private_text not in str(exc_info.value)
 
 
+def test_parse_structured_output_rejects_contract_violations():
+    with pytest.raises(ValueError, match="invalid structured output"):
+        parse_structured_output(
+            json.dumps(
+                {
+                    "summary": "Looks plausible.",
+                    "feed_items": [
+                        {
+                            "lane": "invented",
+                            "title": "Unsafe item",
+                            "bluf": "This must not be stored.",
+                        }
+                    ],
+                    "unexpected": "silently accepted today",
+                }
+            )
+        )
+
+
 def test_feed_items_from_output_limits_and_normalizes():
     output = {
         "feed_items": [
@@ -246,6 +265,39 @@ def test_run_once_does_not_publish_unstructured_model_text():
     assert private_text not in json.dumps(run)
     assert private_text not in json.dumps(store.events)
     assert store.feed == []
+
+
+def test_run_once_rejects_invalid_json_contract_before_mutating_state():
+    store = FakeStore()
+    backend = FakeBackend(
+        json.dumps(
+            {
+                "summary": "Invalid output must fail closed.",
+                "feed_items": [
+                    {
+                        "lane": "invented",
+                        "title": "Must not persist",
+                        "bluf": "The enum is outside the contract.",
+                    }
+                ],
+                "workspace_updates": {"inner_state": "Must not persist"},
+            }
+        )
+    )
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"id": "request-invalid-contract", "trigger": "manual"},
+    )
+
+    assert run["status"] == "failed"
+    assert run["error"] == "Backend returned invalid structured output."
+    assert store.feed == []
+    assert (
+        store.text["autonomous:test-user:workspace:inner_state"] != "Must not persist"
+    )
 
 
 def test_build_messages_includes_already_surfaced_digest():

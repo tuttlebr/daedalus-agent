@@ -27,6 +27,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from itertools import islice
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -68,6 +69,79 @@ _REFERENCE_SECTION_RE = re.compile(
 )
 _CITATION_LINE_RE = re.compile(r"^(\s*[-*]?\s*)\[(\d+)\](\s+.+)$")
 _INLINE_CITATION_RE = re.compile(r"(?<!\w)\[(\d+)\](?!\w)")
+_SOURCE_OMISSION_MARKER = "\n\n[... source content omitted ...]\n\n"
+_CLAIM_STOPWORDS = {
+    "about",
+    "after",
+    "against",
+    "before",
+    "from",
+    "into",
+    "that",
+    "their",
+    "there",
+    "these",
+    "this",
+    "those",
+    "with",
+}
+
+
+def _claim_focused_excerpt(
+    content: str,
+    claim: str,
+    max_chars: int,
+) -> tuple[str, bool]:
+    """Keep beginning, claim-dense, and ending spans within a hard bound."""
+
+    if len(content) <= max_chars:
+        return content, False
+
+    terms = [
+        term
+        for term in dict.fromkeys(re.findall(r"[\w.-]{4,}", claim.casefold()))
+        if term not in _CLAIM_STOPWORDS
+    ][:16]
+    lowered = content.casefold()
+    match_positions: list[int] = []
+    for term in terms:
+        match_positions.extend(
+            match.start() for match in islice(re.finditer(re.escape(term), lowered), 32)
+        )
+
+    if not match_positions:
+        available = max_chars - len(_SOURCE_OMISSION_MARKER)
+        head_chars = (available + 1) // 2
+        tail_chars = available - head_chars
+        return (
+            content[:head_chars] + _SOURCE_OMISSION_MARKER + content[-tail_chars:]
+        ), True
+
+    content_budget = max_chars - (2 * len(_SOURCE_OMISSION_MARKER))
+    side_chars = content_budget // 4
+    focus_chars = content_budget - (2 * side_chars)
+
+    def match_score(position: int) -> int:
+        start = max(0, position - (focus_chars // 2))
+        window = lowered[start : start + focus_chars]
+        return sum(term in window for term in terms)
+
+    focus_position = max(match_positions, key=match_score)
+    focus_start = max(0, focus_position - (focus_chars // 2))
+    focus_start = min(focus_start, len(content) - focus_chars)
+    spans = [
+        (0, side_chars),
+        (focus_start, focus_start + focus_chars),
+        (len(content) - side_chars, len(content)),
+    ]
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    excerpt = _SOURCE_OMISSION_MARKER.join(content[start:end] for start, end in merged)
+    return excerpt[:max_chars], True
 
 
 def _default_source_registry() -> list[dict[str, Any]]:
@@ -811,10 +885,12 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
                 }
             )
 
-        # Truncate source content if needed
         content = fetch.content or ""
-        if len(content) > config.max_source_chars:
-            content = content[: config.max_source_chars] + "\n\n[Content truncated]"
+        content, source_truncated = _claim_focused_excerpt(
+            content,
+            claim,
+            config.max_source_chars,
+        )
 
         try:
             parsed = await critic.verify(
@@ -850,6 +926,7 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
         # Enrich with source metadata
         parsed["source_url"] = source_url
         parsed["source_reachable"] = True
+        parsed["source_truncated"] = source_truncated
         return json.dumps(parsed, indent=2)
 
     # ------------------------------------------------------------------

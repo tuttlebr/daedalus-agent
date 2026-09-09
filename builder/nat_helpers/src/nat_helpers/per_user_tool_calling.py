@@ -37,6 +37,7 @@ from nat.plugins.langchain.agent.responses_api_agent.register import (
     ResponsesAPIAgentWorkflowConfig,
 )
 from nat.utils.type_converter import GlobalTypeConverter
+from nat_helpers.history_budget import _select_history_payloads
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,14 @@ class DaedalusPerUserResponsesAPIAgentWorkflowConfig(
         default=15,
         ge=1,
         description="Maximum number of inbound conversation messages to retain.",
+    )
+    max_history_tokens: int = Field(
+        default=32_000,
+        ge=1_024,
+        description=(
+            "Maximum estimated tokens for inbound history. The newest message is "
+            "always retained intact."
+        ),
     )
     tool_output_compaction_enabled: bool = Field(
         default=True,
@@ -194,7 +203,11 @@ async def _responses_api_agent_workflow(
     llm,
 ):
     """Run NAT's Responses agent contract with Daedalus stream handling."""
-    from langchain_core.messages import AIMessageChunk, HumanMessage, trim_messages
+    from langchain_core.messages import (
+        AIMessageChunk,
+        HumanMessage,
+        convert_to_messages,
+    )
     from langchain_core.messages.base import BaseMessage
     from langchain_core.runnables import RunnableLambda
     from langgraph.errors import GraphRecursionError
@@ -310,14 +323,19 @@ async def _responses_api_agent_workflow(
             chat_request_or_message,
             to_type=ChatRequest,
         )
-        messages: list[BaseMessage] = trim_messages(
-            messages=[item.model_dump() for item in message.messages],
-            max_tokens=config.max_history,
-            strategy="last",
-            token_counter=len,
-            start_on="human",
-            include_system=True,
+        raw_messages = [item.model_dump() for item in message.messages]
+        selected_messages = _select_history_payloads(
+            raw_messages,
+            max_messages=config.max_history,
+            max_tokens=config.max_history_tokens,
         )
+        if len(selected_messages) < len(raw_messages):
+            logger.info(
+                "Trimmed inbound history from %d to %d messages before model input",
+                len(raw_messages),
+                len(selected_messages),
+            )
+        messages: list[BaseMessage] = convert_to_messages(selected_messages)
         try:
             from nat_helpers.hindsight_client import client_from_env, memory_mode
             from nat_helpers.hindsight_memory_context import (

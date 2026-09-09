@@ -67,6 +67,13 @@ def test_router_exists():
     assert router is not None
 
 
+def test_import_failure_does_not_expose_internal_detail():
+    source = (_BUILDER_ROOT / "profile_import_api.py").read_text(encoding="utf-8")
+
+    assert 'detail="Profile import failed."' in source
+    assert "detail=str(exc)" not in source
+
+
 def test_profile_request_ignores_client_user_id():
     req = profile_request()
 

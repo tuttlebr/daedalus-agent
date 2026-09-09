@@ -1,6 +1,8 @@
 import asyncio
+import json
 import logging
 import os
+from typing import Annotated
 
 from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -10,6 +12,11 @@ from nat_helpers.milvus import owned_milvus_connection_args
 from pydantic import Field, HttpUrl
 
 logger = logging.getLogger(__name__)
+
+_MAX_DOMAIN_TOP_K = 50
+_MAX_DOMAIN_OUTPUT_RESULTS = 20
+_MAX_DOMAIN_CONTENT_CHARS = 12000
+DomainTopK = Annotated[int, Field(ge=1, le=_MAX_DOMAIN_TOP_K)]
 
 
 def _close_milvus_client(client) -> None:
@@ -72,7 +79,12 @@ class DomainRetrieverConfig(FunctionBaseConfig, name="domain_retriever"):
         alias="vector_field",
         description="Vector field name used for similarity search",
     )
-    top_k: int = Field(default=10, gt=0, description="Number of chunks to retrieve")
+    top_k: int = Field(
+        default=10,
+        gt=0,
+        le=_MAX_DOMAIN_TOP_K,
+        description="Number of chunks to retrieve",
+    )
     distance_cutoff: float | None = Field(
         default=None,
         description="Optional distance cutoff before reranking",
@@ -99,24 +111,61 @@ class DomainRetrieverConfig(FunctionBaseConfig, name="domain_retriever"):
     )
     reranker_model: str | None = Field(default=None, description="Reranker model")
     reranker_top_n: int | None = Field(
-        default=None, description="Number of reranked chunks to keep"
+        default=None,
+        ge=1,
+        le=_MAX_DOMAIN_OUTPUT_RESULTS,
+        description="Number of reranked chunks to keep",
+    )
+    reranker_min_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Optional minimum reranker relevance score",
     )
     reranker_api_key: str | None = Field(default=None, description="Reranker API key")
 
 
 def _format_domain_results(output: object, domain: str) -> str:
     results = getattr(output, "results", None) or []
-    if not results:
-        return f"No {domain} results found."
-
-    parts = [f"Domain: {domain}", f"Results: {len(results)}"]
-    for idx, doc in enumerate(results, start=1):
+    formatted = []
+    for doc in results[:_MAX_DOMAIN_OUTPUT_RESULTS]:
         content = getattr(doc, "page_content", "") or str(doc)
         metadata = getattr(doc, "metadata", {}) or {}
         source = metadata.get("source") or metadata.get("url") or metadata.get("title")
-        header = f"{idx}. {source}" if source else f"{idx}."
-        parts.append(f"\n{header}\n{content}")
-    return "\n".join(parts)
+        item = {
+            "content": str(content)[:_MAX_DOMAIN_CONTENT_CHARS],
+            "source": str(source)[:2048] if source else None,
+            "distance": (
+                float(metadata["distance"])
+                if metadata.get("distance") is not None
+                else None
+            ),
+            "rerank_score": (
+                float(metadata["rerank_score"])
+                if metadata.get("rerank_score") is not None
+                else None
+            ),
+        }
+        formatted.append(
+            {key: value for key, value in item.items() if value is not None}
+        )
+    ranking_status = "no_results"
+    if formatted:
+        ranking_status = (
+            "reranked"
+            if any("rerank_score" in item for item in formatted)
+            else "vector_only"
+        )
+    return json.dumps(
+        {
+            "domain": domain,
+            "ranking_status": ranking_status,
+            "retrieved_count": len(results),
+            "results_truncated": len(results) > len(formatted),
+            "results": formatted,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 @register_function(config_type=DomainRetrieverConfig)
@@ -160,6 +209,7 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
                     "endpoint": str(config.reranker_endpoint),
                     "model": config.reranker_model,
                     "top_n": config.reranker_top_n,
+                    "min_score": config.reranker_min_score,
                     "api_key": config.reranker_api_key,
                 }
             try:
@@ -186,7 +236,7 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
     async def search_domain(
         query: str,
         domain: str,
-        top_k: int | None = None,
+        top_k: DomainTopK | None = None,
         filters: str | None = None,
     ) -> str:
         """Search one configured knowledge domain.
@@ -207,10 +257,15 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
             )
 
         retriever = await _get_retriever()
+        requested_top_k = (
+            config.top_k
+            if top_k is None
+            else min(_MAX_DOMAIN_TOP_K, max(1, int(top_k)))
+        )
         output = await retriever.search(
             query=query,
             collection_name=collection,
-            top_k=top_k or config.top_k,
+            top_k=requested_top_k,
             filters=filters,
             output_fields=config.output_fields,
             search_params=config.search_params,

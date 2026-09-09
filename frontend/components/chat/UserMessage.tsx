@@ -28,6 +28,8 @@ interface InlineDocument {
 
 const ATTACHED_DOC_RE =
   /<attached_document\s+([^>]*)>([\s\S]*?)<\/attached_document>/g;
+const ATTACHED_DOC_JSON_RE =
+  /<attached_document_data\s+format="json">\s*([\s\S]*?)\s*<\/attached_document_data>/g;
 
 function getAttr(attrs: string, name: string): string | undefined {
   const re = new RegExp(`${name}\\s*=\\s*"([^"]*)"`);
@@ -43,26 +45,47 @@ function decodeXmlAttr(value: string): string {
     .replace(/&amp;/g, '&');
 }
 
-function parseInlineDocuments(raw: string): {
+export function parseInlineDocuments(raw: string): {
   cleanedContent: string;
   inlineDocs: InlineDocument[];
 } {
   const inlineDocs: InlineDocument[] = [];
-  let cleanedContent = raw.replace(ATTACHED_DOC_RE, (_match, attrs, body) => {
-    const filename = decodeXmlAttr(getAttr(attrs, 'filename') || 'document');
-    const pages = parseInt(getAttr(attrs, 'pages') || '0', 10) || 0;
-    const truncated = getAttr(attrs, 'truncated') === 'true';
-    const originalChars =
-      parseInt(getAttr(attrs, 'original_chars') || '0', 10) || 0;
-    inlineDocs.push({
-      filename,
-      pages,
-      truncated,
-      originalChars,
-      markdown: body.trim(),
-    });
-    return '';
+  let cleanedContent = raw.replace(ATTACHED_DOC_JSON_RE, (match, body) => {
+    try {
+      const payload = JSON.parse(body) as Record<string, unknown>;
+      if (typeof payload.markdown !== 'string') return match;
+      inlineDocs.push({
+        filename:
+          typeof payload.filename === 'string' ? payload.filename : 'document',
+        pages: typeof payload.pages === 'number' ? payload.pages : 0,
+        truncated: payload.truncated === true,
+        originalChars:
+          typeof payload.originalChars === 'number' ? payload.originalChars : 0,
+        markdown: payload.markdown,
+      });
+      return '';
+    } catch {
+      return match;
+    }
   });
+  cleanedContent = cleanedContent.replace(
+    ATTACHED_DOC_RE,
+    (_match, attrs, body) => {
+      const filename = decodeXmlAttr(getAttr(attrs, 'filename') || 'document');
+      const pages = parseInt(getAttr(attrs, 'pages') || '0', 10) || 0;
+      const truncated = getAttr(attrs, 'truncated') === 'true';
+      const originalChars =
+        parseInt(getAttr(attrs, 'original_chars') || '0', 10) || 0;
+      inlineDocs.push({
+        filename,
+        pages,
+        truncated,
+        originalChars,
+        markdown: body.trim(),
+      });
+      return '';
+    },
+  );
   // Collapse any whitespace runs the strip leaves behind.
   cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
   return { cleanedContent, inlineDocs };

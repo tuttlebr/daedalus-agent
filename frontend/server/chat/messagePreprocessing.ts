@@ -115,10 +115,10 @@ async function validateDocumentAttachmentsForMessage(
 }
 
 // Inline mode: the client extracted the doc to markdown and embedded it
-// directly in the user message between <attached_document> tags. We must NOT
+// directly in a legacy tag or collision-safe JSON data tag. We must NOT
 // route these messages through the ingest tool — they're regular streaming
 // chat with the doc text already in the prompt.
-const INLINE_DOCUMENT_MARKER = /<attached_document\b/i;
+const INLINE_DOCUMENT_MARKER = /<attached_document(?:_data)?\b/i;
 
 function hasInlineDocumentMarker(message: any): boolean {
   const content = typeof message?.content === 'string' ? message.content : '';

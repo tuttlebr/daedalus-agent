@@ -596,10 +596,10 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             return f"Error: media API returned status {exc.response.status_code}."
         except httpx.RequestError as exc:
             logger.error("Media API request failed: %s", exc)
-            return f"Error: could not reach media API: {exc}"
+            return "Error: could not reach media API."
         except Exception as exc:
             logger.error("visual_media operation failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
+            return "Error: visual media operation failed."
 
     try:
         yield FunctionInfo.from_fn(

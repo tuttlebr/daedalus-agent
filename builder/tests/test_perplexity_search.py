@@ -277,6 +277,29 @@ def test_provider_bad_request_returns_actionable_validation_detail():
     assert "Correct the arguments before retrying" in output
 
 
+def test_request_transport_error_does_not_expose_exception_detail():
+    import perplexity_search.perplexity_search_function as mod
+    from perplexity_search.perplexity_search_function import PerplexitySearchConfig
+
+    private_error = "connect failed to secret-host with token=private"
+
+    class FailingAsyncClient(FakeAsyncClient):
+        async def post(self, base_url, headers, json):
+            raise httpx.RequestError(private_error)
+
+    async def _run():
+        with patch.object(mod.httpx, "AsyncClient", FailingAsyncClient):
+            search = await _registered_search_fn(
+                PerplexitySearchConfig(api_key="test-key"),
+            )
+            return await search(query="nvidia")
+
+    output = run(_run())
+
+    assert output == "Error: Could not reach Perplexity Search."
+    assert private_error not in output
+
+
 def test_build_payload_ignores_incomplete_results():
     from perplexity_search.perplexity_search_function import _build_payload
 

@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import nat_helpers.hindsight_memory_context as context
 
@@ -118,6 +119,54 @@ def test_layered_context_uses_pages_first_and_raw_recall_for_past_lookup(monkeyp
     )
     assert "An exact remembered fact" in second
     assert client.recall_queries == ["What exactly did I decide last time?"]
+
+
+def test_large_context_stays_valid_and_preserves_precise_facts(monkeypatch):
+    class LargeContextClient:
+        async def recall(self, **_kwargs):
+            return [
+                {
+                    "text": f"Precise fact {index}: " + (str(index) * 1200),
+                    "type": "world",
+                    "mentioned_at": f"2026-09-0{index}T12:00:00Z",
+                }
+                for index in range(1, 7)
+            ]
+
+    async def initialized(*_args, **_kwargs):
+        return None
+
+    async def brief(*_args, **_kwargs):
+        return "B" * 2400
+
+    async def pages(*_args, **_kwargs):
+        return [
+            {"name": f"Page {index}", "body": str(index) * 1800}
+            for index in range(1, 3)
+        ]
+
+    monkeypatch.setattr(context, "ensure_bank_initialized", initialized)
+    monkeypatch.setattr(context, "_session_brief", brief)
+    monkeypatch.setattr(context, "_relevant_pages", pages)
+
+    result = run(
+        context.build_automatic_memory_context(
+            LargeContextClient(),
+            user_id="alice",
+            conversation_id="conversation-1",
+            query="What exactly did I decide last time?",
+        )
+    )
+    serialized = result.rsplit("\n", 1)[-1]
+    payload = json.loads(serialized)
+
+    assert len(serialized) <= context._MAX_CONTEXT_CHARS
+    assert payload["truncated"] is True
+    assert len(payload["precise_facts"]) == 6
+    assert all(
+        fact["text"].startswith(f"Precise fact {index}: ")
+        for index, fact in enumerate(payload["precise_facts"], start=1)
+    )
 
 
 def test_context_free_greeting_skips_memory_io(monkeypatch):

@@ -307,6 +307,17 @@ class TestMarkdownDownload:
 
 
 class TestExtractFailureMapping:
+    def test_unclassified_failure_does_not_expose_internal_detail(self, monkeypatch):
+        private_error = "database secret-host password=private"
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            document_ingest_api._raise_for_extract_failure(private_error)
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "Document operation failed."
+        assert private_error not in exc_info.value.detail
+
     @pytest.mark.parametrize(
         "message,status",
         [

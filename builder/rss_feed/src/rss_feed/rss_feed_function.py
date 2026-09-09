@@ -125,7 +125,7 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
 
     # Web scraping configuration
     scrape_max_output_tokens: int = Field(
-        default=64000,
+        default=8000,
         ge=100,
         le=128000,
         description="Maximum number of tokens in scraped content",
@@ -156,9 +156,74 @@ class RssSearchResponse(BaseModel):
     feed_scope: str | None = None
     top_result: dict[str, Any] | None = None
     scraped_content: str | None = None
+    content_truncated: bool = False
     error: str | None = None
     entries_count: int = 0
     cached: bool = False
+
+
+class RssToolSource(BaseModel):
+    """Bounded source metadata exposed to the model."""
+
+    title: str
+    url: str
+    published: str | None = None
+    author: str | None = None
+    feed_scope: str | None = None
+    feed_url: str | None = None
+
+
+class RssToolResponse(BaseModel):
+    """Stable LLM-facing result schema for RSS searches."""
+
+    success: bool
+    query: str
+    feed_scope: str | None = None
+    source: RssToolSource | None = None
+    content: str | None = None
+    content_truncated: bool = False
+    entries_count: int = 0
+    cached: bool = False
+    error: str | None = None
+
+
+def _bounded_optional_text(value: Any, max_chars: int) -> str | None:
+    text = str(value or "").strip()
+    return text[:max_chars] or None
+
+
+def _format_tool_response(result: dict[str, Any]) -> str:
+    top_result = result.get("top_result")
+    source = None
+    if isinstance(top_result, dict):
+        source = RssToolSource(
+            title=str(top_result.get("title") or "")[:500],
+            url=str(top_result.get("link") or "")[:2048],
+            published=_bounded_optional_text(top_result.get("published"), 100),
+            author=_bounded_optional_text(top_result.get("author"), 200),
+            feed_scope=_bounded_optional_text(top_result.get("feed_scope"), 100),
+            feed_url=_bounded_optional_text(top_result.get("feed_url"), 2048),
+        )
+
+    content = _bounded_optional_text(result.get("scraped_content"), 1_000_000)
+    success = bool(result.get("success")) and content is not None
+    error = None
+    if not success:
+        error = _bounded_optional_text(result.get("error"), 1000) or (
+            "No relevant content found"
+        )
+    response = RssToolResponse(
+        success=success,
+        query=str(result.get("query") or "")[:1000],
+        feed_scope=_bounded_optional_text(result.get("feed_scope"), 100),
+        source=source,
+        content=content,
+        content_truncated=bool(result.get("content_truncated")),
+        entries_count=max(0, int(result.get("entries_count") or 0)),
+        cached=bool(result.get("cached")),
+        error=error,
+    )
+    return response.model_dump_json(exclude_none=True)
 
 
 def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
@@ -220,13 +285,8 @@ def _normalize_reranker_text(text: str | None) -> str:
 
 
 def _reranker_error_message(response: httpx.Response) -> str:
-    """Build a useful, bounded reranker HTTP error message."""
-    body = response.text.strip()
-    if body:
-        body = WHITESPACE_RE.sub(" ", body)
-        body = body[:1000]
-        return f"Reranker request failed with HTTP {response.status_code}: {body}"
-    return f"Reranker request failed with HTTP {response.status_code}"
+    """Build a stable error without exposing the upstream response body."""
+    return f"Reranker request failed with HTTP {response.status_code}."
 
 
 def _reranker_passage_token_limit(
@@ -643,7 +703,7 @@ async def rss_feed_function(
                     scraped_content=None,
                     entries_count=len(entries),
                     cached=is_cached,
-                    error=f"Failed to scrape content: {str(e)}",
+                    error="Failed to scrape the selected RSS content.",
                 ).model_dump()
 
             # Prepare response
@@ -662,17 +722,18 @@ async def rss_feed_function(
                     "feed_url": top_entry.feed_url,
                 },
                 scraped_content=scraped_content,
+                content_truncated=was_truncated,
                 entries_count=len(entries),
                 cached=is_cached,
             ).model_dump()
 
-        except ValueError as e:
+        except ValueError:
             # Reranker configuration errors
             return RssSearchResponse(
                 success=False,
                 query=query,
                 feed_url=",".join(_configured_feeds().values()),
-                error=str(e),
+                error="RSS search configuration or reranking failed.",
             ).model_dump()
         except Exception as e:
             logger.error("RSS feed search error: %s", str(e), exc_info=True)
@@ -680,15 +741,14 @@ async def rss_feed_function(
                 success=False,
                 query=query,
                 feed_url=",".join(_configured_feeds().values()),
-                error=f"Unexpected error: {str(e)}",
+                error="RSS search failed unexpectedly.",
             ).model_dump()
 
     async def search_rss(
         query: str,
         feed_scope: str = "auto",
     ) -> str:
-        """Search configured RSS feeds and return scraped content of the top
-        reranked entry.
+        """Search configured RSS feeds and return one structured, sourced result.
 
         Args:
             query: Search query to rerank RSS entries against.
@@ -696,24 +756,20 @@ async def rss_feed_function(
                 configured feed and pick the single best entry across them.
 
         Returns:
-            Scraped markdown of the top entry, or an "Error: <reason>"
-            string when no feed is reachable or no relevant entry is found.
+            JSON with bounded source metadata, scraped content, truncation status,
+            and a stable error field when no relevant content is available.
         """
         result = await _perform_search(query, feed_scope)
-        if not result["success"]:
-            return f"Error: {result['error']}"
-        if result["scraped_content"]:
-            return result["scraped_content"]
-        return f"Error: No relevant content found for query '{query}'."
+        return _format_tool_response(result)
 
     try:
         yield FunctionInfo.from_fn(
             search_rss,
             description=(
-                "Search configured RSS feeds and return the scraped content of "
-                "the most relevant entry. Args: query and optional feed_scope "
-                "('auto' or one configured feed name). Returns markdown of the "
-                "top-ranked article, or 'Error: ...' if no feed yields a match."
+                "Search configured RSS feeds and return one structured JSON result "
+                "with source URL, title, publication metadata, bounded article "
+                "content, and truncation status. Args: query and optional "
+                "feed_scope ('auto' or one configured feed name)."
             ),
         )
 
