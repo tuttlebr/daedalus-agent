@@ -20,6 +20,38 @@ const SESSION_EXPIRY = 60 * 60 * 24; // 24 hours
 // every authenticated request (F-015).
 const ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
 
+// Refresh the current record atomically. Rewriting the earlier jsonGet result
+// can recreate a session deleted by logout (or expired) during that await.
+// Preserve the existing storage type, including string keys on RedisJSON.
+const REFRESH_SESSION_LUA = `
+local type_reply = redis.call('TYPE', KEYS[1])
+local key_type = type(type_reply) == 'table' and type_reply['ok'] or type_reply
+if key_type == 'none' then return nil end
+local is_json = string.find(string.lower(key_type), 'rejson', 1, true) ~= nil
+local raw
+if is_json then
+  raw = redis.call('JSON.GET', KEYS[1], '.')
+elseif key_type == 'string' then
+  raw = redis.call('GET', KEYS[1])
+else
+  return nil
+end
+if not raw then return nil end
+local session = cjson.decode(raw)
+local now = tonumber(ARGV[1])
+if now - (tonumber(session['lastActivity']) or 0) > tonumber(ARGV[3]) then
+  session['lastActivity'] = now
+  raw = cjson.encode(session)
+  if is_json then
+    redis.call('JSON.SET', KEYS[1], '$', raw)
+  else
+    redis.call('SET', KEYS[1], raw)
+  end
+  redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return raw
+`;
+
 export interface SessionData {
   userId: string;
   username: string;
@@ -74,8 +106,17 @@ export async function getSession(
   // active users, but we avoid a Redis write on every authenticated call.
   const now = Date.now();
   if (now - (session.lastActivity || 0) > ACTIVITY_REFRESH_INTERVAL_MS) {
-    session.lastActivity = now;
-    await jsonSetWithExpiry(key, session, SESSION_EXPIRY);
+    const refreshed = await getRedis().eval(
+      REFRESH_SESSION_LUA,
+      1,
+      key,
+      now,
+      SESSION_EXPIRY,
+      ACTIVITY_REFRESH_INTERVAL_MS,
+    );
+    return typeof refreshed === 'string'
+      ? (JSON.parse(refreshed) as SessionData)
+      : null;
   }
 
   return session;

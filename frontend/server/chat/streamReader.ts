@@ -209,6 +209,8 @@ export async function startBackgroundStreamReader(
   let pendingSteps: any[] = [];
   let partialResponse = '';
   let pendingResponseDelta = '';
+  let persistedResponseBytes = 0;
+  let persistedStepCount = 0;
   let lastToolOutput = '';
   let pendingApprovalMarker: string | null = null;
   let streamDone = false;
@@ -235,20 +237,37 @@ export async function startBackgroundStreamReader(
     }
   }
 
-  const persistPendingState = async (): Promise<void> => {
-    const responseDelta = pendingResponseDelta;
-    const steps = pendingSteps;
+  const persistResponse = async (): Promise<void> => {
+    const delta = pendingResponseDelta;
     pendingResponseDelta = '';
+    try {
+      await appendStreamResponseDelta(jobId, delta, persistedResponseBytes);
+      persistedResponseBytes += Buffer.byteLength(delta, 'utf8');
+    } catch (error) {
+      pendingResponseDelta = delta + pendingResponseDelta;
+      throw error;
+    }
+  };
+  const persistSteps = async (): Promise<void> => {
+    const steps = pendingSteps;
     pendingSteps = [];
     try {
-      await Promise.all([
-        appendStreamResponseDelta(jobId, responseDelta),
-        appendStreamSteps(jobId, steps),
-      ]);
+      await appendStreamSteps(jobId, steps, persistedStepCount);
+      persistedStepCount += steps.length;
     } catch (error) {
-      pendingResponseDelta = responseDelta + pendingResponseDelta;
       pendingSteps = [...steps, ...pendingSteps];
       throw error;
+    }
+  };
+  const persistPendingState = async (): Promise<void> => {
+    // Settle both before retry/finalization so the sibling write cannot still
+    // be in flight while its buffer and acknowledged offset are reused.
+    const results = await Promise.allSettled([
+      persistResponse(),
+      persistSteps(),
+    ]);
+    for (const result of results) {
+      if (result.status === 'rejected') throw result.reason;
     }
   };
 
@@ -335,6 +354,7 @@ export async function startBackgroundStreamReader(
     reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let skipLeadingLineFeed = false;
     let currentSseEvent: string | null = null;
     const publisher = getPublisher();
     const tokenChannel = conversationId
@@ -356,14 +376,7 @@ export async function startBackgroundStreamReader(
         return;
       }
       lastResponseFlushMs = now;
-      const delta = pendingResponseDelta;
-      pendingResponseDelta = '';
-      try {
-        await appendStreamResponseDelta(jobId, delta);
-      } catch (error) {
-        pendingResponseDelta = delta + pendingResponseDelta;
-        throw error;
-      }
+      await persistResponse();
     };
 
     const flushSteps = async (force = false): Promise<void> => {
@@ -372,14 +385,7 @@ export async function startBackgroundStreamReader(
       if (!force && now - lastStepsFlushMs < STREAM_STEPS_FLUSH_INTERVAL_MS)
         return;
       lastStepsFlushMs = now;
-      const steps = pendingSteps;
-      pendingSteps = [];
-      try {
-        await appendStreamSteps(jobId, steps);
-      } catch (error) {
-        pendingSteps = [...steps, ...pendingSteps];
-        throw error;
-      }
+      await persistSteps();
     };
 
     const flushStreamingStatus = async (force = false): Promise<void> => {
@@ -415,7 +421,17 @@ export async function startBackgroundStreamReader(
       );
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
+      let chunk = decoder.decode(value, { stream: true });
+      if (chunk) {
+        // CR terminates a line immediately. If its optional LF arrives in a
+        // later transport chunk, consume it without manufacturing a blank
+        // event boundary. Empty UTF-8 decoder output must preserve this state.
+        if (skipLeadingLineFeed && chunk.startsWith('\n')) {
+          chunk = chunk.slice(1);
+        }
+        skipLeadingLineFeed = chunk.endsWith('\r');
+        buffer += chunk.replace(/\r\n?/g, '\n');
+      }
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
 
@@ -425,16 +441,21 @@ export async function startBackgroundStreamReader(
           continue;
         }
 
-        if (line.startsWith('event: ')) {
-          currentSseEvent = line.slice('event: '.length).trim();
+        // SSE permits one optional space after the first colon; field names
+        // remain case-sensitive. NAT's intermediate_data extension follows
+        // the same line framing as the standard event/data fields.
+        const colon = line.indexOf(':');
+        const field = colon === -1 ? line : line.slice(0, colon);
+        const fieldValue =
+          colon === -1 ? '' : line.slice(colon + 1).replace(/^ /, '');
+        if (field === 'event') {
+          currentSseEvent = fieldValue;
           continue;
         }
 
         // ── intermediate_data: lines → parse step, store, publish ──
-        if (line.startsWith('intermediate_data: ')) {
-          const step = parseIntermediateDataLine(
-            line.slice('intermediate_data: '.length),
-          );
+        if (field === 'intermediate_data') {
+          const step = parseIntermediateDataLine(fieldValue);
           if (step) {
             // Defense-in-depth: sanitize completion-event outputs against any
             // prior assistant content. TOOL_END is intentionally excluded —
@@ -531,8 +552,8 @@ export async function startBackgroundStreamReader(
         }
 
         // ── data: lines → extract content tokens ──
-        if (line.startsWith('data: ')) {
-          const data = line.slice(5).trim();
+        if (field === 'data') {
+          const data = fieldValue.trim();
           if (data === '[DONE]') {
             streamDone = true;
             break;
@@ -699,7 +720,7 @@ export async function startBackgroundStreamReader(
 
     // Flush only the final unpersisted deltas before taking the terminal
     // snapshot. Each normalized key keeps its own bounded TTL.
-    await Promise.all([flushResponse(true), flushSteps(true)]);
+    await persistPendingState();
     const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
     if (currentStatus?.status === 'oauth_required' && !partialResponse.trim()) {
       // The OAuth event already persisted and published the complete prompt.

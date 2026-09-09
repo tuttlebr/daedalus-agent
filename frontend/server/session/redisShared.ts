@@ -33,7 +33,12 @@ export const REDIS_CLIENT_OPTIONS: RedisOptions = {
   lazyConnect: true,
   maxRetriesPerRequest: REDIS_MAX_RETRIES_PER_REQUEST,
   enableOfflineQueue: true,
-  reconnectOnError: () => true,
+  // Type/capability errors are expected while reading legacy string JSON on
+  // RedisJSON. Reconnecting on every command error stalls each fallback read
+  // and interrupts unrelated work. Only topology errors need a new connection;
+  // return true (not 2) so ioredis never replays a possibly consequential write.
+  reconnectOnError: (error) =>
+    /^(READONLY|MASTERDOWN)(?: |$)/.test(error.message),
   connectTimeout: 10_000,
   commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
   retryStrategy: (times) => Math.min(times * 200, 2_000),

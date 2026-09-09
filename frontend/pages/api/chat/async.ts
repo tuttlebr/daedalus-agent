@@ -259,7 +259,13 @@ async function sanitizeJobStatusForReturn(
     ...updates,
     updatedAt: Date.now(),
   };
-  if (options.persist !== false) {
+  // Old cached answers still get presentation sanitization, but the terminal
+  // record must continue to agree with its durable finalization journal.
+  if (
+    options.persist !== false &&
+    !isTerminalJobStatus(status.status) &&
+    status.finalizedAt === undefined
+  ) {
     await updateJobStatus(jobId, {
       ...updates,
       updatedAt: sanitized.updatedAt,

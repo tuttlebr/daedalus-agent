@@ -37,8 +37,8 @@ describe('normalized live stream state', () => {
   });
 
   it('appends only the new response delta and refreshes its TTL atomically', async () => {
-    await appendStreamResponseDelta('job-1', 'next bytes');
-    await appendStreamResponseDelta('job-1', '');
+    await appendStreamResponseDelta('job-1', 'next bytes', 0);
+    await appendStreamResponseDelta('job-1', '', 10);
 
     expect(mocks.eval).toHaveBeenCalledTimes(1);
     expect(mocks.eval).toHaveBeenCalledWith(
@@ -47,19 +47,21 @@ describe('normalized live stream state', () => {
       'daedalus:async-job-response:job-1',
       'next bytes',
       3600,
+      0,
     );
   });
 
   it('pushes only newly observed steps in one bounded write', async () => {
     const steps = [{ id: 1 }, { id: 2, payload: { event_type: 'TOOL_END' } }];
 
-    await appendStreamSteps('job-2', steps);
+    await appendStreamSteps('job-2', steps, 0);
 
     expect(mocks.eval).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('RPUSH'"),
       1,
       'daedalus:async-job-steps-v2:job-2',
       3600,
+      0,
       JSON.stringify(steps[0]),
       JSON.stringify(steps[1]),
     );

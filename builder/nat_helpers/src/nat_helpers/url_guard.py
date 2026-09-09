@@ -31,7 +31,10 @@ def _ip_is_public(ip: str) -> bool:
     except ValueError:
         return False
     return not (
-        addr.is_private
+        # Shared carrier-grade NAT space is neither private nor global.
+        # Deprecated IPv6 site-local addresses can also report is_global=True.
+        not addr.is_global
+        or getattr(addr, "is_site_local", False)
         or addr.is_loopback
         or addr.is_link_local  # 169.254.0.0/16 (cloud metadata), fe80::/10
         or addr.is_reserved

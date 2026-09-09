@@ -14,12 +14,71 @@ import json
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from autonomous_agent.store import RedisStore
 from autonomous_agent.store import key as autonomy_key
 
 pytestmark = pytest.mark.integration
+
+
+def test_approval_expiry_identity_and_single_consumer_in_real_redis():
+    redis = pytest.importorskip("redis")
+    from user_interaction.approval_tokens import (
+        ApprovalRequest,
+        approval_token_key,
+        issue_approval_token,
+        validate_approval_token,
+    )
+
+    client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+    user_id = f"approval-itest-{uuid.uuid4().hex}"
+    request = ApprovalRequest(user_id=user_id, action_type="delete", target="record-a")
+    keys = []
+
+    def issue():
+        token = issue_approval_token(client, request, ttl_seconds=60)
+        keys.append(approval_token_key(user_id, token))
+        return token
+
+    def validate(token, **overrides):
+        return validate_approval_token(
+            client,
+            **{
+                "user_id": user_id,
+                "token": token,
+                "action_type": "delete",
+                "target": "record-a",
+                **overrides,
+            },
+        )[0]
+
+    try:
+        # A different user has no authority even to consume Alice's credential.
+        token = issue()
+        assert not validate(token, user_id=f"{user_id}-other")
+        assert validate(token)
+        assert not validate(token)
+
+        # A mismatched action by the bound user intentionally burns it.
+        token = issue()
+        assert not validate(token, target="record-b")
+        assert not validate(token)
+
+        token = issue()
+        assert validate(token, consume=False)
+        client.pexpire(approval_token_key(user_id, token), 0)
+        assert not validate(token)
+
+        token = issue()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            outcomes = list(pool.map(lambda _: validate(token), range(8)))
+        assert sum(outcomes) == 1
+    finally:
+        if keys:
+            client.delete(*keys)
+        client.close()
 
 
 def test_redis_json_round_trip():

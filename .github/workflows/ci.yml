@@ -39,7 +39,7 @@ jobs:
           path: builder/coverage.xml
 
   builder-integration:
-    name: Builder Integration Tests
+    name: Persistence Integration Tests
     runs-on: ubuntu-latest
     services:
       redis:
@@ -74,6 +74,24 @@ jobs:
           PYTEST_USE_REAL_REDIS: '1'
           REDIS_URL: redis://default:ci-real-redis-password@localhost:6379
         run: pytest -m integration -v
+
+      - name: Set up Node for frontend persistence tests
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run frontend integration tests against real Redis
+        working-directory: frontend
+        env:
+          REDIS_URL: redis://default:ci-real-redis-password@localhost:6379
+          SESSION_SECRET: ci-session-secret-for-build-only
+        run: npm run test:integration
 
   frontend:
     name: Frontend Checks

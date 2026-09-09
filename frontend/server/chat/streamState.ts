@@ -1,22 +1,49 @@
 import { JOB_EXPIRY_SECONDS } from './constants';
 
 import { getRedis, jsonDel, jsonGet, sessionKey } from '@/server/session/redis';
+import { isDeepStrictEqual } from 'node:util';
 
 const APPEND_WITH_EXPIRY_LUA = `
-local length = redis.call('APPEND', KEYS[1], ARGV[1])
+local offset = tonumber(ARGV[3])
+local length = redis.call('STRLEN', KEYS[1])
+if length < offset then return redis.error_reply('stream response offset gap') end
+local overlap = math.min(length - offset, string.len(ARGV[1]))
+if overlap > 0 and redis.call('GETRANGE', KEYS[1], offset, offset + overlap - 1) ~= string.sub(ARGV[1], 1, overlap) then
+  return redis.error_reply('stream response offset conflict')
+end
+if overlap < string.len(ARGV[1]) then
+  redis.call('APPEND', KEYS[1], string.sub(ARGV[1], overlap + 1))
+end
 redis.call('EXPIRE', KEYS[1], ARGV[2])
-return length
+return offset + string.len(ARGV[1])
 `;
 
 const RPUSH_WITH_EXPIRY_LUA = `
-local values = {}
-for index = 2, #ARGV do
-  values[#values + 1] = ARGV[index]
+local offset = tonumber(ARGV[2])
+local length = redis.call('LLEN', KEYS[1])
+if length < offset then return redis.error_reply('stream steps offset gap') end
+local overlap = math.min(length - offset, #ARGV - 2)
+for index = 1, overlap do
+  if redis.call('LINDEX', KEYS[1], offset + index - 1) ~= ARGV[index + 2] then
+    return redis.error_reply('stream steps offset conflict')
+  end
 end
-local length = redis.call('RPUSH', KEYS[1], unpack(values))
+if overlap < #ARGV - 2 then
+  local values = {}
+  for index = overlap + 3, #ARGV do
+    values[#values + 1] = ARGV[index]
+  end
+  redis.call('RPUSH', KEYS[1], unpack(values))
+end
 redis.call('EXPIRE', KEYS[1], ARGV[1])
-return length
+return offset + #ARGV - 2
 `;
+
+function validateOffset(offset: number): void {
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    throw new Error('Stream offset must be a nonnegative safe integer');
+  }
+}
 
 export const streamResponseKey = (jobId: string): string =>
   sessionKey(['async-job-response', jobId]);
@@ -28,13 +55,16 @@ export const legacyStreamStepsKey = (jobId: string): string =>
   sessionKey(['async-job-steps', jobId]);
 
 /**
- * Append only the response bytes produced since the previous flush. The Lua
- * script keeps the write and TTL refresh in one Redis round trip.
+ * Append at the acknowledged UTF-8 byte offset. Matching overlap is a retry
+ * after a lost reply; only its missing suffix is written. Conflicts and gaps
+ * fail without changing the stored response.
  */
 export async function appendStreamResponseDelta(
   jobId: string,
   delta: string,
+  byteOffset: number,
 ): Promise<void> {
+  validateOffset(byteOffset);
   if (!delta) return;
   await getRedis().eval(
     APPEND_WITH_EXPIRY_LUA,
@@ -42,6 +72,7 @@ export async function appendStreamResponseDelta(
     streamResponseKey(jobId),
     delta,
     JOB_EXPIRY_SECONDS,
+    byteOffset,
   );
 }
 
@@ -49,15 +80,50 @@ export async function appendStreamResponseDelta(
 export async function appendStreamSteps(
   jobId: string,
   steps: any[],
+  stepOffset: number,
 ): Promise<void> {
+  validateOffset(stepOffset);
   if (steps.length === 0) return;
-  await getRedis().eval(
-    RPUSH_WITH_EXPIRY_LUA,
-    1,
-    streamStepsKey(jobId),
-    JOB_EXPIRY_SECONDS,
-    ...steps.map((step) => JSON.stringify(step)),
-  );
+  const client = getRedis();
+  const key = streamStepsKey(jobId);
+  const serialized = steps.map((step) => JSON.stringify(step));
+  const append = (values: string[]) =>
+    client.eval(
+      RPUSH_WITH_EXPIRY_LUA,
+      1,
+      key,
+      JOB_EXPIRY_SECONDS,
+      stepOffset,
+      ...values,
+    );
+  try {
+    await append(serialized);
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      error.message !== 'stream steps offset conflict'
+    )
+      throw error;
+    // JSON object key order is immaterial. On a byte mismatch, compare the
+    // overlapping JSON values in JS (Lua cjson cannot distinguish [] from {}).
+    // Reuse the exact stored encoding only for equivalent values; the atomic
+    // script checks the current offset and values again before appending.
+    const existing = await client.lrange(
+      key,
+      stepOffset,
+      stepOffset + steps.length - 1,
+    );
+    let equivalent: boolean;
+    try {
+      equivalent = existing.every((value, index) =>
+        isDeepStrictEqual(JSON.parse(value), JSON.parse(serialized[index])),
+      );
+    } catch {
+      throw error;
+    }
+    if (!equivalent) throw error;
+    await append([...existing, ...serialized.slice(existing.length)]);
+  }
 }
 
 /**

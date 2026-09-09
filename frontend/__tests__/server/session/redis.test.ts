@@ -1,8 +1,31 @@
 import { jsonSetWithExpiry } from '@/server/session/redis';
+import { REDIS_CLIENT_OPTIONS } from '@/server/session/redisShared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Track every ioredis instance the module constructs.
 const created: any[] = [];
+
+describe('Redis reconnect policy', () => {
+  it.each<[string, boolean]>([
+    ['READONLY You cannot write against a read only replica.', true],
+    [
+      'MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to no.',
+      true,
+    ],
+    [
+      'WRONGTYPE Operation against a key holding the wrong kind of value',
+      false,
+    ],
+    ['Existing key has wrong Redis type', false],
+    ["ERR unknown command 'JSON.GET'", false],
+    ['NOPERM this user has no permissions to run the command', false],
+    ["ERR invalid argument 'READONLY'", false],
+  ])('classifies %s without replaying writes', (message, reconnect) => {
+    expect(REDIS_CLIENT_OPTIONS.reconnectOnError!(new Error(message))).toBe(
+      reconnect,
+    );
+  });
+});
 
 vi.mock('@/server/session/dns-cache', () => ({
   primeDns: vi.fn(),

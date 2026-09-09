@@ -42,7 +42,7 @@ builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"
 	cd builder && uv run python -m pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=65
 
-test-integration: ## builder integration tests vs real Redis  (CI job: builder-integration)
+test-integration: ## Python + frontend persistence tests vs real Redis  (CI job: builder-integration)
 	@set -eu; \
 		compose_file="$(CURDIR)/frontend/e2e/docker-compose.yml"; \
 		docker compose -f $$compose_file up -d --build --wait redis; \
@@ -51,7 +51,12 @@ test-integration: ## builder integration tests vs real Redis  (CI job: builder-i
 		uv pip install -e ".[test]" redis; \
 		PYTEST_USE_REAL_REDIS=1 \
 		REDIS_URL=redis://default:e2e-redis-password@localhost:16379 \
-		uv run python -m pytest -m integration -v
+		uv run python -m pytest -m integration -v; \
+		cd ../frontend; \
+		npm ci --legacy-peer-deps; \
+		REDIS_URL=redis://default:e2e-redis-password@localhost:16379 \
+		SESSION_SECRET=ci-session-secret-for-build-only \
+		npm run test:integration
 
 frontend: ## frontend lint, typecheck, test, build  (CI job: frontend)
 	cd frontend && npm ci --legacy-peer-deps

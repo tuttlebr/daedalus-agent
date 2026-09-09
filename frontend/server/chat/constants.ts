@@ -31,7 +31,6 @@ export const MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS = Number(
   process.env.MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS || 11 * 60 * 1000,
 );
 export const FINALIZER_LOCK_TTL_MS = 30_000;
-export const STATUS_UPDATE_LOCK_TTL_MS = 3_000;
 
 export async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));

@@ -107,10 +107,12 @@ describe.skipIf(!RUN_REAL_REDIS)(
           client,
         ),
       ).resolves.toEqual(expect.objectContaining({ acquired: true }));
-      await streamState.appendStreamResponseDelta(jobId, 'uncommitted');
-      await streamState.appendStreamSteps(jobId, [
-        { id: 'step-1', payload: { event_type: 'TOOL_END' } },
-      ]);
+      await streamState.appendStreamResponseDelta(jobId, 'uncommitted', 0);
+      await streamState.appendStreamSteps(
+        jobId,
+        [{ id: 'step-1', payload: { event_type: 'TOOL_END' } }],
+        0,
+      );
 
       const successId = `${jobId}-success`;
       const errorId = `${jobId}-cancel`;

@@ -1,5 +1,6 @@
 """Tests for the SSRF egress guard (F-001)."""
 
+import random
 import socket
 from types import SimpleNamespace
 
@@ -13,6 +14,52 @@ from nat_helpers.url_guard import (
 
 
 class TestValidatePublicURL:
+    @pytest.mark.parametrize(
+        "host,allowed",
+        [
+            ("100.63.255.255", True),
+            ("100.64.0.0", False),
+            ("100.64.0.1", False),
+            ("100.127.255.255", False),
+            ("100.128.0.0", True),
+            ("fec0::1", False),
+            ("feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", False),
+            ("2001:4860:4860::8888", True),
+        ],
+    )
+    def test_globally_reachable_unicast_boundaries(self, host, allowed):
+        authority = f"[{host}]" if ":" in host else host
+        url = f"https://{authority}/"
+        if allowed:
+            assert validate_public_url(url) == url
+        else:
+            with pytest.raises(UnsafeURLError, match="non-public"):
+                validate_public_url(url)
+
+    def test_shared_address_boundary_for_structured_dns_answers(self, monkeypatch):
+        # Independent CIDR oracle: /10 fixes the first octet and the high two
+        # bits of the second. Do not reuse ipaddress classification properties.
+        rng = random.Random(10064)
+        for sample in range(200):
+            second = (
+                rng.choice([63, 64, 127, 128]) if sample < 100 else rng.randrange(256)
+            )
+            address = f"100.{second}.{rng.randrange(256)}.{rng.randrange(256)}"
+            addresses = ["8.8.8.8", address]
+            rng.shuffle(addresses)
+            monkeypatch.setattr(
+                socket,
+                "getaddrinfo",
+                lambda *_args, **_kwargs: [
+                    (socket.AF_INET, None, None, "", (item, 0)) for item in addresses
+                ],
+            )
+            if 64 <= second < 128:
+                with pytest.raises(UnsafeURLError, match="non-public"):
+                    resolve_public_addresses("boundary.example")
+            else:
+                assert resolve_public_addresses("boundary.example") == tuple(addresses)
+
     @pytest.mark.parametrize(
         "url",
         [

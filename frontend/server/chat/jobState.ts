@@ -1,20 +1,9 @@
 import { Logger } from '@/utils/logger';
 
-import {
-  FINALIZER_LOCK_TTL_MS,
-  JOB_EXPIRY_SECONDS,
-  STATUS_UPDATE_LOCK_TTL_MS,
-  sleep,
-} from './constants';
+import { FINALIZER_LOCK_TTL_MS, JOB_EXPIRY_SECONDS, sleep } from './constants';
 import type { AsyncJobStatus } from './types';
 
-import {
-  getPublisher,
-  getRedis,
-  jsonGet,
-  jsonSetWithExpiry,
-  sessionKey,
-} from '@/server/session/redis';
+import { getRedis, sessionKey } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
@@ -27,8 +16,6 @@ export const finalizerLockKey = (jobId: string) =>
   sessionKey(['async-job-finalizer-lock', jobId]);
 export const finalizationJournalKey = (jobId: string) =>
   sessionKey(['async-job-finalization', jobId]);
-const statusLockKey = (jobId: string) =>
-  sessionKey(['async-job-status-lock', jobId]);
 
 export interface JobFinalizationConversation {
   id: string;
@@ -111,54 +98,28 @@ export async function completeOAuthJobRequest(
   oauthState: string,
 ): Promise<boolean> {
   if (!jobId || !oauthState) return false;
-  const statusKey = sessionKey(['async-job-status', jobId]);
-  const completed = await withRedisLock(
-    statusLockKey(jobId),
-    STATUS_UPDATE_LOCK_TTL_MS,
-    async () => {
-      const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
-      if (
-        !currentStatus ||
-        currentStatus.finalizedAt ||
-        isTerminalJobStatus(currentStatus.status)
-      ) {
-        return false;
-      }
+  return mutateLiveJobStatus(jobId, (currentStatus) => {
+    const requests = Array.isArray(currentStatus.oauthRequests)
+      ? currentStatus.oauthRequests
+      : [];
+    const matched =
+      currentStatus.oauthState === oauthState ||
+      requests.some((request) => request.oauthState === oauthState);
+    if (!matched) return null;
 
-      const requests = Array.isArray(currentStatus.oauthRequests)
-        ? currentStatus.oauthRequests
-        : [];
-      const matched =
-        currentStatus.oauthState === oauthState ||
-        requests.some((request) => request.oauthState === oauthState);
-      if (!matched) return false;
-
-      const remaining = requests.filter(
-        (request) => request.oauthState !== oauthState,
-      );
-      const nextRequest = remaining[0];
-      const updatedStatus: AsyncJobStatus = {
-        ...currentStatus,
-        status: nextRequest ? 'oauth_required' : 'streaming',
-        authUrl: nextRequest?.authUrl,
-        oauthState: nextRequest?.oauthState,
-        oauthRequests: remaining.length ? remaining : undefined,
-        updatedAt: Date.now(),
-      };
-      await jsonSetWithExpiry(statusKey, updatedStatus, JOB_EXPIRY_SECONDS);
-      try {
-        await getPublisher().publish(
-          `job:${jobId}:status`,
-          JSON.stringify(updatedStatus),
-        );
-      } catch (err) {
-        logger.error(`Failed to publish OAuth completion for ${jobId}`, err);
-      }
-      return true;
-    },
-    { retries: 4, retryDelayMs: 25 },
-  );
-  return completed === true;
+    const remaining = requests.filter(
+      (request) => request.oauthState !== oauthState,
+    );
+    const nextRequest = remaining[0];
+    return {
+      ...currentStatus,
+      status: nextRequest ? 'oauth_required' : 'streaming',
+      authUrl: nextRequest?.authUrl,
+      oauthState: nextRequest?.oauthState,
+      oauthRequests: remaining.length ? remaining : undefined,
+      updatedAt: Date.now(),
+    };
+  });
 }
 
 async function withRedisLock<T>(
@@ -204,10 +165,9 @@ export function isTerminalJobStatus(status: AsyncJobStatus['status']): boolean {
 }
 
 // Supports both RedisJSON documents and the plain-string fallback used when
-// RedisJSON is unavailable. Redis runs the read, terminal guard, merge, write,
-// and expiry as one indivisible operation.
-const CLAIM_TERMINAL_JOB_STATUS_LUA = `
--- CLAIM_TERMINAL_FINALIZATION
+// RedisJSON is unavailable. The read guard and compare-and-set write
+// each execute atomically; a changed snapshot is re-read before retrying.
+const READ_LIVE_JOB_STATUS_LUA = `
 local type_reply = redis.call('TYPE', KEYS[1])
 local key_type = type(type_reply) == 'table' and type_reply['ok'] or type_reply
 if key_type == 'none' then
@@ -235,99 +195,100 @@ if current['finalizedAt'] ~= nil or current['status'] == 'completed' or current[
   return nil
 end
 
-local updates = cjson.decode(ARGV[1])
-for key, value in pairs(updates) do
-  current[key] = value
-end
-local removals = cjson.decode(ARGV[2])
-for _, key in ipairs(removals) do
-  current[key] = nil
-end
+`;
 
-local journal = cjson.decode(ARGV[4])
-journal['terminalStatus'] = current
-local encoded_journal = cjson.encode(journal)
-redis.call('SET', KEYS[2], encoded_journal, 'EX', ARGV[3])
-
-local encoded = cjson.encode(current)
+const CLAIM_TERMINAL_JOB_STATUS_LUA = `
+-- CLAIM_TERMINAL_FINALIZATION
+${READ_LIVE_JOB_STATUS_LUA}
+if raw ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[2], ARGV[4], 'EX', ARGV[3])
 if is_redis_json then
-  redis.call('JSON.SET', KEYS[1], '$', encoded)
+  redis.call('JSON.SET', KEYS[1], '$', ARGV[2])
 else
-  redis.call('SET', KEYS[1], encoded)
+  redis.call('SET', KEYS[1], ARGV[2])
 end
 redis.call('EXPIRE', KEYS[1], ARGV[3])
-return cjson.encode({status = current, journal = journal})
+return 1
 `;
 
-const MARK_FINALIZATION_PHASE_LUA = `
--- MARK_FINALIZATION_PHASE
+// Keep journal JSON opaque in Lua: cjson loses empty-array types and rounds
+// large exact integers. The snapshot comparison also fences competing phases.
+const UPDATE_FINALIZATION_JOURNAL_LUA = `
+-- UPDATE_FINALIZATION_JOURNAL
 local raw = redis.call('GET', KEYS[1])
-if not raw then
-  return nil
-end
-local journal = cjson.decode(raw)
-if journal['finalizationId'] ~= ARGV[1] then
-  return nil
-end
-local phase = ARGV[2]
-if journal[phase] == nil then
-  journal[phase] = tonumber(ARGV[3])
-end
-if phase == 'completedAt' then
-  journal['state'] = 'completed'
-end
-local encoded = cjson.encode(journal)
-redis.call('SET', KEYS[1], encoded, 'EX', ARGV[4])
-return encoded
-`;
-
-const SET_MEMORY_RETENTION_RECEIPT_LUA = `
--- SET_MEMORY_RETENTION_RECEIPT
-local raw = redis.call('GET', KEYS[1])
-if not raw then
-  return nil
-end
-local journal = cjson.decode(raw)
-if journal['finalizationId'] ~= ARGV[1] then
-  return nil
-end
-if journal['memoryRetention'] == nil then
-  journal['memoryRetention'] = cjson.decode(ARGV[2])
-end
-local encoded = cjson.encode(journal)
-redis.call('SET', KEYS[1], encoded, 'EX', ARGV[3])
-return encoded
-`;
-
-const PUBLISH_FINALIZATION_EVENTS_LUA = `
--- PUBLISH_FINALIZATION_EVENTS
-local raw = redis.call('GET', KEYS[1])
-if not raw then
-  return nil
-end
-local journal = cjson.decode(raw)
-if journal['finalizationId'] ~= ARGV[1] then
-  return nil
-end
-if journal['eventsPublishedAt'] ~= nil then
-  return raw
-end
-
-journal['eventsPublishedAt'] = tonumber(ARGV[2])
-local encoded = cjson.encode(journal)
-redis.call('SET', KEYS[1], encoded, 'EX', ARGV[3])
+if not raw then return nil end
+if raw ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
 for index = 4, #ARGV, 2 do
   redis.call('PUBLISH', ARGV[index], ARGV[index + 1])
 end
-return encoded
+return 1
 `;
+
+// Compare the exact stored snapshot and write the JS-serialized replacement.
+// Lua decoding/re-encoding the entire document would turn empty JSON arrays
+// into objects on plain Redis, corrupting nested status payloads.
+const READ_JOB_STATUS_SNAPSHOT_LUA = `
+-- READ_JOB_STATUS_SNAPSHOT
+${READ_LIVE_JOB_STATUS_LUA}
+return raw
+`;
+
+const UPDATE_LIVE_JOB_STATUS_LUA = `
+-- UPDATE_LIVE_JOB_STATUS
+${READ_LIVE_JOB_STATUS_LUA}
+if raw ~= ARGV[1] then return 0 end
+if is_redis_json then
+  redis.call('JSON.SET', KEYS[1], '$', ARGV[2])
+else
+  redis.call('SET', KEYS[1], ARGV[2])
+end
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+if ARGV[4] ~= '' then
+  redis.pcall('PUBLISH', ARGV[4], ARGV[2])
+end
+return 1
+`;
+
+async function mutateLiveJobStatus(
+  jobId: string,
+  mutate: (current: AsyncJobStatus) => AsyncJobStatus | null,
+  publish = true,
+): Promise<boolean> {
+  const client = getRedis();
+  const statusKey = sessionKey(['async-job-status', jobId]);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const snapshot = await client.eval(
+      READ_JOB_STATUS_SNAPSHOT_LUA,
+      1,
+      statusKey,
+    );
+    if (typeof snapshot !== 'string') return false;
+    const current = JSON.parse(snapshot) as AsyncJobStatus;
+    const updated = mutate(current);
+    if (!updated || JSON.stringify(updated) === JSON.stringify(current))
+      return false;
+    const applied = await client.eval(
+      UPDATE_LIVE_JOB_STATUS_LUA,
+      1,
+      statusKey,
+      snapshot,
+      JSON.stringify(updated),
+      JOB_EXPIRY_SECONDS,
+      publish ? `job:${jobId}:status` : '',
+    );
+    // Missing/terminal records return nil. Only a changed live snapshot retries.
+    if (applied === null) return false;
+    if (Number(applied) === 1) return true;
+  }
+  throw new Error(`Job ${jobId}: status changed during every update attempt`);
+}
 
 export async function updateJobStatus(
   jobId: string,
   updates: Partial<AsyncJobStatus>,
   options: { publish?: boolean } = {},
 ): Promise<void> {
-  const statusKey = sessionKey(['async-job-status', jobId]);
   const isTerminalWrite =
     updates.status === 'completed' ||
     updates.status === 'error' ||
@@ -339,69 +300,19 @@ export async function updateJobStatus(
     );
   }
 
-  const applied = await withRedisLock(
-    statusLockKey(jobId),
-    STATUS_UPDATE_LOCK_TTL_MS,
-    async () => {
-      const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
-
-      if (!currentStatus) {
-        logger.error('Job status not found for update', jobId);
-        return false;
-      }
-
-      // Finalization guard: prevent the background stream reader from flipping a
-      // completed/errored job back to 'streaming' after finalizeSuccess has run.
-      // Only terminal status writes (completed / error) are allowed through.
-      if (
-        currentStatus.finalizedAt &&
-        updates.status !== undefined &&
-        updates.status !== 'completed' &&
-        updates.status !== 'error'
-      ) {
-        logger.debug(
-          `Job ${jobId}: Ignoring status update (status=${updates.status}); job already finalized`,
-        );
-        return false;
-      }
-
-      const updatedStatus: AsyncJobStatus = {
-        ...currentStatus,
-        ...updates,
-      };
-
-      if (JSON.stringify(updatedStatus) === JSON.stringify(currentStatus)) {
-        return false;
-      }
-
-      await jsonSetWithExpiry(statusKey, updatedStatus, JOB_EXPIRY_SECONDS);
-
-      if (options.publish !== false) {
-        try {
-          await getPublisher().publish(
-            `job:${jobId}:status`,
-            JSON.stringify(updatedStatus),
-          );
-        } catch (err) {
-          logger.error(`Failed to publish job status for ${jobId}`, err);
-        }
-      }
-      return true;
-    },
-    { retries: 1, retryDelayMs: 10 },
+  await mutateLiveJobStatus(
+    jobId,
+    (current) => ({ ...current, ...updates }),
+    options.publish !== false,
   );
-
-  if (applied === null) {
-    logger.debug(`Job ${jobId}: Status update lock was busy`);
-  }
 }
 
 /**
  * Atomically claim the only terminal transition for a job.
  *
  * Every completion path must call this before writing conversations or
- * publishing completion events. One Redis script performs the read, guard,
- * merge, write, and expiry across frontend pods. Once a terminal status or
+ * publishing completion events. One Redis script compares the snapshot and
+ * writes the terminal status and journal atomically across frontend pods. Once a terminal status or
  * finalizedAt is present, all later terminal contenders lose without changing
  * the stored result.
  */
@@ -424,45 +335,32 @@ export async function claimTerminalJobStatus(
     throw new Error(`Job ${jobId}: invalid terminal finalization journal`);
   }
 
+  const client = getRedis();
   const statusKey = sessionKey(['async-job-status', jobId]);
-  const serializedUpdates: Record<string, unknown> = {};
-  const removals: string[] = [];
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === undefined) {
-      removals.push(key);
-    } else {
-      serializedUpdates[key] = value;
-    }
-  }
-
-  const locked = await withRedisLock(
-    statusLockKey(jobId),
-    STATUS_UPDATE_LOCK_TTL_MS,
-    async () => ({
-      result: await getRedis().eval(
-        CLAIM_TERMINAL_JOB_STATUS_LUA,
-        2,
-        statusKey,
-        finalizationJournalKey(jobId),
-        JSON.stringify(serializedUpdates),
-        JSON.stringify(removals),
-        JOB_EXPIRY_SECONDS,
-        JSON.stringify(journal),
-      ),
-    }),
-    { retries: 60, retryDelayMs: 50 },
-  );
-  if (locked === null) {
-    throw new Error(`Job ${jobId}: terminal status lock remained busy`);
-  }
-  const result = locked.result;
-  if (typeof result !== 'string') {
-    logger.debug(
-      `Job ${jobId}: Ignoring terminal transition to ${updates.status}; another outcome already won`,
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const snapshot = await client.eval(
+      READ_JOB_STATUS_SNAPSHOT_LUA,
+      1,
+      statusKey,
     );
-    return false;
+    if (typeof snapshot !== 'string') return false;
+    const terminalStatus = { ...JSON.parse(snapshot), ...updates };
+    const result = await client.eval(
+      CLAIM_TERMINAL_JOB_STATUS_LUA,
+      2,
+      statusKey,
+      finalizationJournalKey(jobId),
+      snapshot,
+      JSON.stringify(terminalStatus),
+      JOB_EXPIRY_SECONDS,
+      JSON.stringify({ ...journal, terminalStatus }),
+    );
+    if (result === null) return false;
+    if (Number(result) === 1) return true;
   }
-  return true;
+  throw new Error(
+    `Job ${jobId}: status changed during every finalization attempt`,
+  );
 }
 
 export async function getFinalizationJournal(
@@ -471,6 +369,13 @@ export async function getFinalizationJournal(
   const raw = await getRedis().get(finalizationJournalKey(jobId));
   if (!raw) return null;
 
+  return parseFinalizationJournal(jobId, raw);
+}
+
+function parseFinalizationJournal(
+  jobId: string,
+  raw: string,
+): JobFinalizationJournal {
   let journal: JobFinalizationJournal;
   try {
     journal = JSON.parse(raw) as JobFinalizationJournal;
@@ -489,24 +394,48 @@ export async function getFinalizationJournal(
   return journal;
 }
 
+async function mutateFinalizationJournal(
+  jobId: string,
+  finalizationId: string,
+  mutate: (journal: JobFinalizationJournal) => void,
+  events: FinalizationEvent[] = [],
+): Promise<JobFinalizationJournal | null> {
+  const client = getRedis();
+  const key = finalizationJournalKey(jobId);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const snapshot = await client.get(key);
+    if (!snapshot) return null;
+    const journal = parseFinalizationJournal(jobId, snapshot);
+    if (journal.finalizationId !== finalizationId) return null;
+    const original = JSON.stringify(journal);
+    mutate(journal);
+    const updated = JSON.stringify(journal);
+    if (updated === original) return journal;
+    const result = await client.eval(
+      UPDATE_FINALIZATION_JOURNAL_LUA,
+      1,
+      key,
+      snapshot,
+      updated,
+      JOB_EXPIRY_SECONDS,
+      ...events.flatMap((event) => [event.channel, event.payload]),
+    );
+    if (result === null) return null;
+    if (Number(result) === 1) return journal;
+  }
+  throw new Error(`Job ${jobId}: journal changed during every update attempt`);
+}
+
 export async function markFinalizationPhase(
   jobId: string,
   finalizationId: string,
   phase: FinalizationJournalPhase,
   at: number = Date.now(),
 ): Promise<JobFinalizationJournal | null> {
-  const result = await getRedis().eval(
-    MARK_FINALIZATION_PHASE_LUA,
-    1,
-    finalizationJournalKey(jobId),
-    finalizationId,
-    phase,
-    at,
-    JOB_EXPIRY_SECONDS,
-  );
-  return typeof result === 'string'
-    ? (JSON.parse(result) as JobFinalizationJournal)
-    : null;
+  return mutateFinalizationJournal(jobId, finalizationId, (journal) => {
+    if (journal[phase] === undefined) journal[phase] = at;
+    if (phase === 'completedAt') journal.state = 'completed';
+  });
 }
 
 export async function setMemoryRetentionReceipt(
@@ -514,17 +443,10 @@ export async function setMemoryRetentionReceipt(
   finalizationId: string,
   receipt: { operationId: string; acceptedAt: number },
 ): Promise<JobFinalizationJournal | null> {
-  const result = await getRedis().eval(
-    SET_MEMORY_RETENTION_RECEIPT_LUA,
-    1,
-    finalizationJournalKey(jobId),
-    finalizationId,
-    JSON.stringify(receipt),
-    JOB_EXPIRY_SECONDS,
-  );
-  return typeof result === 'string'
-    ? (JSON.parse(result) as JobFinalizationJournal)
-    : null;
+  return mutateFinalizationJournal(jobId, finalizationId, (journal) => {
+    if (journal.memoryRetention === undefined)
+      journal.memoryRetention = receipt;
+  });
 }
 
 /**
@@ -538,18 +460,15 @@ export async function publishFinalizationEvents(
   events: FinalizationEvent[],
   at: number = Date.now(),
 ): Promise<JobFinalizationJournal | null> {
-  const result = await getRedis().eval(
-    PUBLISH_FINALIZATION_EVENTS_LUA,
-    1,
-    finalizationJournalKey(jobId),
+  return mutateFinalizationJournal(
+    jobId,
     finalizationId,
-    at,
-    JOB_EXPIRY_SECONDS,
-    ...events.flatMap((event) => [event.channel, event.payload]),
+    (journal) => {
+      if (journal.eventsPublishedAt === undefined)
+        journal.eventsPublishedAt = at;
+    },
+    events,
   );
-  return typeof result === 'string'
-    ? (JSON.parse(result) as JobFinalizationJournal)
-    : null;
 }
 
 export async function withFinalizationLock<T>(

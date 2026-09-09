@@ -63,8 +63,13 @@ describe.skipIf(!RUN_REAL_REDIS)(
         await state.appendStreamResponseDelta(
           jobId,
           deltas.slice(offset, offset + 10).join(''),
+          Buffer.byteLength(deltas.slice(0, offset).join('')),
         );
-        await state.appendStreamSteps(jobId, steps.slice(offset, offset + 10));
+        await state.appendStreamSteps(
+          jobId,
+          steps.slice(offset, offset + 10),
+          offset,
+        );
       }
 
       await expect(state.getStreamResponse(jobId)).resolves.toBe(

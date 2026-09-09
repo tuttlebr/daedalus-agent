@@ -36,7 +36,21 @@ import {
   jsonGet,
   jsonSetWithExpiry,
 } from '@/server/session/redis';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const independentReference = JSON.parse(
+  gunzipSync(
+    readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../../../test-fixtures/code-audit-independent-20260909.json.gz',
+      ),
+    ),
+  ).toString(),
+);
 
 const PRIVATE_COLLECTION = 'user_uploads_testuser_hash';
 
@@ -1436,8 +1450,7 @@ describe('chat/async backend pinning helpers', () => {
     };
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
-      .mockResolvedValueOnce(jobRequest)
-      .mockResolvedValueOnce(jobStatus);
+      .mockResolvedValueOnce(jobRequest);
     (jsonSetWithExpiry as any).mockResolvedValue(undefined);
     const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
     const res = {
@@ -1454,15 +1467,7 @@ describe('chat/async backend pinning helpers', () => {
       fullResponse: next,
       updatedAt: expect.any(Number),
     });
-    expect(jsonSetWithExpiry).toHaveBeenCalledWith(
-      'daedalus:async-job-status:job-123',
-      {
-        ...jobStatus,
-        fullResponse: next,
-        updatedAt: expect.any(Number),
-      },
-      3600,
-    );
+    expect(jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 
   it('sanitizes a completed job fullResponse when the prior answer is appended', async () => {
@@ -1491,8 +1496,7 @@ describe('chat/async backend pinning helpers', () => {
     };
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
-      .mockResolvedValueOnce(jobRequest)
-      .mockResolvedValueOnce(jobStatus);
+      .mockResolvedValueOnce(jobRequest);
     (jsonSetWithExpiry as any).mockResolvedValue(undefined);
     const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
     const res = {
@@ -1764,10 +1768,13 @@ describe('chat/async response boundary helpers', () => {
 // A finite, resolving fake of the backend stream Response. read() yields each
 // scripted chunk (encoded) then {done:true}; the reader terminates naturally.
 function makeSseResponse(
-  chunks: string[],
+  chunks: Array<string | Uint8Array>,
   init: { ok?: boolean; status?: number } = {},
 ) {
   const encoder = new TextEncoder();
+  const bytes = chunks.map((chunk) =>
+    typeof chunk === 'string' ? encoder.encode(chunk) : chunk,
+  );
   let i = 0;
   return {
     ok: init.ok ?? true,
@@ -1777,7 +1784,7 @@ function makeSseResponse(
       getReader: () => ({
         read: async () =>
           i < chunks.length
-            ? { done: false, value: encoder.encode(chunks[i++]) }
+            ? { done: false, value: bytes[i++] }
             : { done: true, value: undefined },
         releaseLock: () => {},
         cancel: async () => {},
@@ -1822,16 +1829,55 @@ function wireRedisStore(initial: Record<string, any> = {}) {
   });
   mocks.redisEval.mockImplementation(async (...args: any[]) => {
     const script = args[0] as string;
+    if (
+      script.includes('READ_JOB_STATUS_SNAPSHOT') ||
+      script.includes('UPDATE_LIVE_JOB_STATUS')
+    ) {
+      const key = args[2] as string;
+      const current = store.get(key);
+      if (
+        !current ||
+        current.finalizedAt !== undefined ||
+        ['completed', 'error'].includes(current.status)
+      )
+        return null;
+      const raw = JSON.stringify(current);
+      if (script.includes('READ_JOB_STATUS_SNAPSHOT')) return raw;
+      if (raw !== args[3]) return 0;
+      store.set(key, JSON.parse(args[4]));
+      if (args[6]) await mocks.publisher.publish(args[6], args[4]);
+      return 1;
+    }
     if (script.includes("redis.call('APPEND'")) {
       const key = args[2] as string;
-      const next = `${store.get(key) || ''}${args[3] as string}`;
-      store.set(key, next);
-      return next.length;
+      const current = Buffer.from(store.get(key) || '');
+      const delta = Buffer.from(args[3] as string);
+      const offset = Number(args[5]);
+      if (current.length < offset)
+        throw new Error('stream response offset gap');
+      const overlap = Math.min(current.length - offset, delta.length);
+      if (
+        !current
+          .subarray(offset, offset + overlap)
+          .equals(delta.subarray(0, overlap))
+      )
+        throw new Error('stream response offset conflict');
+      const next = Buffer.concat([current, delta.subarray(overlap)]);
+      store.set(key, next.toString());
+      return offset + delta.length;
     }
     if (script.includes("redis.call('RPUSH'")) {
       const key = args[2] as string;
       const current = Array.isArray(store.get(key)) ? store.get(key) : [];
-      const next = [...current, ...args.slice(4)];
+      const offset = Number(args[4]);
+      const incoming = args.slice(5);
+      if (current.length < offset) throw new Error('stream steps offset gap');
+      const overlap = Math.min(current.length - offset, incoming.length);
+      for (let index = 0; index < overlap; index++) {
+        if (current[offset + index] !== incoming[index])
+          throw new Error('stream steps offset conflict');
+      }
+      const next = [...current, ...incoming.slice(overlap)];
       store.set(key, next);
       return next.length;
     }
@@ -1847,48 +1893,21 @@ function wireRedisStore(initial: Record<string, any> = {}) {
       ) {
         return null;
       }
-      const updates = JSON.parse(args[4] as string);
-      const removals = JSON.parse(args[5] as string) as string[];
-      const terminal = { ...current, ...updates };
-      for (const field of removals) delete terminal[field];
-      const journal = {
-        ...JSON.parse(args[7] as string),
-        terminalStatus: terminal,
-      };
-      store.set(statusKey, terminal);
-      store.set(journalKey, JSON.stringify(journal));
-      return JSON.stringify({ status: terminal, journal });
+      if (JSON.stringify(current) !== args[4]) return 0;
+      store.set(statusKey, JSON.parse(args[5]));
+      store.set(journalKey, args[7]);
+      return 1;
     }
-    if (script.includes('MARK_FINALIZATION_PHASE')) {
+    if (script.includes('UPDATE_FINALIZATION_JOURNAL')) {
       const journalKey = args[2] as string;
-      const rawJournal = store.get(journalKey);
-      const journal =
-        typeof rawJournal === 'string' ? JSON.parse(rawJournal) : rawJournal;
-      if (!journal || journal.finalizationId !== args[3]) return null;
-      const phase = args[4] as string;
-      const updated = {
-        ...journal,
-        [phase]: journal[phase] ?? Number(args[5]),
-        ...(phase === 'completedAt' ? { state: 'completed' } : {}),
-      };
-      store.set(journalKey, JSON.stringify(updated));
-      return JSON.stringify(updated);
-    }
-    if (script.includes('PUBLISH_FINALIZATION_EVENTS')) {
-      const journalKey = args[2] as string;
-      const rawJournal = store.get(journalKey);
-      const journal =
-        typeof rawJournal === 'string' ? JSON.parse(rawJournal) : rawJournal;
-      if (!journal || journal.finalizationId !== args[3]) return null;
-      if (journal.eventsPublishedAt !== undefined) {
-        return JSON.stringify(journal);
-      }
-      const updated = { ...journal, eventsPublishedAt: Number(args[4]) };
-      store.set(journalKey, JSON.stringify(updated));
+      const raw = store.get(journalKey);
+      if (!raw) return null;
+      if (raw !== args[3]) return 0;
+      store.set(journalKey, args[4]);
       for (let index = 6; index < args.length; index += 2) {
         await mocks.publisher.publish(args[index], args[index + 1]);
       }
-      return JSON.stringify(updated);
+      return 1;
     }
     // withRedisLock unlock script
     if (args.length < 6) return 1;
@@ -1971,7 +1990,7 @@ async function executeQueuedJob(
 // Drive one POST chat turn through the handler against a scripted SSE stream and
 // (by default) wait until the background reader finalizes the job.
 async function runStreamTurn(
-  script: string[],
+  script: Array<string | Uint8Array>,
   opts: {
     messages?: any[];
     conversationId?: string | null;
@@ -2084,6 +2103,145 @@ describe('chat/async streaming + finalize (characterization)', () => {
     mocks.redisLrange.mockResolvedValue([]);
     mocks.redisXadd.mockResolvedValue('1-0');
   });
+
+  it.each(['APPEND', 'RPUSH'])(
+    'does not duplicate persisted stream data after a lost %s reply',
+    async (command) => {
+      let failed = false;
+      const persisted: any[] = [];
+      await runStreamTurn(
+        [
+          command === 'APPEND'
+            ? 'data: {"choices":[{"delta":{"content":"First 🌍"}}]}\n'
+            : 'intermediate_data: {"name":"Function Start: <tool>","id":"s1","parent_id":"root","payload":"input"}\n',
+          'data: [DONE]\n',
+        ],
+        {
+          configureStore(store) {
+            const evaluate = mocks.redisEval.getMockImplementation()!;
+            mocks.redisEval.mockImplementation(async (...args: any[]) => {
+              const result = await evaluate(...args);
+              if (String(args[0]).includes(`redis.call('${command}'`)) {
+                persisted.push(structuredClone(store.get(args[2])));
+                if (!failed) {
+                  failed = true;
+                  throw new Error('Redis reply lost after commit');
+                }
+              }
+              return result;
+            });
+          },
+        },
+      );
+      expect(failed).toBe(true);
+      expect(persisted.length).toBeGreaterThanOrEqual(2);
+      if (command === 'APPEND') {
+        expect(persisted.every((value) => value === 'First 🌍')).toBe(true);
+      } else {
+        expect(persisted.every((value) => value.length === 1)).toBe(true);
+      }
+    },
+  );
+
+  it.each(['\n', '\r\n', '\r'])(
+    'resets event types at blank %j lines',
+    async (ending) => {
+      const { statusKey, store } = await runStreamTurn([
+        `event: mcp_approval_required${ending}${ending}`,
+        `data: {"choices":[{"delta":{"content":"ordinary answer"}}]}${ending}${ending}`,
+        `data: [DONE]${ending}${ending}`,
+      ]);
+      expect(store.get(statusKey)).toMatchObject({
+        status: 'completed',
+        fullResponse: 'ordinary answer',
+      });
+    },
+  );
+
+  it.each(['', ' '])(
+    'accepts the optional SSE field space %j',
+    async (space) => {
+      const { statusKey, store } = await runStreamTurn([
+        `data:${space}{"choices":[{"delta":{"content":"answer"}}]}\n\n`,
+        `data:${space}[DONE]\n\n`,
+      ]);
+      expect(store.get(statusKey)).toMatchObject({
+        status: 'completed',
+        fullResponse: 'answer',
+      });
+    },
+  );
+
+  it('preserves Unicode and event boundaries across structured randomized byte partitions', async () => {
+    const tokens = ['re', 'peated ', '😀', 'e\u0301', '\nline ', '界'];
+    let state = 0x51e5e;
+    const choose = (limit: number) => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return (state >>> 8) % limit;
+    };
+    for (let sample = 0; sample < 48; sample += 1) {
+      const ending = ['\n', '\r\n', '\r'][sample % 3];
+      const space = sample % 2 ? ' ' : '';
+      const encoded = new TextEncoder().encode(
+        [
+          `event:${space}mcp_approval_required${ending}${ending}`,
+          ...tokens.map(
+            (content) =>
+              `data:${space}${JSON.stringify({
+                choices: [{ delta: { content } }],
+              })}${ending}${ending}`,
+          ),
+          `data:${space}[DONE]${ending}${ending}`,
+        ].join(''),
+      );
+      const chunks: Uint8Array[] = [];
+      for (let offset = 0; offset < encoded.length; ) {
+        // Include a byte-at-a-time pass: both UTF-8 sequences and CRLF pairs
+        // split there. Other passes exercise unequal batches and empty reads.
+        const size = sample < 3 ? 1 : 1 + choose(23);
+        chunks.push(encoded.slice(offset, offset + size));
+        if (choose(7) === 0) chunks.push(new Uint8Array());
+        offset += size;
+      }
+      const { statusKey, store } = await runStreamTurn(chunks);
+      expect(store.get(statusKey)).toMatchObject({
+        status: 'completed',
+        fullResponse: tokens.join(''),
+      });
+    }
+  });
+
+  it('matches independently derived stream records across every supplied transport partition', async () => {
+    for (const fixture of independentReference.framing.streams) {
+      // Adapt the fixed logical records to this application's content/step
+      // fields. No framing or chunk-parsing helper computes these expectations.
+      const answer = fixture.expected_records
+        .filter((record: any) => record.field === 'data')
+        .map((record: any) => JSON.parse(record.value).text ?? '')
+        .join('');
+      const steps = fixture.expected_records
+        .filter((record: any) => record.field === 'intermediate_data')
+        .map((record: any) => JSON.parse(record.value));
+      for (const partition of fixture.partitions) {
+        const chunks = partition.chunks_hex.map(
+          (chunk: string) => new Uint8Array(Buffer.from(chunk, 'hex')),
+        );
+        const { statusKey, store } = await runStreamTurn(chunks);
+        const status = store.get(statusKey);
+        expect(status.status, `${fixture.id}/${partition.name}`).toBe(
+          'completed',
+        );
+        expect(status.fullResponse, `${fixture.id}/${partition.name}`).toBe(
+          answer,
+        );
+        expect(
+          status.intermediateSteps.map(
+            (step: any) => step.payload.metadata.original_payload,
+          ),
+        ).toEqual(steps);
+      }
+    }
+  }, 120_000);
 
   it('accumulates token deltas across reads and publishes chat_token per delta', async () => {
     const { statusKey, store } = await runStreamTurn([
@@ -2207,9 +2365,13 @@ describe('chat/async streaming + finalize (characterization)', () => {
       .filter((event) => event.data.status === 'streaming');
     expect(streamingStatusEvents).toHaveLength(0);
 
-    const streamingStatusWrites = (jsonSetWithExpiry as any).mock.calls
-      .filter(([key]: [string]) => key === statusKey)
-      .map(([, value]: [string, any]) => value)
+    const streamingStatusWrites = mocks.redisEval.mock.calls
+      .filter(
+        ([script, , key]) =>
+          String(script).includes('UPDATE_LIVE_JOB_STATUS') &&
+          key === statusKey,
+      )
+      .map((args) => JSON.parse(args[4]))
       .filter((value: any) => value.status === 'streaming');
     expect(streamingStatusWrites.length).toBeGreaterThan(0);
     expect(
@@ -2310,14 +2472,18 @@ describe('chat/async streaming + finalize (characterization)', () => {
     );
     expect(
       stepPushCalls.reduce(
-        (count: number, call: any[]) => count + call.slice(4).length,
+        (count: number, call: any[]) => count + call.slice(5).length,
         0,
       ),
     ).toBe(200);
 
-    const liveStatusWrites = (jsonSetWithExpiry as any).mock.calls
-      .filter(([key]: [string]) => key === statusKey)
-      .map(([, value]: [string, any]) => value)
+    const liveStatusWrites = mocks.redisEval.mock.calls
+      .filter(
+        ([script, , key]) =>
+          String(script).includes('UPDATE_LIVE_JOB_STATUS') &&
+          key === statusKey,
+      )
+      .map((args) => JSON.parse(args[4]))
       .filter((value: any) => value.status === 'streaming');
     expect(liveStatusWrites.length).toBeGreaterThan(0);
     expect(
@@ -2519,18 +2685,16 @@ describe('chat/async streaming + finalize (characterization)', () => {
         'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
       ],
       {
-        configureStore: (configuredStore) => {
-          (jsonSetWithExpiry as any).mockImplementation(
-            async (key: string, value: any) => {
-              if (
-                key.includes('async-job-status') &&
-                value?.status === 'oauth_required'
-              ) {
-                return;
-              }
-              configuredStore.set(key, value);
-            },
-          );
+        configureStore: () => {
+          const evaluate = mocks.redisEval.getMockImplementation()!;
+          mocks.redisEval.mockImplementation(async (...args: any[]) => {
+            if (
+              String(args[0]).includes('UPDATE_LIVE_JOB_STATUS') &&
+              JSON.parse(args[4]).status === 'oauth_required'
+            )
+              return null;
+            return evaluate(...args);
+          });
         },
       },
     );
@@ -2557,9 +2721,13 @@ describe('chat/async streaming + finalize (characterization)', () => {
       .filter((data) => data.status === 'streaming');
     expect(streamingStatusEvents).toHaveLength(0);
 
-    const streamingUpdate = (jsonSetWithExpiry as any).mock.calls
-      .filter(([key]: [string]) => key === statusKey)
-      .map(([, value]: [string, any]) => value)
+    const streamingUpdate = mocks.redisEval.mock.calls
+      .filter(
+        ([script, , key]) =>
+          String(script).includes('UPDATE_LIVE_JOB_STATUS') &&
+          key === statusKey,
+      )
+      .map((args) => JSON.parse(args[4]))
       .find((data: any) => data.status === 'streaming');
     expect(streamingUpdate).toBeDefined();
     expect(streamingUpdate.authUrl).toBeUndefined();

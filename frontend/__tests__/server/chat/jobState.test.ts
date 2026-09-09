@@ -22,6 +22,25 @@ const mocks = vi.hoisted(() => ({
     }),
     eval: vi.fn(async (...args: any[]) => {
       const script = args[0] as string;
+      if (
+        script.includes('READ_JOB_STATUS_SNAPSHOT') ||
+        script.includes('UPDATE_LIVE_JOB_STATUS')
+      ) {
+        const key = args[2] as string;
+        const current = mocks.store.get(key);
+        if (
+          !current ||
+          current.finalizedAt !== undefined ||
+          ['completed', 'error'].includes(current.status)
+        )
+          return null;
+        const raw = JSON.stringify(current);
+        if (script.includes('READ_JOB_STATUS_SNAPSHOT')) return raw;
+        if (raw !== args[3]) return 0;
+        mocks.store.set(key, JSON.parse(args[4]));
+        if (args[6]) await mocks.publisher.publish(args[6], args[4]);
+        return 1;
+      }
       if (script.includes('CLAIM_TERMINAL_FINALIZATION')) {
         const key = args[2] as string;
         const journalKey = args[3] as string;
@@ -34,17 +53,12 @@ const mocks = vi.hoisted(() => ({
         ) {
           return null;
         }
-        const updates = JSON.parse(args[4] as string);
-        const removals = JSON.parse(args[5] as string) as string[];
-        const terminal = { ...current, ...updates };
-        for (const field of removals) delete terminal[field];
-        const journal = {
-          ...JSON.parse(args[7] as string),
-          terminalStatus: terminal,
-        };
+        if (JSON.stringify(current) !== args[4]) return 0;
+        const terminal = JSON.parse(args[5]);
+        const journal = JSON.parse(args[7]);
         mocks.store.set(key, terminal);
         mocks.store.set(journalKey, journal);
-        return JSON.stringify({ status: terminal, journal });
+        return 1;
       }
 
       mocks.locked = false;
