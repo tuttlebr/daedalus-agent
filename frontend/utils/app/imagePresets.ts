@@ -22,13 +22,13 @@ export interface ImagePreset {
 
 export const IMAGE_PRESETS: ImagePreset[] = [
   {
-    id: 'photorealistic',
-    label: 'Photorealistic',
+    id: 'studio-headshot',
+    label: 'Studio Headshot',
     description:
-      'Shot like a 35 mm film photograph — soft natural light, shallow depth of field, subtle grain.',
+      'Studio quality portrait with professional lighting and composition.',
     modes: ['generate', 'edit'],
     promptTemplate:
-      'Photorealistic image of {{subject}}. Shot on 35mm film, 50mm lens at f/2.8, shallow depth of field, soft natural light, subtle film grain. Natural material textures and subtle imperfections. No watermark or text beyond what is explicitly requested.',
+      "Transform {{subject}} into an elevated fashion studio portrait. Choose a complementing-color background that enhances the subject's skin tone. Keep a tight head-and-shoulder composition with the subject centered and facing the camera straight with an optimistic expression. Apply directional lighting with subtle shadows. Preserve natural skin tones while making the image polished, minimal, and editorial—like a magazine photoshoot.",
     params: { quality: 'high', size: '1024x1024', output_format: 'png' },
   },
   {
