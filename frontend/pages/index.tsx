@@ -277,12 +277,6 @@ const Home = () => {
     void fetchConversations().then(loadSelectedConversation);
   }, []);
 
-  useEffect(() => {
-    if (window.innerWidth < 768) {
-      useUISettingsStore.getState().setShowChatbar(false);
-    }
-  }, [selectedConversationId]);
-
   return (
     <ProtectedRoute>
       <Head>

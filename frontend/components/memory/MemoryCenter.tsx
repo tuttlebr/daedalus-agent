@@ -12,10 +12,13 @@ import {
   IconTrash,
   IconX,
 } from '@tabler/icons-react';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
+import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
 import { Badge, Button } from '@/components/primitives';
 import { GlassCard, ModalSurface } from '@/components/surfaces';
+
+import { useUISettingsStore } from '@/state/uiSettingsStore';
 
 type MemoryFact = {
   id: string;
@@ -132,7 +135,11 @@ export function MemoryCenter() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const refreshSequence = useRef(0);
+  const detailSequence = useRef(0);
+
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
     setLoading(true);
     setError(null);
     try {
@@ -145,8 +152,12 @@ export function MemoryCenter() {
         params.set('memory_type', memoryType);
       }
       const statusRequest = requestJson<RetentionStatus>('/api/memory/status')
-        .then(setRetentionStatus)
-        .catch(() => setRetentionStatus(null));
+        .then((status) => {
+          if (sequence === refreshSequence.current) setRetentionStatus(status);
+        })
+        .catch(() => {
+          if (sequence === refreshSequence.current) setRetentionStatus(null);
+        });
       if (tab === 'pages') {
         const response = await requestJson<{
           items: KnowledgePage[];
@@ -160,6 +171,7 @@ export function MemoryCenter() {
                 .includes(normalizedQuery),
             )
           : response.items;
+        if (sequence !== refreshSequence.current) return;
         setPages({
           items: matching.slice(offset, offset + PAGE_SIZE),
           total: matching.length,
@@ -167,38 +179,48 @@ export function MemoryCenter() {
           offset,
         });
       } else if (tab === 'memories') {
-        setMemories(
-          await requestJson<Page<MemoryFact>>(
-            `/api/memory/memories?${params.toString()}`,
-          ),
+        const response = await requestJson<Page<MemoryFact>>(
+          `/api/memory/memories?${params.toString()}`,
         );
+        if (sequence === refreshSequence.current) setMemories(response);
       } else {
-        setSources(
-          await requestJson<Page<MemorySource>>(
-            `/api/memory/sources?${params.toString()}`,
-          ),
+        const response = await requestJson<Page<MemorySource>>(
+          `/api/memory/sources?${params.toString()}`,
         );
+        if (sequence === refreshSequence.current) setSources(response);
       }
       await statusRequest;
     } catch (requestError) {
+      if (sequence !== refreshSequence.current) return;
       setError(
         requestError instanceof Error
           ? requestError.message
           : 'Memory is temporarily unavailable.',
       );
     } finally {
-      setLoading(false);
+      if (sequence === refreshSequence.current) setLoading(false);
     }
   }, [memoryType, offset, submittedQuery, tab]);
 
   useEffect(() => {
     void refresh();
+    const listRequests = refreshSequence;
+    const detailRequests = detailSequence;
+    return () => {
+      listRequests.current++;
+      detailRequests.current++;
+    };
   }, [refresh]);
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
+    detailSequence.current++;
+    setWorkingId(null);
+    setSelectedPage(null);
+    setSelectedSource(null);
     setOffset(0);
-    setSubmittedQuery(query.trim());
+    if (submittedQuery === query.trim() && offset === 0) void refresh();
+    else setSubmittedQuery(query.trim());
   };
 
   const editMemory = async () => {
@@ -261,42 +283,44 @@ export function MemoryCenter() {
   };
 
   const openSource = async (source: MemorySource) => {
+    const sequence = ++detailSequence.current;
     setWorkingId(source.id);
     setError(null);
     try {
-      setSelectedSource(
-        await requestJson<MemorySourceDetail>(
-          `/api/memory/sources/${encodeURIComponent(source.id)}`,
-        ),
+      const detail = await requestJson<MemorySourceDetail>(
+        `/api/memory/sources/${encodeURIComponent(source.id)}`,
       );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Source failed to load.',
-      );
+      if (
+        sequence === detailSequence.current &&
+        useUISettingsStore.getState().activeView === 'memory'
+      )
+        setSelectedSource(detail);
+    } catch {
+      if (sequence === detailSequence.current)
+        setError('Could not open this source. Try again.');
     } finally {
-      setWorkingId(null);
+      if (sequence === detailSequence.current) setWorkingId(null);
     }
   };
 
   const openPage = async (page: KnowledgePage) => {
+    const sequence = ++detailSequence.current;
     setWorkingId(page.id);
     setError(null);
     try {
-      setSelectedPage(
-        await requestJson<KnowledgePage>(
-          `/api/memory/pages/${encodeURIComponent(page.id)}`,
-        ),
+      const detail = await requestJson<KnowledgePage>(
+        `/api/memory/pages/${encodeURIComponent(page.id)}`,
       );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Knowledge Page failed to load.',
-      );
+      if (
+        sequence === detailSequence.current &&
+        useUISettingsStore.getState().activeView === 'memory'
+      )
+        setSelectedPage(detail);
+    } catch {
+      if (sequence === detailSequence.current)
+        setError('Could not open this Knowledge Page. Try again.');
     } finally {
-      setWorkingId(null);
+      if (sequence === detailSequence.current) setWorkingId(null);
     }
   };
 
@@ -337,7 +361,7 @@ export function MemoryCenter() {
       setClearText('');
       setSelectedPage(null);
       setSelectedSource(null);
-      setNotice('All Hindsight memories were cleared.');
+      setNotice('All memories were cleared.');
       await refresh();
     } catch (requestError) {
       setError(
@@ -350,8 +374,14 @@ export function MemoryCenter() {
 
   const page =
     tab === 'pages' ? pages : tab === 'memories' ? memories : sources;
-  const canPrevious = offset > 0;
-  const canNext = offset + PAGE_SIZE < page.total;
+  const canPrevious = !loading && offset > 0;
+  const canNext = !loading && offset + PAGE_SIZE < page.total;
+  const categoryLabel =
+    tab === 'pages'
+      ? 'Knowledge Pages'
+      : tab === 'memories'
+      ? 'remembered facts'
+      : 'sources';
 
   return (
     <section className="app-page h-full overflow-y-auto bg-app px-4 pb-8 md:px-8">
@@ -473,6 +503,8 @@ export function MemoryCenter() {
                 setOffset(0);
                 setSelectedPage(null);
                 setSelectedSource(null);
+                setWorkingId(null);
+                detailSequence.current++;
               }}
               className={`min-h-11 border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
                 tab === item
@@ -500,6 +532,7 @@ export function MemoryCenter() {
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dark-text-muted"
             />
             <input
+              type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={
@@ -531,6 +564,24 @@ export function MemoryCenter() {
           <Button type="submit" variant="secondary" size="sm">
             Search
           </Button>
+          {(query || submittedQuery || memoryType) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setQuery('');
+                setSubmittedQuery('');
+                setMemoryType('');
+                setOffset(0);
+                setSelectedPage(null);
+                setSelectedSource(null);
+                setWorkingId(null);
+                detailSequence.current++;
+              }}
+            >
+              Clear search
+            </Button>
+          )}
         </form>
 
         {error && !editing && (
@@ -550,49 +601,38 @@ export function MemoryCenter() {
           </p>
         )}
 
+        <p role="status" className="text-sm text-muted">
+          {loading
+            ? `Loading ${categoryLabel}…`
+            : workingId && !editing
+            ? 'Opening or updating memory…'
+            : error
+            ? 'Memory could not be updated. Use Refresh to try again.'
+            : `${page.total} ${categoryLabel}${
+                submittedQuery ? ` matching “${submittedQuery}”` : ''
+              }`}
+        </p>
         {!loading && page.items.length === 0 && !error && (
           <GlassCard className="py-10 text-center text-sm text-dark-text-muted">
-            No {tab} match this view yet.
+            {submittedQuery || memoryType
+              ? 'No results. Try another search or clear the filters.'
+              : `No ${categoryLabel} yet. Useful details from your chats will appear here.`}
           </GlassCard>
         )}
 
-        {tab === 'pages' ? (
-          selectedPage ? (
-            <GlassCard className="space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <h2 className="font-medium text-dark-text-primary">
-                    {selectedPage.name}
-                  </h2>
-                  <p className="text-xs text-dark-text-muted">
-                    Updated {when(selectedPage.timestamp)}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Close Knowledge Page"
-                  onClick={() => setSelectedPage(null)}
-                  className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
-                >
-                  <IconX size={18} />
-                </button>
-              </div>
-              {selectedPage.description && (
-                <p className="text-xs text-dark-text-muted">
-                  {selectedPage.description}
-                </p>
-              )}
-              <article className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-separator/70 bg-fill/5 p-4 text-sm text-dark-text-secondary">
-                {selectedPage.body || 'This page is still generating.'}
-              </article>
-            </GlassCard>
-          ) : (
+        <div aria-busy={loading}>
+          {tab === 'pages' ? (
             <div className="space-y-3">
               {pages.items.map((knowledgePage) => (
                 <GlassCard key={knowledgePage.id} className="space-y-2">
                   <button
                     type="button"
-                    onClick={() => void openPage(knowledgePage)}
+                    aria-disabled={loading || workingId !== null}
+                    aria-busy={workingId === knowledgePage.id}
+                    onClick={(event) => {
+                      event.currentTarget.focus();
+                      if (!loading && !workingId) void openPage(knowledgePage);
+                    }}
                     className="flex w-full items-start justify-between gap-3 text-left"
                   >
                     <span className="flex min-w-0 items-start gap-3">
@@ -618,146 +658,118 @@ export function MemoryCenter() {
                 </GlassCard>
               ))}
             </div>
-          )
-        ) : tab === 'memories' ? (
-          <div className="space-y-3">
-            {memories.items.map((memory) => (
-              <GlassCard key={memory.id} className="space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary">{memory.type || 'fact'}</Badge>
-                      {memory.state && memory.state !== 'valid' && (
-                        <Badge variant="warning">{memory.state}</Badge>
-                      )}
-                      <span className="text-xs text-dark-text-muted">
-                        {when(
-                          memory.mentioned_at ||
-                            memory.date ||
-                            memory.created_at,
+          ) : tab === 'memories' ? (
+            <div className="space-y-3">
+              {memories.items.map((memory) => (
+                <GlassCard key={memory.id} className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary">
+                          {memory.type || 'fact'}
+                        </Badge>
+                        {memory.state && memory.state !== 'valid' && (
+                          <Badge variant="warning">{memory.state}</Badge>
                         )}
-                      </span>
-                    </div>
-                    <p className="whitespace-pre-wrap break-words text-sm text-dark-text-primary">
-                      {memory.text}
-                    </p>
-                    {memory.context && (
-                      <p className="text-xs text-dark-text-muted">
-                        {memory.context}
+                        <span className="text-xs text-dark-text-muted">
+                          {when(
+                            memory.mentioned_at ||
+                              memory.date ||
+                              memory.created_at,
+                          )}
+                        </span>
+                      </div>
+                      <p className="whitespace-pre-wrap break-words text-sm text-dark-text-primary">
+                        {memory.text}
                       </p>
+                      {memory.context && (
+                        <p className="text-xs text-dark-text-muted">
+                          {memory.context}
+                        </p>
+                      )}
+                    </div>
+                    {memory.type !== 'observation' && (
+                      <div className="flex flex-shrink-0 gap-1">
+                        <button
+                          type="button"
+                          aria-label="Edit memory"
+                          className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05] hover:text-dark-text-primary"
+                          onClick={() => {
+                            setError(null);
+                            setEditing(memory);
+                            setEditText(memory.text);
+                          }}
+                        >
+                          <IconEdit size={17} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Forget memory"
+                          disabled={workingId === memory.id}
+                          className="rounded-lg p-2 text-dark-text-muted hover:bg-nvidia-red/10 hover:text-nvidia-red disabled:opacity-50"
+                          onClick={() => void invalidateMemory(memory)}
+                        >
+                          <IconTrash size={17} />
+                        </button>
+                      </div>
                     )}
                   </div>
-                  {memory.type !== 'observation' && (
-                    <div className="flex flex-shrink-0 gap-1">
-                      <button
-                        type="button"
-                        aria-label="Edit memory"
-                        className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05] hover:text-dark-text-primary"
-                        onClick={() => {
-                          setError(null);
-                          setEditing(memory);
-                          setEditText(memory.text);
-                        }}
-                      >
-                        <IconEdit size={17} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Forget memory"
-                        disabled={workingId === memory.id}
-                        className="rounded-lg p-2 text-dark-text-muted hover:bg-nvidia-red/10 hover:text-nvidia-red disabled:opacity-50"
-                        onClick={() => void invalidateMemory(memory)}
-                      >
-                        <IconTrash size={17} />
-                      </button>
+                  {memory.tags && memory.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {memory.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded bg-fill/[0.05] px-2 py-1 text-[0.75rem] text-dark-text-muted"
+                        >
+                          {tag}
+                        </span>
+                      ))}
                     </div>
                   )}
-                </div>
-                {memory.tags && memory.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {memory.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded bg-fill/[0.05] px-2 py-1 text-[0.75rem] text-dark-text-muted"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </GlassCard>
-            ))}
-          </div>
-        ) : selectedSource ? (
-          <GlassCard className="space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate font-medium text-dark-text-primary">
-                  {selectedSource.id}
-                </p>
-                <p className="text-xs text-dark-text-muted">
-                  {selectedSource.memory_unit_count || 0} extracted memories ·
-                  updated {when(selectedSource.updated_at)}
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Close source"
-                onClick={() => setSelectedSource(null)}
-                className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
-              >
-                <IconX size={18} />
-              </button>
+                </GlassCard>
+              ))}
             </div>
-            <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-separator/70 bg-fill/5 p-4 font-sans text-sm text-dark-text-secondary">
-              {selectedSource.original_text ||
-                'Raw source text is unavailable.'}
-            </pre>
-            <Button
-              variant="danger"
-              size="sm"
-              leftIcon={<IconTrash size={16} />}
-              isLoading={workingId === selectedSource.id}
-              onClick={() => void deleteSource(selectedSource.id)}
-            >
-              Delete source and memories
-            </Button>
-          </GlassCard>
-        ) : (
-          <div className="space-y-3">
-            {sources.items.map((source) => (
-              <GlassCard
-                key={source.id}
-                className="flex items-center justify-between gap-3"
-              >
-                <button
-                  type="button"
-                  onClick={() => void openSource(source)}
-                  className="flex min-w-0 flex-1 items-start gap-3 text-left"
+          ) : (
+            <div className="space-y-3">
+              {sources.items.map((source) => (
+                <GlassCard
+                  key={source.id}
+                  className="flex items-center justify-between gap-3"
                 >
-                  <IconFileText
-                    className="mt-0.5 flex-shrink-0 text-nvidia-blue"
-                    size={19}
+                  <button
+                    type="button"
+                    aria-disabled={loading || workingId !== null}
+                    aria-busy={workingId === source.id}
+                    onClick={(event) => {
+                      event.currentTarget.focus();
+                      if (!loading && !workingId) void openSource(source);
+                    }}
+                    className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                  >
+                    <IconFileText
+                      className="mt-0.5 flex-shrink-0 text-nvidia-blue"
+                      size={19}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-dark-text-primary">
+                        {source.id}
+                      </span>
+                      <span className="block text-xs text-dark-text-muted">
+                        {source.memory_unit_count || 0} memories ·{' '}
+                        {source.text_length || 0} characters ·{' '}
+                        {when(source.updated_at)}
+                      </span>
+                    </span>
+                  </button>
+                  <IconSearch
+                    size={17}
+                    className="flex-shrink-0 text-dark-text-muted"
                   />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-dark-text-primary">
-                      {source.id}
-                    </span>
-                    <span className="block text-xs text-dark-text-muted">
-                      {source.memory_unit_count || 0} memories ·{' '}
-                      {source.text_length || 0} characters ·{' '}
-                      {when(source.updated_at)}
-                    </span>
-                  </span>
-                </button>
-                <IconSearch
-                  size={17}
-                  className="flex-shrink-0 text-dark-text-muted"
-                />
-              </GlassCard>
-            ))}
-          </div>
-        )}
+                </GlassCard>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-dark-text-muted">
           <span>{page.total} total</span>
@@ -852,6 +864,98 @@ export function MemoryCenter() {
         </GlassCard>
       </div>
 
+      {selectedPage && (
+        <ModalSurface
+          open
+          onClose={() => setSelectedPage(null)}
+          aria-label="Knowledge Page"
+          className="w-full max-w-3xl max-h-[85dvh] overflow-y-auto rounded-2xl bg-panel"
+        >
+          <GlassCard className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <h2 className="break-words font-medium text-dark-text-primary">
+                  {selectedPage.name}
+                </h2>
+                <p className="text-xs text-dark-text-muted">
+                  Updated {when(selectedPage.timestamp)}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close Knowledge Page"
+                onClick={() => setSelectedPage(null)}
+                className="shrink-0 rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            {selectedPage.description && (
+              <p className="text-xs text-dark-text-muted">
+                {selectedPage.description}
+              </p>
+            )}
+            <MarkdownRenderer
+              className="prose dark:prose-invert max-w-none break-words prose-headings:text-primary prose-strong:text-primary"
+              allowHtml={false}
+              content={
+                selectedPage.body ||
+                selectedPage.markdown ||
+                'This page is still generating.'
+              }
+            />
+          </GlassCard>
+        </ModalSurface>
+      )}
+      {selectedSource && (
+        <ModalSurface
+          open
+          onClose={() => setSelectedSource(null)}
+          aria-label="Memory source"
+          className="w-full max-w-3xl max-h-[85dvh] overflow-y-auto rounded-2xl bg-panel"
+        >
+          <GlassCard className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="break-all font-medium text-dark-text-primary">
+                  {selectedSource.id}
+                </p>
+                <p className="text-xs text-dark-text-muted">
+                  {selectedSource.memory_unit_count || 0} extracted memories ·
+                  updated {when(selectedSource.updated_at)}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close source"
+                onClick={() => setSelectedSource(null)}
+                className="shrink-0 rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <pre className="whitespace-pre-wrap break-words rounded-lg border border-separator/70 bg-fill/5 p-4 font-sans text-sm text-dark-text-secondary">
+              {selectedSource.original_text ||
+                'Raw source text is unavailable.'}
+            </pre>
+            {error && (
+              <p role="alert" className="text-sm text-nvidia-red">
+                {error}
+              </p>
+            )}
+            <Button
+              variant="danger"
+              size="sm"
+              leftIcon={<IconTrash size={16} />}
+              isLoading={workingId === selectedSource.id}
+              onClick={() => void deleteSource(selectedSource.id)}
+            >
+              Delete source and memories
+            </Button>
+          </GlassCard>
+        </ModalSurface>
+      )}
+
       {editing && (
         <ModalSurface
           open
@@ -868,7 +972,7 @@ export function MemoryCenter() {
                 type="button"
                 aria-label="Close editor"
                 onClick={() => setEditing(null)}
-                className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
+                className="shrink-0 rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05]"
               >
                 <IconX size={18} />
               </button>

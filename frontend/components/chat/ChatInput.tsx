@@ -515,7 +515,9 @@ export const ChatInput = memo(
           toast.success(`Downloaded ${downloadName}`);
         } catch (err) {
           console.error('Markdown download failed:', err);
-          toast.error('Failed to convert document — check backend logs.');
+          toast.error(
+            'Could not convert this document. Try again or upload another file.',
+          );
         } finally {
           toast.dismiss(loadingToast);
           setDownloadingDocumentId(null);
@@ -609,7 +611,9 @@ export const ChatInput = memo(
         } catch (err) {
           toast.dismiss(loadingToast);
           console.error('Inline extract failed:', err);
-          toast.error('Failed to extract document — check backend logs.');
+          toast.error(
+            'Could not read this document. Try again or upload another file.',
+          );
           return;
         }
       } else if (hasDocumentAttachment && selectedCollection) {

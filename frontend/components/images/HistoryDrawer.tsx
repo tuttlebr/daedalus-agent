@@ -10,8 +10,6 @@ import { OptimizedImage } from '@/components/chat/OptimizedImage';
 import { IconButton } from '@/components/primitives';
 import { ModalSurface } from '@/components/surfaces';
 
-import { loadImageHistory } from './ImagePanel';
-
 import { useImagePanelStore } from '@/state/imagePanelStore';
 import classNames from 'classnames';
 
@@ -68,21 +66,12 @@ export function HistoryDrawer() {
   const restoreFromHistory = useImagePanelStore((s) => s.restoreFromHistory);
   const removeFromHistory = useImagePanelStore((s) => s.removeFromHistory);
   const clearHistory = useImagePanelStore((s) => s.clearHistory);
-  const setHistoryAction = useImagePanelStore((s) => s.setHistory);
   const setGallery = useImagePanelStore((s) => s.setGallery);
 
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [deleteAssetsWithHistory, setDeleteAssetsWithHistory] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-
-  // Auto-disarm the per-entry delete confirmation after a few seconds
-  useEffect(() => {
-    if (!confirmDeleteId) return;
-    const timer = window.setTimeout(() => setConfirmDeleteId(null), 3000);
-    return () => window.clearTimeout(timer);
-  }, [confirmDeleteId]);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -97,15 +86,6 @@ export function HistoryDrawer() {
     }
   }, [open]);
 
-  const reconcileFromServer = useCallback(async () => {
-    try {
-      const fresh = await loadImageHistory();
-      setHistoryAction(fresh);
-    } catch {
-      // best-effort
-    }
-  }, [setHistoryAction]);
-
   const handleDelete = useCallback(
     async (id: string) => {
       if (pendingDeleteIds.has(id)) return;
@@ -115,16 +95,15 @@ export function HistoryDrawer() {
         next.add(id);
         return next;
       });
-      removeFromHistory(id);
       try {
         await deleteImageHistoryEntry(id);
+        removeFromHistory(id);
         invalidateImageHistory();
       } catch (err) {
         console.error('Failed to delete history entry:', err);
         setActionError(
-          'Could not remove that saved run. Your history was restored.',
+          'Could not remove that saved run. Your history is unchanged.',
         );
-        await reconcileFromServer();
       } finally {
         setPendingDeleteIds((prev) => {
           const next = new Set(prev);
@@ -133,34 +112,26 @@ export function HistoryDrawer() {
         });
       }
     },
-    [
-      invalidateImageHistory,
-      removeFromHistory,
-      pendingDeleteIds,
-      reconcileFromServer,
-    ],
+    [invalidateImageHistory, removeFromHistory, pendingDeleteIds],
   );
 
   const handleClearAll = useCallback(async () => {
     if (isClearing) return;
     const deleteAssets = deleteAssetsWithHistory;
-    const galleryBeforeClear = useImagePanelStore.getState().gallery;
     setActionError(null);
     setIsClearing(true);
-    clearHistory();
-    if (deleteAssets) setGallery([]);
     try {
       await clearImageHistoryRequest(deleteAssets);
+      clearHistory();
+      if (deleteAssets) setGallery([]);
       invalidateImageHistory();
     } catch (err) {
       console.error('Failed to clear history:', err);
-      if (deleteAssets) setGallery(galleryBeforeClear);
       setActionError(
         deleteAssets
-          ? 'Could not clear the saved runs and generated images. Your history was restored.'
-          : 'Could not clear saved history. Your history was restored.',
+          ? 'Could not clear the saved runs and generated images. Your history is unchanged.'
+          : 'Could not clear saved history. Your history is unchanged.',
       );
-      await reconcileFromServer();
     } finally {
       setIsClearing(false);
       setIsConfirmingClear(false);
@@ -171,7 +142,6 @@ export function HistoryDrawer() {
     deleteAssetsWithHistory,
     invalidateImageHistory,
     isClearing,
-    reconcileFromServer,
     setGallery,
   ]);
 
@@ -231,6 +201,7 @@ export function HistoryDrawer() {
                   >
                     <button
                       type="button"
+                      disabled={isDeletingThis || isClearing}
                       onClick={restore}
                       className="flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
                       aria-label={`Restore saved ${entry.mode} creation`}
@@ -268,43 +239,25 @@ export function HistoryDrawer() {
                     </button>
                     <button
                       type="button"
-                      aria-label={
-                        confirmDeleteId === entry.id
-                          ? 'Tap again to confirm delete'
-                          : 'Delete entry'
-                      }
-                      title={
-                        confirmDeleteId === entry.id
-                          ? 'Tap again to confirm delete'
-                          : 'Delete entry'
-                      }
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        // Two-tap confirm: the button sits over the restore
-                        // target, so a stray tap must not destroy a creation.
-                        if (confirmDeleteId === entry.id) {
-                          setConfirmDeleteId(null);
-                          handleDelete(entry.id);
-                        } else {
-                          setConfirmDeleteId(entry.id);
-                        }
+                      aria-label="Delete entry"
+                      title="Delete saved creation"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            'Delete this saved creation from history? Generated images are kept.',
+                          )
+                        )
+                          void handleDelete(entry.id);
                       }}
-                      disabled={isDeletingThis}
+                      disabled={isDeletingThis || isClearing}
                       className={classNames(
                         'absolute top-1 right-1 grid h-11 w-11 place-items-center rounded-md touch-manipulation',
-                        confirmDeleteId === entry.id
-                          ? 'bg-nvidia-red/20 text-nvidia-red opacity-100'
-                          : 'text-muted hover:text-nvidia-red hover:bg-nvidia-red/10 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
+                        'text-muted hover:text-nvidia-red hover:bg-nvidia-red/10 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
                         'transition-all disabled:opacity-50',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
                       )}
                     >
-                      {confirmDeleteId === entry.id ? (
-                        <IconTrash size={14} />
-                      ) : (
-                        <IconX size={14} />
-                      )}
+                      <IconTrash size={14} />
                     </button>
                   </div>
                 );

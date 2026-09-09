@@ -27,7 +27,6 @@ vi.mock('@/hooks/useWebSocket', () => ({
   }),
 }));
 
-
 vi.mock('@/components/autonomy/AutonomyFeed', () => ({
   AutonomyFeed: () => <div data-testid="feed" />,
 }));
@@ -141,6 +140,36 @@ describe('AutonomyDashboard refresh strategy', () => {
       ].sort(),
     );
 
+    act(() => root.unmount());
+  });
+
+  it('keeps a failed feed update visible until a complete refresh succeeds', async () => {
+    const { root, container } = renderDashboard();
+    await flushRequests();
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('Feed unavailable'));
+    act(() => mocks.wsOptions.onAutonomyFeedUpdated({}));
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    await flushRequests();
+    expect(container.textContent).toContain('Showing the last saved');
+
+    act(() => mocks.wsOptions.onAutonomyStatus({ config: true }));
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    await flushRequests();
+    expect(container.textContent).toContain('Showing the last saved');
+
+    act(() => {
+      mocks.wsOptions.onConnected();
+      mocks.wsOptions.onConnected();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    await flushRequests();
+    expect(container.textContent).not.toContain('Showing the last saved');
     act(() => root.unmount());
   });
 });

@@ -7,7 +7,6 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import toast from 'react-hot-toast';
 
 import { useWebSocket } from '@/hooks/useWebSocket';
 
@@ -76,6 +75,8 @@ export function AutonomyDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const stateRef = useRef(state);
   const pendingResourcesRef = useRef<Set<DashboardResource>>(new Set());
@@ -176,7 +177,12 @@ export function AutonomyDashboard() {
         pendingResourcesRef.current.clear();
         const latestEventRunId = latestEventRunIdRef.current;
         latestEventRunIdRef.current = null;
-        refreshResources(pending, latestEventRunId).catch(() => {});
+        refreshResources(pending, latestEventRunId)
+          .then(() => {
+            if (ALL_RESOURCES.every((resource) => pending.includes(resource)))
+              setLoadError(false);
+          })
+          .catch(() => setLoadError(true));
       }, WS_REFRESH_DEBOUNCE_MS);
     },
     [refreshResources],
@@ -258,6 +264,8 @@ export function AutonomyDashboard() {
 
   const updateConfig = useCallback(
     async (patch: Partial<AutonomyConfig>) => {
+      setActionError(null);
+      setActionNotice(null);
       setBusy('config');
       try {
         const response = await fetch('/api/autonomy/config', {
@@ -266,10 +274,12 @@ export function AutonomyDashboard() {
           body: JSON.stringify(patch),
         });
         if (!response.ok) throw new Error('Failed to update config');
+        setActionNotice('Autonomy settings saved.');
         await refresh();
+        return true;
       } catch (err) {
         console.error(err);
-        toast.error('Could not update the autonomy settings. Try again.');
+        setActionError('Could not update the autonomy settings. Try again.');
       } finally {
         setBusy(null);
       }
@@ -279,6 +289,8 @@ export function AutonomyDashboard() {
 
   const enqueueRun = useCallback(
     async (prompt: string) => {
+      setActionError(null);
+      setActionNotice(null);
       setBusy('run');
       try {
         const response = await fetch('/api/autonomy/runs', {
@@ -287,10 +299,13 @@ export function AutonomyDashboard() {
           body: JSON.stringify({ trigger: 'manual', prompt }),
         });
         if (!response.ok) throw new Error('Failed to queue run');
+        setActionNotice('Run added to the queue.');
         await refresh();
+        return true;
       } catch (err) {
         console.error(err);
-        toast.error('Could not queue the run. Try again.');
+        setActionError('Could not queue the run. Try again.');
+        return false;
       } finally {
         setBusy(null);
       }
@@ -300,6 +315,8 @@ export function AutonomyDashboard() {
 
   const runActiveGoals = useCallback(
     async (prompt: string) => {
+      setActionError(null);
+      setActionNotice(null);
       setBusy('run:goals');
       try {
         const response = await fetch('/api/autonomy/runs', {
@@ -308,10 +325,13 @@ export function AutonomyDashboard() {
           body: JSON.stringify({ scope: 'all_active_goals', prompt }),
         });
         if (!response.ok) throw new Error('Failed to queue active goals');
+        setActionNotice('Active goals added to the queue.');
         await refresh();
+        return true;
       } catch (err) {
         console.error(err);
-        toast.error('Could not run the active goals. Try again.');
+        setActionError('Could not run the active goals. Try again.');
+        return false;
       } finally {
         setBusy(null);
       }
@@ -321,7 +341,9 @@ export function AutonomyDashboard() {
 
   const createGoal = useCallback(
     async (title: string, description: string) => {
-      if (!title.trim()) return;
+      if (!title.trim()) return false;
+      setActionError(null);
+      setActionNotice(null);
       setBusy('goal');
       try {
         const response = await fetch('/api/autonomy/goals', {
@@ -330,10 +352,13 @@ export function AutonomyDashboard() {
           body: JSON.stringify({ title, description }),
         });
         if (!response.ok) throw new Error('Failed to create goal');
+        setActionNotice('Goal added.');
         await refresh();
+        return true;
       } catch (err) {
         console.error(err);
-        toast.error('Could not create the goal. Try again.');
+        setActionError('Could not create the goal. Try again.');
+        return false;
       } finally {
         setBusy(null);
       }
@@ -343,6 +368,8 @@ export function AutonomyDashboard() {
 
   const importGoals = useCallback(
     async (payload: unknown) => {
+      setActionError(null);
+      setActionNotice(null);
       setBusy('goal:import');
       try {
         const body =
@@ -355,6 +382,7 @@ export function AutonomyDashboard() {
           body: JSON.stringify(body),
         });
         if (!response.ok) throw new Error('Failed to import goals');
+        setActionNotice('Goals imported.');
         await refresh();
       } finally {
         setBusy(null);
@@ -364,6 +392,8 @@ export function AutonomyDashboard() {
   );
 
   const importProfile = useCallback(async (payload: unknown) => {
+    setActionError(null);
+    setActionNotice(null);
     setBusy('profile:import');
     try {
       const response = await fetch('/api/profile/import', {
@@ -383,13 +413,13 @@ export function AutonomyDashboard() {
         const queued = Number(
           responseBody?.queued || responseBody?.imported || 0,
         );
-        toast.success(
+        setActionNotice(
           `Profile import accepted. Hindsight is processing ${queued} ${
             queued === 1 ? 'memory' : 'memories'
           }.`,
         );
       } else {
-        toast.success('Profile import completed.');
+        setActionNotice('Profile import completed.');
       }
     } finally {
       setBusy(null);
@@ -398,6 +428,8 @@ export function AutonomyDashboard() {
 
   const deleteGoal = useCallback(
     async (id: string) => {
+      setActionError(null);
+      setActionNotice(null);
       setBusy(`goal:${id}`);
       try {
         const response = await fetch(
@@ -408,7 +440,7 @@ export function AutonomyDashboard() {
         await refresh();
       } catch (err) {
         console.error(err);
-        toast.error('Could not delete the goal. Try again.');
+        setActionError('Could not delete the goal. Try again.');
       } finally {
         setBusy(null);
       }
@@ -418,15 +450,22 @@ export function AutonomyDashboard() {
 
   const cancelActiveRun = useCallback(async () => {
     if (!activeRun) return;
+    setActionError(null);
+    setActionNotice(null);
     setBusy('cancel');
     try {
-      await fetch(`/api/autonomy/runs/${activeRun.id}/cancel`, {
-        method: 'POST',
-      });
+      const response = await fetch(
+        `/api/autonomy/runs/${activeRun.id}/cancel`,
+        {
+          method: 'POST',
+        },
+      );
+      if (!response.ok) throw new Error('Failed to cancel run');
+      setActionNotice('Cancellation requested.');
       await refresh();
     } catch (err) {
       console.error(err);
-      toast.error('Could not cancel the run. Try again.');
+      setActionError('Could not cancel the run. Try again.');
     } finally {
       setBusy(null);
     }
@@ -434,6 +473,8 @@ export function AutonomyDashboard() {
 
   const cancelQueuedRequest = useCallback(
     async (requestId: string) => {
+      setActionError(null);
+      setActionNotice(null);
       setBusy(requestId);
       try {
         const response = await fetch(
@@ -446,7 +487,7 @@ export function AutonomyDashboard() {
         await refresh();
       } catch (err) {
         console.error(err);
-        toast.error('Could not cancel the queued request. Try again.');
+        setActionError('Could not cancel the queued request. Try again.');
       } finally {
         setBusy(null);
       }
@@ -519,6 +560,15 @@ export function AutonomyDashboard() {
           refreshing={refreshing}
           wsConnected={wsConnected}
         />
+        {loadError && (
+          <p
+            role="status"
+            className="my-3 rounded-lg bg-control p-3 text-sm text-secondary"
+          >
+            Updates are temporarily unavailable. Showing the last saved
+            activity. Use Refresh to try again.
+          </p>
+        )}
         <AutonomyFeed items={feedSorted} config={state.config} />
       </div>
       <WorkspaceDrawer
@@ -531,6 +581,8 @@ export function AutonomyDashboard() {
         events={state.events}
         activeRun={activeRun}
         busy={busy}
+        error={actionError}
+        notice={actionNotice}
         onTogglePause={togglePause}
         onEnqueueRun={enqueueRun}
         onRunActiveGoals={runActiveGoals}
@@ -561,7 +613,7 @@ function BackgroundGrain() {
 
 function SkeletonFeed() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" role="status" aria-label="Loading Autonomy">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i} className="space-y-2">
           <div className="h-3 w-20 animate-pulse rounded bg-fill/[0.04]" />

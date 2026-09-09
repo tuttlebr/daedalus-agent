@@ -166,14 +166,22 @@ export function ConnectionsView() {
           </p>
         )}
 
-        <div className="grid gap-3 md:grid-cols-2">
+        {!loading && !error && connections.length === 0 && (
+          <GlassCard>
+            <p className="text-sm text-muted">
+              No Google services are available yet. Use Refresh to check again.
+            </p>
+          </GlassCard>
+        )}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {connections.map((connection) => (
-            <GlassCard key={connection.id} className="space-y-3">
-              <div className="flex items-start justify-between gap-3">
+            <GlassCard key={connection.id} className="min-w-0 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <h2 className="font-medium text-dark-text-primary">
                   {connection.label}
                 </h2>
                 <Badge
+                  className="max-w-full"
                   variant={
                     connection.authorizationSaved ? 'success' : 'secondary'
                   }
@@ -183,27 +191,49 @@ export function ConnectionsView() {
                     ) : undefined
                   }
                 >
-                  {connection.authorizationSaved
-                    ? 'Saved, unverified'
-                    : 'No saved authorization'}
+                  <span className="min-w-0 whitespace-normal break-words">
+                    {connection.authorizationSaved
+                      ? 'Saved, unverified'
+                      : 'No saved authorization'}
+                  </span>
                 </Badge>
               </div>
               <p className="text-sm text-dark-text-muted">
                 {connection.description}
               </p>
-              <Button
-                variant="secondary"
-                size="sm"
-                leftIcon={<IconRefresh size={16} />}
-                isLoading={resettingService === connection.id}
-                disabled={
-                  resettingService !== null &&
-                  resettingService !== connection.id
-                }
-                onClick={() => void reconnect(connection)}
-              >
-                {connection.authorizationSaved ? 'Reconnect' : 'Start fresh'}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {!connection.authorizationSaved && (
+                  <Button
+                    className="min-w-0 max-w-full"
+                    variant="accent"
+                    size="sm"
+                    onClick={() => setActiveView('chat')}
+                  >
+                    <span className="min-w-0 break-words">Connect in Chat</span>
+                  </Button>
+                )}
+                <Button
+                  className="min-w-0 max-w-full"
+                  aria-label={`${
+                    connection.authorizationSaved ? 'Reconnect' : 'Start fresh'
+                  } ${connection.label}`}
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<IconRefresh size={16} />}
+                  isLoading={resettingService === connection.id}
+                  disabled={
+                    resettingService !== null &&
+                    resettingService !== connection.id
+                  }
+                  onClick={() => void reconnect(connection)}
+                >
+                  <span className="min-w-0 break-words">
+                    {connection.authorizationSaved
+                      ? 'Reconnect'
+                      : 'Start fresh'}
+                  </span>
+                </Button>
+              </div>
             </GlassCard>
           ))}
         </div>

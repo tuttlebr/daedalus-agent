@@ -45,13 +45,15 @@ interface WorkspaceDrawerProps {
   events: AutonomyEvent[];
   activeRun: AutonomyRun | undefined;
   busy: string | null;
+  error: string | null;
+  notice: string | null;
   onTogglePause: () => void;
-  onEnqueueRun: (prompt: string) => void;
-  onRunActiveGoals: (prompt: string) => void;
+  onEnqueueRun: (prompt: string) => Promise<boolean>;
+  onRunActiveGoals: (prompt: string) => Promise<boolean>;
   onCancelActiveRun: () => void;
   onCancelQueuedRequest: (id: string) => void;
   onUpdateInterval: (hours: number) => void;
-  onCreateGoal: (title: string, description: string) => void;
+  onCreateGoal: (title: string, description: string) => Promise<boolean>;
   onImportGoals: (payload: unknown) => void | Promise<void>;
   onImportProfile: (payload: unknown) => void | Promise<void>;
   onDeleteGoal: (id: string) => void;
@@ -67,6 +69,8 @@ export function WorkspaceDrawer({
   events,
   activeRun,
   busy,
+  error,
+  notice,
   onTogglePause,
   onEnqueueRun,
   onRunActiveGoals,
@@ -78,6 +82,11 @@ export function WorkspaceDrawer({
   onImportProfile,
   onDeleteGoal,
 }: WorkspaceDrawerProps) {
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open && (error || notice))
+      feedbackRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [error, notice, open]);
   const goalImportInputRef = useRef<HTMLInputElement>(null);
   const profileImportInputRef = useRef<HTMLInputElement>(null);
   const [manualPrompt, setManualPrompt] = useState('');
@@ -87,12 +96,13 @@ export function WorkspaceDrawer({
   const [goalImportError, setGoalImportError] = useState('');
   const [profileImportError, setProfileImportError] = useState('');
 
+  const configuredInterval = config?.intervalSeconds;
   useEffect(() => {
-    if (!config) return;
+    if (configuredInterval === undefined) return;
     setIntervalHours(
-      String(Math.max(1, Math.round((config.intervalSeconds || 14400) / 3600))),
+      String(Math.max(1, Math.round((configuredInterval || 14400) / 3600))),
     );
-  }, [config?.intervalSeconds, config]);
+  }, [configuredInterval]);
 
   const enabled = !!config?.enabled;
   const hasActiveRun = isActiveRun(activeRun);
@@ -115,15 +125,27 @@ export function WorkspaceDrawer({
       if (!file) return;
       try {
         const parsed = JSON.parse(await file.text());
+        if (
+          goals.length &&
+          parsed?.mode !== 'append' &&
+          !window.confirm(
+            'Replace all existing goals with the goals in this file?',
+          )
+        )
+          return;
         await onImportGoals(parsed);
         setGoalImportError('');
-      } catch {
-        setGoalImportError('Import failed. Use a JSON array or goals object.');
+      } catch (error) {
+        setGoalImportError(
+          error instanceof SyntaxError
+            ? 'Could not read this file. Choose a valid goals JSON file.'
+            : 'Could not import goals. Your existing goals are still shown. Try again.',
+        );
       } finally {
         event.target.value = '';
       }
     },
-    [onImportGoals],
+    [onImportGoals, goals.length],
   );
 
   const handleProfileFileSelected = useCallback(
@@ -151,398 +173,451 @@ export function WorkspaceDrawer({
       onClose={onClose}
       position="right"
       aria-label="Daedalus workspace"
-      className="flex h-full w-[calc(100vw-2rem)] max-w-md flex-col bg-panel shadow-xl"
+      className="flex h-full w-full max-w-md flex-col bg-panel shadow-xl"
     >
-      <header className="safe-top flex items-center justify-between border-b border-separator/70 px-5 py-4">
-        <div>
-          <p className="font-mono text-[0.75rem] uppercase tracking-[0.22em] text-dark-text-subtle">
-            workspace
-          </p>
-          <h2 className="mt-0.5 font-display text-[17px] font-semibold text-dark-text-primary">
-            Daedalus controls
-          </h2>
-        </div>
+      <header className="safe-top flex flex-wrap items-center justify-between gap-2 border-b border-separator/70 px-4 py-3">
+        <h2 className="min-w-0 break-words text-sm font-semibold text-primary sm:text-base">
+          Workspace
+        </h2>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close workspace"
-          className="grid h-11 w-11 place-items-center rounded-full text-dark-text-muted transition hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+          className="grid h-[44px] w-[44px] shrink-0 place-items-center rounded-full text-dark-text-muted transition hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
         >
           <IconX size={18} />
         </button>
       </header>
 
-      <div className="safe-bottom flex-1 overflow-y-auto px-5 py-5">
-        <Section title="State">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-sans text-[14px] text-dark-text-secondary">
-                Daedalus is currently{' '}
-                <strong className="text-dark-text-primary">
-                  {enabled ? 'awake' : 'paused'}
-                </strong>
-                .
-              </p>
-              {hasActiveRun && (
-                <p className="mt-1 font-mono text-[0.75rem] text-dark-text-muted">
-                  {activeRun?.status} · started{' '}
-                  {relativeTime(activeRun?.startedAt || activeRun?.createdAt)}
-                </p>
-              )}
-            </div>
-            <Button
-              size="sm"
-              variant={enabled ? 'secondary' : 'accent'}
-              onClick={onTogglePause}
-              isLoading={busy === 'config'}
-              leftIcon={
-                enabled ? (
-                  <IconPlayerPause size={14} />
-                ) : (
-                  <IconPlayerPlay size={14} />
-                )
-              }
+      <div className="safe-bottom min-h-0 flex-1 overflow-y-auto px-4 py-5">
+        <div ref={feedbackRef}>
+          {error && (
+            <p
+              role="alert"
+              className="mb-4 rounded-lg border border-nvidia-red/30 bg-nvidia-red/10 p-3 text-sm text-nvidia-red"
             >
-              {enabled ? 'Pause' : 'Resume'}
-            </Button>
-          </div>
-          {hasActiveRun && (
-            <Button
-              size="xs"
-              variant="danger"
-              onClick={onCancelActiveRun}
-              isLoading={busy === 'cancel'}
-              leftIcon={<IconPlayerStop size={12} />}
-              className="mt-3"
-            >
-              Cancel active run
-            </Button>
-          )}
-        </Section>
-
-        <Section title="Profile">
-          <input
-            ref={profileImportInputRef}
-            type="file"
-            accept="application/json,.json"
-            className="sr-only"
-            onChange={handleProfileFileSelected}
-          />
-          <Button
-            size="xs"
-            variant="secondary"
-            isLoading={busy === 'profile:import'}
-            disabled={busy !== null && busy !== 'profile:import'}
-            onClick={() => profileImportInputRef.current?.click()}
-            leftIcon={<IconUpload size={12} />}
-          >
-            Import profile JSON
-          </Button>
-          {profileImportError && (
-            <p className="mt-2 font-sans text-[12px] text-nvidia-red">
-              {profileImportError}
+              {error}
             </p>
           )}
-        </Section>
-
-        <Section title="Compose run">
-          <Textarea
-            value={manualPrompt}
-            onChange={(event) => setManualPrompt(event.target.value)}
-            placeholder="Whisper an instruction for the next sweep…"
-            maxRows={5}
-          />
-          <Button
-            variant="accent"
-            size="sm"
-            isLoading={busy === 'run'}
-            onClick={() => {
-              onEnqueueRun(manualPrompt);
-              setManualPrompt('');
-            }}
-            fullWidth
-            className="mt-2"
-            leftIcon={<IconPlayerPlay size={14} />}
-          >
-            Send to Daedalus
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            isLoading={busy === 'run:goals'}
-            disabled={activeGoalCount === 0}
-            onClick={() => {
-              onRunActiveGoals(manualPrompt);
-              setManualPrompt('');
-            }}
-            fullWidth
-            className="mt-2"
-            leftIcon={<IconChecklist size={14} />}
-          >
-            Run active goals
-          </Button>
-        </Section>
-
-        <Section title="Schedule">
-          <label className="block">
-            <span className="font-mono text-[0.75rem] uppercase tracking-[0.18em] text-dark-text-subtle">
-              run every
-            </span>
-            <div className="mt-1.5 flex items-center gap-2">
-              <Input
-                type="number"
-                min={1}
-                size="sm"
-                className="w-24"
-                value={intervalHours}
-                onChange={(event) => setIntervalHours(event.target.value)}
-              />
-              <span className="font-sans text-[14px] text-dark-text-muted">
-                hours
-              </span>
+          {notice && (
+            <p
+              role="status"
+              className="mb-4 rounded-lg bg-control p-3 text-sm text-primary"
+            >
+              {notice}
+            </p>
+          )}
+        </div>
+        <fieldset disabled={busy !== null} className="min-w-0">
+          <Section title="State">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1 basis-40">
+                <p className="font-sans text-[0.875rem] text-dark-text-secondary">
+                  Daedalus is currently{' '}
+                  <strong className="text-dark-text-primary">
+                    {enabled ? 'awake' : 'paused'}
+                  </strong>
+                  .
+                </p>
+                {hasActiveRun && (
+                  <p className="mt-1 font-mono text-[0.75rem] text-dark-text-muted">
+                    {activeRun?.status} · started{' '}
+                    {relativeTime(activeRun?.startedAt || activeRun?.createdAt)}
+                  </p>
+                )}
+              </div>
               <Button
                 size="sm"
-                variant="secondary"
-                onClick={() =>
-                  onUpdateInterval(Math.max(1, Number(intervalHours || 4)))
-                }
+                variant={enabled ? 'secondary' : 'accent'}
+                onClick={onTogglePause}
                 isLoading={busy === 'config'}
-                className="ml-auto"
+                leftIcon={
+                  enabled ? (
+                    <IconPlayerPause size={14} />
+                  ) : (
+                    <IconPlayerPlay size={14} />
+                  )
+                }
               >
-                Save
+                {enabled ? 'Pause' : 'Resume'}
               </Button>
             </div>
-          </label>
-        </Section>
+            {hasActiveRun && (
+              <Button
+                size="xs"
+                variant="danger"
+                onClick={onCancelActiveRun}
+                isLoading={busy === 'cancel'}
+                leftIcon={<IconPlayerStop size={12} />}
+                className="mt-3"
+              >
+                Cancel active run
+              </Button>
+            )}
+          </Section>
 
-        <Collapsible title="Goals" badge={goals.length} defaultOpen>
-          <div className="space-y-2">
-            <Input
-              size="sm"
-              value={goalTitle}
-              onChange={(event) => setGoalTitle(event.target.value)}
-              placeholder="New goal"
-            />
-            <Textarea
-              value={goalDescription}
-              onChange={(event) => setGoalDescription(event.target.value)}
-              placeholder="What should Daedalus watch for?"
-              maxRows={3}
+          <Section title="Profile">
+            <input
+              ref={profileImportInputRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={handleProfileFileSelected}
             />
             <Button
               size="xs"
               variant="secondary"
-              isLoading={busy === 'goal'}
-              onClick={() => {
-                if (!goalTitle.trim()) return;
-                onCreateGoal(goalTitle, goalDescription);
-                setGoalTitle('');
-                setGoalDescription('');
-              }}
-              leftIcon={<IconPlus size={12} />}
-            >
-              Add goal
-            </Button>
-            <input
-              ref={goalImportInputRef}
-              type="file"
-              accept="application/json,.json"
-              className="sr-only"
-              onChange={handleGoalFileSelected}
-            />
-            <Button
-              size="xs"
-              variant="ghost"
-              isLoading={busy === 'goal:import'}
-              disabled={busy !== null && busy !== 'goal:import'}
-              onClick={() => goalImportInputRef.current?.click()}
+              isLoading={busy === 'profile:import'}
+              disabled={busy !== null && busy !== 'profile:import'}
+              onClick={() => profileImportInputRef.current?.click()}
               leftIcon={<IconUpload size={12} />}
             >
-              Import JSON
+              Import profile JSON
             </Button>
-            {goalImportError && (
-              <p className="font-sans text-[12px] text-nvidia-red">
-                {goalImportError}
+            {profileImportError && (
+              <p
+                role="alert"
+                className="mt-2 font-sans text-[0.75rem] text-nvidia-red"
+              >
+                {profileImportError}
               </p>
             )}
-          </div>
-          <div className="mt-4 space-y-3">
-            {goals.length === 0 ? (
-              <p className="font-sans text-[13px] italic text-dark-text-muted">
-                No goals yet.
-              </p>
-            ) : (
-              goals.slice(0, 12).map((goal) => (
-                <article
-                  key={goal.id}
-                  className="border-t border-separator/70 pt-2.5 first:border-t-0 first:pt-0"
+          </Section>
+
+          <Section title="Compose run">
+            <label
+              htmlFor="autonomy-run-instruction"
+              className="mb-2 block text-sm text-secondary"
+            >
+              Instructions (optional)
+            </label>
+            <Textarea
+              id="autonomy-run-instruction"
+              value={manualPrompt}
+              onChange={(event) => setManualPrompt(event.target.value)}
+              placeholder="What should Daedalus work on?"
+              maxRows={5}
+            />
+            <Button
+              variant="accent"
+              size="sm"
+              isLoading={busy === 'run'}
+              onClick={async () => {
+                if (await onEnqueueRun(manualPrompt)) setManualPrompt('');
+              }}
+              fullWidth
+              className="mt-2"
+              leftIcon={<IconPlayerPlay size={14} />}
+            >
+              Send to Daedalus
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              isLoading={busy === 'run:goals'}
+              disabled={activeGoalCount === 0}
+              onClick={async () => {
+                if (await onRunActiveGoals(manualPrompt)) setManualPrompt('');
+              }}
+              fullWidth
+              className="mt-2"
+              leftIcon={<IconChecklist size={14} />}
+            >
+              Run active goals
+            </Button>
+          </Section>
+
+          <Section title="Schedule">
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                const hours = Number(intervalHours);
+                if (Number.isFinite(hours) && hours >= 1)
+                  onUpdateInterval(hours);
+              }}
+            >
+              <label
+                htmlFor="autonomy-interval"
+                className="block text-sm text-secondary"
+              >
+                Run every (hours)
+              </label>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Input
+                  id="autonomy-interval"
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
+                  size="sm"
+                  wrapperClassName="min-w-0 flex-1 basis-24"
+                  value={intervalHours}
+                  onChange={(event) => setIntervalHours(event.target.value)}
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="secondary"
+                  isLoading={busy === 'config'}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-baseline gap-2">
-                        <p className="truncate font-display text-[14px] font-semibold text-dark-text-primary">
-                          {goal.title}
-                        </p>
-                        <span className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle">
-                          {goal.status}
+                  Save schedule
+                </Button>
+              </div>
+            </form>
+          </Section>
+
+          <Collapsible title="Goals" badge={goals.length} defaultOpen>
+            <div className="space-y-2">
+              <label
+                htmlFor="autonomy-goal-title"
+                className="block text-sm text-secondary"
+              >
+                Goal name
+              </label>
+              <Input
+                id="autonomy-goal-title"
+                size="sm"
+                value={goalTitle}
+                onChange={(event) => setGoalTitle(event.target.value)}
+                placeholder="New goal"
+              />
+              <label
+                htmlFor="autonomy-goal-description"
+                className="block text-sm text-secondary"
+              >
+                Goal details (optional)
+              </label>
+              <Textarea
+                id="autonomy-goal-description"
+                value={goalDescription}
+                onChange={(event) => setGoalDescription(event.target.value)}
+                placeholder="What should Daedalus watch for?"
+                maxRows={3}
+              />
+              <Button
+                size="xs"
+                variant="secondary"
+                isLoading={busy === 'goal'}
+                disabled={!goalTitle.trim()}
+                onClick={async () => {
+                  if (await onCreateGoal(goalTitle, goalDescription)) {
+                    setGoalTitle('');
+                    setGoalDescription('');
+                  }
+                }}
+                leftIcon={<IconPlus size={12} />}
+              >
+                Add goal
+              </Button>
+              <input
+                ref={goalImportInputRef}
+                type="file"
+                accept="application/json,.json"
+                hidden
+                onChange={handleGoalFileSelected}
+              />
+              <Button
+                size="xs"
+                variant="ghost"
+                isLoading={busy === 'goal:import'}
+                disabled={busy !== null && busy !== 'goal:import'}
+                onClick={() => goalImportInputRef.current?.click()}
+                leftIcon={<IconUpload size={12} />}
+              >
+                Import JSON
+              </Button>
+              {goalImportError && (
+                <p
+                  role="alert"
+                  className="font-sans text-[0.75rem] text-nvidia-red"
+                >
+                  {goalImportError}
+                </p>
+              )}
+            </div>
+            <div className="mt-4 space-y-3">
+              {goals.length === 0 ? (
+                <p className="font-sans text-[0.8125rem] italic text-dark-text-muted">
+                  No goals yet.
+                </p>
+              ) : (
+                goals.map((goal) => (
+                  <article
+                    key={goal.id}
+                    className="border-t border-separator/70 pt-2.5 first:border-t-0 first:pt-0"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 basis-48">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <p className="break-words font-display text-[0.875rem] font-semibold text-dark-text-primary">
+                            {goal.title}
+                          </p>
+                          <span className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle">
+                            {goal.status}
+                          </span>
+                        </div>
+                        {goal.description && (
+                          <p className="mt-1 font-sans text-[0.8125rem] leading-snug text-dark-text-muted">
+                            {goal.description}
+                          </p>
+                        )}
+                      </div>
+                      <IconButton
+                        size="xs"
+                        variant="danger"
+                        icon={<IconTrash />}
+                        aria-label={`Delete goal: ${goal.title}`}
+                        tooltip="Delete goal"
+                        isLoading={busy === `goal:${goal.id}`}
+                        disabled={busy !== null && busy !== `goal:${goal.id}`}
+                        onClick={() => {
+                          if (
+                            window.confirm(`Delete the goal “${goal.title}”?`)
+                          )
+                            onDeleteGoal(goal.id);
+                        }}
+                        className="shrink-0"
+                      />
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          <Collapsible
+            title="Queue"
+            badge={queue.length}
+            defaultOpen={queue.length > 0}
+          >
+            <div className="space-y-3">
+              {queue.length === 0 ? (
+                <p className="font-sans text-[0.8125rem] italic text-dark-text-muted">
+                  No queued requests.
+                </p>
+              ) : (
+                queue.map((request) => (
+                  <article
+                    key={request.id}
+                    className="border-t border-separator/70 pt-2.5 first:border-t-0 first:pt-0"
+                  >
+                    <div className="flex flex-wrap items-baseline justify-between gap-3">
+                      <div className="flex min-w-0 items-baseline gap-2">
+                        <span className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-nvidia-green">
+                          {request.position === 1
+                            ? 'next'
+                            : `#${request.position}`}
+                        </span>
+                        <span className="truncate font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle">
+                          {request.trigger}
                         </span>
                       </div>
-                      {goal.description && (
-                        <p className="mt-1 font-sans text-[13px] leading-snug text-dark-text-muted">
-                          {goal.description}
-                        </p>
-                      )}
+                      <span className="shrink-0 font-mono text-[0.75rem] text-dark-text-subtle">
+                        {relativeTime(request.createdAt)}
+                      </span>
                     </div>
-                    <IconButton
-                      size="xs"
-                      variant="danger"
-                      icon={<IconTrash />}
-                      aria-label={`Delete goal: ${goal.title}`}
-                      tooltip="Delete goal"
-                      isLoading={busy === `goal:${goal.id}`}
-                      disabled={busy !== null && busy !== `goal:${goal.id}`}
-                      onClick={() => onDeleteGoal(goal.id)}
-                      className="shrink-0"
-                    />
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-        </Collapsible>
+                    <p className="mt-1 font-sans text-[0.8125rem] leading-snug text-dark-text-secondary">
+                      {request.prompt?.trim() || 'No prompt supplied.'}
+                    </p>
+                    {request.goalId && (
+                      <p className="mt-1 break-words font-sans text-[0.75rem] text-dark-text-muted">
+                        Goal: {resolveGoalTitle(request.goalId)}
+                      </p>
+                    )}
+                    <div className="mt-1 flex flex-wrap items-baseline justify-between gap-3">
+                      <p className="min-w-0 break-words text-[0.75rem] text-dark-text-subtle">
+                        Requested by {request.requestedBy}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => onCancelQueuedRequest(request.id)}
+                        disabled={busy === request.id}
+                        className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle transition-colors hover:text-nvidia-red disabled:opacity-40"
+                      >
+                        {busy === request.id ? 'cancelling' : 'cancel'}
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </Collapsible>
 
-        <Collapsible
-          title="Queue"
-          badge={queue.length}
-          defaultOpen={queue.length > 0}
-        >
-          <div className="space-y-3">
-            {queue.length === 0 ? (
-              <p className="font-sans text-[13px] italic text-dark-text-muted">
-                No queued requests.
-              </p>
-            ) : (
-              queue.slice(0, 20).map((request) => (
-                <article
-                  key={request.id}
-                  className="border-t border-separator/70 pt-2.5 first:border-t-0 first:pt-0"
-                >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <div className="flex min-w-0 items-baseline gap-2">
-                      <span className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-nvidia-green/80">
-                        {request.position === 1
-                          ? 'next'
-                          : `#${request.position}`}
+          <Collapsible title="History" badge={runs.length}>
+            <div className="space-y-3">
+              {runs.length === 0 ? (
+                <p className="font-sans text-[0.8125rem] italic text-dark-text-muted">
+                  No runs yet.
+                </p>
+              ) : (
+                runs.map((run) => (
+                  <article
+                    key={run.id}
+                    className="border-t border-separator/70 pt-2.5 first:border-t-0 first:pt-0"
+                  >
+                    <div className="flex flex-wrap items-baseline justify-between gap-3">
+                      <span
+                        className={classNames(
+                          'font-mono text-[0.75rem] uppercase tracking-wider',
+                          runStatusTone(run.status),
+                        )}
+                      >
+                        {run.status}
                       </span>
-                      <span className="truncate font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle">
-                        {request.trigger}
+                      <span className="font-mono text-[0.75rem] text-dark-text-subtle">
+                        {relativeTime(run.startedAt || run.createdAt)}
                       </span>
                     </div>
-                    <span className="shrink-0 font-mono text-[0.75rem] text-dark-text-subtle">
-                      {relativeTime(request.createdAt)}
+                    {run.summary && (
+                      <p className="mt-1 font-sans text-[0.8125rem] leading-snug text-dark-text-secondary">
+                        {run.summary}
+                      </p>
+                    )}
+                    {run.goalId && (
+                      <p className="mt-1 break-words font-sans text-[0.75rem] text-dark-text-muted">
+                        Goal: {resolveGoalTitle(run.goalId)}
+                      </p>
+                    )}
+                  </article>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          <Collapsible title="Diagnostics" badge={events.length}>
+            <ol className="space-y-1.5">
+              {events.length === 0 ? (
+                <p className="font-sans text-[0.8125rem] italic text-dark-text-muted">
+                  No events.
+                </p>
+              ) : (
+                events.map((event) => (
+                  <li
+                    key={event.id}
+                    className="flex flex-wrap gap-2 font-mono text-[0.75rem]"
+                  >
+                    <span className="w-16 shrink-0 text-dark-text-subtle">
+                      {relativeTime(event.createdAt)}
                     </span>
-                  </div>
-                  <p className="mt-1 line-clamp-3 font-sans text-[13px] leading-snug text-dark-text-secondary">
-                    {request.prompt?.trim() || 'No prompt supplied.'}
-                  </p>
-                  {request.goalId && (
-                    <p className="mt-1 truncate font-sans text-[12px] text-dark-text-muted">
-                      Goal: {resolveGoalTitle(request.goalId)}
-                    </p>
-                  )}
-                  <div className="mt-1 flex items-baseline justify-between gap-3">
-                    <p className="truncate font-mono text-[0.75rem] text-dark-text-subtle">
-                      {request.id} · {request.requestedBy}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => onCancelQueuedRequest(request.id)}
-                      disabled={busy === request.id}
-                      className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle transition-colors hover:text-nvidia-red/80 disabled:opacity-40"
-                    >
-                      {busy === request.id ? 'cancelling' : 'cancel'}
-                    </button>
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-        </Collapsible>
-
-        <Collapsible title="History" badge={runs.length}>
-          <div className="space-y-3">
-            {runs.length === 0 ? (
-              <p className="font-sans text-[13px] italic text-dark-text-muted">
-                No runs yet.
-              </p>
-            ) : (
-              runs.slice(0, 12).map((run) => (
-                <article
-                  key={run.id}
-                  className="border-t border-separator/70 pt-2.5 first:border-t-0 first:pt-0"
-                >
-                  <div className="flex items-baseline justify-between gap-3">
                     <span
                       className={classNames(
-                        'font-mono text-[0.75rem] uppercase tracking-wider',
-                        runStatusTone(run.status),
+                        'max-w-full break-words text-[0.75rem] uppercase tracking-wider [overflow-wrap:anywhere]',
+                        event.level === 'error' && 'text-nvidia-red',
+                        event.level === 'warn' && 'text-nvidia-orange',
+                        event.level === 'info' && 'text-nvidia-green',
                       )}
                     >
-                      {run.status}
+                      {event.type}
                     </span>
-                    <span className="font-mono text-[0.75rem] text-dark-text-subtle">
-                      {relativeTime(run.startedAt || run.createdAt)}
+                    <span className="min-w-0 break-words text-dark-text-muted">
+                      {event.message}
                     </span>
-                  </div>
-                  {run.summary && (
-                    <p className="mt-1 line-clamp-3 font-sans text-[13px] leading-snug text-dark-text-secondary">
-                      {run.summary}
-                    </p>
-                  )}
-                  {run.goalId && (
-                    <p className="mt-1 truncate font-sans text-[12px] text-dark-text-muted">
-                      Goal: {resolveGoalTitle(run.goalId)}
-                    </p>
-                  )}
-                </article>
-              ))
-            )}
-          </div>
-        </Collapsible>
-
-        <Collapsible title="Diagnostics" badge={events.length}>
-          <ol className="space-y-1.5">
-            {events.length === 0 ? (
-              <p className="font-sans text-[13px] italic text-dark-text-muted">
-                No events.
-              </p>
-            ) : (
-              events.slice(0, 30).map((event) => (
-                <li
-                  key={event.id}
-                  className="flex gap-2 font-mono text-[0.75rem]"
-                >
-                  <span className="w-16 shrink-0 text-dark-text-subtle">
-                    {relativeTime(event.createdAt)}
-                  </span>
-                  <span
-                    className={classNames(
-                      'shrink-0 text-[0.75rem] uppercase tracking-wider',
-                      event.level === 'error' && 'text-nvidia-red',
-                      event.level === 'warn' && 'text-amber-300',
-                      event.level === 'info' && 'text-nvidia-green/70',
-                    )}
-                  >
-                    {event.type}
-                  </span>
-                  <span className="min-w-0 break-words text-dark-text-muted">
-                    {event.message}
-                  </span>
-                </li>
-              ))
-            )}
-          </ol>
-        </Collapsible>
+                  </li>
+                ))
+              )}
+            </ol>
+          </Collapsible>
+        </fieldset>
       </div>
     </ModalSurface>
   );
@@ -581,8 +656,8 @@ function Collapsible({
       className="group mb-3 rounded-md border border-separator/70 bg-fill/[0.015] open:bg-fill/[0.025]"
       open={defaultOpen}
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 font-mono text-[0.75rem] uppercase tracking-[0.22em] text-dark-text-muted transition hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40">
-        <span className="flex items-center gap-2">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium text-dark-text-secondary transition hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40">
+        <span className="flex min-w-0 flex-wrap items-center gap-2 [overflow-wrap:anywhere]">
           {title}
           {typeof badge === 'number' && badge > 0 && (
             <span className="rounded bg-fill/[0.06] px-1.5 py-px text-[0.75rem] tracking-wider text-dark-text-secondary">
@@ -604,8 +679,8 @@ function Collapsible({
 function runStatusTone(status: string): string {
   if (status === 'completed') return 'text-nvidia-teal';
   if (status === 'failed' || status === 'cancelled' || status === 'aborted')
-    return 'text-nvidia-red/80';
+    return 'text-nvidia-red';
   if (status === 'skipped') return 'text-nvidia-orange';
-  if (status === 'running') return 'text-nvidia-green/80';
+  if (status === 'running') return 'text-nvidia-green';
   return 'text-dark-text-subtle';
 }

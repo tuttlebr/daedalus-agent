@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
-import toast from 'react-hot-toast';
 
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
@@ -9,11 +8,7 @@ import { useRouter } from 'next/router';
 
 import { useTheme } from '@/hooks/useTheme';
 
-import {
-  registerServiceWorker,
-  setupOfflineDetection,
-  setOnUpdateAvailable,
-} from '@/utils/app/pwa';
+import { registerServiceWorker, setOnUpdateAvailable } from '@/utils/app/pwa';
 import { reportError } from '@/utils/errorReporter';
 
 import { AuthProvider } from '@/components/auth';
@@ -45,10 +40,6 @@ function App({ Component, pageProps }: AppProps<{}>) {
   useEffect(() => {
     registerServiceWorker();
     setOnUpdateAvailable(() => setShowUpdateToast(true));
-    setupOfflineDetection(
-      () => toast.error('You are offline. Some features may be limited.'),
-      () => toast.success('Back online!'),
-    );
 
     const onRejection = (event: PromiseRejectionEvent) => {
       reportError(event.reason ?? new Error('Unhandled promise rejection'), {

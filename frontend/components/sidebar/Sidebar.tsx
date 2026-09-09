@@ -45,9 +45,6 @@ export const Sidebar = memo(() => {
   const deleteConversationFromStore = useConversationStore(
     (s) => s.deleteConversation,
   );
-  const clearConversationsFromStore = useConversationStore(
-    (s) => s.clearConversations,
-  );
 
   const searchTerm = useUISettingsStore((s) => s.searchTerm);
   const setSearchTerm = useUISettingsStore((s) => s.setSearchTerm);
@@ -60,7 +57,13 @@ export const Sidebar = memo(() => {
   );
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const confirmDeleteRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingDeleteId) confirmDeleteRef.current?.focus();
+  }, [confirmingDeleteId]);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (renamingId) {
@@ -85,65 +88,103 @@ export const Sidebar = memo(() => {
     };
     addConversation(newConv);
     selectConversation(newConv.id);
-    saveConversation(newConv);
+    void saveConversation(newConv).catch(() =>
+      setError(
+        'Could not save the new chat. Your chat is still available here; try again when connected.',
+      ),
+    );
+    setSearchTerm('');
+    setActiveView('chat');
     closeSidebarOnMobile();
-  }, [addConversation, selectConversation, closeSidebarOnMobile]);
+  }, [
+    addConversation,
+    selectConversation,
+    closeSidebarOnMobile,
+    setActiveView,
+    setSearchTerm,
+  ]);
 
   const handleSelect = useCallback(
     (id: string) => {
       selectConversation(id);
+      setActiveView('chat');
       closeSidebarOnMobile();
     },
-    [selectConversation, closeSidebarOnMobile],
+    [selectConversation, closeSidebarOnMobile, setActiveView],
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
-      const wasSelected =
-        useConversationStore.getState().selectedConversationId === id;
-
-      // Remove from store (also clears selectedConversationId if it matches)
-      deleteConversationFromStore(id);
-      setConfirmingDeleteId(null);
-
-      // Persist deletion to Redis
+      if (pending) return;
+      setPending(id);
+      setError(null);
       try {
-        await apiDelete(`/api/conversations/${id}`);
-      } catch (err) {
-        console.error('Failed to delete conversation from server:', err);
-      }
-
-      // If we deleted the active conversation, select another or create new
-      if (wasSelected) {
-        const remaining = useConversationStore.getState().conversations;
-        if (remaining.length > 0) {
-          selectConversation(remaining[remaining.length - 1].id);
-        } else {
-          handleNewConversation();
+        await apiDelete(`/api/conversations/${encodeURIComponent(id)}`);
+        const wasSelected =
+          useConversationStore.getState().selectedConversationId === id;
+        deleteConversationFromStore(id);
+        setConfirmingDeleteId(null);
+        if (wasSelected) {
+          const remaining = useConversationStore.getState().conversations;
+          if (remaining.length)
+            selectConversation(remaining[remaining.length - 1].id);
+          else handleNewConversation();
         }
+      } catch {
+        setError(
+          'Could not delete this conversation. It is still in your history. Try again.',
+        );
+      } finally {
+        setPending(null);
       }
     },
-    [deleteConversationFromStore, selectConversation, handleNewConversation],
+    [
+      deleteConversationFromStore,
+      selectConversation,
+      handleNewConversation,
+      pending,
+    ],
   );
 
   const startRename = useCallback((conv: Conversation) => {
+    setError(null);
     setConfirmingDeleteId(null);
     setRenamingId(conv.id);
     setRenameValue(conv.name);
   }, []);
 
-  const commitRename = useCallback(() => {
-    if (!renamingId) return;
+  const cancelRename = useCallback((id: string) => {
+    setRenamingId(null);
+    setError(null);
+    requestAnimationFrame(() =>
+      document.getElementById(`rename-conversation-${id}`)?.focus(),
+    );
+  }, []);
+
+  const commitRename = useCallback(async () => {
+    if (!renamingId || pending) return;
     const name = renameValue.trim();
     const conv = useConversationStore
       .getState()
       .conversations.find((c) => c.id === renamingId);
-    setRenamingId(null);
-    if (!conv || !name || name === conv.name) return;
+    if (!conv || !name) return;
+    if (name === conv.name) {
+      cancelRename(renamingId);
+      return;
+    }
+    setPending(renamingId);
+    setError(null);
     const updated = { ...conv, name, updatedAt: Date.now() };
-    updateConversation(renamingId, { name, updatedAt: updated.updatedAt });
-    saveConversation(updated);
-  }, [renamingId, renameValue, updateConversation]);
+    try {
+      await saveConversation(updated);
+      updateConversation(renamingId, { name, updatedAt: updated.updatedAt });
+      cancelRename(renamingId);
+    } catch {
+      setError('Could not save the name. Your edit is still here. Try again.');
+    } finally {
+      setPending(null);
+    }
+  }, [renamingId, renameValue, updateConversation, pending, cancelRename]);
 
   const handleDownloadTraces = useCallback((id: string) => {
     const link = document.createElement('a');
@@ -155,36 +196,41 @@ export const Sidebar = memo(() => {
   }, []);
 
   const handleClearAll = useCallback(async () => {
-    // Grab IDs before clearing (exclude autonomous agent)
+    if (pending) return;
+    setPending('clear-all');
+    setError(null);
     const ids = useConversationStore
       .getState()
       .conversations.filter((c) => c.id !== 'autonomous-agent-thoughts')
       .map((c) => c.id);
-
-    // Preserve autonomous agent conversation
-    const autonomousConv = useConversationStore
-      .getState()
-      .conversations.find((c) => c.id === 'autonomous-agent-thoughts');
-
-    // Clear store
-    clearConversationsFromStore();
-
-    // Re-add autonomous agent conversation if it existed
-    if (autonomousConv) {
-      useConversationStore.getState().addConversation(autonomousConv);
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        await apiDelete(`/api/conversations/${encodeURIComponent(id)}`);
+        deleteConversationFromStore(id);
+      }),
+    );
+    const failed = results.filter(
+      (result) => result.status === 'rejected',
+    ).length;
+    if (failed)
+      setError(
+        `Could not delete ${failed} conversation${
+          failed === 1 ? '' : 's'
+        }. They remain in your history. Try again.`,
+      );
+    else setIsConfirmingClear(false);
+    if (!useConversationStore.getState().selectedConversationId) {
+      const remaining = useConversationStore.getState().conversations;
+      if (remaining.length) selectConversation(remaining[0].id);
+      else handleNewConversation();
     }
-
-    // Delete each from Redis (skips autonomous)
-    for (const id of ids) {
-      try {
-        await apiDelete(`/api/conversations/${id}`);
-      } catch {}
-    }
-
-    // Create a fresh conversation
-    handleNewConversation();
-    setIsConfirmingClear(false);
-  }, [clearConversationsFromStore, handleNewConversation]);
+    setPending(null);
+  }, [
+    pending,
+    deleteConversationFromStore,
+    selectConversation,
+    handleNewConversation,
+  ]);
 
   const filtered = searchTerm
     ? conversations.filter((c) =>
@@ -234,6 +280,14 @@ export const Sidebar = memo(() => {
         />
       </div>
 
+      {error && (
+        <p
+          role="alert"
+          className="mx-3 mb-2 rounded-lg bg-nvidia-red/10 p-3 text-sm text-nvidia-red"
+        >
+          {error}
+        </p>
+      )}
       {/* Conversation list */}
       <nav
         aria-label="Conversation history"
@@ -261,19 +315,15 @@ export const Sidebar = memo(() => {
                       aria-label="Conversation name"
                       onChange={(e) => setRenameValue(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') commitRename();
+                        if (e.key === 'Enter' && !e.nativeEvent.isComposing)
+                          void commitRename();
                         if (e.key === 'Escape') {
                           e.preventDefault();
                           e.stopPropagation();
-                          setRenamingId(null);
-                          requestAnimationFrame(() =>
-                            document
-                              .getElementById(`rename-conversation-${conv.id}`)
-                              ?.focus(),
-                          );
+                          if (!pending) cancelRename(conv.id);
                         }
                       }}
-                      onBlur={commitRename}
+                      disabled={pending !== null}
                       className="min-w-0 flex-1 rounded-md border border-separator/70 bg-dark-bg-tertiary px-2 py-1.5 text-sm text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-nvidia-green/40"
                     />
                     <button
@@ -283,13 +333,19 @@ export const Sidebar = memo(() => {
                         rowActionClasses,
                         'hover:bg-nvidia-green/15 hover:text-nvidia-green',
                       )}
-                      // onMouseDown so it wins over the input's onBlur commit
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        commitRename();
-                      }}
+                      disabled={pending !== null || !renameValue.trim()}
+                      onClick={() => void commitRename()}
                     >
                       <IconCheck size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Cancel rename"
+                      disabled={pending !== null}
+                      className={rowActionClasses}
+                      onClick={() => cancelRename(conv.id)}
+                    >
+                      <IconX size={16} />
                     </button>
                   </div>
                 </li>
@@ -305,7 +361,9 @@ export const Sidebar = memo(() => {
                     </span>
                     <button
                       type="button"
+                      ref={confirmDeleteRef}
                       aria-label="Confirm delete"
+                      disabled={pending !== null}
                       className={classNames(
                         rowActionClasses,
                         'text-nvidia-red hover:bg-nvidia-red/15',
@@ -317,11 +375,19 @@ export const Sidebar = memo(() => {
                     <button
                       type="button"
                       aria-label="Cancel delete"
+                      disabled={pending !== null}
                       className={classNames(
                         rowActionClasses,
                         'hover:bg-fill/[0.06] hover:text-dark-text-primary',
                       )}
-                      onClick={() => setConfirmingDeleteId(null)}
+                      onClick={() => {
+                        setConfirmingDeleteId(null);
+                        requestAnimationFrame(() =>
+                          document
+                            .getElementById(`delete-conversation-${conv.id}`)
+                            ?.focus(),
+                        );
+                      }}
                     >
                       <IconX size={16} />
                     </button>
@@ -363,6 +429,7 @@ export const Sidebar = memo(() => {
                           type="button"
                           id={`rename-conversation-${conv.id}`}
                           aria-label="Rename conversation"
+                          disabled={pending !== null}
                           title="Rename"
                           className={classNames(
                             rowActionClasses,
@@ -394,7 +461,9 @@ export const Sidebar = memo(() => {
                         </button>
                         <button
                           type="button"
+                          id={`delete-conversation-${conv.id}`}
                           aria-label="Delete conversation"
+                          disabled={pending !== null}
                           title="Delete conversation"
                           className={classNames(
                             rowActionClasses,
@@ -452,6 +521,8 @@ export const Sidebar = memo(() => {
                   <IconButton
                     icon={<IconCheck size={16} />}
                     aria-label="Confirm clear"
+                    isLoading={pending === 'clear-all'}
+                    disabled={pending !== null}
                     variant="danger"
                     size="sm"
                     onClick={handleClearAll}
@@ -461,6 +532,7 @@ export const Sidebar = memo(() => {
                     aria-label="Cancel"
                     variant="ghost"
                     size="sm"
+                    disabled={pending !== null}
                     onClick={() => setIsConfirmingClear(false)}
                   />
                 </div>

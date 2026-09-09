@@ -67,6 +67,13 @@ framework choices; its linked HIG informs this web implementation.
 - [Typography](https://developer.apple.com/design/human-interface-guidelines/typography)
 - [Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars)
 
+## September 9 experience review
+
+[The frontend experience review](UX_REVIEW.md) records the complete flow inventory,
+prioritized findings, implemented corrections, and current verification. It
+adds recoverable Autonomy forms, server-confirmed history changes, readable
+Memory dialogs and search feedback, and an explicit app-update choice.
+
 ## Verification
 
 `e2e/tests/hig-design.spec.ts` uses deterministic API fixtures to inspect all
@@ -77,7 +84,7 @@ The existing `ui-layout.spec.ts` checks the mobile keyboard and fullscreen
 HTML/Markdown. The agentic suite covers authenticated streaming, cancellation,
 uploads, approvals, and recovery against isolated test services.
 
-The browser matrix includes desktop Chromium, 393px Chromium and WebKit,
+The browser matrix includes desktop Chromium, 402px Chromium and WebKit,
 834px iPad WebKit, and 320px Chromium. Tests cover text at 200%, saved image
 actions and editing, chat photo previews, appearance persistence, tab state
 across window resizing, and focus return. API fixtures contain no personal

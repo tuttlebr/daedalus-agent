@@ -190,7 +190,19 @@ export const Popover = memo(
     }
 
     return (
-      <div ref={containerRef} className="relative inline-flex">
+      <div
+        ref={containerRef}
+        className="relative inline-flex"
+        onBlur={(event) => {
+          if (
+            open &&
+            event.relatedTarget instanceof Node &&
+            !event.currentTarget.contains(event.relatedTarget) &&
+            !document.querySelector('dialog[open]')
+          )
+            close();
+        }}
+      >
         {triggerEl}
         {open && (
           <div
