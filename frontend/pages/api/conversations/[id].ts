@@ -6,14 +6,14 @@ import { getSession } from '@/utils/auth/session';
 
 import { touchImage } from '../session/imageStorage';
 
+import { deleteConversationForUser } from '@/server/session/conversationDeletion';
+import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
 import {
   getRedis,
   sessionKey,
   jsonGet,
   jsonSetWithExpiry,
-  jsonDel,
 } from '@/server/session/redis';
-import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
 import { clampConversations } from '@/server/session/sanitize';
 
 export const config = {
@@ -23,7 +23,6 @@ export const config = {
     },
   },
 };
-
 
 /**
  * Endpoint for conversation operations:
@@ -157,52 +156,11 @@ export default async function handler(
     }
   } else if (req.method === 'DELETE') {
     try {
-      // Verify ownership before allowing deletion
-      const ownsConversation = await verifyConversationOwnership(
-        session.username,
-        id,
-      );
-      if (!ownsConversation) {
+      const deleted = await deleteConversationForUser(session.username, id);
+      if (!deleted) {
         return res.status(403).json({
           error: 'Forbidden: You do not have access to this conversation',
         });
-      }
-
-      // Delete the conversation key
-      await jsonDel(conversationKey);
-
-      // Remove the conversation ID from the user's set
-      await redis.srem(userConversationsKey, id);
-
-      // Also remove from conversationHistory for cross-device synchronization
-      try {
-        const conversationHistoryKey = sessionKey([
-          'user',
-          session.username,
-          'conversationHistory',
-        ]);
-        const currentHistory = (await jsonGet(conversationHistoryKey)) || [];
-
-        // Ensure it's an array
-        const historyArray = Array.isArray(currentHistory)
-          ? currentHistory
-          : [];
-
-        // Remove the deleted conversation from the list
-        const filteredHistory = historyArray.filter((c: any) => c.id !== id);
-
-        // Save back to Redis
-        await jsonSetWithExpiry(
-          conversationHistoryKey,
-          filteredHistory,
-          60 * 60 * 24 * 7,
-        );
-      } catch (historyError) {
-        // Log error but don't fail the request - conversationHistory sync is best-effort
-        console.error(
-          'Failed to update conversationHistory on delete:',
-          historyError,
-        );
       }
 
       return res.status(200).json({ success: true });

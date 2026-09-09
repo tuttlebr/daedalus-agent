@@ -106,6 +106,102 @@ test('logs in through the real session boundary', async ({ page }) => {
   });
 });
 
+test('deletes a history-only conversation through the real API and keeps it deleted after reload', async ({
+  page,
+}) => {
+  await login(page);
+  const target = {
+    id: `e2e-delete-history-${Date.now()}`,
+    name: 'History-only deletion regression',
+    messages: [],
+    folderId: null,
+    updatedAt: Date.now(),
+  };
+  const survivor = {
+    ...target,
+    id: `${target.id}-keep`,
+    name: 'Keep this conversation',
+  };
+  const saved = await page.evaluate(
+    async ({ target, survivor }) => {
+      const statuses = [];
+      for (const [path, body] of [
+        ['/api/session/conversationHistory', [target, survivor]],
+        ['/api/session/selectedConversation', target],
+      ] as const) {
+        const response = await fetch(path, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        statuses.push(response.status);
+      }
+      return statuses;
+    },
+    { target, survivor },
+  );
+  expect(saved).toEqual([204, 204]);
+
+  const redis = new Redis(redisUrl);
+  try {
+    await page.reload();
+    await expect(page.getByPlaceholder('Send a message...')).toBeVisible();
+    await page
+      .getByRole('button', { name: 'Toggle sidebar', exact: true })
+      .click();
+    const targetButton = page.getByRole('button', {
+      name: target.name,
+      exact: true,
+    });
+    await expect(targetButton).toBeVisible();
+    expect(await redis.exists(`conversation:${target.id}`)).toBe(0);
+    expect(
+      await redis.sismember('user:e2e-user:conversations', target.id),
+    ).toBe(0);
+
+    const row = page.getByRole('listitem').filter({ has: targetButton });
+    await row
+      .getByRole('button', { name: 'Delete conversation', exact: true })
+      .click();
+    const deletion = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'DELETE' &&
+        response.url().endsWith(`/api/conversations/${target.id}`),
+    );
+    await page
+      .getByRole('button', { name: 'Confirm delete', exact: true })
+      .click();
+    expect((await deletion).status()).toBe(200);
+    await expect(targetButton).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: survivor.name, exact: true }),
+    ).toBeVisible();
+    const history = await browserGet(page, '/api/session/conversationHistory');
+    expect(
+      JSON.parse(history.body).map(
+        (conversation: { id: string }) => conversation.id,
+      ),
+    ).not.toContain(target.id);
+    expect(await redis.exists('user:e2e-user:selectedConversation')).toBe(0);
+
+    await page.reload();
+    await expect(page.getByPlaceholder('Send a message...')).toBeVisible();
+    await expect(targetButton).toHaveCount(0);
+    const afterReload = await browserGet(
+      page,
+      '/api/session/conversationHistory',
+    );
+    expect(
+      JSON.parse(afterReload.body).map(
+        (conversation: { id: string }) => conversation.id,
+      ),
+    ).not.toContain(target.id);
+  } finally {
+    redis.disconnect();
+  }
+});
+
 test('streams a chat completion over the WebSocket path', async ({ page }) => {
   let websocketConnected = false;
   let chatTokenReceived = false;

@@ -3,25 +3,27 @@ import { getSession } from '@/utils/auth/session';
 // --- Import handler and mocked modules ---
 import handler from '@/pages/api/conversations/[id]';
 
-import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
+import { deleteConversationForUser } from '@/server/session/conversationDeletion';
+import { jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- Mocks ---
 
 const mockSismember = vi.fn().mockResolvedValue(1);
 const mockSadd = vi.fn().mockResolvedValue(1);
-const mockSrem = vi.fn().mockResolvedValue(1);
 
 vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     sismember: mockSismember,
     sadd: mockSadd,
-    srem: mockSrem,
   })),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
-  jsonDel: vi.fn(),
+}));
+
+vi.mock('@/server/session/conversationDeletion', () => ({
+  deleteConversationForUser: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('@/utils/auth/session', () => ({
@@ -61,6 +63,7 @@ describe('conversations/[id] API handler', () => {
     // Restore default mock behavior
     (getSession as any).mockResolvedValue({ username: 'testuser' });
     mockSismember.mockResolvedValue(1);
+    vi.mocked(deleteConversationForUser).mockResolvedValue(true);
   });
 
   // ----- Authentication & Validation -----
@@ -341,15 +344,13 @@ describe('conversations/[id] API handler', () => {
   // ----- DELETE -----
 
   describe('DELETE', () => {
-    it('removes conversation and from user set', async () => {
-      (jsonGet as any).mockResolvedValue([]);
+    it('deletes using the authenticated user and requested conversation', async () => {
       const { req, res } = createMockReqRes('DELETE', { id: 'conv-1' });
 
       await handler(req, res);
 
-      expect(jsonDel).toHaveBeenCalledWith('daedalus:conversation:conv-1');
-      expect(mockSrem).toHaveBeenCalledWith(
-        'daedalus:user:testuser:conversations',
+      expect(deleteConversationForUser).toHaveBeenCalledWith(
+        'testuser',
         'conv-1',
       );
       expect(res.status).toHaveBeenCalledWith(200);
@@ -357,7 +358,7 @@ describe('conversations/[id] API handler', () => {
     });
 
     it('returns 403 when deleting unowned conversation', async () => {
-      mockSismember.mockResolvedValue(0);
+      vi.mocked(deleteConversationForUser).mockResolvedValue(false);
       const { req, res } = createMockReqRes('DELETE', { id: 'conv-1' });
 
       await handler(req, res);
@@ -366,11 +367,13 @@ describe('conversations/[id] API handler', () => {
       expect(res.json).toHaveBeenCalledWith({
         error: 'Forbidden: You do not have access to this conversation',
       });
-      expect(jsonDel).not.toHaveBeenCalled();
+      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
     });
 
-    it('returns 500 when jsonDel throws', async () => {
-      (jsonDel as any).mockRejectedValueOnce(new Error('Redis down'));
+    it('returns 500 when durable deletion fails', async () => {
+      vi.mocked(deleteConversationForUser).mockRejectedValueOnce(
+        new Error('Redis down'),
+      );
       const { req, res } = createMockReqRes('DELETE', { id: 'conv-1' });
 
       await handler(req, res);

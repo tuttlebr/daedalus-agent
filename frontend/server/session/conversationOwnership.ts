@@ -3,10 +3,10 @@ import { getRedis, sessionKey } from '@/server/session/redis';
 /**
  * Verify that a user owns a conversation.
  *
- * This is an authorization primitive: every route that reads or mutates a
- * conversation by id gates on it. It lives here so there is exactly one
- * definition to audit — two copies of an ownership check drift silently, and
- * the drift is only visible as a cross-user data leak.
+ * Authorization for direct reads and writes comes from set membership, never
+ * from client-supplied history or selection IDs. conversationDeletion.ts checks
+ * the same membership atomically with deletion; it also allows users to discard
+ * their private history copies without granting access to a shared record.
  */
 export async function verifyConversationOwnership(
   username: string,
