@@ -33,7 +33,7 @@ not a collection of installed CLI plugins. Keep all skills compatible with
 | ------------------------------------ | ------------------------- | --------------------------------------------------------------------------------------- |
 | Personalized briefing                | daily-summary             | network-health-check, kubernetes-specialist, espn-fantasy-football for a requested desk |
 | Ideation                             | creative-ideation         | requested implementation or image skill                                                 |
-| Image generation/edit                | gpt-image-2-photography   | creative-ideation only for open concept exploration                                     |
+| Image generation/edit                | image-creation            | creative-ideation only for open concept exploration                                     |
 | Sandbox commands/files               | bubblewrap-agent-workflow | devops-engineer for adapter/deployment changes                                          |
 | CI/CD, images, delivery              | devops-engineer           | kubernetes-specialist for cluster objects; sre-engineer for reliability                 |
 | Kubernetes objects and diagnosis     | kubernetes-specialist     | focused Dynamo skills; network-health-check for external network evidence               |

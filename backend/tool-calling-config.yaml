@@ -434,7 +434,7 @@ functions:
       operation=load_skill with skill_name=daily-summary your first tool call.
       Do not call get_memory or subject-matter tools until that skill is loaded.
       For an explicit image generation or edit request, load
-      gpt-image-2-photography before visual_media_tool generation/editing,
+      image-creation before visual_media_tool generation/editing,
       unless already loaded in this conversation. Image analysis alone does
       not need the photography skill.
     verbose: false

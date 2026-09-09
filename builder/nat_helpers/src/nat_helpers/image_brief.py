@@ -19,7 +19,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
-SKILL_NAME = "gpt-image-2-photography"
+SKILL_NAME = "image-creation"
 PREPARATION_TIMEOUT_SECONDS = 20
 
 

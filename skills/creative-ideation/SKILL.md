@@ -69,7 +69,7 @@ Do not load the whole library or describe internal discarded drafts.
 ## Collaboration and output
 
 For an image deliverable, load
-[gpt-image-2-photography](../gpt-image-2-photography/SKILL.md) and supply the
+[image-creation](../image-creation/SKILL.md) and supply the
 chosen concept to its image brief. For implementation, load the relevant
 DevOps/Kubernetes skill only if the task calls for it. Use
 [bubblewrap-agent-workflow](../bubblewrap-agent-workflow/SKILL.md) for a

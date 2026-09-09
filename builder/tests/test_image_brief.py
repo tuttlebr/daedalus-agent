@@ -292,7 +292,7 @@ def test_chat_runtime_schema_options_description_and_no_second_model_call(monkey
         info = await generator.__anext__()
         try:
             assert "Source-only rules." in info.description
-            assert "gpt-image-2-photography" in info.description
+            assert "image-creation" in info.description
             assert "options" in info.input_schema.model_json_schema()["properties"]
             return await info.fn(
                 operation="generate",

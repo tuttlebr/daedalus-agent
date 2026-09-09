@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 IMAGE_GUIDANCE_DESCRIPTION = (
     "For an explicit image generation or editing request, first load "
-    "gpt-image-2-photography using agent_skills_tool(operation='load_skill', "
-    "skill_name='gpt-image-2-photography'), unless already loaded in this conversation. "
+    "image-creation using agent_skills_tool(operation='load_skill', "
+    "skill_name='image-creation'), unless already loaded in this conversation. "
     "Keep prompt as the user's current request and supply a complete updated brief following the skill. "
     "Chat always uses automatic image quality. Use options for requested size, n, output_format, output_compression, and background. "
     "The latest request overrides inherited context; clear obsolete preserve/exact_text constraints in the brief. "

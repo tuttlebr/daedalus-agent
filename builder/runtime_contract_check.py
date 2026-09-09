@@ -399,7 +399,7 @@ def main() -> None:
             ) as info:
                 if (
                     "Configured image policy." not in info.description
-                    or "gpt-image-2-photography" not in info.description
+                    or "image-creation" not in info.description
                 ):
                     raise RuntimeError(
                         "Image guidance lost its runtime routing description"

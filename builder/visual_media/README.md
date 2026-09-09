@@ -120,7 +120,7 @@ Returns an `Error: ...` prefixed string when:
 ## Image guidance across Create and chat
 
 For explicit generation or editing, chat loads
-`skills/gpt-image-2-photography/SKILL.md` through `agent_skills_tool` and supplies
+`skills/image-creation/SKILL.md` through `agent_skills_tool` and supplies
 an `ImageBrief` to `visual_media_tool`. The brief covers scene, subject, medium,
 composition, lighting, details, exact lettering, requested changes, preservation
 rules, exclusions, intended use, and ordered reference descriptions. Per-call
