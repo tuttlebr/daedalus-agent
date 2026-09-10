@@ -7,9 +7,10 @@ hooks:
   allowlisted groups at ``MCPToolClient.acall``;
 * preserve per-user OAuth during streamable HTTP connection setup and suppress
   only verified teardown cancellation after a successful session yield;
-* discard a cached OAuth token after a protected-resource 401 and separate the
+* refresh a rejected Google access token without discarding its offline grant;
+* discard other cached OAuth tokens after a protected-resource 401 and separate the
   browser-auth timeout from the ordinary tool response timeout;
-* keep Google Docs authorization durable by requesting offline, incremental
+* keep Google Workspace authorization durable by requesting offline, incremental
   consent from Google's web-server OAuth flow;
 * promote terminal OAuth refresh failures to error-level operational logs;
 * bind each HTTP request's OAuth callback before entering a cached per-user
@@ -37,6 +38,7 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -99,7 +101,12 @@ _DEFAULT_MCP_OAUTH_TIMEOUT_SECONDS = 600.0
 _GOOGLE_DOCS_MCP_RESOURCE = "https://docsmcp.googleapis.com/mcp/v1"
 _GOOGLE_OAUTH_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"  # nosec B105
-_GOOGLE_DOCS_AUTHORIZATION_KWARGS = {
+_GOOGLE_MCP_RESOURCES = frozenset(
+    f"https://{service}mcp.googleapis.com/{path}"
+    for service in ("gmail", "calendar", "docs")
+    for path in ("mcp", "mcp/v1")
+)
+_GOOGLE_WORKSPACE_AUTHORIZATION_KWARGS = {
     "access_type": "offline",
     "include_granted_scopes": "true",
     # The callback is invoked only when no usable token remains. Explicit
@@ -1336,8 +1343,8 @@ def _patch_mcp_auth_log_levels():
     logger.info("MCP terminal authorization failures promoted to ERROR")
 
 
-async def _invalidate_rejected_mcp_oauth_token(auth_adapter) -> bool:
-    """Delete the current user's cached token after the resource rejects it."""
+async def _invalidate_rejected_mcp_oauth_token(auth_adapter, request=None) -> bool:
+    """Expire Google's rejected access token, retaining its durable grant."""
     user_id = getattr(auth_adapter, "user_id", None)
     provider = getattr(auth_adapter, "auth_provider", None)
     if provider is None:
@@ -1349,6 +1356,29 @@ async def _invalidate_rejected_mcp_oauth_token(auth_adapter) -> bool:
     delete = getattr(storage, "delete", None)
     if not user_id or delete is None:
         return False
+
+    auth_code_provider = getattr(provider, "_auth_code_provider", None) or provider
+    if _is_google_workspace_oauth(getattr(auth_code_provider, "config", None)):
+        saved = await storage.retrieve(user_id)
+        if saved is None:
+            return False
+        # Another request may have refreshed the record since this request was
+        # sent. Never invalidate the newer credential for a stale 401.
+        rejected = getattr(request, "headers", {}).get("Authorization", "")
+        if rejected and not any(
+            rejected == f"Bearer {credential.token.get_secret_value()}"
+            for credential in saved.credentials
+            if hasattr(credential, "token")
+        ):
+            return False
+        await storage.store(
+            user_id,
+            saved.model_copy(
+                update={"token_expires_at": datetime.fromtimestamp(0, UTC)}
+            ),
+        )
+        logger.info("Expired rejected Google access token; retained saved grant")
+        return True
 
     await delete(user_id)
     logger.info("Invalidated MCP OAuth token rejected by protected resource")
@@ -1541,32 +1571,35 @@ def _patch_mcp_auth_context_propagation():
         @functools.wraps(original_get_auth_headers)
         async def wrapped(self, request=None, response=None):
             callback = getattr(self, "_daedalus_user_auth_callback", None)
-            if callback is None:
+
+            async def get_headers():
+                provider = getattr(self, "auth_provider", None)
+                if _is_google_workspace_oauth(getattr(provider, "config", None)):
+                    # NAT swallows provider errors here and returns no headers.
+                    # Preserve refresh failures so callers do not recommend
+                    # reconnecting a healthy grant during an endpoint outage.
+                    result = await provider.authenticate(
+                        user_id=self.user_id, response=response
+                    )
+                    return result.as_requests_kwargs()["headers"]
                 return await original_get_auth_headers(
-                    self,
-                    request=request,
-                    response=response,
+                    self, request=request, response=response
                 )
 
             if getattr(
                 response, "status_code", None
             ) == 401 and _request_sent_bearer_credential(request):
-                # NAT's auth-code provider returns any unexpired token from its
-                # object store. A protected resource can reject that token
-                # before its local expiry, so remove it before NAT retries or
-                # the same rejected credential will be returned indefinitely.
-                # Do not delete a good saved token for the expected anonymous
-                # 401 that bootstraps OAuth endpoint discovery on a new client.
-                await _invalidate_rejected_mcp_oauth_token(self)
+                # Expire Google's rejected access token so the provider uses
+                # its refresh token. Anonymous discovery needs no invalidation.
+                await _invalidate_rejected_mcp_oauth_token(self, request=request)
+
+            if callback is None:
+                return await get_headers()
 
             # The HTTP request is executed by the cached transport task, whose
             # context otherwise points at the request that created the client.
             with Context.scope(user_auth_callback=callback):
-                headers = await original_get_auth_headers(
-                    self,
-                    request=request,
-                    response=response,
-                )
+                headers = await get_headers()
             if not headers:
                 # NAT 1.8 converts both absent OAuth bootstrap state and callback
                 # failures into an empty header mapping. Make the 401 retry fail
@@ -1596,8 +1629,16 @@ def _patch_mcp_auth_context_propagation():
         )
 
 
-def _patch_google_docs_oauth_authorization_parameters():
-    """Apply Google's durable web-server authorization parameters to Docs MCP."""
+def _is_google_workspace_oauth(config) -> bool:
+    resource = str(
+        (getattr(config, "authorization_kwargs", None) or {}).get("resource")
+        or getattr(config, "server_url", "")
+    ).rstrip("/")
+    return resource in _GOOGLE_MCP_RESOURCES
+
+
+def _patch_google_workspace_oauth_authorization_parameters():
+    """Request offline grants for each supported Google protected resource."""
     try:
         import functools
 
@@ -1608,7 +1649,7 @@ def _patch_google_docs_oauth_authorization_parameters():
         original_authenticate = OAuth2AuthCodeFlowProvider.authenticate
         if getattr(
             original_authenticate,
-            "_daedalus_google_docs_authorization_parameters",
+            "_daedalus_google_workspace_authorization_parameters",
             False,
         ):
             return
@@ -1631,21 +1672,142 @@ def _patch_google_docs_oauth_authorization_parameters():
             authorization_kwargs = dict(
                 getattr(config, "authorization_kwargs", None) or {}
             )
-            resource = str(authorization_kwargs.get("resource") or "").rstrip("/")
-            if resource == _GOOGLE_DOCS_MCP_RESOURCE:
-                authorization_kwargs.update(_GOOGLE_DOCS_AUTHORIZATION_KWARGS)
+            if _is_google_workspace_oauth(config):
+                authorization_kwargs.update(_GOOGLE_WORKSPACE_AUTHORIZATION_KWARGS)
                 config.authorization_kwargs = authorization_kwargs
             return await original_authenticate(self, user_id=user_id, **kwargs)
 
-        wrapped._daedalus_google_docs_authorization_parameters = True
+        wrapped._daedalus_google_workspace_authorization_parameters = True
         OAuth2AuthCodeFlowProvider.authenticate = wrapped
-        logger.info("Google Docs durable OAuth authorization parameters applied")
+        logger.info("Google Workspace durable OAuth authorization parameters applied")
     except ImportError as exc:
-        logger.warning("Could not patch Google Docs OAuth parameters: %s", exc)
+        logger.warning("Could not patch Google Workspace OAuth parameters: %s", exc)
     except Exception as exc:
         logger.warning(
-            "Unexpected error patching Google Docs OAuth parameters: %s", exc
+            "Unexpected error patching Google Workspace OAuth parameters: %s", exc
         )
+
+
+async def _refresh_google_workspace_token(provider, user_id, auth_result):
+    """Refresh offline without treating outages as revoked consent.
+
+    NAT 1.8 uses a synchronous client, passes a SecretStr as the secret, ignores
+    token_endpoint_auth_method, and falls back to consent on every exception.
+    Keep this replacement restricted to the Google resources we configure.
+    """
+    from authlib.integrations.base_client.errors import OAuthError
+    from authlib.integrations.httpx_client import AsyncOAuth2Client
+    from nat.data_models.authentication import AuthResult, BearerTokenCred
+    from pydantic import SecretStr
+
+    refresh_token = auth_result.raw.get("refresh_token")
+    if not isinstance(refresh_token, str) or not refresh_token:
+        return None
+
+    config = provider.config
+    secret = config.client_secret
+    if hasattr(secret, "get_secret_value"):
+        secret = secret.get_secret_value()
+    # Do not send an offline grant to a discovered or misconfigured endpoint.
+    if str(config.token_url) != _GOOGLE_OAUTH_TOKEN_URL:
+        raise RuntimeError("Google Workspace token endpoint configuration is invalid")
+
+    async def check_response(response):
+        # Authlib parses OAuth JSON without checking every HTTP status first.
+        # Preserve throttling/outage semantics even for empty or HTML bodies.
+        if response.status_code == 429 or response.status_code >= 500:
+            response.raise_for_status()
+
+    for attempt in range(2):
+        try:
+            async with AsyncOAuth2Client(
+                client_id=config.client_id,
+                client_secret=secret,
+                token_endpoint_auth_method=config.token_endpoint_auth_method
+                or "client_secret_post",
+                timeout=10.0,
+                event_hooks={"response": [check_response]},
+            ) as client:
+                token = await client.refresh_token(
+                    config.token_url, refresh_token=refresh_token
+                )
+            break
+        except OAuthError as exc:
+            if exc.error == "invalid_grant":
+                logger.warning("Google Workspace offline grant requires new consent")
+                return None
+            if exc.error not in {"server_error", "temporarily_unavailable"}:
+                # Never log descriptions or response bodies: providers may
+                # echo credentials. A client/config error is not fixed by login.
+                raise RuntimeError(
+                    "Google Workspace token refresh was rejected; check the OAuth client configuration"
+                ) from None
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 429 and exc.response.status_code < 500:
+                raise RuntimeError(
+                    "Google Workspace token refresh was rejected; check the OAuth client configuration"
+                ) from None
+        except httpx.RequestError:
+            pass
+        if attempt == 1:
+            raise RuntimeError(
+                "Google Workspace token refresh is temporarily unavailable; saved authorization retained. Retry later."
+            ) from None
+        await asyncio.sleep(0.2)
+
+    access_token = token.get("access_token")
+    expires_at = token.get("expires_at")
+    if (
+        not isinstance(access_token, str)
+        or not access_token
+        or not isinstance(expires_at, (int, float))
+        or not math.isfinite(expires_at)
+        or expires_at <= datetime.now(UTC).timestamp()
+    ):
+        raise RuntimeError(
+            "Google Workspace returned an unusable token refresh response"
+        )
+    # Google normally omits refresh_token on refresh. Preserve it across every
+    # access-token generation, while accepting rotation when explicitly sent.
+    token = dict(token)
+    token["refresh_token"] = token.get("refresh_token") or refresh_token
+    if "scope" not in token and "scope" in auth_result.raw:
+        token["scope"] = auth_result.raw["scope"]
+    refreshed = AuthResult(
+        credentials=[BearerTokenCred(token=SecretStr(access_token))],
+        token_expires_at=datetime.fromtimestamp(expires_at, UTC),
+        raw=token,
+    )
+    # A persistence failure must fail the call, not start another consent flow.
+    await provider._token_storage.store(user_id, refreshed)
+    logger.info("Refreshed Google Workspace access token without interactive consent")
+    return refreshed
+
+
+def _patch_google_workspace_oauth_refresh():
+    """Replace only the pinned toolkit's Google refresh implementation."""
+    import functools
+
+    from nat.authentication.oauth2.oauth2_auth_code_flow_provider import (
+        OAuth2AuthCodeFlowProvider,
+    )
+
+    original = OAuth2AuthCodeFlowProvider._attempt_token_refresh
+    if getattr(original, "_daedalus_google_workspace_refresh", False):
+        return
+    signature = inspect.signature(original)
+    if list(signature.parameters) != ["self", "user_id", "auth_result"]:
+        raise RuntimeError(f"Unexpected OAuth token refresh signature: {signature}")
+
+    @functools.wraps(original)
+    async def wrapped(self, user_id, auth_result):
+        if _is_google_workspace_oauth(self.config):
+            return await _refresh_google_workspace_token(self, user_id, auth_result)
+        return await original(self, user_id, auth_result)
+
+    wrapped._daedalus_google_workspace_refresh = True
+    OAuth2AuthCodeFlowProvider._attempt_token_refresh = wrapped
+    logger.info("Google Workspace offline token refresh adapter applied")
 
 
 def _patch_google_docs_oauth_discovery():
@@ -1904,6 +2066,33 @@ def _mcp_tool_error_payload(exc, *, server_name: str, tool_name: str) -> str:
         "server": server_name,
         "retryable": False,
     }
+    # NAT can wrap provider exceptions in MCP errors; retain these sanitized
+    # refresh outcomes across that boundary instead of asking for new consent.
+    refresh_unavailable = (
+        "Google Workspace token refresh is temporarily unavailable" in error_text
+    )
+    refresh_config_error = any(
+        marker in error_text
+        for marker in (
+            "Google Workspace token refresh was rejected",
+            "Google Workspace token endpoint configuration is invalid",
+            "Google Workspace returned an unusable token refresh response",
+        )
+    )
+    if refresh_unavailable or refresh_config_error:
+        return json.dumps(
+            {
+                **base,
+                "error": "google_workspace_refresh_unavailable"
+                if refresh_unavailable
+                else "google_workspace_refresh_failed",
+                "message": (
+                    "Google Workspace could not refresh access right now. Saved authorization was retained; retry later."
+                    if refresh_unavailable
+                    else "Google Workspace could not refresh access. Check the OAuth client configuration; saved authorization was retained."
+                ),
+            }
+        )
     if _is_mcp_authentication_required_error(exc):
         if server_name in _STATIC_MCP_API_KEY_ENVIRONMENTS:
             payload = {
@@ -2186,7 +2375,8 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     _patch_mcp_auth_log_levels()
     _patch_mcp_http_auth_timeout()
     _patch_google_docs_oauth_discovery()
-    _patch_google_docs_oauth_authorization_parameters()
+    _patch_google_workspace_oauth_authorization_parameters()
+    _patch_google_workspace_oauth_refresh()
     _patch_mcp_request_auth_binding()
 
     try:

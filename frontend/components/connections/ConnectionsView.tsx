@@ -104,7 +104,7 @@ export function ConnectionsView() {
                 Google Workspace
               </h1>
               <p className="text-sm text-dark-text-muted">
-                Manage the Google services available in your chats.
+                Manage the Google services available in chats and automations.
               </p>
             </div>
           </div>
@@ -122,9 +122,10 @@ export function ConnectionsView() {
             </p>
             <p>
               The first time you use each service, Google asks you to approve
-              access. Your authorization is saved securely for future chats.
-              Reconnect a service to sign in again, or manage access in your
-              Google Account.
+              access. Daedalus saves your authorization and refreshes access
+              automatically for future chats and automations. Older connections
+              may need one Reconnect to enable automatic refresh. You can manage
+              access in your Google Account.
             </p>
           </div>
         </GlassCard>
@@ -242,9 +243,9 @@ export function ConnectionsView() {
           <p className="text-sm text-dark-text-secondary">
             To connect a service, ask Daedalus to use it in Chat and follow the
             Google authorization prompt. A saved record does not mean Google
-            will still accept it. If a service cannot use its saved
-            authorization, choose Reconnect above, then retry the request in
-            Chat.
+            will still accept it. If Google asks you to sign in again, choose
+            Reconnect above, then retry the request in Chat. Temporary service
+            failures can be retried without reconnecting.
           </p>
           <Button variant="accent" onClick={() => setActiveView('chat')}>
             Go to Chat

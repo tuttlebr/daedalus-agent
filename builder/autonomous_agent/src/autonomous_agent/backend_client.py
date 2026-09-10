@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -157,13 +158,19 @@ class BackendClient:
         )
 
     def _headers(self, *, execution_id: str = "") -> dict[str, str]:
+        # Share Chat's stable OAuth identity (frontend/server/chat/natMessages.ts).
+        # The queue owner remains the username; only NAT's session key is hashed.
+        nat_session = (
+            "daedalus-user-"
+            + hashlib.sha256(self.user_id.encode("utf-8")).hexdigest()[:32]
+        )
         headers = {
             "x-user-id": self.user_id,
             "x-timezone": DEFAULT_TIMEZONE,
             # Mark background work so interactive approval tools reject it.
             # Human-approved MCP mutations are handled only by interactive chat.
             "x-daedalus-execution-scope": "autonomy",
-            "Cookie": f"nat-session={quote(self.user_id, safe='')}",
+            "Cookie": f"nat-session={quote(nat_session, safe='')}",
         }
         token = os.getenv("DAEDALUS_INTERNAL_API_TOKEN", "").strip()
         if token:

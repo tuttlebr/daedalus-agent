@@ -35,8 +35,8 @@ from mcp_patches import (  # noqa: E402
     _mcp_recovery_attempted,
     _McpAppError,
     _McpAuthFailureLevelFilter,
-    _patch_google_docs_oauth_authorization_parameters,
     _patch_google_docs_oauth_discovery,
+    _patch_google_workspace_oauth_authorization_parameters,
     _patch_mcp_auth_context_propagation,
     _patch_mcp_auth_transport_timeout,
     _patch_mcp_http_auth_timeout,
@@ -304,8 +304,10 @@ def test_anonymous_discovery_401_preserves_saved_token(monkeypatch):
     assert events == [("authenticate", 401)]
 
 
-def test_google_docs_oauth_requests_offline_incremental_consent(monkeypatch):
-    """Docs OAuth follows Google's durable web-server authorization guidance."""
+@pytest.mark.parametrize("service", ["gmail", "calendar", "docs"])
+@pytest.mark.parametrize("path", ["mcp", "mcp/v1"])
+def test_google_workspace_oauth_requests_offline_consent(monkeypatch, service, path):
+    """Every configured Google resource must request a reusable offline grant."""
 
     class FakeOAuth2AuthCodeFlowProvider:
         def __init__(self, resource):
@@ -338,25 +340,23 @@ def test_google_docs_oauth_requests_offline_incremental_consent(monkeypatch):
         provider_module,
     )
 
-    _patch_google_docs_oauth_authorization_parameters()
+    _patch_google_workspace_oauth_authorization_parameters()
 
     docs_provider = FakeOAuth2AuthCodeFlowProvider(
-        "https://docsmcp.googleapis.com/mcp/v1"
+        f"https://{service}mcp.googleapis.com/{path}"
     )
     result = run(docs_provider.authenticate(user_id="opaque-user"))
     assert result["authorization_kwargs"] == {
-        "resource": "https://docsmcp.googleapis.com/mcp/v1",
+        "resource": f"https://{service}mcp.googleapis.com/{path}",
         "access_type": "offline",
         "include_granted_scopes": "true",
         "prompt": "consent",
     }
 
-    calendar_provider = FakeOAuth2AuthCodeFlowProvider(
-        "https://calendarmcp.googleapis.com/mcp/v1"
-    )
-    calendar_result = run(calendar_provider.authenticate(user_id="opaque-user"))
-    assert calendar_result["authorization_kwargs"] == {
-        "resource": "https://calendarmcp.googleapis.com/mcp/v1"
+    other_provider = FakeOAuth2AuthCodeFlowProvider("https://example.com/mcp")
+    other_result = run(other_provider.authenticate(user_id="opaque-user"))
+    assert other_result["authorization_kwargs"] == {
+        "resource": "https://example.com/mcp"
     }
 
 

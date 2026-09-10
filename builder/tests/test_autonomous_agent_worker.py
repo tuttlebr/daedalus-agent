@@ -785,6 +785,19 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
     assert kwargs["headers"]["x-daedalus-execution-id"] == "request-123"
 
 
+def test_autonomous_jobs_reuse_chat_google_authorization_identity():
+    # Match the independent frontend Chat/Connections identity fixtures. A raw
+    # username here creates another NAT user with no access to Chat's grants.
+    alice = make_backend("alice")._headers()
+    assert alice["Cookie"] == (
+        "nat-session=daedalus-user-2bd806c97f0e00af1a1fc3328fa763a9"
+    )
+    assert alice["x-user-id"] == "alice"
+    assert alice["x-daedalus-execution-scope"] == "autonomy"
+    assert "x-daedalus-approval-token" not in alice
+    assert make_backend("bob")._headers()["Cookie"] != alice["Cookie"]
+
+
 def test_make_backend_uses_canonical_base_url_env(monkeypatch):
     monkeypatch.setenv("BACKEND_BASE_URL", "http://backend:8000")
     monkeypatch.setenv("BACKEND_API_PATH", "/v1/chat/completions")

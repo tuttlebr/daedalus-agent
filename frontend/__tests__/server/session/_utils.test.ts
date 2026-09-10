@@ -1,7 +1,10 @@
+import { getSession } from '@/utils/auth/session';
+
 import {
   clearSessionCookie,
   getOrSetSessionId,
   readSessionId,
+  requireAuthenticatedUser,
   rotateSessionId,
 } from '@/server/session/_utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -96,5 +99,31 @@ describe('server/session/_utils session cookie helpers', () => {
   it('readSessionId returns undefined when no cookie is present', () => {
     const { req } = makeReqRes(undefined);
     expect(readSessionId(req)).toBeUndefined();
+  });
+
+  it.each([null, {}, { username: '' }])(
+    'rejects a missing authenticated identity before connection access: %j',
+    async (session) => {
+      const { req, res, setHeader } = makeReqRes('sid=untrusted-session');
+      res.status = vi.fn().mockReturnValue(res);
+      res.json = vi.fn();
+      vi.mocked(getSession).mockResolvedValue(session as any);
+
+      expect(await requireAuthenticatedUser(req, res)).toBeNull();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Not authenticated' });
+      expect(setHeader).not.toHaveBeenCalled();
+    },
+  );
+
+  it('uses the authenticated account rather than a caller-supplied identity', async () => {
+    const { req, res } = makeReqRes('sid=trusted-session', {
+      'x-user-id': 'another-user',
+    });
+    const session = { username: 'alice' };
+    vi.mocked(getSession).mockResolvedValue(session as any);
+
+    expect(await requireAuthenticatedUser(req, res)).toBe(session);
+    expect(getSession).toHaveBeenCalledWith(req, res);
   });
 });

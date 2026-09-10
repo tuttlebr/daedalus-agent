@@ -128,6 +128,7 @@ RUN find /workspace -mindepth 3 -maxdepth 3 -type d -name '*.egg-info' \
 COPY entrypoint.py /workspace/entrypoint.py
 COPY mcp_patches.py /workspace/mcp_patches.py
 COPY runtime_contract_check.py /workspace/runtime_contract_check.py
+COPY google_workspace_oauth_contract_check.py /workspace/google_workspace_oauth_contract_check.py
 COPY milvus_collection_migration.py /workspace/milvus_collection_migration.py
 COPY image_api.py /workspace/image_api.py
 COPY collection_metadata_api.py /workspace/collection_metadata_api.py
@@ -152,7 +153,8 @@ RUN rm -f \
     /workspace/verify_uv_pip_check.py \
     /workspace/pylock.runtime-linux-amd64.toml \
     /workspace/pylock.runtime-linux-arm64.toml \
-    /workspace/runtime_contract_check.py
+    /workspace/runtime_contract_check.py \
+    /workspace/google_workspace_oauth_contract_check.py
 
 FROM runtime_base AS backend
 WORKDIR /workspace

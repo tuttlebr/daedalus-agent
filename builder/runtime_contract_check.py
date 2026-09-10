@@ -824,6 +824,9 @@ def main() -> None:
         raise RuntimeError(f"Unexpected MCPToolClient.acall signature: {signature}")
 
     mcp_patches.patch()
+    from google_workspace_oauth_contract_check import check_google_workspace_oauth
+
+    asyncio.run(check_google_workspace_oauth())
     if not getattr(MCPToolClient.acall, "_daedalus_approval_gate", False):
         raise RuntimeError("MCP approval gate did not attach to acall")
     if not getattr(
@@ -840,10 +843,16 @@ def main() -> None:
         raise RuntimeError("MCP OAuth retry wrapper did not attach")
     if not getattr(
         OAuth2AuthCodeFlowProvider.authenticate,
-        "_daedalus_google_docs_authorization_parameters",
+        "_daedalus_google_workspace_authorization_parameters",
         False,
     ):
-        raise RuntimeError("Google Docs durable OAuth parameters did not attach")
+        raise RuntimeError("Google Workspace durable OAuth parameters did not attach")
+    if not getattr(
+        OAuth2AuthCodeFlowProvider._attempt_token_refresh,
+        "_daedalus_google_workspace_refresh",
+        False,
+    ):
+        raise RuntimeError("Google Workspace offline refresh adapter did not attach")
     if not getattr(
         MCPBaseClient._get_tool_call_timeout,
         "_daedalus_interactive_auth_transport_timeout",
