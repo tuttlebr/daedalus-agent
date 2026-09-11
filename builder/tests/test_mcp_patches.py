@@ -2,6 +2,7 @@
 
 import asyncio
 import contextvars
+import json
 import logging
 import sys
 import types
@@ -55,6 +56,51 @@ from mcp_patches import (  # noqa: E402
 
 def run(coro):
     return asyncio.run(coro)
+
+
+@pytest.mark.parametrize("prefix", ["", "MCPToolClient tool call failed: "])
+def test_unifi_site_validation_preserves_safe_recovery_guidance(prefix):
+    payload = json.loads(
+        mcp_patches._mcp_tool_error_payload(
+            RuntimeError(
+                prefix + "invalid siteId: siteId must be a UUID. "
+                "controller-private-details secret-value"
+            ),
+            server_name="unifi_mcp_server",
+            tool_name="listAdoptedDevices",
+        )
+    )
+    assert payload["error"] == "mcp_invalid_arguments"
+    assert payload["parameter"] == "siteId"
+    assert payload["retryable"] is False
+    assert "listSites and wait for its result" in payload["message"]
+    assert "data[].id" in payload["message"]
+    assert "internalReference" in payload["message"]
+    assert "Correct the arguments before retrying" in payload["message"]
+    assert "secret-value" not in payload["message"]
+    assert "controller-private-details" not in payload["message"]
+
+
+@pytest.mark.parametrize(
+    ("server_name", "error_text"),
+    [
+        ("unifi_mcp_server", "unrelated controller failure secret-value"),
+        ("k8s_mcp_server", "invalid siteId: secret-value"),
+    ],
+)
+def test_unifi_recovery_does_not_expose_unrecognized_server_errors(
+    server_name, error_text
+):
+    payload = json.loads(
+        mcp_patches._mcp_tool_error_payload(
+            RuntimeError(error_text),
+            server_name=server_name,
+            tool_name="listAdoptedDevices",
+        )
+    )
+    assert payload["error"] == "mcp_tool_failed"
+    assert payload["retryable"] is False
+    assert "secret-value" not in payload["message"]
 
 
 def _clear_recovery_state():

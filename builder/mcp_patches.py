@@ -2149,6 +2149,20 @@ def _mcp_tool_error_payload(exc, *, server_name: str, tool_name: str) -> str:
                 "useful fallback or report the omission without retrying this tool."
             ),
         }
+    elif server_name == "unifi_mcp_server" and "invalid siteId:" in error_text:
+        # Preserve recovery for the server's validated argument error without
+        # forwarding arbitrary controller responses or credentials to the model.
+        payload = {
+            **base,
+            "error": "mcp_invalid_arguments",
+            "parameter": "siteId",
+            "message": (
+                "Invalid siteId. Call listSites and wait for its result, then "
+                "use the selected site's UUID from data[].id. Do not use name "
+                "or internalReference (such as default) as siteId. Correct "
+                "the arguments before retrying."
+            ),
+        }
     else:
         payload = {
             **base,
