@@ -101,6 +101,7 @@ _nat_data_models_function_mod.FunctionBaseConfig = _FakeFunctionBaseConfig
 
 _nat_data_models_component_ref_mod = MagicMock()
 _nat_data_models_component_ref_mod.LLMRef = str
+_nat_data_models_component_ref_mod.FunctionRef = str
 _nat_data_models_component_ref_mod.MemoryRef = str
 
 _nat_register_mod = MagicMock()

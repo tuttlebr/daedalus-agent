@@ -2,6 +2,7 @@
 
 # Import tools which need to be automatically registered here.
 from nat_helpers import (
+    briefing_renderer,
     daedalus_memory_tools,
     nvidia_docs,
     per_user_tool_calling,

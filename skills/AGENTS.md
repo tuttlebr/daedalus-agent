@@ -20,6 +20,8 @@ not a collection of installed CLI plugins. Keep all skills compatible with
   runtime owns approval/OAuth; skills must not demand duplicate confirmation,
   bypass gates, or turn an autonomous run into an interactive one.
 - Preserve source-only, read-only, validated inline HTML for Daily Daedalus.
+  `briefing_renderer_tool` stages canonical resources in the sandbox and owns
+  validation, bounded correction, and exact inline delivery.
   Ordinary file delivery uses sandbox publication. Image creation uses the
   shared `ImageBrief`/`ImageOptions` contract, also consumed directly by Create.
 - Keep diagnostics distinct from repair, artifact preparation from publication,

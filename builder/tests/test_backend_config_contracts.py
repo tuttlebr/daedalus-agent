@@ -567,7 +567,8 @@ def test_deployed_tool_surface_is_optimized():
         # resource add a deliberately bounded 23-operation surface. Each
         # remains server-allowlisted and locally classified as read-only or
         # approval-required. ESPN adds ten explicitly read-only operations.
-        assert _effective_operation_count(config, workflow_tools) <= 77, path
+        # One typed briefing renderer replaces model-mediated file assembly.
+        assert _effective_operation_count(config, workflow_tools) <= 78, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -1633,6 +1634,7 @@ def test_daily_summary_contracts_structured_briefing():
         assert "current_datetime_tool" in tools, path
         assert "get_memory" in tools, path
         assert "agent_skills_tool" in tools, path
+        assert "briefing_renderer_tool" in tools, path
         assert "gmail_mcp_server" in tools, path
         assert "calendar_mcp_server" in tools, path
         assert "k8s_mcp_server" in tools, path

@@ -661,6 +661,7 @@ def main() -> None:
     response_fields = set(DaedalusPerUserResponsesAPIAgentWorkflowConfig.model_fields)
     required_response_fields = {
         "instructions",
+        "loop_guard",
         "nat_tools",
         "parallel_tool_calls",
         "tool_output_compaction_enabled",
@@ -672,6 +673,10 @@ def main() -> None:
         raise RuntimeError("Daedalus Responses API workflow schema is incomplete")
     if {"system_prompt", "tool_names"} & response_fields:
         raise RuntimeError("Daedalus Responses API workflow retained Chat fields")
+
+    from agent_loop_contract_check import verify_agent_loop_contract
+
+    asyncio.run(verify_agent_loop_contract())
 
     # Exercise the reversible compactor and recovery tool through the real NAT
     # FunctionInfo adapter. Unit tests use a lightweight registry replacement

@@ -18,7 +18,7 @@ import logging
 import os
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -37,6 +37,12 @@ from nat.plugins.langchain.agent.responses_api_agent.register import (
     ResponsesAPIAgentWorkflowConfig,
 )
 from nat.utils.type_converter import GlobalTypeConverter
+from nat_helpers.agent_loop_guard import (
+    LoopGuardSettings,
+    agent_run_scope,
+    briefing_error_response,
+    current_agent_run,
+)
 from nat_helpers.history_budget import _select_history_payloads
 from pydantic import Field
 
@@ -53,6 +59,7 @@ class DaedalusPerUserResponsesAPIAgentWorkflowConfig(
         default=None,
         description="Top-level Responses API instructions for the agent.",
     )
+    loop_guard: LoopGuardSettings = Field(default_factory=LoopGuardSettings)
     max_history: int = Field(
         default=15,
         ge=1,
@@ -234,6 +241,8 @@ async def _responses_api_agent_workflow(
     agent = ToolCallAgentGraph(
         llm=llm,
         tools=nat_tools,
+        # The shipped config disables full-transcript logging. Bounded outcome
+        # events below retain progress evidence without repeating the history.
         detailed_logs=config.verbose,
         handle_tool_errors=config.handle_tool_errors,
     )
@@ -261,6 +270,10 @@ async def _responses_api_agent_workflow(
 
     async def _model_messages(state):
         messages = state.get("messages", [])
+        run = current_agent_run()
+        if run is not None:
+            run.model_calls += 1
+            run.last_messages = messages
         if not tool_output_settings.enabled:
             return messages
         try:
@@ -310,6 +323,11 @@ async def _responses_api_agent_workflow(
         if _has_terminal_mcp_approval(state.messages):
             logger.info("Ending agent graph at MCP approval boundary")
             return AgentDecision.END
+        run = current_agent_run()
+        if run is not None:
+            run.observe(state.messages)
+            if run.terminal_content is not None or run.stop_reason:
+                return AgentDecision.END
         return await original_tool_conditional_edge(state)
 
     agent.return_direct = ["__daedalus_mcp_approval_terminal__"]
@@ -389,28 +407,120 @@ async def _responses_api_agent_workflow(
             # Memory enrichment must not turn a healthy chat path into an outage.
             logger.warning("Automatic Hindsight recall unavailable", exc_info=True)
 
+        run = current_agent_run()
+        if run is not None:
+            # Historical failures and skill loads do not consume this turn's
+            # budget. Every invocation gets an independent context object.
+            run.processed = len(messages)
+            run.last_messages = messages
         return ToolCallAgentGraphState(messages=messages)
 
-    def _iteration_limit_message() -> str:
-        return (
-            "The tool calling agent could not produce a final answer within "
-            f"{config.max_iterations} iterations. The agent repeatedly called "
-            "tools without converging on a response."
+    async def _stopped_response(run) -> str:
+        if run.terminal_content is not None:
+            return run.terminal_content
+        if run.briefing:
+            return briefing_error_response()
+        # One bounded synthesis call can salvage verified work. The finalizer
+        # has no tools and is outside the graph, so it cannot restart the loop.
+        fallback = (
+            "I stopped because repeated tool calls were not resolving the problem. "
+            "This request is incomplete."
         )
+        try:
+            finalizer = llm.bind(
+                tools=[],
+                tool_choice="none",
+                instructions=(config.instructions or "")
+                + "\nThe runtime has ended tool execution for this request. "
+                "Give a concise final response with verified results, unfinished "
+                "work, and the specific blocker. Do not claim completion, invent "
+                "an artifact, propose more tool calls, or ask to keep retrying.",
+            )
+            async with asyncio.timeout(config.loop_guard.final_response_timeout):
+                run.model_calls += 1
+                response = await finalizer.ainvoke(run.last_messages)
+            if not getattr(response, "tool_calls", None):
+                return _content_text(response.content) or fallback
+        except Exception as exc:
+            logger.warning(
+                "Loop finalization unavailable: error_class=%s", type(exc).__name__
+            )
+        return fallback
+
+    def _record_outcome(run, outcome):
+        outcome = run.terminal_reason or run.stop_reason or outcome
+        log = (
+            logger.warning
+            if outcome not in {"completed", "validated_artifact"}
+            else logger.info
+        )
+        log(
+            "Agent run ended: run_id=%s outcome=%s model_calls=%d tool_calls=%d",
+            run.run_id,
+            outcome,
+            run.model_calls,
+            run.tool_calls,
+        )
+        # NAT's Phoenix exporter consumes the toolkit event stream, not the
+        # process-global OpenTelemetry tracer. Record the semantic outcome in
+        # that stream even when the outer function succeeds by returning text.
+        try:
+            from nat.builder.context import Context
+            from nat.data_models.intermediate_step import (
+                IntermediateStepPayload,
+                IntermediateStepType,
+                StreamEventData,
+            )
+
+            context = Context.get()
+            metadata = {
+                "run_id": run.run_id,
+                "workflow_run_id": str(context.workflow_run_id),
+                "outcome": outcome,
+                "failed": outcome not in {"completed", "validated_artifact"},
+                "model_calls": run.model_calls,
+                "tool_calls": run.tool_calls,
+            }
+            start = IntermediateStepPayload(
+                event_type=IntermediateStepType.CUSTOM_START,
+                name="daedalus.agent.outcome",
+                metadata=metadata,
+            )
+            manager = context.intermediate_step_manager
+            manager.push_intermediate_step(start)
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    event_type=IntermediateStepType.CUSTOM_END,
+                    UUID=start.UUID,
+                    name=start.name,
+                    metadata=metadata,
+                    data=StreamEventData(output=metadata),
+                )
+            )
+        except Exception:
+            logger.debug("Agent outcome span unavailable", exc_info=True)
 
     async def _response_fn(chat_request_or_message: ChatRequestOrMessage) -> str:
-        try:
-            state = await graph.ainvoke(
-                await _initial_state(chat_request_or_message),
-                config={"recursion_limit": (config.max_iterations + 1) * 2},
-            )
-            final_state = ToolCallAgentGraphState(**state)
-            content = final_state.messages[-1].content
-            return _content_text(content) or str(content)
-        except GraphRecursionError:
-            return _iteration_limit_message()
+        with agent_run_scope(config.loop_guard) as run:
+            outcome = "cancelled_or_error"
+            try:
+                try:
+                    state = await graph.ainvoke(
+                        await _initial_state(chat_request_or_message),
+                        config={"recursion_limit": (config.max_iterations + 1) * 2},
+                    )
+                except GraphRecursionError:
+                    run.stop_reason = "iteration_limit"
+                if run.stop_reason or run.terminal_content is not None:
+                    return await _stopped_response(run)
+                final_state = ToolCallAgentGraphState(**state)
+                content = final_state.messages[-1].content
+                outcome = "completed"
+                return _content_text(content) or str(content)
+            finally:
+                _record_outcome(run, outcome)
 
-    async def _stream_fn(
+    async def _stream_graph(
         chat_request_or_message: ChatRequestOrMessage,
     ) -> AsyncGenerator[ChatResponseChunk]:
         chunk_id = str(uuid.uuid4())
@@ -484,14 +594,38 @@ async def _responses_api_agent_workflow(
                         )
                         return
         except GraphRecursionError:
-            yield ChatResponseChunk.create_streaming_chunk(
-                _iteration_limit_message(),
-                id_=chunk_id,
-            )
-            yield _terminal_stream_chunk(
-                chunk_id,
-                getattr(llm, "model_name", "unknown-model"),
-            )
+            current_agent_run().stop_reason = "iteration_limit"
+
+    async def _stream_fn(
+        chat_request_or_message: ChatRequestOrMessage,
+    ) -> AsyncGenerator[ChatResponseChunk]:
+        with agent_run_scope(config.loop_guard) as run:
+            outcome = "cancelled_or_error"
+            terminal_sent = False
+            chunk_id = str(uuid.uuid4())
+            try:
+                async with aclosing(_stream_graph(chat_request_or_message)) as stream:
+                    async for chunk in stream:
+                        chunk_id = chunk.id
+                        terminal_sent |= any(
+                            getattr(choice, "daedalus_terminal", False)
+                            for choice in chunk.choices
+                        )
+                        if terminal_sent:
+                            outcome = "completed"
+                        yield chunk
+                if run.stop_reason or run.terminal_content is not None:
+                    yield ChatResponseChunk.create_streaming_chunk(
+                        await _stopped_response(run),
+                        id_=chunk_id,
+                    )
+                outcome = "completed"
+                if not terminal_sent:
+                    yield _terminal_stream_chunk(
+                        chunk_id, getattr(llm, "model_name", "unknown-model")
+                    )
+            finally:
+                _record_outcome(run, outcome)
 
     try:
         yield FunctionInfo.create(

@@ -49,6 +49,15 @@ are labeled historical; they do not certify these edited copies.
 
 ## Per-skill review
 
+The 2026-09-11 daily-summary update replaces model-transcribed rendering files
+with `briefing_renderer_tool`. The tool serializes the edition object and stages
+the canonical resources in the isolated sandbox. It runs both quality gates,
+permits one corrected submission, and delivers exact HTML or a terminal error
+edition. Shared request-scoped loop guards also bound repeated tool results,
+recurring errors, and unresolved repairs in other workflows. The regression
+checks cover successful inspection commands during failed repairs, parallel
+submissions, exact delivery, truncation, and the real streaming agent graph.
+
 Every row received an entrypoint and resource review, parser/dispatcher loading,
 frontmatter validation, and local-link validation. The scenarios below are
 manual instruction/contract checks; they are not model-driven evaluations.

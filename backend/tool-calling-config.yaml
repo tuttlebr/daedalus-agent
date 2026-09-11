@@ -417,6 +417,11 @@ functions:
       Preserve the user's scope, evidence, identifiers, and completed calls
       across handoffs. For a sibling skill use its skill_name, not a ../
       resource path; resources are confined to the selected skill directory.
+      After tool failures, verify the failed operation succeeds before treating
+      a repair as complete. Successful inspection commands do not prove a fix.
+      The runtime stops repeated results, recurring errors, and unresolved
+      repair loops. Prefer structured objects and serialization over manually
+      patching JSON text. For briefing assembly use briefing_renderer_tool.
       Skills do not add tools, credentials, host files, or permissions.
       Use the registered MCP schemas for live systems. The sandbox has no
       implicit repository checkout, kubeconfig, GPU, or host-service access.
@@ -438,6 +443,12 @@ functions:
       unless already loaded in this conversation. Image analysis alone does
       not need the photography skill.
     verbose: false
+  briefing_renderer_tool:
+    _type: briefing_renderer
+    sandbox_tool: llm_sandbox_tool
+    skill_directory: /skills/daily-summary
+    timeout_seconds: 60
+    max_edition_bytes: 200000
   add_memory:
     _type: daedalus_add_memory
     description: >-
@@ -920,6 +931,13 @@ workflow:
   _type: daedalus_per_user_responses_api_agent
   llm_name: tool_calling_llm
   max_iterations: 128
+  loop_guard:
+    enabled: true
+    window: 24
+    repeated_call_limit: 4
+    repeated_error_limit: 4
+    repair_call_limit: 12
+    final_response_timeout: 30
   max_history: 50
   max_history_tokens: 32000
   # Compact only large JSON-shaped tool results. The exact original remains in
@@ -959,6 +977,7 @@ workflow:
   nat_tools:
     - add_memory
     - agent_skills_tool
+    - briefing_renderer_tool
     - calendar_mcp_server
     - content_distiller_tool
     - curated_feed_search_tool
@@ -981,5 +1000,5 @@ workflow:
     - visual_media_tool
     - webscrape_tool
     - x_mcp_server
-  verbose: true
+  verbose: false
   workflow_alias: Daedalus

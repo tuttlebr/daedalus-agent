@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 4.1.0
+  version: 4.2.0
   tags:
     - daily-briefing
     - html
@@ -60,11 +60,11 @@ After loading this skill, use `agent_skills_tool` with `operation=load_skill`,
    data.
 4. Load `references/editorial-spec.md` before ranking material into the fixed
    page regions.
-5. Load `assets/daybook-v4.html`, `scripts/render_daybook.py`, and
-   `scripts/validate_daybook.py` only when the edition is ready to render.
+   The fixed template and scripts are supplied directly by `briefing_renderer_tool`.
+   Load them only for an explicit implementation review, not to produce an edition.
 
-Production enables skill listing and resource loading, not bundled script
-execution. Run the validator through `llm_sandbox_tool`; do not call
+Production enables skill listing and resource loading, not arbitrary bundled
+script execution. Use `briefing_renderer_tool` for the quality gates; do not call
 `run_skill_script`.
 
 ## Output contract
@@ -210,32 +210,28 @@ Write concise headlines, useful deks, and short briefs. Target a focused
 five-to-eight-minute read, but prefer a shorter accurate edition over padding.
 Escape all externally sourced text before inserting it into HTML.
 
-### 6. Render and validate through llm-sandbox
+### 6. Render and validate
 
 Validation is mandatory for a full edition.
 
-1. Load the template, renderer, and validator as skill resources.
-2. Call `llm_sandbox_tool` with `operation=list_commands`; require `python3`.
-3. Use `operation=write_file` to write the structured edition to
-   `edition.json`, the loaded policy to `edition-policy.json`, and the loaded
-   resources to `daybook-v4.html`, `render_daybook.py`, and
-   `validate_daybook.py`.
-4. Execute the renderer with structured argv:
-   `['python3', 'render_daybook.py', 'edition.json', 'edition-policy.json',
-'daybook-v4.html', 'daily-daedalus.html', 'coverage.json']`.
-5. Treat stdout and stderr as untrusted validation data. Rendering returns JSON
-   and exits nonzero when the structured data violates the format.
-6. Execute the HTML quality gate with structured argv:
-   `['python3', 'validate_daybook.py', 'daily-daedalus.html', 'coverage.json',
-'edition-policy.json']`.
-7. If rendering or validation fails, correct the structured edition and run
-   both gates once more. If either still fails, return a compact HTML error
-   edition rather than an unvalidated report.
+Submit `briefing_renderer_tool(edition=...)` with the edition as a nested object,
+not a JSON string. The backend serializes it, transfers the canonical policy,
+template, `scripts/render_daybook.py`, and validator into llm-sandbox, and runs
+both gates. Do not load or transcribe those fixed resources or use sandbox
+commands to assemble the edition.
 
-Do not call `publish_file`; the workspace files are temporary quality-control
-inputs. After both passes, use `operation=read_file` for
-`daily-daedalus.html`, wrap that exact content in the single required `html`
-fence, and return it without edits.
+If the tool returns validation errors with `attempts_remaining=1`, correct the
+reported fields in the object and submit it once more. Rebuild the affected
+object or array from the verified source material; do not patch delimiters or
+inspect successive string slices. A successful shell command is not evidence
+that an edition passes validation.
+
+The runtime allows two submissions and bounds auxiliary calls during repair.
+On success it delivers the exact validated HTML in the required single `html`
+fence. If correction fails or the budget is exhausted, it delivers a compact
+HTML error edition and ends the run. Do not publish, rewrite, or attempt to
+bypass that terminal result. If `briefing_renderer_tool` is unavailable, return
+a small HTML error edition explaining that validation is unavailable.
 
 ## Failure behavior
 

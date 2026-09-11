@@ -3,7 +3,9 @@
 Use this reference when composing the data consumed by
 `scripts/render_daybook.py`. The format discriminator is
 `daily-daedalus/v1`. Supply structured text and provenance only; never put HTML,
-CSS, Markdown, or template tokens in a field.
+CSS, Markdown, or template tokens in a field. Pass this structure as the `edition`
+object to `briefing_renderer_tool`; the backend performs JSON serialization. The
+renderer is the authoritative validator and returns field-specific errors.
 
 ## Root object
 
