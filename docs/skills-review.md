@@ -1,5 +1,14 @@
 # Application skills review
 
+The [2026-09-11 tool/skill alignment](tool-skill-alignment-2026-09-11.md)
+rechecks the full catalog against generated native schemas and live MCP
+discovery. It repairs the verifier's combined registration, preserves discarded
+routing descriptions, aligns source policy across chat and autonomous runs,
+and corrects briefing/image/sandbox handoffs. All 18 skills and 102 resources
+were loaded through the real NAT dispatcher; all eight MCP catalogs and their
+156 exposed leaves were checked. Model behavior and downstream business-data
+access are separate from this contract validation.
+
 Reviewed all 18 application skills and their bundled resources against the
 Daedalus source tree on 2026-09-07. The changes define task ownership and
 handoffs, remove unsupported tool assumptions, and distinguish preparation,

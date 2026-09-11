@@ -165,7 +165,7 @@ class VisualMediaInput(BaseModel):
     )
     brief: ImageBrief | None = Field(
         default=None,
-        description="Complete image brief prepared with the loaded photography skill. The backend renders it without another model call.",
+        description="Complete image brief prepared with the loaded image-creation skill. The backend renders it without another model call.",
     )
     options: ImageOptions | None = None
     guidance: Literal["auto", "exact"] = "auto"

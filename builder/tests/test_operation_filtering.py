@@ -87,7 +87,7 @@ def test_source_verifier_enabled_operations_filters_registration():
             )
         )
 
-    assert run(_run()) == ["verify_claim"]
+    assert run(_run()) == ["source_verifier"]
 
 
 def test_source_verifier_audit_citations_operation_can_be_exposed_alone():
@@ -104,7 +104,7 @@ def test_source_verifier_audit_citations_operation_can_be_exposed_alone():
             )
         )
 
-    assert run(_run()) == ["audit_citations"]
+    assert run(_run()) == ["source_verifier"]
 
 
 def test_source_verifier_plan_sources_operation_can_be_exposed_alone():
@@ -121,7 +121,7 @@ def test_source_verifier_plan_sources_operation_can_be_exposed_alone():
             )
         )
 
-    assert run(_run()) == ["plan_sources"]
+    assert run(_run()) == ["source_verifier"]
 
 
 def test_user_interaction_enabled_operations_filters_registration():

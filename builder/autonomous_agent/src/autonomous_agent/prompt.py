@@ -116,11 +116,16 @@ _APPROVAL_MARKER_RE = re.compile(
 _SOURCE_POLICY_IDS = {
     "curated_domains",
     "curated_feeds",
-    "google_search",
+    "perplexity_search",
     "known_url_scrape",
     "nvidia_docs",
     "uploaded_documents",
     "workspace_data",
+    "x_mcp",
+    "cluster_state",
+    "network_state",
+    "repository_data",
+    "fantasy_data",
 }
 
 # Workspace notes are model-authored and persisted between runs, so a bad or
@@ -521,8 +526,8 @@ def render_source_policy_message(policy: dict[str, Any]) -> str:
         )
         if policy["requirePlanApproval"]:
             lines.append(
-                "For broad research, call the configured confirm_research_plan "
-                "tool before any research calls. Return its formatted response "
+                "For broad research, call user_interaction_tool with "
+                "operation=confirm_research_plan before any research calls. Return its formatted response "
                 "unchanged and stop. Do not draft, paraphrase, or echo the plan "
                 "yourself."
             )

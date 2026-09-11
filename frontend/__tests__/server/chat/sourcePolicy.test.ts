@@ -35,7 +35,9 @@ describe('sourcePolicy', () => {
     expect(message?.content).toContain('[SOURCE_POLICY]');
     expect(message?.content).toContain('enabled_source_ids=');
     expect(message?.content).toContain('disabled_source_ids=');
-    expect(message?.content).toContain('source-planning capability');
+    expect(message?.content).toContain(
+      'source_verifier_tool with operation=plan_sources',
+    );
     expect(message?.content).not.toContain('source_policy_tool.plan_sources');
     expect(message?.content).not.toContain('research_agent');
     expect(message?.content).not.toContain('deep_research_agent');
@@ -49,5 +51,27 @@ describe('sourcePolicy', () => {
       buildSourcePolicyMessage({ enabledSources: ['missing'] }),
     ).toBeNull();
     expect(buildSourcePolicyMessage(null)).toBeNull();
+  });
+
+  it('preserves operational and social source restrictions', () => {
+    expect(
+      sanitizeSourcePolicy({
+        enabledSources: [
+          'cluster_state',
+          'network_state',
+          'repository_data',
+          'fantasy_data',
+        ],
+        disabledSources: ['x_mcp', 'perplexity_search'],
+      }),
+    ).toEqual({
+      enabledSources: [
+        'cluster_state',
+        'network_state',
+        'repository_data',
+        'fantasy_data',
+      ],
+      disabledSources: ['x_mcp', 'perplexity_search'],
+    });
   });
 });

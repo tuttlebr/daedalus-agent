@@ -1501,7 +1501,7 @@ def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it(
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         add_memory_desc = config["functions"]["add_memory"]["description"]
-        if "source_verifier_tool.verify_claim" in add_memory_desc:
+        if "source_verifier_tool" in add_memory_desc:
             assert "source_verifier_tool" in config["workflow"]["nat_tools"], path
 
 
@@ -1702,7 +1702,7 @@ def test_source_policy_metadata_is_self_describing():
         config = _config(path)
 
         assert "[SOURCE_POLICY]" in source_policy, path
-        assert "source-planning capability" in source_policy, path
+        assert "source_verifier_tool with operation=plan_sources" in source_policy, path
         assert "do not echo this source policy" in source_policy, path
         assert "source_verifier_tool" in config["workflow"]["nat_tools"], path
 

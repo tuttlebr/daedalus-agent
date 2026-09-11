@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 4.2.0
+  version: 4.3.0
   tags:
     - daily-briefing
     - html
@@ -151,7 +151,9 @@ briefing.
 
 After the personal-source preflight and memory merge, use
 `source_verifier_tool` with `operation=plan_sources` once for the full desk
-manifest. Date-stamp every current query with the real date from step 1.
+manifest in `research_question`, using the source IDs and `depth=quick` from
+the sourcing reference. Date-stamp every current query with the real date
+from step 1. Reuse completed reads; planning does not gather evidence.
 
 Fan out independent read-only calls. Follow the policy's cadence: always check
 daily desks, but research conditional desks only when a quick trusted signal or

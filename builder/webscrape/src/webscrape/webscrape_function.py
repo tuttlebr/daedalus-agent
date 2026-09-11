@@ -111,6 +111,8 @@ _RETRYABLE_HTTPX_EXCEPTIONS = tuple(
 class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
     """Configuration for the webscrape function."""
 
+    description: str | None = None
+
     user_agent: str = Field(
         default="daedalus-webscraper/1.0",
         description="User-Agent header for robots.txt checking.",
@@ -734,7 +736,8 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
     try:
         yield FunctionInfo.from_fn(
             _response_fn,
-            description=(
+            description=config.description
+            or (
                 "Scrape web content from URLs and convert to clean markdown. "
                 "Uses one controlled HTTP fetch and gives MarkItDown only local "
                 "response files for supported documents. Direct browser navigation is "

@@ -1,6 +1,6 @@
 """Source citation verification for NeMo Agent Toolkit.
 
-Registers source-governance tools with NAT:
+Registers one typed evidence dispatcher with NAT:
 
   verify_claim      Fetch a source URL and assess whether it actually
                     supports a specific claim.  Returns a structured
@@ -28,7 +28,7 @@ import logging
 import re
 from dataclasses import dataclass
 from itertools import islice
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
@@ -39,7 +39,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 from source_verifier.critic import CriticResponseError, LLMClaimCritic
 from webscrape.webscrape_function import (
     _httpx_timeout_from_seconds,
@@ -50,6 +50,45 @@ from webscrape.webscrape_function import (
 )
 
 logger = logging.getLogger(__name__)
+
+SourceVerifierOperation = Literal["verify_claim", "plan_sources", "audit_citations"]
+_ALL_OPERATIONS = ("verify_claim", "plan_sources", "audit_citations")
+_DISPATCH_DESCRIPTION = (
+    "Evidence dispatcher with a required operation. "
+    "operation=verify_claim uses claim, source_url, and optional context to check "
+    "one exact public-source claim before storing a finding. "
+    "operation=plan_sources uses research_question, optional selected_sources_json, "
+    "disabled_sources_json, and depth to recommend a source strategy. "
+    "operation=audit_citations uses answer_markdown, optional source_urls_json, "
+    "and require_references to check numbered Markdown citations. "
+    "Planning does not gather evidence or authorize extra work; citation auditing "
+    "does not establish factual support or validate briefing HTML."
+)
+
+
+class SourceVerifierInput(BaseModel):
+    """One callable schema for all evidence operations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: SourceVerifierOperation
+    claim: str = Field(default="", description="Exact final claim for verify_claim.")
+    source_url: str = Field(
+        default="", description="Public source URL for verify_claim."
+    )
+    context: str = Field(default="", description="Optional claim context.")
+    research_question: str = Field(default="", description="Required for plan_sources.")
+    selected_sources_json: str = Field(
+        default="", description="Source IDs as a JSON array or comma-separated text."
+    )
+    disabled_sources_json: str = Field(default="", description="Source IDs to exclude.")
+    depth: Literal["auto", "quick", "deep"] = "auto"
+    answer_markdown: str = Field(
+        default="", description="Required for audit_citations."
+    )
+    source_urls_json: str = Field(default="", description="Observed source URL ledger.")
+    require_references: bool = True
+
 
 _PLACEHOLDER_HOSTS = {"example.com", "example.org", "example.net"}
 _TRACKING_PARAMS = {
@@ -219,6 +258,50 @@ def _default_source_registry() -> list[dict[str, Any]]:
             "default_enabled": True,
             "requires_auth": False,
         },
+        {
+            "id": "x_mcp",
+            "name": "X AI MCP",
+            "description": "Read-only social signals and updates.",
+            "tools": ["x_mcp_server"],
+            "default_enabled": True,
+            "requires_auth": False,
+        },
+        *[
+            {
+                "id": source_id,
+                "name": name,
+                "description": description,
+                "tools": [tool],
+                "default_enabled": False,
+                "requires_auth": True,
+            }
+            for source_id, name, description, tool in (
+                (
+                    "cluster_state",
+                    "Live Kubernetes State",
+                    "Current cluster resources and workload evidence.",
+                    "k8s_mcp_server",
+                ),
+                (
+                    "network_state",
+                    "Live UniFi State",
+                    "Current network inventory, device state, and statistics.",
+                    "unifi_mcp_server",
+                ),
+                (
+                    "repository_data",
+                    "GitHub Repository Evidence",
+                    "Read-only source, commits, releases, issues, and pull requests.",
+                    "github_mcp_server",
+                ),
+                (
+                    "fantasy_data",
+                    "ESPN Fantasy Evidence",
+                    "Read-only league, roster, draft, and player data.",
+                    "espn_mcp_server",
+                ),
+            )
+        ],
     ]
 
 
@@ -270,12 +353,13 @@ class SourceVerifierConfig(FunctionBaseConfig, name="source_verifier"):
         le=64000,
         description="Maximum tokens of fetched source content to pass to the verification LLM.",
     )
-    enabled_operations: list[str] | None = Field(
+    description: str = Field(default=_DISPATCH_DESCRIPTION)
+    enabled_operations: list[SourceVerifierOperation] | None = Field(
         default=None,
         description=(
             "Optional allow-list of operations to register. Supported values: "
             "verify_claim, audit_citations, plan_sources. When omitted, all "
-            "operations are registered."
+            "operations are enabled. An empty list disables every operation."
         ),
     )
     source_registry: list[dict[str, Any]] = Field(
@@ -631,6 +715,15 @@ def _preferred_source_ids(question: str, depth: str) -> list[str]:
         preferred.append("uploaded_documents")
     if flags["workspace"]:
         preferred.append("workspace_data")
+    q = question.lower()
+    for source_id, aliases in (
+        ("cluster_state", ("cluster", "kubernetes", "k8s", "pods")),
+        ("network_state", ("unifi", "home network")),
+        ("repository_data", ("github", "repository", "gitops")),
+        ("fantasy_data", ("fantasy", "roster", "waivers")),
+    ):
+        if any(alias in q for alias in aliases):
+            preferred.append(source_id)
     if flags["docs"]:
         preferred.append("nvidia_docs")
     if flags["has_url"]:
@@ -788,10 +881,11 @@ def _renumber_markdown_citations(
     framework_wrappers=[LLMFrameworkEnum.LANGCHAIN],
 )
 async def source_verifier_function(config: SourceVerifierConfig, builder: Builder):
-    enabled = set(config.enabled_operations or [])
-
-    def _enabled(operation: str) -> bool:
-        return not enabled or operation in enabled
+    enabled = set(
+        _ALL_OPERATIONS
+        if config.enabled_operations is None
+        else config.enabled_operations
+    )
 
     async def _invoke_critic(system_prompt: str, user_prompt: str) -> str:
         return await _call_llm(builder, config, system_prompt, user_prompt)
@@ -1030,7 +1124,9 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
             warnings.append("no usable sources selected")
 
         broad = _question_flags(question)["broad"] or preferred_depth == "deep"
-        approval_recommended = broad and len(recommended) >= 3
+        approval_recommended = (
+            preferred_depth != "quick" and broad and len(recommended) >= 3
+        )
 
         return json.dumps(
             {
@@ -1043,9 +1139,19 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
                 "unknown_sources": unknown_sources,
                 "warnings": warnings,
                 "approval_recommended": approval_recommended,
+                "approval_hint": (
+                    "Advisory cost hint only. Honor the request's approval policy and "
+                    "existing authorization; do not reconfirm an authorized workflow."
+                ),
+                "execution_contract": (
+                    "Use only relevant selected sources; reuse completed reads and "
+                    "parallelize independent calls. Tool names identify capabilities, "
+                    "not proof of connectivity. For MCP groups select an exposed leaf."
+                ),
                 "source_ledger_contract": {
                     "capture_fields": ["url", "title", "tool", "source_id"],
-                    "audit_tool": "source_verifier_tool.audit_citations",
+                    "audit_tool": "source_verifier_tool",
+                    "audit_operation": "audit_citations",
                     "rule": (
                         "Only final URLs observed from selected source tools may "
                         "appear in the References section."
@@ -1234,52 +1340,62 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
         )
 
     # ------------------------------------------------------------------
-    # Register all tools with NAT
+    # NAT consumes this factory as an async context manager: exactly one yield.
+    # Multiple yields expose only the first operation and break cleanup.
     # ------------------------------------------------------------------
+    async def source_verifier(
+        operation: SourceVerifierOperation,
+        claim: str = "",
+        source_url: str = "",
+        context: str = "",
+        research_question: str = "",
+        selected_sources_json: str = "",
+        disabled_sources_json: str = "",
+        depth: str = "auto",
+        answer_markdown: str = "",
+        source_urls_json: str = "",
+        require_references: bool = True,
+    ) -> str:
+        if operation not in enabled:
+            return json.dumps(
+                {
+                    "passed": False,
+                    "error": "operation_disabled",
+                    "operation": operation,
+                    "enabled_operations": sorted(enabled),
+                }
+            )
+        required = {
+            "verify_claim": {"claim": claim, "source_url": source_url},
+            "plan_sources": {"research_question": research_question},
+            "audit_citations": {"answer_markdown": answer_markdown},
+        }[operation]
+        missing = [name for name, value in required.items() if not value.strip()]
+        if missing:
+            return json.dumps(
+                {
+                    "passed": False,
+                    "error": "missing_arguments",
+                    "operation": operation,
+                    "required_fields": missing,
+                }
+            )
+        if operation == "verify_claim":
+            return await verify_claim(claim, source_url, context)
+        if operation == "plan_sources":
+            return await plan_sources(
+                research_question, selected_sources_json, disabled_sources_json, depth
+            )
+        return await audit_citations(
+            answer_markdown, source_urls_json, require_references
+        )
+
     try:
-        if _enabled("verify_claim"):
-            yield FunctionInfo.from_fn(
-                verify_claim,
-                description=(
-                    "Verify whether a source URL actually supports a claimed fact. "
-                    "Fetches the URL and uses the configured provider-neutral LLM "
-                    "critic to assess support. Returns structured verdict: supported/"
-                    "partially_supported/unsupported/source_unreachable with evidence "
-                    "excerpts and uncalibrated confidence. "
-                    "Call this on the exact final claim BEFORE storing any finding "
-                    "in memory to prevent citation hallucination. Store memory only "
-                    "when verdict is 'supported'; do not store partially_supported, "
-                    "unsupported, or source_unreachable claims."
-                ),
-            )
-
-        if _enabled("plan_sources"):
-            yield FunctionInfo.from_fn(
-                plan_sources,
-                description=(
-                    "Plan a research source strategy from Daedalus's source "
-                    "registry. Args: research_question, optional "
-                    "selected_sources_json, disabled_sources_json, and depth "
-                    "(auto/quick/deep). Returns selected sources, recommended "
-                    "tool sequence, blocked tools, warnings, approval hint, and "
-                    "the citation source-ledger contract. Use before deep "
-                    "research and when the user requests source inclusions or "
-                    "exclusions."
-                ),
-            )
-
-        if _enabled("audit_citations"):
-            yield FunctionInfo.from_fn(
-                audit_citations,
-                description=(
-                    "Deterministically audit a markdown answer's [N] citations "
-                    "and References/Sources URLs against an optional JSON source "
-                    "ledger captured from tool results. Returns passed, "
-                    "invalid_citations, warnings, and repaired_markdown. Use before "
-                    "finalizing citation-backed research reports; revise once when "
-                    "passed is false."
-                ),
-            )
+        yield FunctionInfo.from_fn(
+            source_verifier,
+            input_schema=SourceVerifierInput,
+            description=config.description,
+        )
 
     except GeneratorExit:
         logger.warning("source_verifier function exited early!")

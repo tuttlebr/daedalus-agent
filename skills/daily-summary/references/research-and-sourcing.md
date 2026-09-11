@@ -9,7 +9,15 @@ Call `source_verifier_tool` with `operation=plan_sources` once. Describe the
 complete desk manifest and distinguish every-edition checks from conditional
 signal checks. Keep default source families enabled unless a reader directive
 excludes one. Use the returned tool order as a plan, not as permission to call
-unrelated tools.
+unrelated tools. Use `research_question` for the dated manifest and `depth=quick`.
+Pass the needed source IDs in `selected_sources_json`: public families
+`curated_feeds`, `perplexity_search`, `known_url_scrape`, `nvidia_docs`,
+`curated_domains`, and `x_mcp`, plus `workspace_data`, `cluster_state`,
+`network_state`, and `repository_data` for the standing desks. Add
+`fantasy_data` only for a requested fantasy desk. Preserve explicit source
+inclusions/exclusions and reuse the completed personal-source reads. A broad
+topic or approval hint does not require a new approval for this requested
+briefing. The plan is a source menu, not a requirement to call every family.
 
 Date-stamp queries about current health, today, tonight, this week, latest
 results, releases, or schedules. A search snippet is discovery evidence, not
@@ -50,6 +58,10 @@ releases, issues, or pull requests in remembered fleet repositories. Distinguish
 source changes from applied cluster state: a recent commit is not proof that
 Flux reconciled it, and a healthy Flux object is not proof the desired commit
 contains no drift.
+
+Discover installed resource kinds with `getAPIResources` before querying
+optional Flux kinds. An absent CRD means Flux is unavailable for that check;
+do not retry the same nonexistent kind or classify it as an active outage.
 
 ### Home network and storage
 
@@ -96,6 +108,10 @@ current local day and the next three calendar days. Use `get_event` or
 look-ahead and preserve necessary travel or preparation context without
 publishing irrelevant attendee data. `list_calendars` is inventory, not a
 substitute for events. Never call `suggest_time` during a summary.
+
+Use the connected schema's `startTime`, `endTime`, and `timeZone` fields;
+do not substitute REST-style `time_min`/`time_max`. Gmail thread reads use
+`threadId`, and Calendar event reads use `eventId`.
 
 Gmail and Calendar use per-user OAuth. When a tool emits an authorization
 prompt, surface it and wait. Resume without repeating completed public calls.
@@ -161,7 +177,9 @@ shared idea with Alicia only when it is genuinely specific and useful.
 
 - Verify precise scores, schedules, warnings, forecasts, releases, and other
   consequential volatile claims against the selected source. Use
-  `source_verifier_tool.verify_claim` when support is not already exact.
+  `source_verifier_tool(operation=verify_claim, claim=..., source_url=...)`
+  for public-source claims when support is not already exact. Private and live
+  operational claims use their authenticated source tools, not a public fetch.
 - Distinguish reported facts from the editor's synthesis.
 - Link every public-web story or brief to its HTTPS source page. For live tool
   or private-tool evidence, name the tool source in the sources section without

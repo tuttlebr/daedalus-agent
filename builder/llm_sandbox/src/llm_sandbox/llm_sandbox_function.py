@@ -122,6 +122,8 @@ def _validate_artifact_publish_url(value: str) -> str:
 class LlmSandboxConfig(FunctionBaseConfig, name="llm_sandbox"):
     """Configuration for the LLM sandbox function."""
 
+    description: str | None = None
+
     base_url: str = Field(
         default_factory=lambda: os.environ.get(
             "LLM_SANDBOX_BASE_URL", DEFAULT_BASE_URL
@@ -1085,7 +1087,8 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
         yield FunctionInfo.from_fn(
             _sandbox,
             input_schema=LlmSandboxInput,
-            description=(
+            description=config.description
+            or (
                 "Execute one bounded step or manage a file through the isolated "
                 "Bubblewrap sandbox. "
                 "The tool checks readiness and discovers capabilities before execution, "

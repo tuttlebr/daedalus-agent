@@ -39,7 +39,8 @@ use the returned publication link for durable delivery. Preserve exact verified
 bytes and report a failed publication honestly.
 
 [Daily-summary](../daily-summary/SKILL.md) owns a specific exception: renderer
-and validator files are transient, and the verified edition is returned as one
+and validator files are staged by `briefing_renderer_tool`. Submit its structured
+edition object instead of transcribing scripts. The verified edition is returned as one
 inline HTML fence. Never publish that edition as a separate download.
 
 A timeout can leave execution uncertain. Inspect available state, reduce the

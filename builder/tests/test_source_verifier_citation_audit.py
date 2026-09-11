@@ -1,5 +1,6 @@
 import asyncio
 import json
+from functools import partial
 from unittest.mock import MagicMock
 
 
@@ -17,7 +18,7 @@ async def _audit_fn():
         SourceVerifierConfig(enabled_operations=["audit_citations"]),
         MagicMock(),
     ):
-        return item.fn
+        return partial(item.fn, operation="audit_citations")
     raise AssertionError("audit_citations was not registered")
 
 

@@ -282,6 +282,12 @@ def main() -> None:
 
     asyncio.run(assert_llm_sandbox_schema_contract())
 
+    # Every native factory must expose its configured routing and schema and
+    # finish its registration lifecycle, including combined verifier operations.
+    from tool_catalog_contract_check import check_catalog
+
+    asyncio.run(check_catalog())
+
     # Agent skills use one dispatch function so NAT's async-context-manager
     # registration consumes exactly one yield. Exercise both discovery and loading
     # through the real installed FunctionInfo adapter; unit tests replace NAT's

@@ -6,6 +6,11 @@ export const SOURCE_POLICY_IDS = [
   'nvidia_docs',
   'uploaded_documents',
   'workspace_data',
+  'x_mcp',
+  'cluster_state',
+  'network_state',
+  'repository_data',
+  'fantasy_data',
 ] as const;
 
 export type SourcePolicyId = (typeof SOURCE_POLICY_IDS)[number];

@@ -129,6 +129,7 @@ COPY entrypoint.py /workspace/entrypoint.py
 COPY mcp_patches.py /workspace/mcp_patches.py
 COPY runtime_contract_check.py /workspace/runtime_contract_check.py
 COPY agent_loop_contract_check.py /workspace/agent_loop_contract_check.py
+COPY tool_catalog_contract_check.py /workspace/tool_catalog_contract_check.py
 COPY google_workspace_oauth_contract_check.py /workspace/google_workspace_oauth_contract_check.py
 COPY milvus_collection_migration.py /workspace/milvus_collection_migration.py
 COPY image_api.py /workspace/image_api.py

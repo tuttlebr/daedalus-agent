@@ -47,6 +47,8 @@ DateFilter = Annotated[
 class PerplexitySearchConfig(FunctionBaseConfig, name="perplexity_search"):
     """Configuration for the Perplexity Search API function."""
 
+    description: str | None = None
+
     api_key: str = Field(
         default_factory=lambda: os.environ.get("PERPLEXITY_SEARCH_API_KEY", ""),
         description=(
@@ -427,7 +429,8 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
     try:
         yield FunctionInfo.from_fn(
             _search,
-            description=(
+            description=config.description
+            or (
                 "Search the web using Perplexity's first-party Search API and "
                 "return ranked URLs with snippets, publication dates, and "
                 "last-updated metadata. Use for broad web discovery, current "

@@ -292,7 +292,7 @@ function_groups:
       get_thread:
         approval_policy: read_only
         description: >-
-          Read one Gmail thread by id for the authenticated user. Use
+          Read one Gmail thread by threadId for the authenticated user. Use
           after search_threads when full message context is needed.
       get_message:
         approval_policy: read_only
@@ -417,12 +417,24 @@ functions:
       Preserve the user's scope, evidence, identifiers, and completed calls
       across handoffs. For a sibling skill use its skill_name, not a ../
       resource path; resources are confined to the selected skill directory.
+      The owning skill keeps the final deliverable; a specialist contributes
+      evidence or a bounded subtask and does not restart the workflow. Reuse
+      completed reads, and parallelize only calls whose inputs are ready.
+      Call the exact registered tool name and schema. For dispatcher tools,
+      select an enabled operation field; tool.operation is descriptive notation,
+      not a separate callable. MCP groups expose their own named leaf tools.
+      Source planning recommends sources, claim verification checks public
+      evidence, citation auditing checks numbered Markdown, and the briefing
+      renderer validates HTML. These stages do not replace one another.
       After tool failures, verify the failed operation succeeds before treating
       a repair as complete. Successful inspection commands do not prove a fix.
       The runtime stops repeated results, recurring errors, and unresolved
       repair loops. Prefer structured objects and serialization over manually
       patching JSON text. For briefing assembly use briefing_renderer_tool.
       Skills do not add tools, credentials, host files, or permissions.
+      The connected Kubernetes and GitHub groups expose reads. For changes,
+      prepare the requested patch and commands; execution requires a separately
+      available authorized write capability. Source inspection cannot apply it.
       Use the registered MCP schemas for live systems. The sandbox has no
       implicit repository checkout, kubeconfig, GPU, or host-service access.
       Operator command examples require a separately available execution
@@ -441,7 +453,7 @@ functions:
       For an explicit image generation or edit request, load
       image-creation before visual_media_tool generation/editing,
       unless already loaded in this conversation. Image analysis alone does
-      not need the photography skill.
+      not need the image-creation skill.
     verbose: false
   briefing_renderer_tool:
     _type: briefing_renderer
@@ -458,26 +470,28 @@ functions:
       or "note that"; call this directly without confirmation for those
       requests. Args: memory (plain text, NEVER JSON), optional tags,
       metadata, and key_value_pairs. The backend derives user identity
-      from the authenticated request; do not pass user_id. Returns: memory id.
+      from the authenticated request; do not pass user_id. Returns: write status.
       Rules: (1) for
-      type=finding or type=project_update, call
-      source_verifier_tool.verify_claim on the exact final memory
+      public-source type=finding or type=project_update, call
+      source_verifier_tool with operation=verify_claim on the exact final memory
       sentence first; store only if verdict=supported. On
       partially_supported, unsupported, or source_unreachable, do not
       store unless you rewrite the memory to only the supported
-      subclaim and verify that rewritten sentence as supported; (2) on
+      subclaim and verify that rewritten sentence as supported. Private or live
+      operational observations use authenticated tool evidence; never send
+      them to a public URL verifier or store them merely because a skill loaded.
+      (2) on
       conflict with a prior memory, add a NEW entry that names
       both positions, never overwrite or silently supersede. Fails
       when: memory empty, authenticated identity is missing or invalid,
-      or a finding lacks a prior verify_claim pass.
+      durable memory is disabled/unavailable, or idempotency blocks a replay.
+      Claim verification is a workflow requirement, not an automatic check by
+      this storage tool.
     verbose: false
   current_datetime_tool:
     _type: current_datetime
-    description: >-
-      Get current date, time, and timezone. Trigger: any
-      time-relative query ("today", "this week", "how old is X").
-      Args: none. Returns: ISO datetime + timezone. Fails when:
-      never.
+    # NAT's native schema requires unused="" and returns time with UTC offset.
+    # This upstream component owns its description; it has no description field.
     verbose: false
   get_memory:
     _type: daedalus_get_memory
@@ -487,7 +501,7 @@ functions:
       or project context would materially sharpen the answer. For a daily
       briefing or summary, call this only after the daily-summary skill is
       loaded and directs it, then await exactly one call. Args: query, top_k
-      (default 5).
+      (configured default 8).
       Daily briefing/summary queries are server-expanded and searched with at
       least top_k=24 even if a smaller top_k is supplied, so the complete
       interest inventory, required live desks, and read-only Kubernetes status
@@ -567,6 +581,8 @@ functions:
       collection and rejects shared targets. Search may read the user's
       private collection or an allow-listed shared collection (nvidia,
       semianalysis, kubernetes, vetpartner, or mentalhealth).
+      operation=extract returns text from documentRef/documentRefs without
+      ingestion; operation=list_collections lists searchable collections.
     milvus_uri: ${MILVUS_URI}
     minio_access_key: ${MINIO_ACCESS_KEY}
     minio_endpoint: ${MINIO_ENDPOINT}
@@ -864,21 +880,53 @@ functions:
           - x_mcp_server
         default_enabled: true
         requires_auth: false
+      - id: cluster_state
+        name: Live Kubernetes State
+        description: Current cluster resources and workload evidence.
+        tools: [k8s_mcp_server]
+        default_enabled: false
+        requires_auth: true
+      - id: network_state
+        name: Live UniFi State
+        description: Current network inventory, device state, and statistics.
+        tools: [unifi_mcp_server]
+        default_enabled: false
+        requires_auth: true
+      - id: repository_data
+        name: GitHub Repository Evidence
+        description: Read-only source, commits, releases, issues, and pull requests.
+        tools: [github_mcp_server]
+        default_enabled: false
+        requires_auth: true
+      - id: fantasy_data
+        name: ESPN Fantasy Evidence
+        description: Read-only league, roster, draft, and player data.
+        tools: [espn_mcp_server]
+        default_enabled: false
+        requires_auth: true
     description: >-
-      Unified evidence tool. verify_claim(claim, source_url) checks one exact
+      Unified evidence dispatcher. Set operation explicitly.
+      operation=verify_claim with claim and source_url checks one exact
       final claim against one source (not speculative candidate claims) and is
-      required before storing findings or project updates; a version-specific
+      required before storing public-source findings or project updates; a version-specific
       release note alone is not proof of a latest/current claim.
-      plan_sources(research_question,
-      selected_sources_json, disabled_sources_json, depth) returns selected
+      operation=plan_sources with research_question and optional
+      selected_sources_json, disabled_sources_json, depth returns selected
       source families, recommended tool order, source-specific hints, blocked
       tools, approval hint, and citation ledger contract. Use it before deep
-      research or source overrides. audit_citations audits final markdown
-      citations before research answers are returned.
-      audit_citations(answer_markdown, source_urls_json, require_references)
+      research, a loaded skill's sourcing step, or source overrides. Its order
+      is advisory: reuse completed reads, honor disabled sources and existing
+      authorization, and do not request approval again based on a broad-topic
+      hint. It performs no source reads and does not prove availability.
+      operation=audit_citations with answer_markdown and optional
+      source_urls_json, require_references
       checks [N] citations, validates reference URLs, rejects placeholder or
       unsafe URLs, verifies every reference URL appears in the provided source
       ledger when source_urls_json is supplied, and returns repaired_markdown.
+      This audits numbered Markdown reports, not ordinary inline-link answers
+      or briefing HTML. briefing_renderer_tool owns the briefing quality gates.
+      Never send private mail, calendar, memory, or live cluster observations
+      to a public URL verifier; substantiate them from their authenticated tools.
       Revise once when passed=false. Returns stable JSON results; URL failures
       and unsupported exact claims fail closed.
     verbose: false

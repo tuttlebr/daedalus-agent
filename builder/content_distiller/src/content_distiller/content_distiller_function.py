@@ -41,6 +41,7 @@ class ContentDistillerConfig(FunctionBaseConfig, name="content_distiller"):
     Uses a fast/cheap model for distillation with a configurable fallback.
     """
 
+    description: str | None = None
     fast_llm_name: str = Field(
         default="distill_llm",
         description=(
@@ -268,7 +269,8 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
         if _enabled("distill_content"):
             yield FunctionInfo.from_fn(
                 distill_content,
-                description=(
+                description=config.description
+                or (
                     "Distill long content into a focused summary using a secondary "
                     "LLM. Use to process verbose tool outputs before incorporating "
                     "them into your response: web scrapes, RSS articles, retriever "

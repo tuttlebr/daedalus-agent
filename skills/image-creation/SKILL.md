@@ -34,7 +34,7 @@ A brief accepts these fields:
 
 Supply only useful fields. References are descriptions, not image inputs or
 proof that an image has been viewed. For edits, pass actual supplied
-`imageRef` values or a supported `image_url`; keep the primary edit target
+`imageRef` values; `image_url` is supported for analysis only. Keep the primary edit target
 first. Preserve returned IDs and order. Do not invent references or substitute
 a thumbnail for the full-resolution source.
 

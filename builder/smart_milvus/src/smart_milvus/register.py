@@ -54,6 +54,8 @@ def _milvus_connection_args_from_env() -> dict[str, str]:
 class DomainRetrieverConfig(FunctionBaseConfig, name="domain_retriever"):
     """Configuration for one routed Milvus retriever over curated domains."""
 
+    description: str | None = None
+
     uri: HttpUrl = Field(description="Milvus service URI")
     connection_args: dict = Field(
         default_factory=_milvus_connection_args_from_env,
@@ -276,7 +278,8 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
     try:
         yield FunctionInfo.from_fn(
             search_domain,
-            description=(
+            description=config.description
+            or (
                 "Search one curated Milvus knowledge domain. Args: query, domain "
                 "(nvidia, semianalysis, kubernetes, veterinarian, mentalhealth), "
                 "optional top_k and filters. Returns reranked passages with metadata."

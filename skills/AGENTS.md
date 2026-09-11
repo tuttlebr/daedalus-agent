@@ -13,6 +13,12 @@ not a collection of installed CLI plugins. Keep all skills compatible with
   `resource=../...`. The production dispatcher enables list/load only.
 - Put shared execution rules in the dispatcher description. Keep domain
   decisions in the owning skill; references must agree with its boundaries.
+- Tool descriptions must survive configuration and runtime registration. An
+  individual NAT function factory yields exactly one callable; dispatch related
+  operations through its typed schema. Test all enabled operations together.
+- Keep source IDs aligned across the verifier registry, chat source policy,
+  and autonomous worker. Planning, public claim verification, numbered Markdown
+  auditing, and briefing HTML validation have distinct contracts.
 - Use connected MCP tools for live systems and `llm_sandbox_tool` for bounded
   isolated work. A loaded script is text, not an executed program. The sandbox
   does not inherit `/skills`, repositories, kubeconfig, credentials, or GPUs.

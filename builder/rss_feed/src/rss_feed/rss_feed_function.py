@@ -63,6 +63,8 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
     and scrapes the top-ranked result.
     """
 
+    description: str | None = None
+
     # Reranker configuration (required)
     reranker_endpoint: HttpUrl | None = Field(
         default=None, description="The endpoint URL for the reranker service"
@@ -765,7 +767,8 @@ async def rss_feed_function(
     try:
         yield FunctionInfo.from_fn(
             search_rss,
-            description=(
+            description=config.description
+            or (
                 "Search configured RSS feeds and return one structured JSON result "
                 "with source URL, title, publication metadata, bounded article "
                 "content, and truncation status. Args: query and optional "

@@ -673,7 +673,7 @@ def test_build_messages_includes_sanitized_source_policy_message():
             "actionPolicy": "broad_autonomy",
             "sourcePolicy": {
                 "enabledSources": ["curated_domains", "missing"],
-                "disabledSources": ["google_search"],
+                "disabledSources": ["perplexity_search"],
                 "maxResearchToolCalls": 50,
                 "requirePlanApproval": True,
             },
@@ -687,7 +687,7 @@ def test_build_messages_includes_sanitized_source_policy_message():
     assert messages[0]["content"].startswith("[IDENTITY]")
     assert messages[1]["content"].startswith("[SOURCE_POLICY]")
     assert 'enabled_source_ids=["curated_domains"]' in messages[1]["content"]
-    assert 'disabled_source_ids=["google_search"]' in messages[1]["content"]
+    assert 'disabled_source_ids=["perplexity_search"]' in messages[1]["content"]
     assert "max_research_tool_calls=20" in messages[1]["content"]
     assert "require_deep_research_plan_approval=false" in messages[1]["content"]
     assert "confirm_research_plan" not in messages[1]["content"]

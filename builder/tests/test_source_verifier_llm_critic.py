@@ -174,8 +174,9 @@ def test_verify_claim_uses_the_configured_toolkit_llm(monkeypatch):
     async def _run():
         async for item in mod.source_verifier_function(config, builder):
             return await item.fn(
-                "The project ships a supported release.",
-                "https://docs.example.test/release",
+                operation="verify_claim",
+                claim="The project ships a supported release.",
+                source_url="https://docs.example.test/release",
             )
         raise AssertionError("verify_claim was not registered")
 
@@ -218,8 +219,9 @@ def test_verify_claim_returns_a_structured_error_for_bad_model_output(monkeypatc
     async def _run():
         async for item in mod.source_verifier_function(config, builder):
             return await item.fn(
-                "A precise claim.",
-                "https://docs.example.test/release",
+                operation="verify_claim",
+                claim="A precise claim.",
+                source_url="https://docs.example.test/release",
             )
         raise AssertionError("verify_claim was not registered")
 

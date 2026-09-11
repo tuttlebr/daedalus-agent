@@ -634,6 +634,8 @@ def format_user_document_search_results(output: object, collection_name: str) ->
 class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     """Configuration for NvIngest document processing function."""
 
+    description: str | None = None
+
     # Connection endpoints
     redis_url: str = Field(
         default="redis://localhost:6379",
@@ -3015,7 +3017,8 @@ async def nv_ingest_function(
     try:
         yield FunctionInfo.from_fn(
             user_document_tool,
-            description=(
+            description=config.description
+            or (
                 "Ingest or search documents for the authenticated user. The backend "
                 "derives identity from the trusted request; never pass a username. "
                 "Ingestion always writes to a private per-user collection and rejects "

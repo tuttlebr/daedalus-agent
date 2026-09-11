@@ -1,6 +1,7 @@
 import asyncio
 import json
 import socket
+from functools import partial
 from unittest.mock import MagicMock
 
 import pytest
@@ -55,7 +56,7 @@ async def _plan_fn(config_overrides=None):
         **(config_overrides or {}),
     )
     async for item in source_verifier_function(config, MagicMock()):
-        return item.fn
+        return partial(item.fn, operation="plan_sources")
     raise AssertionError("plan_sources was not registered")
 
 
@@ -84,7 +85,8 @@ def test_plan_sources_prioritizes_current_source_families():
     assert result["recommended_tool_sequence"][1]["hints"] == [
         {"tool": "perplexity_search_tool", "search_recency_filter": "week"}
     ]
-    assert result["source_ledger_contract"]["audit_tool"].endswith("audit_citations")
+    assert result["source_ledger_contract"]["audit_tool"] == "source_verifier_tool"
+    assert result["source_ledger_contract"]["audit_operation"] == "audit_citations"
 
 
 def test_plan_sources_respects_selected_and_disabled_sources():
@@ -121,6 +123,22 @@ def test_plan_sources_reports_unknown_sources():
     assert result["passed"] is True
     assert result["unknown_sources"] == ["missing"]
     assert any("unknown source ids" in warning for warning in result["warnings"])
+
+
+def test_quick_briefing_does_not_recommend_an_extra_research_approval():
+    async def _run():
+        plan_sources = await _plan_fn()
+        return json.loads(
+            await plan_sources(
+                research_question="Today's briefing: cluster report, AI strategy, markets",
+                depth="quick",
+            )
+        )
+
+    result = run(_run())
+    assert result["passed"]
+    assert len(result["selected_sources"]) >= 3
+    assert result["approval_recommended"] is False
 
 
 @pytest.mark.parametrize(
