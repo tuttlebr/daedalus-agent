@@ -4,9 +4,10 @@ import asyncio
 import inspect
 import json
 from typing import get_args
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+from pydantic import TypeAdapter
 
 
 def run(coro):
@@ -45,6 +46,7 @@ class FakeAsyncClient:
     last_headers = None
     last_json = None
     response = FakeResponse()
+    post_calls = 0
 
     def __init__(self, timeout=None):
         self.timeout = timeout
@@ -56,6 +58,7 @@ class FakeAsyncClient:
         return False
 
     async def post(self, base_url, headers, json):
+        FakeAsyncClient.post_calls += 1
         FakeAsyncClient.last_base_url = base_url
         FakeAsyncClient.last_headers = headers
         FakeAsyncClient.last_json = json
@@ -77,6 +80,12 @@ def test_config_reads_perplexity_search_api_key(monkeypatch):
     monkeypatch.setenv("PERPLEXITY_SEARCH_API_KEY", "env-key")
 
     assert PerplexitySearchConfig().api_key == "env-key"
+
+
+def test_config_defaults_to_small_result_list():
+    from perplexity_search.perplexity_search_function import PerplexitySearchConfig
+
+    assert PerplexitySearchConfig().default_max_results == 5
 
 
 def test_request_uses_bearer_auth_and_supported_filters():
@@ -150,6 +159,52 @@ def test_request_normalizes_iso_dates_and_prefers_exact_dates():
     assert "search_recency_filter" not in FakeAsyncClient.last_json
 
 
+def test_request_supports_distinct_multi_query_searches():
+    import perplexity_search.perplexity_search_function as mod
+    from perplexity_search.perplexity_search_function import PerplexitySearchConfig
+
+    queries = [
+        "NVIDIA Blackwell production deployments 2026",
+        "NVIDIA Blackwell independent performance benchmarks 2026",
+    ]
+
+    async def _run():
+        FakeAsyncClient.response = FakeResponse()
+        with patch.object(mod.httpx, "AsyncClient", FakeAsyncClient):
+            search = await _registered_search_fn(
+                PerplexitySearchConfig(api_key="test-key"),
+            )
+            return await search(query=queries)
+
+    output = run(_run())
+
+    assert FakeAsyncClient.last_json["query"] == queries
+    assert FakeAsyncClient.last_json["max_results"] == 5
+    assert "2 related queries" in output
+    payload = json.loads(
+        output.split("<searchresults>", 1)[1].split("</searchresults>", 1)[0]
+    )
+    assert payload["queries"] == queries
+
+
+def test_invalid_multi_query_returns_local_error_without_provider_request():
+    import perplexity_search.perplexity_search_function as mod
+    from perplexity_search.perplexity_search_function import PerplexitySearchConfig
+
+    async def _run():
+        FakeAsyncClient.last_json = None
+        with patch.object(mod.httpx, "AsyncClient", FakeAsyncClient):
+            search = await _registered_search_fn(
+                PerplexitySearchConfig(api_key="test-key"),
+            )
+            return await search(query=["NVIDIA Blackwell", "nvidia blackwell"])
+
+    output = run(_run())
+
+    assert "must be distinct subqueries" in output
+    assert FakeAsyncClient.last_json is None
+
+
 def test_tool_schema_annotations_describe_date_contract():
     from perplexity_search.perplexity_search_function import PerplexitySearchConfig
 
@@ -160,6 +215,7 @@ def test_tool_schema_annotations_describe_date_contract():
     parameters = inspect.signature(search).parameters
     date_metadata = get_args(parameters["search_after_date_filter"].annotation)[1:]
     recency_metadata = get_args(parameters["search_recency_filter"].annotation)[1:]
+    query_metadata = get_args(parameters["query"].annotation)[1:]
 
     assert any(
         "MM/DD/YYYY or YYYY-MM-DD" in str(getattr(item, "description", ""))
@@ -169,6 +225,23 @@ def test_tool_schema_annotations_describe_date_contract():
         "exact dates take precedence" in str(getattr(item, "description", ""))
         for item in recency_metadata
     )
+    assert any(
+        "Rewrite vague or conversational wording"
+        in str(getattr(item, "description", ""))
+        and "2-5 distinct related subqueries" in str(getattr(item, "description", ""))
+        for item in query_metadata
+    )
+
+
+def test_query_schema_bounds_multi_query_size():
+    from perplexity_search.perplexity_search_function import SearchQuery
+
+    schema = TypeAdapter(SearchQuery).json_schema()
+    multi_query_schema = next(item for item in schema["anyOf"] if "items" in item)
+
+    assert multi_query_schema["minItems"] == 2
+    assert multi_query_schema["maxItems"] == 5
+    assert multi_query_schema["items"]["minLength"] == 1
 
 
 def test_invalid_exact_date_returns_local_error_without_provider_request():
@@ -210,16 +283,56 @@ def test_rate_limit_is_explicitly_user_visible():
 
     async def _run():
         FakeAsyncClient.response = FakeResponse(status_code=429, text="rate limited")
-        with patch.object(mod.httpx, "AsyncClient", FakeAsyncClient):
+        FakeAsyncClient.post_calls = 0
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(mod.asyncio, "sleep", AsyncMock()) as sleep,
+            patch.object(mod.secrets, "randbelow", return_value=250),
+        ):
             search = await _registered_search_fn(
-                PerplexitySearchConfig(api_key="test-key"),
+                PerplexitySearchConfig(
+                    api_key="test-key",
+                    rate_limit_backoff_seconds=1.0,
+                ),
             )
-            return await search(query="nvidia")
+            return await search(query="nvidia"), sleep
 
-    output = run(_run())
+    output, sleep = run(_run())
+    assert FakeAsyncClient.post_calls == 3
+    assert [call.args[0] for call in sleep.await_args_list] == [1.25, 2.25]
     assert "server-side rate limit" in output
     assert "Report this limitation to the user" in output
     assert "do not retry" in output
+
+
+def test_rate_limit_retry_can_recover():
+    import perplexity_search.perplexity_search_function as mod
+    from perplexity_search.perplexity_search_function import PerplexitySearchConfig
+
+    class RecoveringAsyncClient(FakeAsyncClient):
+        responses = [FakeResponse(status_code=429), FakeResponse()]
+
+        async def post(self, base_url, headers, json):
+            await super().post(base_url, headers, json)
+            return self.responses.pop(0)
+
+    async def _run():
+        FakeAsyncClient.post_calls = 0
+        with (
+            patch.object(mod.httpx, "AsyncClient", RecoveringAsyncClient),
+            patch.object(mod.asyncio, "sleep", AsyncMock()) as sleep,
+            patch.object(mod.secrets, "randbelow", return_value=0),
+        ):
+            search = await _registered_search_fn(
+                PerplexitySearchConfig(api_key="test-key"),
+            )
+            return await search(query="NVIDIA Blackwell availability 2026"), sleep
+
+    output, sleep = run(_run())
+
+    assert FakeAsyncClient.post_calls == 2
+    sleep.assert_awaited_once_with(1.0)
+    assert "[NVIDIA](https://www.nvidia.com/)" in output
 
 
 def test_server_side_quota_exhaustion_is_explicitly_user_visible():
@@ -327,3 +440,21 @@ def test_build_payload_ignores_incomplete_results():
             "snippet": "Useful result",
         }
     ]
+
+
+def test_build_payload_enforces_requested_result_limit():
+    from perplexity_search.perplexity_search_function import _build_payload
+
+    payload = _build_payload(
+        {
+            "results": [
+                {"title": f"Result {index}", "url": f"https://example.com/{index}"}
+                for index in range(5)
+            ],
+        },
+        "example",
+        max_results=3,
+    )
+
+    assert payload["search_info"]["total_results"] == 3
+    assert len(payload["organic_results"]) == 3

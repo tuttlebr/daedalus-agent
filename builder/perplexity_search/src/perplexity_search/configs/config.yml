@@ -1,7 +1,13 @@
 functions:
   perplexity_search:
     _type: perplexity_search
+    default_max_results: 5
     description: >-
-      Search the web using the Perplexity Search API and return ranked
+      Search the web using the Perplexity Search API. Rewrite vague requests
+      into specific standalone queries with relevant context, time frames, and
+      precise terminology. Use one query for focused lookup or 2-5 distinct
+      related subqueries for multifaceted research. Prefer 3 results for a
+      focused lookup and the default 5 for broader discovery. Return ranked
       structured results with snippets, publication dates, and last-updated
-      metadata.
+      metadata. Retry provider rate limits with bounded exponential backoff and
+      jitter.

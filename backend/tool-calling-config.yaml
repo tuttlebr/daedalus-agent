@@ -731,14 +731,24 @@ functions:
     verbose: false
   perplexity_search_tool:
     _type: perplexity_search
+    default_max_results: 5
     description: >-
       Perplexity Search API web search for ranked URLs with snippets,
       publication dates, and last-updated metadata. Trigger: "search",
       "look up", "latest", "current", broad source discovery, and
       citation candidate gathering when curated feeds or known URLs are
       insufficient. If the user provides an actual URL, use the
-      webscrape_tool. Args: query, optional country (two-letter ISO
-      code), optional max_results (1-20), optional search_context_size
+      webscrape_tool. Rewrite vague or conversational wording into a
+      specific, standalone search query with unambiguous entities,
+      relevant context and time frames, and precise terminology while
+      preserving user intent. Use one query for focused lookup. For a
+      multifaceted research task only, pass 2-5 distinct related
+      subqueries in one query array, with each subquery covering a
+      different angle. Prefer max_results=3 for a focused lookup and
+      omit it to use the default of 5 for broader discovery; request
+      more only when genuinely necessary. Args: query (string or array),
+      optional country (two-letter ISO code), optional max_results
+      (1-20), optional search_context_size
       (low, medium, high), optional search_recency_filter (hour, day,
       week, month, year), optional search_domain_filter
       (comma-separated domains), optional search_language_filter
@@ -746,8 +756,10 @@ functions:
       filters in MM/DD/YYYY or YYYY-MM-DD format. Exact date filters
       take precedence and must not be combined with
       search_recency_filter. Returns: ranked URLs with snippets and
-      freshness metadata. Fails when PERPLEXITY_SEARCH_API_KEY is
-      missing, rate-limited, or the arguments are invalid.
+      freshness metadata. Provider rate limits receive bounded
+      exponential retries with jitter. Fails when
+      PERPLEXITY_SEARCH_API_KEY is missing, rate-limit retries are
+      exhausted, or the arguments are invalid.
     verbose: false
   webscrape_tool:
     _type: webscrape

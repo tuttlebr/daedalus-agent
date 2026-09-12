@@ -1335,7 +1335,14 @@ def test_multi_operation_tools_are_filtered_in_production():
 
 
 def test_perplexity_search_documented_filters_are_configured():
-    desc = _config()["functions"]["perplexity_search_tool"]["description"]
+    tool = _config()["functions"]["perplexity_search_tool"]
+    desc = tool["description"]
+    assert tool["default_max_results"] == 5
+    assert "Rewrite vague or conversational wording" in desc
+    assert "2-5 distinct related" in desc
+    assert "Prefer max_results=3" in desc
+    assert "default of 5" in desc
+    assert "bounded exponential retries with jitter" in desc
     assert "PERPLEXITY_SEARCH_API_KEY" in desc
     assert "search_recency_filter (hour, day, week, month, year)" in desc
     assert "MM/DD/YYYY or YYYY-MM-DD" in desc
