@@ -84,7 +84,7 @@ export function OutputActionSheet({
     >
       <section
         aria-labelledby="selected-output-title"
-        className="max-h-[88dvh] overflow-y-auto rounded-t-3xl border-t border-separator/70 bg-app/98 pb-safe-bottom shadow-2xl"
+        className="max-h-[88dvh] overflow-y-auto rounded-t-3xl border-t border-separator/70 bg-app pb-safe-bottom shadow-2xl"
       >
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-fill/15" />
         <header className="flex items-center justify-between px-4 pb-3 pt-2">
