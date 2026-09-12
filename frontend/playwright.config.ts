@@ -51,7 +51,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-chromium',
-      testMatch: /(?:ui-layout|hig-design|ux-review)\.spec\.ts/,
+      testMatch: /(?:ui-layout|hig-design|ux-review|image-download)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: chromiumLaunchOptions,
@@ -63,12 +63,12 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      testMatch: /(?:ui-layout|hig-design|ux-review)\.spec\.ts/,
+      testMatch: /(?:ui-layout|hig-design|ux-review|image-download)\.spec\.ts/,
       use: { ...devices['iPhone 15'], viewport: iphone17ProViewport },
     },
     {
       name: 'tablet-webkit',
-      testMatch: /(?:hig-design|ux-review)\.spec\.ts/,
+      testMatch: /(?:hig-design|ux-review|image-download)\.spec\.ts/,
       use: {
         ...devices['iPad Pro 11'],
         viewport: { width: 834, height: 1194 },
@@ -76,7 +76,7 @@ export default defineConfig({
     },
     {
       name: 'compact-chromium',
-      testMatch: /(?:hig-design|ux-review)\.spec\.ts/,
+      testMatch: /(?:hig-design|ux-review|image-download)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: chromiumLaunchOptions,

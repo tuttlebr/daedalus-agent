@@ -33,6 +33,7 @@ import type { ImageContext } from '@/types/imageBrief';
 
 import { EditAssetsPanel } from './AttachmentsPopover';
 import { HistoryDrawer, HistoryToggleButton } from './HistoryDrawer';
+import { ImageDownloadAction } from './ImageDownloadAction';
 import { ImagePromptDetail } from './ImagePromptDetail';
 import { ImageSettingsPanel } from './ImageSettingsPanel';
 import { ImagesCanvas } from './ImagesCanvas';
@@ -612,12 +613,14 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
           <div className="min-h-0 flex-1">
             <ImageSettingsPanel />
           </div>
-          <OutputDetailPanel
-            image={selectedImage}
-            onReuseAsInput={reuseRef}
-            onSendToChat={onSendToChat}
-            onDelete={removeFromGallery}
-          />
+          {isDesktop && (
+            <OutputDetailPanel
+              image={selectedImage}
+              onReuseAsInput={reuseRef}
+              onSendToChat={onSendToChat}
+              onDelete={removeFromGallery}
+            />
+          )}
         </aside>
       </div>
 
@@ -687,7 +690,6 @@ function OutputDetailPanel({
 
   const ref = generatedRef(image);
   const fullUrl = getImageUrl(ref, false);
-  const downloadUrl = `${fullUrl}?download=1`;
 
   return (
     <div className="max-h-[44vh] overflow-y-auto border-t border-separator/70 p-4">
@@ -714,9 +716,11 @@ function OutputDetailPanel({
             Chat
           </OutputAction>
         )}
-        <OutputAction icon={<IconDownload size={14} />} href={downloadUrl}>
-          Download
-        </OutputAction>
+        <ImageDownloadAction
+          imageId={image.imageId}
+          icon={<IconDownload size={14} />}
+          className={outputActionClasses()}
+        />
         <OutputAction
           icon={<IconExternalLink size={14} />}
           href={fullUrl}
@@ -756,12 +760,7 @@ function OutputAction({
   target?: string;
   danger?: boolean;
 }) {
-  const className = classNames(
-    'inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition-colors',
-    danger
-      ? 'border-red-500/20 text-nvidia-red hover:bg-red-500/10'
-      : 'border-separator/70 text-secondary hover:bg-fill/5 hover:text-primary',
-  );
+  const className = outputActionClasses(danger);
   if (href) {
     return (
       <a
@@ -780,6 +779,15 @@ function OutputAction({
       {icon}
       {children}
     </button>
+  );
+}
+
+function outputActionClasses(danger = false) {
+  return classNames(
+    'inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition-colors',
+    danger
+      ? 'border-red-500/20 text-nvidia-red hover:bg-red-500/10'
+      : 'border-separator/70 text-secondary hover:bg-fill/5 hover:text-primary',
   );
 }
 

@@ -16,6 +16,7 @@ import { getImageOutputMimeType } from '@/utils/app/imageModelCapabilities';
 import { OptimizedImage } from '@/components/chat/OptimizedImage';
 import { ModalSurface } from '@/components/surfaces';
 
+import { ImageDownloadAction } from './ImageDownloadAction';
 import { ImagePromptDetail } from './ImagePromptDetail';
 
 import type { GalleryImage, ImageRef } from '@/state/imagePanelStore';
@@ -59,7 +60,6 @@ export function OutputActionSheet({
 
   const ref = generatedRef(image);
   const fullUrl = getImageUrl(ref, false);
-  const downloadUrl = `${fullUrl}?download=1`;
 
   const reuse = () => {
     onReuseAsInput(ref);
@@ -128,10 +128,10 @@ export function OutputActionSheet({
               onClick={reuse}
               emphasis
             />
-            <SheetAction
+            <ImageDownloadAction
+              imageId={image.imageId}
               icon={<IconDownload size={18} />}
-              label="Download"
-              href={downloadUrl}
+              className={sheetActionClasses()}
             />
             <SheetAction
               icon={<IconExternalLink size={18} />}
@@ -163,7 +163,6 @@ function SheetAction({
   icon,
   label,
   onClick,
-  href,
   emphasis = false,
   destructive = false,
   className,
@@ -171,12 +170,28 @@ function SheetAction({
   icon: React.ReactNode;
   label: string;
   onClick?: () => void;
-  href?: string;
   emphasis?: boolean;
   destructive?: boolean;
   className?: string;
 }) {
-  const classes = classNames(
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={sheetActionClasses(emphasis, destructive, className)}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function sheetActionClasses(
+  emphasis = false,
+  destructive = false,
+  className?: string,
+) {
+  return classNames(
     'inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2',
     emphasis
       ? 'border-nvidia-green bg-action text-on-action hover:bg-nvidia-green-dark focus-visible:ring-nvidia-green/50'
@@ -184,21 +199,5 @@ function SheetAction({
       ? 'border-red-500/25 text-nvidia-red hover:bg-red-500/10 focus-visible:ring-red-500/40'
       : 'border-separator/70 bg-fill/[0.04] text-secondary hover:bg-fill/[0.08] focus-visible:ring-nvidia-green/40',
     className,
-  );
-
-  if (href) {
-    return (
-      <a href={href} className={classes}>
-        {icon}
-        <span>{label}</span>
-      </a>
-    );
-  }
-
-  return (
-    <button type="button" onClick={onClick} className={classes}>
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }

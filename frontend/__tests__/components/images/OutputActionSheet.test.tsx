@@ -65,6 +65,8 @@ describe('OutputActionSheet', () => {
     expect(download?.getAttribute('href')).toBe(
       `/api/generated-image/${image.imageId}?download=1`,
     );
+    expect(download?.hasAttribute('download')).toBe(true);
+    expect(download?.hasAttribute('target')).toBe(false);
 
     act(() => root.unmount());
   });
