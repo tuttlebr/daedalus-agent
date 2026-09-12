@@ -334,22 +334,6 @@
         max-width: 78ch;
         margin: 0;
       }
-      .ledger,
-      .sources-list {
-        margin: 0;
-        padding: 0;
-        list-style: none;
-        font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times,
-          serif;
-        font-size: 0.8rem;
-      }
-      .ledger li {
-        display: grid;
-        grid-template-columns: minmax(10rem, 1fr) minmax(0, 3fr) auto;
-        gap: 12px;
-        padding: 7px 0;
-        border-bottom: 1px solid var(--rule);
-      }
       .status {
         font-weight: 700;
         letter-spacing: 0.04em;
@@ -357,19 +341,6 @@
       }
       .status-unavailable {
         color: var(--urgent);
-      }
-      .status-quiet {
-        color: var(--muted);
-      }
-      .sources-list li {
-        margin: 6px 0;
-      }
-      .utility-section {
-        padding: 24px 0;
-      }
-      .utility-section > h2 {
-        margin: 0 0 12px;
-        font-size: 1.25rem;
       }
       footer {
         margin-top: 10px;
@@ -431,10 +402,6 @@
         }
         .department-story:first-child:nth-last-child(n + 3) .story-body {
           columns: 1;
-        }
-        .ledger li {
-          grid-template-columns: minmax(0, 1fr);
-          gap: 2px;
         }
         th,
         td {
@@ -509,26 +476,6 @@
         >
           <h2 id="editors-note-heading">Editor’s Note</h2>
           <p>@@EDITORS_NOTE@@</p>
-        </section>
-        <section
-          class="utility-section"
-          id="coverage"
-          aria-labelledby="coverage-heading"
-        >
-          <h2 id="coverage-heading">Coverage</h2>
-          <ul class="ledger">
-            @@COVERAGE@@
-          </ul>
-        </section>
-        <section
-          class="utility-section"
-          id="sources"
-          aria-labelledby="sources-heading"
-        >
-          <h2 id="sources-heading">Sources</h2>
-          <ul class="sources-list">
-            @@SOURCES@@
-          </ul>
         </section>
       </main>
       <footer>@@FOOTER@@</footer>

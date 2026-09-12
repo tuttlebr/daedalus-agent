@@ -62,6 +62,53 @@ def test_renderer_builds_v4_split_layout_and_derived_manifest():
     assert metrics["departments"] == 5
 
 
+def test_renderer_omits_sources_and_ledger_with_compact_internal_coverage():
+    edition = _edition()
+    assert all(set(item) == {"desk_key", "status"} for item in edition["coverage"])
+
+    document, manifest, _ = _render(edition)
+
+    assert 'id="sources"' not in document
+    assert 'id="coverage"' not in document
+    assert 'class="ledger"' not in document
+    assert "Markets &amp; Finance" not in document
+    assert manifest["desks"][0] == {
+        "key": "cluster-infrastructure",
+        "label": "Cluster & Infrastructure",
+        "status": "covered",
+    }
+    story = edition["departments"][0]["stories"][0]
+    assert (
+        renderer._external_link(story["source"]["url"], story["headline"]) in document
+    )
+
+
+def test_renderer_accepts_additional_desk_without_ledger_copy():
+    edition = _edition()
+    edition["coverage"].append(
+        {"desk_key": "travel", "label": "Travel", "status": "quiet"}
+    )
+
+    document, manifest, _ = _render(edition)
+
+    assert manifest["desks"][-1] == {
+        "key": "travel",
+        "label": "Travel",
+        "status": "quiet",
+    }
+    assert 'data-desk-key="travel"' not in document
+
+
+def test_renderer_requires_reporting_for_a_covered_desk():
+    edition = _edition()
+    edition["departments"].pop()
+
+    with pytest.raises(
+        renderer.RenderError, match="covered desk culture-leisure must have reporting"
+    ):
+        _render(edition)
+
+
 def test_renderer_escapes_all_editor_supplied_text():
     edition = _edition()
     edition["lead"]["headline"] = '<script>alert("x")</script> & recovery'
@@ -125,7 +172,12 @@ def test_renderer_emits_complete_source_figure_provenance():
     assert 'data-source-page="https://primary.example/recovery"' in document
     assert 'data-image-credit="Example Research Lab"' in document
     assert 'loading="lazy" decoding="async" referrerpolicy="no-referrer"' in document
-    assert "Image credit: Example Research Lab" in document
+    assert (
+        renderer._external_link(
+            "https://primary.example/recovery", "Example Research Lab"
+        )
+        in document
+    )
     assert metrics["sources"] == 19
 
 
@@ -139,10 +191,7 @@ def test_renderer_handles_unavailable_front_sources_without_filler():
     weather_coverage = next(
         item for item in edition["coverage"] if item["desk_key"] == "weather"
     )
-    weather_coverage.update(
-        {"status": "unavailable", "explanation": "The weather source was unavailable."}
-    )
-    weather_coverage.pop("source")
+    weather_coverage["status"] = "unavailable"
 
     document, _, _ = _render(edition)
 

@@ -148,6 +148,12 @@ def _source_attrs(source: Source) -> str:
     )
 
 
+def _sourced_title(source: Source, title: str) -> str:
+    if source.kind == "web":
+        return _external_link(source.url, title)
+    return escape(title)
+
+
 class SourceRegistry:
     def __init__(self) -> None:
         self._items: list[Source] = []
@@ -158,18 +164,6 @@ class SourceRegistry:
         if key not in self._seen:
             self._seen.add(key)
             self._items.append(source)
-
-    def render(self) -> str:
-        rendered: list[str] = []
-        for source in self._items:
-            detail = f" — {escape(source.detail)}" if source.detail else ""
-            if source.kind == "web":
-                body = _external_link(source.url, source.label) + detail
-            else:
-                refs = ", ".join(escape(ref) for ref in source.refs)
-                body = f"<strong>{escape(source.label)}</strong>: {refs}{detail}"
-            rendered.append(f"<li>{body}</li>")
-        return "\n".join(rendered)
 
     @property
     def count(self) -> int:
@@ -358,7 +352,7 @@ def _render_lead(value: Any, lead_desk: str, registry: SourceRegistry) -> str:
     return (
         f'<article class="lead-story" data-story data-lead-story data-layout-slot="lead" '
         f'data-desk-key="{escape(lead_desk, quote=True)}"{_source_attrs(source)}>'
-        f'<h2>{escape(headline)}</h2><p class="dek">{escape(dek)}</p>'
+        f'<h2>{_sourced_title(source, headline)}</h2><p class="dek">{escape(dek)}</p>'
         f'<p><span class="verdict verdict-{escape(verdict_tone, quote=True)}">{escape(verdict_label)}</span></p>'
         f'<div class="lead-copy">{paragraphs_html}</div>{snapshot}</article>'
     )
@@ -381,11 +375,13 @@ def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
     weather_title = _text(weather.get("title"), "edition.day_ahead.weather.title")
     weather_note = _text(weather.get("note"), "edition.day_ahead.weather.note")
     weather_attrs = ""
+    weather_heading = escape(weather_title)
     weather_body: str
     if weather_status == "covered":
         source = _source(weather.get("source"), "edition.day_ahead.weather.source")
         registry.add(source)
         weather_attrs = _source_attrs(source)
+        weather_heading = _sourced_title(source, weather_title)
         rows = _array(
             weather.get("rows"), "edition.day_ahead.weather.rows", minimum=4, maximum=4
         )
@@ -415,12 +411,13 @@ def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
             source = _source(weather.get("source"), "edition.day_ahead.weather.source")
             registry.add(source)
             weather_attrs = _source_attrs(source)
+            weather_heading = _sourced_title(source, weather_title)
         if _array(weather.get("rows"), "edition.day_ahead.weather.rows", maximum=0):
             raise RenderError("unavailable weather must not contain rows")
         weather_body = '<p class="status status-unavailable">Unavailable</p>'
     weather_html = (
-        f'<section class="day-ahead-section" id="weather"{weather_attrs}>'
-        f"<h2>{escape(weather_title)}</h2>{weather_body}<p>{escape(weather_note)}</p></section>"
+        f'<section class="day-ahead-section" id="weather" data-coverage-status="{weather_status}"{weather_attrs}>'
+        f"<h2>{weather_heading}</h2>{weather_body}<p>{escape(weather_note)}</p></section>"
     )
 
     personal = _object(
@@ -439,12 +436,14 @@ def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
             "edition.day_ahead.email_calendar.status must be covered or unavailable"
         )
     personal_attrs = ""
+    personal_heading = "Email &amp; Calendar"
     if personal.get("source") is not None:
         source = _source(
             personal.get("source"), "edition.day_ahead.email_calendar.source"
         )
         registry.add(source)
         personal_attrs = _source_attrs(source)
+        personal_heading = _sourced_title(source, "Email & Calendar")
     elif personal_status == "covered":
         raise RenderError("covered email and calendar needs a source")
     agenda_raw = _array(
@@ -526,8 +525,8 @@ def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
             f"<h3>Action needed</h3>{actions_html(actions[:2])}"
         )
     personal_html = (
-        f'<section class="day-ahead-section" id="email-calendar"{personal_attrs}>'
-        f"<h2>Email &amp; Calendar</h2>{personal_body}</section>"
+        f'<section class="day-ahead-section" id="email-calendar" data-coverage-status="{personal_status}"{personal_attrs}>'
+        f"<h2>{personal_heading}</h2>{personal_body}</section>"
     )
 
     overflow: list[str] = []
@@ -567,7 +566,7 @@ def _render_operations(value: Any, registry: SourceRegistry) -> str:
         registry.add(source)
         blocks = _render_blocks(item.get("blocks"), f"{path}.blocks", registry)
         rendered.append(
-            f'<div class="report-block"{_source_attrs(source)}><h3>{escape(title)}</h3>{blocks}</div>'
+            f'<div class="report-block"{_source_attrs(source)}><h3>{_sourced_title(source, title)}</h3>{blocks}</div>'
         )
     return (
         '<section class="continuation" id="operations-continuation" data-lead-continuation '
@@ -611,7 +610,7 @@ def _render_departments(
             dek_html = f'<p class="dek">{escape(dek)}</p>' if dek else ""
             stories.append(
                 f'<article class="department-story" data-story data-desk-key="{escape(key, quote=True)}"'
-                f"{_source_attrs(source)}><h3>{escape(headline)}</h3>{dek_html}"
+                f"{_source_attrs(source)}><h3>{_sourced_title(source, headline)}</h3>{dek_html}"
                 f'<div class="story-body">{body}</div></article>'
             )
         rendered.append(
@@ -623,46 +622,31 @@ def _render_departments(
     return "\n".join(rendered), navigation
 
 
-def _render_coverage(
+def _coverage_manifest(
     value: Any,
     policy: dict[str, Any],
-    registry: SourceRegistry,
-) -> tuple[str, dict[str, Any], dict[str, str]]:
+) -> tuple[dict[str, Any], dict[str, str]]:
     items = _array(value, "edition.coverage", minimum=len(policy["desks"]), maximum=40)
     policy_labels = {item["key"]: item["label"] for item in policy["desks"]}
-    rendered: list[str] = []
     manifest_desks: list[dict[str, str]] = []
     statuses: dict[str, str] = {}
     for index, raw in enumerate(items):
         path = f"edition.coverage[{index}]"
         item = _object(raw, path)
-        _keys(item, {"desk_key", "label", "status", "explanation", "source"}, path)
+        _keys(item, {"desk_key", "label", "status"}, path)
         key = _text(item.get("desk_key"), f"{path}.desk_key")
         if not DESK_KEY.fullmatch(key):
             raise RenderError(f"{path}.desk_key is invalid")
         if key in statuses:
             raise RenderError(f"edition.coverage contains duplicate desk key {key}")
-        label = _text(item.get("label"), f"{path}.label")
+        label = _text(item.get("label", policy_labels.get(key)), f"{path}.label")
         if key in policy_labels and label != policy_labels[key]:
             raise RenderError(f"{path}.label must match the edition policy")
         status = _text(item.get("status"), f"{path}.status")
         if status not in STATUSES:
             raise RenderError(f"{path}.status must be covered, quiet, or unavailable")
-        explanation = _text(item.get("explanation"), f"{path}.explanation")
-        attrs = ""
-        if item.get("source") is not None:
-            source = _source(item.get("source"), f"{path}.source")
-            registry.add(source)
-            attrs = _source_attrs(source)
-        elif status == "covered":
-            raise RenderError(f"{path}.source is required when status is covered")
         statuses[key] = status
-        manifest_desks.append({"key": key, "label": label})
-        rendered.append(
-            f'<li data-desk-key="{escape(key, quote=True)}" data-coverage-status="{escape(status, quote=True)}"{attrs}>'
-            f"<strong>{escape(label)}</strong><span>{escape(explanation)}</span>"
-            f'<span class="status status-{escape(status, quote=True)}">{escape(status)}</span></li>'
-        )
+        manifest_desks.append({"key": key, "label": label, "status": status})
     missing = sorted(set(policy_labels) - set(statuses))
     if missing:
         raise RenderError(
@@ -673,7 +657,7 @@ def _render_coverage(
         "lead_desk": policy["lead_desk"],
         "desks": manifest_desks,
     }
-    return "\n".join(rendered), manifest, statuses
+    return manifest, statuses
 
 
 def render_daybook(
@@ -735,9 +719,7 @@ def render_daybook(
     departments_html, navigation = _render_departments(
         edition.get("departments"), registry
     )
-    coverage_html, manifest, statuses = _render_coverage(
-        edition.get("coverage"), policy, registry
-    )
+    manifest, statuses = _coverage_manifest(edition.get("coverage"), policy)
 
     if statuses.get(policy["lead_desk"]) not in {"covered", "unavailable"}:
         raise RenderError("the policy lead desk must be covered or unavailable")
@@ -760,6 +742,12 @@ def render_daybook(
     for key, _ in navigation:
         if statuses.get(key) != "covered":
             raise RenderError(f"department {key} must have covered status")
+    reported_keys = {policy["lead_desk"], "weather", "email-calendar"} | {
+        key for key, _ in navigation
+    }
+    for key, status in statuses.items():
+        if status == "covered" and key not in reported_keys:
+            raise RenderError(f"covered desk {key} must have reporting")
 
     rail_items = [
         ("operations-continuation", "Operations"),
@@ -791,8 +779,6 @@ def render_daybook(
         "@@OPERATIONS_CONTINUATION@@": operations_html,
         "@@DEPARTMENTS@@": departments_html,
         "@@EDITORS_NOTE@@": escape(editors_note),
-        "@@COVERAGE@@": coverage_html,
-        "@@SOURCES@@": registry.render(),
         "@@FOOTER@@": escape(footer),
     }
     document = template

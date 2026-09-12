@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 4.3.0
+  version: 4.4.0
   tags:
     - daily-briefing
     - html
@@ -81,8 +81,9 @@ requirements below apply to validated editions.
   its HTML.
 - The renderer keeps all edition CSS inline except the approved Cheltenham
   stylesheet and uses no JavaScript.
-- Put source limitations, desk status, factual references, and image credits
-  inside the document.
+- Link public reporting inline and keep image credits in captions. Put material
+  source limitations beside affected reporting or in the Editor's Note.
+- Omit the Sources section and desk ledger from HTML and text fallback editions.
 - Leave no TODOs, placeholders, template tokens, empty sections, Markdown image
   syntax, or fabricated links.
 
@@ -132,17 +133,8 @@ obvious synonym or child of an existing desk. Never remove or demote the policy
 lead without an explicit newer reader preference. Retain no raw private memory
 in the manifest. Use stable lowercase hyphenated keys for any addition.
 
-Use this sandbox manifest shape later:
-
-```json
-{
-  "policy_version": "2026-08-27",
-  "lead_desk": "cluster-infrastructure",
-  "desks": [
-    { "key": "cluster-infrastructure", "label": "Cluster & Infrastructure" }
-  ]
-}
-```
+Keep the desk inventory internal. The renderer derives its validation manifest
+from the compact `coverage` statuses; do not compose a separate manifest.
 
 If personalized memory is unavailable, continue with the standing edition
 policy and disclose that personalization could not be refreshed. The policy is
@@ -169,11 +161,13 @@ For every manifest desk, record one status:
 - `covered`: verified, timely material appears in a story, brief, or compact
   factual module;
 - `quiet`: the cadence-appropriate sources were checked and no material update
-  warrants space outside the ledger;
+  warrants space in the edition;
 - `unavailable`: the required source or authentication was unavailable.
 
-Every manifest key must appear exactly once in the compact ledger. Do not turn
-quiet or unavailable status into a filler story.
+Supply only each desk's key and status in `coverage`; policy labels are derived
+by the renderer. Do not repeat source objects or write ledger explanations.
+Quiet desks receive no visible entry. Disclose material source gaps briefly
+beside affected reporting or in the Editor's Note, without a desk-by-desk list.
 
 ### 4. Edit the front page and source images
 
@@ -234,8 +228,8 @@ The renderer allows two attempts per request. On success it delivers the exact
 validated HTML in the required single `html` fence. If rendering remains
 unavailable or `attempts_remaining=0`, use the returned edition and collected
 sources to deliver the useful reporting as a plain-text briefing with source
-links. State that the HTML edition could not be validated and identify any
-unfinished desks. Keep unsupported claims out of the fallback. Do not restart
+links. State that the HTML edition could not be validated and briefly disclose
+material source gaps. Keep unsupported claims out of the fallback. Do not restart
 the research, bypass validation by writing your own HTML, or replace collected
 reporting with an error-only edition.
 

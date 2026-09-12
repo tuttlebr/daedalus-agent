@@ -32,11 +32,12 @@ The template renders these regions in order:
    Independent modules balance into two editorial columns on wide screens.
 5. Supporting departments as separate ranked bands. The first of three or more
    stories becomes the feature; later stories form compact pairs.
-6. Editor's Note, complete desk ledger, sources, and image credits.
+6. Editor's Note and edition footer. Omit the Sources section and desk ledger;
+   keep source links on the reporting and image credits in figure captions.
 
 At or below 740px, every region becomes one ranked column in DOM order. The
 lead comes first, followed by Weather and Email & Calendar, their overflow,
-operations detail, supporting departments, ledger, and sources.
+operations detail, supporting departments, and Editor's Note.
 
 ## Opening budgets
 
@@ -51,7 +52,8 @@ operations report.
 - The opening personal rail contains the first four agenda items and first two
   actionable mail items. The renderer moves all remaining items below the grid;
   do not manually truncate them.
-- A quiet or unavailable desk belongs in the ledger, not in a filler panel.
+- Keep quiet desks internal. Mention material source limitations briefly beside
+  affected reporting or in the Editor's Note; do not create filler panels.
 
 These limits prevent one long story from pinning unrelated columns open and
 creating the empty corridor seen in the v3 layout.
@@ -79,9 +81,9 @@ them into stable attributes:
 - public reporting becomes `data-source-kind="web"` with an HTTPS
   `data-source-url` and a safe visible link;
 - live operational or personal reporting becomes `data-source-kind="tool"`
-  with a comma-separated `data-source-ref` and visible tool names;
-- every ledger item carries its `data-coverage-status` from the structured
-  edition and appears exactly once;
+  with a comma-separated `data-source-ref`;
+- weather and personal modules carry `data-coverage-status`; all desk statuses
+  stay in the internal validation manifest without a visible ledger;
 - Every `<img>` belongs inside a `<figure>` with URL, page, caption, credit,
   meaningful alt text, asynchronous decoding, and no-referrer behavior.
 
@@ -124,8 +126,6 @@ The canonical template emits:
     </section>
     <section id="operations-continuation" data-lead-continuation>...</section>
     <section id="editors-note">...</section>
-    <section id="coverage">...</section>
-    <section id="sources">...</section>
   </main>
 </html>
 ```

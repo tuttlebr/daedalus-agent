@@ -54,8 +54,9 @@ A live tool source uses `refs` instead of `url`:
 ```
 
 Web URLs must be HTTPS. Tool references contain only lowercase letters,
-digits, underscores, and hyphens. The renderer creates the Sources section and
-all validation attributes from these objects.
+digits, underscores, and hyphens. The renderer links public headlines to their
+source pages and keeps tool references in validation attributes. There is no
+separate Sources section. Image credits appear only in their figure captions.
 
 ## Lead and front page
 
@@ -119,9 +120,16 @@ the renderer supplies safe loading and referrer attributes.
 
 ## Coverage
 
-Every policy desk appears exactly once in `coverage`, preserving its key and
-label. Additional remembered desks are allowed when they have stable keys and
-labels. Each item has `desk_key`, `label`, `status`, `explanation`, and an
-optional `source`. Valid statuses are `covered`, `quiet`, and `unavailable`.
-Covered items require a source. Quiet and unavailable items remain visible only
-in the ledger.
+`coverage` is internal validation data and is never rendered as a desk ledger.
+Every policy desk appears exactly once with only `desk_key` and `status`:
+
+```json
+{ "desk_key": "markets-finance", "status": "quiet" }
+```
+
+Valid statuses are `covered`, `quiet`, and `unavailable`. The renderer derives
+policy labels; include `label` only for an additional remembered desk. Do not
+include `explanation` or duplicate `source` objects here. Covered desks must
+have sourced reporting elsewhere in the edition. Quiet desks are omitted from
+the page; material unavailable-source limitations belong beside affected
+reporting or in `editors_note`.

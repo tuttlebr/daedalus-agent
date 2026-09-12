@@ -75,8 +75,8 @@ interfaces. Counts require complete current pages.
 Report Synology storage health and the rsync mirror to
 `/volume2/daedalus/datasets/cluster-maintenance/` only when a connected source
 provides current evidence. Do not infer NAS health from UniFi reachability or
-reuse a remembered stalled-mirror condition. Mark this subtopic unavailable in
-the desk ledger when no live source exists.
+reuse a remembered stalled-mirror condition. When no live source exists, state
+that limitation briefly beside the operations reporting.
 
 Shared-auth failures on operational tools are operator issues. Mark the
 affected source unavailable and continue; do not turn a credential failure into
@@ -182,8 +182,9 @@ shared idea with Alicia only when it is genuinely specific and useful.
   operational claims use their authenticated source tools, not a public fetch.
 - Distinguish reported facts from the editor's synthesis.
 - Link every public-web story or brief to its HTTPS source page. For live tool
-  or private-tool evidence, name the tool source in the sources section without
-  exposing credentials, opaque identifiers, or raw personal content. Never
+  or private-tool evidence, retain the tool reference in the reporting's
+  structured source object without exposing credentials, opaque identifiers,
+  or raw personal content. Do not assemble a separate Sources section. Never
   fabricate a public URL for a Kubernetes, UniFi, Gmail, or Calendar result.
 - Use one fact in one best location. Cross-reference or reinterpret it instead
   of repeating forecast, cluster, schedule, or release copy across desks.

@@ -102,7 +102,7 @@
       ],
       "rules": [
         "No daily market recap, ticker tape, stock tips, trading hype, or fear headline.",
-        "A quiet ledger line is the normal result when no durable or seasonal item is timely."
+        "Mark this desk quiet internally and omit it from the page when no durable or seasonal item is timely."
       ]
     },
     {

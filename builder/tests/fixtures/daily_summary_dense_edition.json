@@ -419,97 +419,39 @@
   "coverage": [
     {
       "desk_key": "cluster-infrastructure",
-      "label": "Cluster & Infrastructure",
-      "status": "covered",
-      "explanation": "Current cluster, GPU, GitOps, network, and storage signals lead the edition.",
-      "source": {
-        "kind": "tool",
-        "label": "Live Kubernetes and UniFi reads",
-        "refs": ["k8s_mcp_server", "unifi_mcp_server"]
-      }
+      "status": "covered"
     },
     {
       "desk_key": "weather",
-      "label": "Weather",
-      "status": "covered",
-      "explanation": "Current conditions and the next three days are included.",
-      "source": {
-        "kind": "web",
-        "label": "National Weather Service Detroit/Pontiac",
-        "url": "https://www.weather.gov/dtx/"
-      }
+      "status": "covered"
     },
     {
       "desk_key": "email-calendar",
-      "label": "Email & Calendar",
-      "status": "covered",
-      "explanation": "Today’s agenda, action mail, and three-day look-ahead are included.",
-      "source": {
-        "kind": "tool",
-        "label": "Live Gmail and Google Calendar reads",
-        "refs": ["gmail_mcp_server", "calendar_mcp_server"]
-      }
+      "status": "covered"
     },
     {
       "desk_key": "ai-inference",
-      "label": "AI & Inference Desk",
-      "status": "covered",
-      "explanation": "Serving recovery, scheduling, and agent evaluation are material today.",
-      "source": {
-        "kind": "web",
-        "label": "NVIDIA Developer Blog",
-        "url": "https://developer.nvidia.com/blog/"
-      }
+      "status": "covered"
     },
     {
       "desk_key": "science-technology",
-      "label": "Science & Technology",
-      "status": "covered",
-      "explanation": "One practical agent-training research signal is included.",
-      "source": {
-        "kind": "web",
-        "label": "Microsoft Research",
-        "url": "https://www.microsoft.com/en-us/research/"
-      }
+      "status": "covered"
     },
     {
       "desk_key": "markets-finance",
-      "label": "Markets & Finance",
-      "status": "quiet",
-      "explanation": "No durable or seasonal item warrants space today."
+      "status": "quiet"
     },
     {
       "desk_key": "outdoors-field",
-      "label": "Outdoors & Field",
-      "status": "covered",
-      "explanation": "The morning field window and migration conditions are useful today.",
-      "source": {
-        "kind": "web",
-        "label": "BirdCast migration dashboard",
-        "url": "https://birdcast.info/"
-      }
+      "status": "covered"
     },
     {
       "desk_key": "sports",
-      "label": "Sports",
-      "status": "covered",
-      "explanation": "Yankees, Steelers, and Michigan State schedules have timely updates.",
-      "source": {
-        "kind": "web",
-        "label": "MLB Yankees schedule",
-        "url": "https://www.mlb.com/yankees/schedule"
-      }
+      "status": "covered"
     },
     {
       "desk_key": "culture-leisure",
-      "label": "Culture & Leisure",
-      "status": "covered",
-      "explanation": "A practical dinner and one bounded listening idea are included.",
-      "source": {
-        "kind": "web",
-        "label": "The Guardian vegetarian recipes",
-        "url": "https://www.theguardian.com/food/vegetarian"
-      }
+      "status": "covered"
     }
   ]
 }

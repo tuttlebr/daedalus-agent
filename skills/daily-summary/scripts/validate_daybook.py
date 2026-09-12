@@ -58,9 +58,10 @@ class FigureRecord:
 
 
 @dataclass
-class CoverageRecord:
+class SourceRecord:
     attrs: dict[str, str]
-    text: list[str] = field(default_factory=list)
+    depth: int
+    links: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -102,8 +103,9 @@ class DaybookParser(HTMLParser):
         self.figures: list[FigureRecord] = []
         self._figure_stack: list[FigureRecord] = []
         self.orphan_images: list[dict[str, str]] = []
-        self.coverage: list[CoverageRecord] = []
-        self._coverage_stack: list[CoverageRecord] = []
+        self.sources: list[SourceRecord] = []
+        self._source_stack: list[SourceRecord] = []
+        self.day_ahead_attrs: dict[str, dict[str, str]] = {}
         self.story_attrs: list[dict[str, str]] = []
         self.lead_story_attrs: list[dict[str, str]] = []
         self.edition_strap_count = 0
@@ -129,8 +131,6 @@ class DaybookParser(HTMLParser):
         self.department_count = 0
         self.ids: set[str] = set()
         self.text_chunks: list[str] = []
-        self.source_chunks: list[str] = []
-        self._section_stack: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
@@ -139,6 +139,15 @@ class DaybookParser(HTMLParser):
         element_id = values.get("id")
         if element_id:
             self.ids.add(element_id)
+        if element_id in {"weather", "email-calendar"}:
+            self.day_ahead_attrs[element_id] = values
+        if (
+            "data-source-kind" in values
+            or "report-block" in values.get("class", "").split()
+        ):
+            record = SourceRecord(values, len(self.stack))
+            self.sources.append(record)
+            self._source_stack.append(record)
         if "data-edition-strap" in values:
             self.edition_strap_count += 1
             self.edition_strap_classes.append(set(values.get("class", "").split()))
@@ -162,7 +171,6 @@ class DaybookParser(HTMLParser):
             if self._lead_grid_depth is not None:
                 self.day_ahead_inside_grid = True
         if tag == "section":
-            self._section_stack.append(element_id or "")
             if "data-department" in values:
                 self.department_count += 1
 
@@ -193,8 +201,9 @@ class DaybookParser(HTMLParser):
             self.heading_levels.append(int(tag[1]))
         elif tag == "a":
             link = dict(values)
-            link["_section-id"] = self._section_stack[-1] if self._section_stack else ""
             self.links.append(link)
+            for record in self._source_stack:
+                record.links.append(values.get("href", ""))
             if self._figure_stack and "figcaption" in self.stack:
                 self._figure_stack[-1].caption_links.append(values.get("href", ""))
         elif tag == "article" and "data-story" in values:
@@ -217,10 +226,6 @@ class DaybookParser(HTMLParser):
                 self._figure_stack[-1].images.append(values)
             else:
                 self.orphan_images.append(values)
-        elif tag == "li" and "data-desk-key" in values:
-            record = CoverageRecord(values)
-            self.coverage.append(record)
-            self._coverage_stack.append(record)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
@@ -247,14 +252,12 @@ class DaybookParser(HTMLParser):
             self._in_style = False
         elif tag == "figure" and self._figure_stack:
             self._figure_stack.pop()
-        elif tag == "li" and self._coverage_stack:
-            self._coverage_stack.pop()
-        elif tag == "section" and self._section_stack:
-            self._section_stack.pop()
 
         if tag in self.stack:
             reverse_index = self.stack[::-1].index(tag)
             del self.stack[len(self.stack) - reverse_index - 1 :]
+        while self._source_stack and self._source_stack[-1].depth > len(self.stack):
+            self._source_stack.pop()
         if closes_tagline:
             self._tagline_depth = None
         if closes_lead_grid:
@@ -280,10 +283,6 @@ class DaybookParser(HTMLParser):
             self.lead_story_text.append(stripped)
         if self._figure_stack and "figcaption" in self.stack:
             self._figure_stack[-1].caption_text.append(stripped)
-        if "sources" in self._section_stack:
-            self.source_chunks.append(stripped)
-        for record in self._coverage_stack:
-            record.text.append(stripped)
 
 
 def _read_json_object(path: Path, label: str, errors: list[str]) -> dict[str, Any]:
@@ -337,6 +336,22 @@ def _load_manifest(path: Path, errors: list[str]) -> DeskManifest:
         errors.append("coverage manifest has an invalid lead_desk")
         lead_desk = ""
     desks = _normalize_desks(value.get("desks"), "coverage manifest", errors)
+    raw_desks = value.get("desks")
+    statuses = (
+        {
+            item["key"]: item.get("status")
+            for item in raw_desks
+            if isinstance(item, dict) and isinstance(item.get("key"), str)
+        }
+        if isinstance(raw_desks, list)
+        else {}
+    )
+    for desk in desks:
+        status = statuses.get(desk["key"])
+        if not isinstance(status, str) or status not in COVERAGE_STATUSES:
+            errors.append(f"coverage manifest desk {desk['key']} has invalid status")
+        else:
+            desk["status"] = status
     if lead_desk and lead_desk not in {desk["key"] for desk in desks}:
         errors.append("coverage manifest lead_desk is missing from manifest desks")
     return DeskManifest(policy_version.strip(), lead_desk, desks)
@@ -526,11 +541,10 @@ def validate_daybook(
             break
     if parser.script_count:
         errors.append("Daybook HTML must not contain JavaScript")
-    required_sections = {"editors-note", "coverage", "sources"}
-    if not required_sections <= parser.ids:
-        errors.append(
-            "document must contain editor's note, coverage, and sources sections"
-        )
+    if "editors-note" not in parser.ids:
+        errors.append("document must contain editor's note section")
+    if {"coverage", "sources"} & parser.ids:
+        errors.append("document must omit the desk ledger and Sources sections")
 
     charset = any("charset" in item for item in parser.meta)
     viewport = any(item.get("name", "").lower() == "viewport" for item in parser.meta)
@@ -625,86 +639,49 @@ def validate_daybook(
         errors.append("rounded editorial cards are not permitted")
 
     expected_keys = {item["key"] for item in manifest.desks}
-    actual_keys = [item.attrs.get("data-desk-key", "") for item in parser.coverage]
-    source_links = {
-        link.get("href", "")
-        for link in parser.links
-        if link.get("_section-id") == "sources"
-    }
-    source_text = " ".join(parser.source_chunks)
-    if len(actual_keys) != len(set(actual_keys)):
-        errors.append("coverage ledger contains duplicate desk keys")
-    if set(actual_keys) != expected_keys:
-        missing = sorted(expected_keys - set(actual_keys))
-        unexpected = sorted(set(actual_keys) - expected_keys)
-        errors.append(
-            "coverage ledger does not match manifest"
-            f"; missing={missing}; unexpected={unexpected}"
-        )
-    for item in parser.coverage:
-        key = item.attrs.get("data-desk-key", "")
-        status = item.attrs.get("data-coverage-status", "")
-        if status not in COVERAGE_STATUSES:
-            errors.append(f"coverage item {key or '<empty>'} has invalid status")
-        if len(" ".join(item.text).strip()) < 8:
-            errors.append(f"coverage item {key or '<empty>'} needs visible explanation")
-        source_kind = item.attrs.get("data-source-kind", "")
-        source_url = item.attrs.get("data-source-url", "")
-        source_ref = item.attrs.get("data-source-ref", "")
-        if status == "covered" and source_kind not in SOURCE_KINDS:
+    statuses = {item["key"]: item.get("status") for item in manifest.desks}
+    reported_keys = {attrs.get("data-desk-key", "") for attrs in parser.story_attrs}
+    reported_keys.update(parser.day_ahead_attrs)
+    for key, status in statuses.items():
+        if status == "covered" and key not in reported_keys:
+            errors.append(f"covered desk {key} must have reporting")
+    if statuses.get(policy.lead_desk) not in {"covered", "unavailable"}:
+        errors.append("the policy lead desk must be covered or unavailable")
+    for key in ("weather", "email-calendar"):
+        attrs = parser.day_ahead_attrs.get(key, {})
+        status = attrs.get("data-coverage-status")
+        if status not in {"covered", "unavailable"} or status != statuses.get(key):
+            errors.append(f"{key} status must match the coverage manifest")
+        if status == "covered" and attrs.get("data-source-kind") not in SOURCE_KINDS:
             errors.append(f"covered desk {key} needs data-source-kind=web or tool")
-        if status == "covered" and source_kind == "web" and not _is_https(source_url):
-            errors.append(f"web-sourced desk {key} needs an HTTPS source URL")
-        if (
-            status == "covered"
-            and source_kind == "web"
-            and _is_https(source_url)
-            and source_url not in source_links
-        ):
-            errors.append(f"web-sourced desk {key} must be linked in sources")
-        if status == "covered" and source_kind == "tool":
-            refs = _tool_source_refs(source_ref)
-            if not refs:
-                errors.append(f"tool-sourced desk {key} needs a safe data-source-ref")
-            elif any(ref not in source_text for ref in refs):
-                errors.append(
-                    f"tool-sourced desk {key} must name each source in the sources section"
-                )
-        if source_url and not _is_https(source_url):
-            errors.append(f"coverage source for {key} must be HTTPS")
-        if source_ref and not _tool_source_refs(source_ref):
-            errors.append(f"coverage source ref for {key} is invalid")
 
     for index, attrs in enumerate(parser.story_attrs, start=1):
         key = attrs.get("data-desk-key", "")
         if key not in expected_keys:
             errors.append(f"story {index} references an unknown desk key")
+        elif key != policy.lead_desk and statuses.get(key) != "covered":
+            errors.append(f"story {index} desk must have covered status")
+        if attrs.get("data-source-kind") not in SOURCE_KINDS:
+            errors.append(f"story {index} needs data-source-kind=web or tool")
+
+    for index, source in enumerate(parser.sources, start=1):
+        attrs = source.attrs
         source_kind = attrs.get("data-source-kind", "")
         source_url = attrs.get("data-source-url", "")
         source_ref = attrs.get("data-source-ref", "")
         if source_kind not in SOURCE_KINDS:
-            errors.append(f"story {index} needs data-source-kind=web or tool")
-        if source_kind == "web" and not _is_https(source_url):
-            errors.append(f"web-sourced story {index} needs an HTTPS data-source-url")
-        if source_kind == "tool":
-            refs = _tool_source_refs(source_ref)
-            if not refs:
-                errors.append(
-                    f"tool-sourced story {index} needs a safe data-source-ref"
-                )
-            elif any(ref not in source_text for ref in refs):
-                errors.append(
-                    f"tool-sourced story {index} must name each source in the sources section"
-                )
+            errors.append(f"source {index} needs data-source-kind=web or tool")
+        if source_kind == "web":
+            if not _is_https(source_url):
+                errors.append(f"web source {index} needs an HTTPS data-source-url")
+            if source_url not in source.links:
+                errors.append(f"web source {index} must be linked within its reporting")
+        if source_kind == "tool" and not _tool_source_refs(source_ref):
+            errors.append(f"tool source {index} needs a safe data-source-ref")
         if source_url and not _is_https(source_url):
-            errors.append(f"story {index} source URL must be HTTPS")
+            errors.append(f"source {index} URL must be HTTPS")
         if source_ref and not _tool_source_refs(source_ref):
-            errors.append(f"story {index} source ref is invalid")
-
-    for index, attrs in enumerate(parser.story_attrs, start=1):
-        source_url = attrs.get("data-source-url", "")
-        if source_url and source_url not in source_links:
-            errors.append(f"story {index} source must be linked in the sources section")
+            errors.append(f"source {index} ref is invalid")
 
     if parser.orphan_images:
         errors.append("every image must be inside a sourced figure")
@@ -721,10 +698,6 @@ def validate_daybook(
             errors.append(f"figure {index} caption must link its source page")
         if credit and credit not in " ".join(figure.caption_text):
             errors.append(f"figure {index} caption must repeat its image credit")
-        if source_page not in source_links or credit not in " ".join(
-            parser.source_chunks
-        ):
-            errors.append(f"figure {index} source and credit must appear in sources")
         if len(figure.images) != 1:
             errors.append(f"figure {index} must contain exactly one image")
             continue
@@ -762,7 +735,7 @@ def validate_daybook(
         "metrics": {
             "manifest_desks": len(expected_keys),
             "required_policy_desks": len(policy.desks),
-            "coverage_items": len(parser.coverage),
+            "coverage_items": len(manifest.desks),
             "stories": len(parser.story_attrs),
             "source_images": len(image_urls),
             "words": len(words),

@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / "skills" / "daily-summary"
 VALIDATOR = SKILL / "scripts" / "validate_daybook.py"
@@ -108,9 +110,63 @@ def test_validator_rejects_desk_coverage_drift(tmp_path):
     result, report = _run_validator(tmp_path, html)
 
     assert result.returncode == 1
-    assert any(
-        "coverage ledger does not match manifest" in error for error in report["errors"]
+    assert any("references an unknown desk key" in error for error in report["errors"])
+
+
+@pytest.mark.parametrize("section", ["coverage", "sources"])
+def test_validator_rejects_reintroduced_ledger_or_sources(tmp_path, section):
+    html, _ = _render()
+    html = html.replace(
+        "</main>", f'<section id="{section}"><h2>{section}</h2></section></main>'
     )
+
+    result, report = _run_validator(tmp_path, html)
+
+    assert result.returncode == 1
+    assert any(
+        "must omit the desk ledger and Sources" in error for error in report["errors"]
+    )
+
+
+def test_validator_requires_source_link_within_its_reporting(tmp_path):
+    html, _ = _render()
+    source = _edition()["departments"][0]["stories"][0]["source"]["url"]
+    html = html.replace(f'href="{source}"', 'href="https://example.org/other"')
+    html = html.replace(
+        "</footer>",
+        f'<a href="{source}" target="_blank" rel="noopener noreferrer">Elsewhere</a></footer>',
+    )
+
+    result, report = _run_validator(tmp_path, html)
+
+    assert result.returncode == 1
+    assert any(
+        "must be linked within its reporting" in error for error in report["errors"]
+    )
+
+
+@pytest.mark.parametrize("status", [None, "unknown", []])
+def test_validator_rejects_invalid_internal_coverage_status(tmp_path, status):
+    html, manifest = _render()
+    manifest["desks"][0]["status"] = status
+
+    result, report = _run_validator(tmp_path, html, manifest=manifest)
+
+    assert result.returncode == 1
+    assert any("has invalid status" in error for error in report["errors"])
+
+
+def test_validator_rejects_front_status_drift(tmp_path):
+    html, _ = _render()
+    html = html.replace(
+        'id="weather" data-coverage-status="covered"',
+        'id="weather" data-coverage-status="unavailable"',
+    )
+
+    result, report = _run_validator(tmp_path, html)
+
+    assert result.returncode == 1
+    assert any("weather status must match" in error for error in report["errors"])
 
 
 def test_validator_rejects_an_incomplete_policy_manifest(tmp_path):
@@ -161,18 +217,18 @@ def test_validator_accepts_live_tool_provenance_for_operations(tmp_path):
     assert report["passed"] is True
 
 
-def test_validator_rejects_an_unlisted_tool_source(tmp_path):
+def test_validator_rejects_an_unsafe_tool_source(tmp_path):
     html, _ = _render()
     html = html.replace(
         'data-source-ref="k8s_mcp_server,unifi_mcp_server"',
-        'data-source-ref="missing_mcp_server"',
+        'data-source-ref="k8s; unsafe"',
         1,
     )
 
     result, report = _run_validator(tmp_path, html)
 
     assert result.returncode == 1
-    assert any("must name each source" in error for error in report["errors"])
+    assert any("needs a safe data-source-ref" in error for error in report["errors"])
 
 
 def test_validator_rejects_generated_or_uncredited_images(tmp_path):
@@ -298,7 +354,7 @@ def test_validator_requires_canonical_front_page_ratio(tmp_path):
     assert any("canonical 7/5 front-page split" in error for error in report["errors"])
 
 
-def test_validator_requires_story_and_image_provenance_in_sources(tmp_path):
+def test_validator_requires_image_provenance_in_caption(tmp_path):
     html, _ = _render()
     html = html.replace(
         'href="https://images.example/source-page"',
@@ -311,4 +367,3 @@ def test_validator_requires_story_and_image_provenance_in_sources(tmp_path):
     assert any(
         "caption must link its source page" in error for error in report["errors"]
     )
-    assert any("source and credit must appear" in error for error in report["errors"])

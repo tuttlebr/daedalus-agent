@@ -94,6 +94,8 @@ def test_canonical_transfer_both_gates_and_exact_html_delivery(tmp_path):
             assert run.terminal_reason == "validated_artifact"
             html = next(tmp_path.glob("briefing-*/daily-daedalus.html")).read_text()
             assert run.terminal_content == f"```html\n{html}\n```"
+            assert 'id="sources"' not in html
+            assert 'id="coverage"' not in html
             for name in ("render_daybook.py", "validate_daybook.py"):
                 assert (
                     next(tmp_path.glob(f"briefing-*/{name}")).read_bytes()
