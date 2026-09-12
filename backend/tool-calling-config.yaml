@@ -657,9 +657,7 @@ functions:
       for sources outside this feed set or when
       broad web coverage is needed.
     feeds:
-      nvidia_blog: https://feeds.feedburner.com/nvidiablog
       nvidia_developer: https://developer.nvidia.com/blog/feed
-      nvidia_newsroom: https://nvidianews.nvidia.com/releases.xml
       semianalysis: https://newsletter.semianalysis.com/feed
       npr_news: https://feeds.npr.org/1004/rss.xml
       nomadicmatt: https://www.nomadicmatt.com/feed/
@@ -981,8 +979,6 @@ workflow:
   _type: daedalus_per_user_responses_api_agent
   llm_name: tool_calling_llm
   max_iterations: 128
-  # Stop only consecutive identical failed calls. Successful work and changed
-  # approaches continue up to max_iterations; there is no inferred repair budget.
   loop_guard:
     enabled: true
     repeated_error_limit: 4
@@ -1048,5 +1044,5 @@ workflow:
     - visual_media_tool
     - webscrape_tool
     - x_mcp_server
-  verbose: false
+  verbose: true
   workflow_alias: Daedalus
