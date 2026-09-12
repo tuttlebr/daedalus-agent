@@ -16,6 +16,6 @@ export const branding = {
     "/icons/icon-72x72.png": "/icons/icon-72x72.png?v=eaacb9bc31cf9941",
     "/icons/icon-96x96.png": "/icons/icon-96x96.png?v=fc3a54d9e080579a"
   },
-  "manifest": "/manifest.json?v=d87bf4426152085e",
-  "version": "62fa694af0a4e0d8"
+  "manifest": "/manifest.json?v=6aa09a51d6647a54",
+  "version": "39a50e75fb5237e3"
 } as const;

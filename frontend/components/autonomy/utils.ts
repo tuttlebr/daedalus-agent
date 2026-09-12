@@ -22,9 +22,9 @@ const LANE_DOT: Record<Lane, string> = {
 };
 
 const LANE_GLOW: Record<Lane, string> = {
-  known: 'shadow-[0_0_8px_rgba(118,185,0,0.45)]',
-  adjacent: 'shadow-[0_0_8px_rgba(29,187,164,0.45)]',
-  scout: 'shadow-[0_0_8px_rgba(180,93,216,0.5)]',
+  known: 'shadow-[0_0_8px_rgb(var(--accent)/0.45)]',
+  adjacent: 'shadow-[0_0_8px_rgb(var(--status-success)/0.45)]',
+  scout: 'shadow-[0_0_8px_rgb(var(--warm-accent)/0.5)]',
 };
 
 export function normalizeLane(raw: string | undefined): Lane {

@@ -77,10 +77,10 @@ module.exports = {
         action: 'rgb(var(--action) / <alpha-value>)',
         'on-action': 'rgb(var(--on-action) / <alpha-value>)',
         // =============================================================
-        // NVIDIA BRAND COLORS (from COLORS.md)
+        // Legacy color names resolve to semantic appearance roles.
         // =============================================================
 
-        // Primary Brand Color - NVIDIA Green
+        // Primary interactive accent
         'nvidia-green': 'var(--color-nvidia-green)',
         'nvidia-green-dark': 'var(--color-nvidia-green-dark)',
         'nvidia-green-light': 'var(--color-nvidia-green-light)',
@@ -128,7 +128,7 @@ module.exports = {
         },
 
         // =============================================================
-        // Extended Green Spectrum
+        // Supporting brand accents
         // =============================================================
         sage: {
           DEFAULT: 'var(--color-sage)',
@@ -251,12 +251,12 @@ module.exports = {
         'nvidia-lg':
           '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
         'nvidia-dropdown': '0 6px 9px rgba(0, 0, 0, 0.175)',
-        'glow-green': '0 0 20px rgba(118, 185, 0, 0.15)',
+        'glow-green': '0 0 20px rgb(var(--accent) / 0.15)',
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
         'gradient-nvidia':
-          'linear-gradient(180deg, transparent, rgba(118, 185, 0, 0.05))',
+          'linear-gradient(180deg, transparent, rgb(var(--accent) / 0.05))',
         'gradient-green-primary': 'var(--gradient-green-primary)',
         'gradient-green-subtle': 'var(--gradient-green-subtle)',
         'gradient-dark': 'var(--gradient-dark)',

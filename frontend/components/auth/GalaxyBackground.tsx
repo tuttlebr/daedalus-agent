@@ -18,7 +18,7 @@ interface Particle {
 
 /**
  * Canvas-based particle animation for the login screen.
- * Renders drifting particles with green connections between nearby ones.
+ * Renders drifting particles with blue connections between nearby ones.
  * Falls back to a static gradient when reduced motion is preferred.
  */
 export const GalaxyBackground = memo(() => {
@@ -64,7 +64,7 @@ export const GalaxyBackground = memo(() => {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < CONNECTION_DISTANCE) {
             const alpha = (1 - dist / CONNECTION_DISTANCE) * 0.15;
-            ctx.strokeStyle = `rgba(118, 185, 0, ${alpha})`;
+            ctx.strokeStyle = `rgba(46, 134, 171, ${alpha})`;
             ctx.lineWidth = 0.5;
             ctx.beginPath();
             ctx.moveTo(particles[i].x, particles[i].y);
@@ -78,7 +78,7 @@ export const GalaxyBackground = memo(() => {
       for (const p of particles) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(118, 185, 0, ${p.opacity})`;
+        ctx.fillStyle = `rgba(46, 134, 171, ${p.opacity})`;
         ctx.fill();
 
         if (!reducedMotion) {
@@ -108,7 +108,7 @@ export const GalaxyBackground = memo(() => {
     <canvas
       ref={canvasRef}
       className="fixed inset-0 z-0"
-      style={{ background: '#0a0a0a' }}
+      style={{ background: '#081923' }}
       aria-hidden="true"
     />
   );

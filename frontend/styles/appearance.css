@@ -1,32 +1,82 @@
 /* Web adaptation of Apple's HIG: semantic colors, system typography, solid
    content surfaces, and a restrained translucent navigation layer. */
 :root {
+  /* Brand swatches are sRGB. Semantic roles below adapt them for contrast. */
+  --brand-deep-blue: 27 79 114; /* #1B4F72 */
+  --brand-blue: 46 134 171; /* #2E86AB */
+  --brand-bronze: 169 118 47; /* #A9762F */
+  --brand-gold: 224 180 99; /* #E0B463 */
+  --brand-ivory: 242 239 233; /* #F2EFE9 */
+
   color-scheme: light;
-  --app: 242 242 247;
-  --panel: 255 255 255;
-  --control: 233 233 239;
-  --elevated: 255 255 255;
-  --label: 28 28 30;
-  --secondary-label: 77 77 85;
-  --muted-label: 99 99 108;
-  --separator: 198 198 205;
-  --fill: 0 0 0;
-  --accent: 53 105 0;
-  --action: 53 105 0;
-  --on-action: 255 255 255;
-  --chrome: rgb(250 250 252 / 0.92);
-  --color-nvidia-green: rgb(var(--accent));
-  --color-nvidia-green-dark: #2c5700;
-  --color-nvidia-green-light: #437400;
-  --color-nvidia-green-bright: #356900;
-  --color-nvidia-red: #ba1b1b;
-  --color-nvidia-red-light: #ba1b1b;
-  --color-nvidia-blue: #0063c7;
-  --color-nvidia-purple: #8944ab;
-  --color-nvidia-orange: #925000;
-  --color-nvidia-teal: #006f67;
-  --color-nvidia-yellow: #805300;
+  --app: var(--brand-ivory);
+  --panel: 252 250 246;
+  --control: 232 225 214;
+  --elevated: 255 253 249;
+  --label: 23 44 58;
+  --secondary-label: 64 82 91;
+  --muted-label: 95 101 95;
+  --separator: 196 188 174;
+  --fill: var(--brand-deep-blue);
+  --accent: var(--brand-deep-blue);
+  --accent-hover: 22 65 94;
+  --action: var(--brand-deep-blue);
+  --on-action: var(--brand-ivory);
+  --warm-accent: 128 87 34;
+  --chrome: rgb(242 239 233 / 0.94);
   --color-focus: rgb(var(--accent));
+  /* Familiar status colors remain distinct from decorative brand accents. */
+  --status-success: 30 105 77;
+  --status-error: 172 43 39;
+  --color-nvidia-green: rgb(var(--accent));
+  --color-nvidia-green-dark: rgb(var(--accent-hover));
+  --color-nvidia-green-light: rgb(var(--accent-hover));
+  --color-nvidia-green-bright: rgb(var(--accent));
+  --color-nvidia-blue: rgb(var(--accent));
+  --color-nvidia-blue-light: rgb(var(--accent));
+  --color-nvidia-blue-dark: rgb(var(--accent-hover));
+  --color-nvidia-purple: rgb(var(--warm-accent));
+  --color-nvidia-purple-light: rgb(var(--warm-accent));
+  --color-nvidia-purple-dark: rgb(var(--warm-accent));
+  --color-nvidia-orange: rgb(var(--warm-accent));
+  --color-nvidia-orange-light: rgb(var(--warm-accent));
+  --color-nvidia-orange-dark: rgb(var(--warm-accent));
+  --color-nvidia-yellow: rgb(var(--warm-accent));
+  --color-nvidia-yellow-light: rgb(var(--warm-accent));
+  --color-nvidia-yellow-dark: rgb(var(--warm-accent));
+  --color-nvidia-magenta: rgb(var(--warm-accent));
+  --color-nvidia-magenta-light: rgb(var(--warm-accent));
+  --color-nvidia-magenta-dark: rgb(var(--warm-accent));
+  --color-nvidia-teal: rgb(var(--status-success));
+  --color-nvidia-teal-light: rgb(var(--status-success));
+  --color-nvidia-teal-dark: rgb(var(--status-success));
+  --color-nvidia-red: rgb(var(--status-error));
+  --color-nvidia-red-light: rgb(var(--status-error));
+  --color-nvidia-red-dark: rgb(var(--status-error));
+  --color-sage: rgb(var(--warm-accent));
+  --color-sage-light: rgb(var(--brand-gold));
+  --color-sage-dark: rgb(var(--warm-accent));
+  --color-emerald: rgb(var(--brand-blue));
+  --color-emerald-light: rgb(var(--accent));
+  --color-emerald-dark: rgb(var(--accent-hover));
+  --color-lime: rgb(var(--warm-accent));
+  --color-lime-light: rgb(var(--brand-gold));
+  --color-lime-dark: rgb(var(--warm-accent));
+  --surface-accent: rgb(var(--accent) / 0.12);
+  --surface-accent-strong: rgb(var(--accent) / 0.25);
+  --chat-bg-user: rgb(var(--accent) / 0.08);
+  --chat-bg-assistant: rgb(var(--panel));
+  --chat-border: rgb(var(--separator));
+  --chat-input-bg: rgb(var(--control));
+  --chat-input-border: rgb(var(--separator));
+  --chat-bubble-assistant-border: rgb(var(--separator));
+  --chat-bubble-assistant-border-dark: rgb(var(--separator));
+  --action-button-bg: rgb(var(--control));
+  --action-button-text: rgb(var(--label));
+  --action-button-hover-bg: rgb(var(--elevated));
+  --action-button-bg-dark: rgb(var(--control));
+  --action-button-text-dark: rgb(var(--label));
+  --action-button-hover-bg-dark: rgb(var(--elevated));
 
   /* Compatibility aliases keep existing feature surfaces on the same palette. */
   --color-dark-bg-primary: rgb(var(--app));
@@ -66,29 +116,23 @@
 
 html.dark {
   color-scheme: dark;
-  --app: 20 20 22;
-  --panel: 28 28 30;
-  --control: 44 44 46;
-  --elevated: 54 54 57;
-  --label: 245 245 247;
-  --secondary-label: 210 210 216;
-  --muted-label: 172 172 183;
-  --separator: 70 70 76;
-  --fill: 255 255 255;
-  --accent: 163 214 92;
-  --action: 163 214 92;
-  --on-action: 20 35 0;
-  --chrome: rgb(36 36 39 / 0.92);
-  --color-nvidia-green-dark: #b5e576;
-  --color-nvidia-green-light: #b5e576;
-  --color-nvidia-green-bright: #b5e576;
-  --color-nvidia-red: #ff8580;
-  --color-nvidia-red-light: #ff8580;
-  --color-nvidia-blue: #74b9ff;
-  --color-nvidia-purple: #d0a0ef;
-  --color-nvidia-orange: #ffc076;
-  --color-nvidia-teal: #73d6c8;
-  --color-nvidia-yellow: #eaca70;
+  --app: 8 25 35;
+  --panel: 16 43 58;
+  --control: 25 59 77;
+  --elevated: 35 73 93;
+  --label: var(--brand-ivory);
+  --secondary-label: 210 216 214;
+  --muted-label: 175 192 198;
+  --separator: 79 105 116;
+  --fill: var(--brand-ivory);
+  --accent: 139 196 220;
+  --accent-hover: 168 214 232;
+  --action: var(--accent);
+  --on-action: 8 25 35;
+  --warm-accent: var(--brand-gold);
+  --chrome: rgb(16 43 58 / 0.94);
+  --status-success: 143 211 172;
+  --status-error: 255 160 150;
   --chat-bubble-user-bg-dark: rgb(var(--accent) / 0.08);
   --chat-bubble-user-bg-dark-flat: rgb(var(--accent) / 0.08);
   --chat-bubble-user-border-dark: rgb(var(--accent) / 0.2);
@@ -242,14 +286,14 @@ svg.tabler-icon {
 }
 @media (prefers-contrast: more) {
   :root {
-    --secondary-label: 28 28 30;
-    --muted-label: 50 50 55;
-    --separator: 99 99 108;
+    --secondary-label: 23 44 58;
+    --muted-label: 47 66 77;
+    --separator: 95 101 95;
   }
   html.dark {
-    --secondary-label: 245 245 247;
-    --muted-label: 225 225 230;
-    --separator: 162 162 170;
+    --secondary-label: var(--brand-ivory);
+    --muted-label: 228 229 224;
+    --separator: 175 192 198;
   }
   button,
   input,

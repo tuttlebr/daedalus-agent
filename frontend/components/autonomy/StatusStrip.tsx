@@ -117,7 +117,7 @@ function PulseDot({ live, enabled }: { live: boolean; enabled: boolean }) {
         className={classNames(
           'relative h-2 w-2 rounded-full',
           enabled
-            ? 'bg-nvidia-green shadow-[0_0_10px_rgba(118,185,0,0.6)]'
+            ? 'bg-nvidia-green shadow-[0_0_10px_rgb(var(--accent)/0.6)]'
             : 'bg-control',
         )}
       />

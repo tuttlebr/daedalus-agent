@@ -406,7 +406,7 @@
    ================================================================ */
 /* Enhanced focus indicators for better visibility */
 :focus-visible {
-  outline: 2px solid var(--color-focus, #76b900);
+  outline: 2px solid var(--color-focus, #1b4f72);
   outline-offset: 2px;
 }
 

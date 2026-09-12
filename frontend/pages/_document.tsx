@@ -81,7 +81,7 @@ export default function Document() {
         />
 
         {/* Windows */}
-        <meta name="msapplication-TileColor" content="#76b900" />
+        <meta name="msapplication-TileColor" content="#1b4f72" />
         <meta
           name="msapplication-TileImage"
           content={branding.assets['/icons/icon-144x144.png']}

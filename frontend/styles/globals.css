@@ -123,76 +123,7 @@
    Premium Liquid Glass Design Tokens
    ================================================================= */
 :root {
-  /* =================================================================
-     NVIDIA BRAND COLOR PALETTE
-     Official NVIDIA brand colors from COLORS.md
-     ================================================================= */
-  /* Primary Brand Color */
-  --color-nvidia-green: #76b900;
-  --color-nvidia-green-dark: #5a8a00;
-  --color-nvidia-green-light: #91c438;
-  --color-nvidia-green-bright: #8ed400;
-
-  /* Complimentary Colors */
-  --color-nvidia-purple: #952fc6;
-  --color-nvidia-purple-light: #b45dd8;
-  --color-nvidia-purple-dark: #7a26a3;
-  --color-nvidia-orange: #ef9100;
-  --color-nvidia-orange-light: #f5a933;
-  --color-nvidia-orange-dark: #c67800;
-
-  /* Functional Colors */
-  --color-nvidia-yellow: #9c5000;
-  --color-nvidia-yellow-light: #f9c500;
-  --color-nvidia-yellow-dark: #7a3f00;
-  --color-nvidia-blue: #0074df;
-  --color-nvidia-blue-light: #3399ff;
-  --color-nvidia-blue-dark: #005bb5;
-  --color-nvidia-red: #e52020;
-  --color-nvidia-red-light: #f04545;
-  --color-nvidia-red-dark: #c51a1a;
-
-  /* Supporting Colors */
-  --color-nvidia-magenta: #d2308e;
-  --color-nvidia-magenta-light: #e055a8;
-  --color-nvidia-magenta-dark: #a82672;
-  --color-nvidia-teal: #1d8ba4;
-  --color-nvidia-teal-light: #1dbba4;
-  --color-nvidia-teal-dark: #176e83;
-
-  /* Extended Green Spectrum */
-  --color-sage: #7c9a7e;
-  --color-sage-light: #a8c4a8;
-  --color-sage-dark: #5a7a5c;
-  --color-emerald: #1dbba4;
-  --color-emerald-light: #34d4b8;
-  --color-emerald-dark: #178a7a;
-  --color-lime: #84cc16;
-  --color-lime-light: #a3e635;
-  --color-lime-dark: #65a30d;
-  --color-focus: var(--color-nvidia-green);
-
-  /* Chat bubble palette — subtle green tint for user, dark for assistant */
-  --chat-bubble-user-bg: rgba(118, 185, 0, 0.1);
-  --chat-bubble-user-bg-flat: rgba(118, 185, 0, 0.12);
-  --chat-bubble-user-border: rgba(118, 185, 0, 0.2);
-  --chat-bubble-assistant-bg: rgba(245, 245, 245, 0.95);
-  --chat-bubble-assistant-border: rgba(0, 0, 0, 0.08);
-
-  /* Dark mode chat bubble colors */
-  --chat-bubble-user-bg-dark: rgba(118, 185, 0, 0.1);
-  --chat-bubble-user-bg-dark-flat: rgba(118, 185, 0, 0.12);
-  --chat-bubble-user-border-dark: rgba(118, 185, 0, 0.2);
-  --chat-bubble-assistant-bg-dark: rgba(17, 19, 24, 0.95);
-  --chat-bubble-assistant-border-dark: rgba(255, 255, 255, 0.07);
-
-  /* Action button colors (Copy, Listen, etc.) */
-  --action-button-bg: rgba(229, 229, 229, 0.85);
-  --action-button-text: #1f2937;
-  --action-button-hover-bg: rgba(212, 212, 212, 1);
-  --action-button-bg-dark: rgba(30, 30, 30, 0.9);
-  --action-button-text-dark: #e5e5e5;
-  --action-button-hover-bg-dark: rgba(38, 38, 38, 1);
+  /* Brand, status, and chat color roles are defined in appearance.css. */
 
   /* =================================================================
      TYPOGRAPHY
@@ -279,7 +210,7 @@
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  --shadow-nvidia: 0 0 20px rgba(118, 185, 0, 0.1);
+  --shadow-nvidia: 0 0 20px rgb(var(--accent) / 0.1);
 
   /* =================================================================
      COMPONENT COLORS
@@ -301,8 +232,8 @@
   --surface-glass-overlay: rgba(12, 12, 12, 0.9);
   --surface-glass-border: rgba(255, 255, 255, 0.06);
   --surface-glass-border-strong: rgba(255, 255, 255, 0.12);
-  --surface-accent: rgba(118, 185, 0, 0.16);
-  --surface-accent-strong: rgba(118, 185, 0, 0.28);
+  --surface-accent: rgb(var(--accent) / 0.16);
+  --surface-accent-strong: rgb(var(--accent) / 0.28);
 
   --button-bg: #000000;
   --button-hover: #1a1a1a;
@@ -339,7 +270,7 @@
      Galaxy animation and loading states
      ================================================================= */
   --galaxy-node: var(--color-nvidia-green-bright);
-  --galaxy-connection: rgba(142, 212, 0, 0.3);
+  --galaxy-connection: rgb(var(--accent) / 0.3);
   --galaxy-glow: var(--color-nvidia-green-bright);
 }
 
@@ -363,7 +294,7 @@
 
     /* Galaxy animation stays vibrant */
     --galaxy-node: var(--color-nvidia-green);
-    --galaxy-connection: rgba(118, 185, 0, 0.4);
+    --galaxy-connection: rgb(var(--accent) / 0.4);
     --galaxy-glow: var(--color-nvidia-green);
   }
 }
@@ -741,16 +672,16 @@ img {
 }
 
 .shadow-nvidia-lg {
-  box-shadow: 0 0 40px rgba(118, 185, 0, 0.15);
+  box-shadow: 0 0 40px rgb(var(--accent) / 0.15);
 }
 
 /* Green glow effect */
 .shadow-glow-green {
-  box-shadow: 0 0 20px rgba(118, 185, 0, 0.3);
+  box-shadow: 0 0 20px rgb(var(--accent) / 0.3);
 }
 
 .shadow-glow-green:hover {
-  box-shadow: 0 0 30px rgba(118, 185, 0, 0.5);
+  box-shadow: 0 0 30px rgb(var(--accent) / 0.5);
 }
 
 /* =================================================================
@@ -840,9 +771,11 @@ img {
    Styling for HTML elements rendered by agent responses
    =================================================================== */
 
-/* Highlighted text */
+/* Warm highlights distinguish referenced content from blue actions. */
 .prose mark {
-  background-color: rgba(118, 185, 0, 0.2);
+  background-color: rgb(var(--brand-gold) / 0.25);
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--brand-bronze));
   color: inherit;
   padding: 0.1em 0.3em;
   border-radius: 0.2em;
@@ -888,7 +821,7 @@ img {
 /* Address block */
 .prose address {
   font-style: normal;
-  border-left: 3px solid var(--color-nvidia-green, #76b900);
+  border-left: 3px solid var(--color-nvidia-green);
   padding-left: 1em;
   margin: 1em 0;
 }
@@ -924,12 +857,12 @@ img {
 }
 
 .prose progress::-webkit-progress-value {
-  background-color: var(--color-nvidia-green, #76b900);
+  background-color: var(--color-nvidia-green);
   border-radius: 0.25em;
 }
 
 .prose progress::-moz-progress-bar {
-  background-color: var(--color-nvidia-green, #76b900);
+  background-color: var(--color-nvidia-green);
   border-radius: 0.25em;
 }
 
@@ -1064,9 +997,10 @@ details div {
 
 .liquid-glass-nav:hover {
   background: var(--surface-glass-hover);
-  border-color: rgba(118, 185, 0, 0.2);
+  border-color: rgb(var(--accent) / 0.2);
   box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(118, 185, 0, 0.1);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgb(var(--accent) / 0.1);
 }
 
 /* Liquid Glass Control - For Inputs & Buttons */
@@ -1114,9 +1048,10 @@ details div {
 
 .liquid-glass-control:focus-within {
   background: rgba(28, 28, 28, 0.82);
-  border-color: rgba(118, 185, 0, 0.5);
+  border-color: rgb(var(--accent) / 0.5);
   box-shadow: 0 8px 24px 0 rgba(0, 0, 0, 0.35),
-    0 0 0 3px rgba(118, 185, 0, 0.15), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+    0 0 0 3px rgb(var(--accent) / 0.15),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
 }
 
 /* Liquid Glass Overlay - For Modals & Dropdowns */
@@ -1135,13 +1070,13 @@ details div {
   background: linear-gradient(
     135deg,
     var(--surface-accent) 0%,
-    rgba(16, 185, 129, 0.12) 100%
+    rgb(var(--brand-blue) / 0.12) 100%
   );
   backdrop-filter: blur(16px) saturate(200%);
   -webkit-backdrop-filter: blur(16px) saturate(200%);
   border: 1px solid var(--surface-accent-strong);
-  box-shadow: 0 4px 16px 0 rgba(118, 185, 0, 0.2),
-    inset 0 1px 0 0 rgba(118, 185, 0, 0.15), 0 0 20px rgba(118, 185, 0, 0.1);
+  box-shadow: 0 4px 16px 0 rgb(var(--accent) / 0.2),
+    inset 0 1px 0 0 rgb(var(--accent) / 0.15), 0 0 20px rgb(var(--accent) / 0.1);
   transition: background 0.25s cubic-bezier(0.4, 0, 0.2, 1),
     border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
@@ -1151,13 +1086,13 @@ details div {
 .liquid-glass-accent:hover {
   background: linear-gradient(
     135deg,
-    rgba(118, 185, 0, 0.24) 0%,
-    rgba(16, 185, 129, 0.2) 100%
+    rgb(var(--accent) / 0.24) 0%,
+    rgb(var(--brand-blue) / 0.2) 100%
   );
-  border-color: rgba(118, 185, 0, 0.45);
+  border-color: rgb(var(--accent) / 0.45);
   transform: scale(1.02);
-  box-shadow: 0 6px 20px 0 rgba(118, 185, 0, 0.25),
-    inset 0 1px 0 0 rgba(118, 185, 0, 0.2), 0 0 30px rgba(118, 185, 0, 0.15);
+  box-shadow: 0 6px 20px 0 rgb(var(--accent) / 0.25),
+    inset 0 1px 0 0 rgb(var(--accent) / 0.2), 0 0 30px rgb(var(--accent) / 0.15);
 }
 
 /* Light Mode Variants */
@@ -1171,7 +1106,7 @@ details div {
 
   .liquid-glass-nav:hover {
     background: rgba(255, 255, 255, 0.85);
-    border-color: rgba(118, 185, 0, 0.3);
+    border-color: rgb(var(--accent) / 0.3);
   }
 
   .liquid-glass-control {
@@ -1188,9 +1123,9 @@ details div {
 
   .liquid-glass-control:focus-within {
     background: rgba(245, 245, 245, 0.9);
-    border-color: rgba(118, 185, 0, 0.6);
+    border-color: rgb(var(--accent) / 0.6);
     box-shadow: 0 8px 24px 0 rgba(0, 0, 0, 0.1),
-      0 0 0 3px rgba(118, 185, 0, 0.15);
+      0 0 0 3px rgb(var(--accent) / 0.15);
   }
 
   .liquid-glass-overlay {
@@ -1203,12 +1138,12 @@ details div {
   .liquid-glass-accent {
     background: linear-gradient(
       135deg,
-      rgba(118, 185, 0, 0.2) 0%,
-      rgba(16, 185, 129, 0.15) 100%
+      rgb(var(--accent) / 0.2) 0%,
+      rgb(var(--brand-blue) / 0.15) 100%
     );
-    border: 1px solid rgba(118, 185, 0, 0.4);
-    box-shadow: 0 4px 16px 0 rgba(118, 185, 0, 0.15),
-      inset 0 1px 0 0 rgba(118, 185, 0, 0.2);
+    border: 1px solid rgb(var(--accent) / 0.4);
+    box-shadow: 0 4px 16px 0 rgb(var(--accent) / 0.15),
+      inset 0 1px 0 0 rgb(var(--accent) / 0.2);
   }
 }
 
@@ -1336,10 +1271,10 @@ details div {
 @keyframes glow-pulse {
   0%,
   100% {
-    box-shadow: 0 0 20px rgba(118, 185, 0, 0.15);
+    box-shadow: 0 0 20px rgb(var(--accent) / 0.15);
   }
   50% {
-    box-shadow: 0 0 30px rgba(118, 185, 0, 0.25);
+    box-shadow: 0 0 30px rgb(var(--accent) / 0.25);
   }
 }
 
@@ -1552,9 +1487,9 @@ details div {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(118, 185, 0, 0.25) 15%,
-    rgba(118, 185, 0, 0.8) 50%,
-    rgba(118, 185, 0, 0.25) 85%,
+    rgb(var(--accent) / 0.25) 15%,
+    rgb(var(--accent) / 0.8) 50%,
+    rgb(var(--accent) / 0.25) 85%,
     transparent 100%
   );
   background-size: 200% 100%;
@@ -1567,12 +1502,12 @@ details div {
   100% {
     opacity: 0.4;
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(118, 185, 0, 0.3);
+    box-shadow: 0 0 0 0 rgb(var(--accent) / 0.3);
   }
   50% {
     opacity: 1;
     transform: scale(1.3);
-    box-shadow: 0 0 8px 2px rgba(118, 185, 0, 0.25);
+    box-shadow: 0 0 8px 2px rgb(var(--accent) / 0.25);
   }
 }
 
@@ -1664,18 +1599,18 @@ details div {
 }
 
 .daedalus-post__lane--known {
-  border-color: rgba(118, 185, 0, 0.5);
+  border-color: rgb(var(--accent) / 0.5);
   color: var(--color-nvidia-green);
 }
 
 .daedalus-post__lane--adjacent {
-  border-color: rgba(149, 47, 198, 0.5);
+  border-color: rgb(var(--warm-accent) / 0.5);
   color: var(--color-nvidia-purple-light);
 }
 
 .daedalus-post__lane--scout {
-  border-color: rgba(239, 145, 0, 0.55);
-  color: #ef9100;
+  border-color: rgb(var(--brand-bronze) / 0.55);
+  color: rgb(var(--warm-accent));
 }
 
 .daedalus-post__title {
@@ -1802,7 +1737,7 @@ details div {
 }
 
 .btn-hover-glow:hover {
-  box-shadow: 0 0 20px rgba(118, 185, 0, 0.4);
+  box-shadow: 0 0 20px rgb(var(--accent) / 0.4);
 }
 
 /* Icon button bounce */
@@ -2073,9 +2008,10 @@ details div {
 
 .dark .liquid-glass-nav:hover {
   background: rgba(18, 18, 18, 0.84);
-  border-color: rgba(118, 185, 0, 0.25);
+  border-color: rgb(var(--accent) / 0.25);
   box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 0 0 1px rgba(118, 185, 0, 0.15);
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
+    0 0 0 1px rgb(var(--accent) / 0.15);
 }
 
 .dark .liquid-glass-control {
@@ -2094,9 +2030,10 @@ details div {
 
 .dark .liquid-glass-control:focus-within {
   background: rgba(26, 26, 26, 0.84);
-  border-color: rgba(118, 185, 0, 0.6);
-  box-shadow: 0 8px 24px 0 rgba(0, 0, 0, 0.6), 0 0 0 3px rgba(118, 185, 0, 0.2),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.1), 0 0 30px rgba(118, 185, 0, 0.15);
+  border-color: rgb(var(--accent) / 0.6);
+  box-shadow: 0 8px 24px 0 rgba(0, 0, 0, 0.6),
+    0 0 0 3px rgb(var(--accent) / 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+    0 0 30px rgb(var(--accent) / 0.15);
 }
 
 .dark .liquid-glass-overlay {
@@ -2109,23 +2046,24 @@ details div {
 .dark .liquid-glass-accent {
   background: linear-gradient(
     135deg,
-    rgba(118, 185, 0, 0.2) 0%,
-    rgba(16, 185, 129, 0.16) 100%
+    rgb(var(--accent) / 0.2) 0%,
+    rgb(var(--brand-blue) / 0.16) 100%
   );
-  border: 1px solid rgba(118, 185, 0, 0.4);
-  box-shadow: 0 4px 16px 0 rgba(118, 185, 0, 0.25),
-    inset 0 1px 0 0 rgba(118, 185, 0, 0.2), 0 0 25px rgba(118, 185, 0, 0.12);
+  border: 1px solid rgb(var(--accent) / 0.4);
+  box-shadow: 0 4px 16px 0 rgb(var(--accent) / 0.25),
+    inset 0 1px 0 0 rgb(var(--accent) / 0.2), 0 0 25px rgb(var(--accent) / 0.12);
 }
 
 .dark .liquid-glass-accent:hover {
   background: linear-gradient(
     135deg,
-    rgba(118, 185, 0, 0.25) 0%,
-    rgba(16, 185, 129, 0.22) 100%
+    rgb(var(--accent) / 0.25) 0%,
+    rgb(var(--brand-blue) / 0.22) 100%
   );
-  border-color: rgba(118, 185, 0, 0.5);
-  box-shadow: 0 6px 20px 0 rgba(118, 185, 0, 0.3),
-    inset 0 1px 0 0 rgba(118, 185, 0, 0.25), 0 0 35px rgba(118, 185, 0, 0.18);
+  border-color: rgb(var(--accent) / 0.5);
+  box-shadow: 0 6px 20px 0 rgb(var(--accent) / 0.3),
+    inset 0 1px 0 0 rgb(var(--accent) / 0.25),
+    0 0 35px rgb(var(--accent) / 0.18);
 }
 
 /* Enhanced dark mode depth for message bubbles */
@@ -2159,11 +2097,13 @@ details div {
 
 /* Refined glow effects in dark mode */
 .dark .shadow-glow-green {
-  box-shadow: 0 0 30px rgba(118, 185, 0, 0.25), 0 0 60px rgba(118, 185, 0, 0.15);
+  box-shadow: 0 0 30px rgb(var(--accent) / 0.25),
+    0 0 60px rgb(var(--accent) / 0.15);
 }
 
 .dark .shadow-glow-green:hover {
-  box-shadow: 0 0 40px rgba(118, 185, 0, 0.35), 0 0 80px rgba(118, 185, 0, 0.2);
+  box-shadow: 0 0 40px rgb(var(--accent) / 0.35),
+    0 0 80px rgb(var(--accent) / 0.2);
 }
 
 /* Loading skeleton with shimmer effect */
@@ -2464,27 +2404,17 @@ details div {
   vertical-align: middle;
 }
 
-/* Math in user messages (on green background) - needs high contrast */
-.prose [style*='background: #76b900'] .katex,
-.prose [style*='background:rgba(118,185,0'] .katex,
-[class*='nvidia-green'] .katex {
-  color: white !important;
-}
-
-[class*='nvidia-green'] .katex .mord,
-[class*='nvidia-green'] .katex .mbin,
-[class*='nvidia-green'] .katex .mrel,
-[class*='nvidia-green'] .katex .mop,
-[class*='nvidia-green'] .katex .mpunct,
-[class*='nvidia-green'] .katex .mopen,
-[class*='nvidia-green'] .katex .mclose,
-[class*='nvidia-green'] .katex .minner {
-  color: white !important;
-}
-
-[class*='nvidia-green'] .katex-display {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.25);
+/* Math follows the surrounding text on tinted message surfaces. */
+.prose .katex,
+.prose .katex .mord,
+.prose .katex .mbin,
+.prose .katex .mrel,
+.prose .katex .mop,
+.prose .katex .mpunct,
+.prose .katex .mopen,
+.prose .katex .mclose,
+.prose .katex .minner {
+  color: inherit;
 }
 
 /* Scrollable math equations on mobile */

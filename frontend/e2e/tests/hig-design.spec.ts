@@ -30,7 +30,7 @@ test('appearance follows the system, respects an override, and persists', async 
   await expect(page.locator('html')).not.toHaveClass(/dark/);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
     'content',
-    '#f2f2f7',
+    '#f2efe9',
   );
 });
 

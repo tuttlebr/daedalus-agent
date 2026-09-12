@@ -55,6 +55,40 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   The manifest uses the neutral launch background and current, correctly sized
   Chat and sign-in screenshots.
 
+## September 12 palette update
+
+The palette uses sRGB brand colors with appearance-specific semantic roles:
+
+| Brand color | Role                                                      |
+| ----------- | --------------------------------------------------------- |
+| `#1B4F72`   | Primary actions, links, and selection in light appearance |
+| `#2E86AB`   | Supporting blue gradients and decorative accents          |
+| `#A9762F`   | Bronze detail and highlight rules                         |
+| `#E0B463`   | Warm content highlights and dark secondary accents        |
+| `#F2EFE9`   | Light canvas, light action labels, and dark primary text  |
+
+Light surfaces use warm ivory tints; dark surfaces use deep blue shades. Small
+blue and bronze text needs stronger contrast than the unmodified swatches give
+on ivory, so light text uses deep blue and `#805722`. Dark interactive text and
+filled actions use `#8BC4DC`, with dark ink on filled actions. Status success and
+error colors stay distinct and retain existing labels and icons. These are
+project choices informed by Apple's color, Dark Mode, and accessibility guidance,
+reviewed September 12, 2026, rather than Apple-prescribed brand colors.
+
+`styles/appearance.css` owns the palette. Existing `nvidia-*` utility names are
+compatibility aliases to these semantic roles. Browser theme metadata,
+the install manifest, and offline recovery use matching colors. Generated brand
+URLs are refreshed through `npm run branding`; icon artwork is independent.
+
+Validation: production build and type checks, ESLint, pre-commit, 10 focused
+branding/service-worker unit tests, and 67 browser tests passed (4 platform-only
+skips). Browser coverage includes Chromium and WebKit, desktop/phone/tablet/320px
+layouts, both appearances, 200% text, contrast scans, keyboard focus, populated
+activity, and recovery states. Rendered screenshots were inspected and install
+previews refreshed. Primary-action contrast measures 7.6:1 in light mode and
+9.4:1 in dark mode. This is browser evidence; physical Apple devices and VoiceOver
+were not tested.
+
 ## Source guidance
 
 Reviewed September 7, 2026. Apple's documentation overview includes native
@@ -64,6 +98,7 @@ framework choices; its linked HIG informs this web implementation.
 - [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
 - [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
 - [Color](https://developer.apple.com/design/human-interface-guidelines/color)
+- [Dark Mode](https://developer.apple.com/design/human-interface-guidelines/dark-mode)
 - [Typography](https://developer.apple.com/design/human-interface-guidelines/typography)
 - [Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars)
 

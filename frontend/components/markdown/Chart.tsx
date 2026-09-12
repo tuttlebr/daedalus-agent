@@ -74,7 +74,7 @@ const Chart = (props: any) => {
     YAxisLabel = '',
   } = data;
 
-  // NVIDIA brand colors for charts
+  // Chart emphasis follows the shared appearance palette.
   const colors = {
     fill: 'var(--color-nvidia-green)',
     stroke: 'black',
@@ -243,10 +243,10 @@ const Chart = (props: any) => {
             : sortedY[Math.floor(sortedY.length / 2)];
 
         const quadrantColors = {
-          topRight: '#76b900',
-          topLeft: '#f59e0b',
-          bottomRight: '#f59e0b',
-          bottomLeft: '#ef4444',
+          topRight: 'var(--color-success)',
+          topLeft: 'var(--color-warning)',
+          bottomRight: 'var(--color-warning)',
+          bottomLeft: 'var(--color-error)',
         };
 
         const coloredData = Data.map((d: Record<string, number | string>) => {
