@@ -2,20 +2,20 @@
 // prettier-ignore
 export const branding = {
   "assets": {
-    "/favicon.png": "/favicon.png?v=1474c9ee5ed4725c",
-    "/icons/icon-120x120.png": "/icons/icon-120x120.png?v=b77d09dc210624b5",
-    "/icons/icon-144x144.png": "/icons/icon-144x144.png?v=6f76f7eba2842a58",
-    "/icons/icon-152x152.png": "/icons/icon-152x152.png?v=a002622afcf86c8b",
-    "/icons/icon-16x16.png": "/icons/icon-16x16.png?v=dd2483027bf22110",
-    "/icons/icon-180x180.png": "/icons/icon-180x180.png?v=28f012dc8ae4018b",
-    "/icons/icon-192x192.png": "/icons/icon-192x192.png?v=b7fdaa79006dd417",
-    "/icons/icon-32x32.png": "/icons/icon-32x32.png?v=914800a0112cb3ec",
-    "/icons/icon-48x48.png": "/icons/icon-48x48.png?v=45cf573e250555d2",
-    "/icons/icon-512x512-maskable.png": "/icons/icon-512x512-maskable.png?v=83e5ac5f08e129c7",
-    "/icons/icon-512x512.png": "/icons/icon-512x512.png?v=83e5ac5f08e129c7",
-    "/icons/icon-72x72.png": "/icons/icon-72x72.png?v=249f08d637797a67",
-    "/icons/icon-96x96.png": "/icons/icon-96x96.png?v=fe1419a9c56930c8"
+    "/favicon.png": "/favicon.png?v=1580ac3eb1fba19d",
+    "/icons/icon-120x120.png": "/icons/icon-120x120.png?v=03c920807a216a9a",
+    "/icons/icon-144x144.png": "/icons/icon-144x144.png?v=1a2e3e99b703a88b",
+    "/icons/icon-152x152.png": "/icons/icon-152x152.png?v=a62dbd0e66eac8ec",
+    "/icons/icon-16x16.png": "/icons/icon-16x16.png?v=16e516e8e725f9c6",
+    "/icons/icon-180x180.png": "/icons/icon-180x180.png?v=c4dbe4e52bcd5af1",
+    "/icons/icon-192x192.png": "/icons/icon-192x192.png?v=d95f303a1f850834",
+    "/icons/icon-32x32.png": "/icons/icon-32x32.png?v=0d94b605bba63d41",
+    "/icons/icon-48x48.png": "/icons/icon-48x48.png?v=d8fb9c330dd5f401",
+    "/icons/icon-512x512-maskable.png": "/icons/icon-512x512-maskable.png?v=1580ac3eb1fba19d",
+    "/icons/icon-512x512.png": "/icons/icon-512x512.png?v=1580ac3eb1fba19d",
+    "/icons/icon-72x72.png": "/icons/icon-72x72.png?v=eaacb9bc31cf9941",
+    "/icons/icon-96x96.png": "/icons/icon-96x96.png?v=fc3a54d9e080579a"
   },
-  "manifest": "/manifest.json?v=2438c42bdf37ff8b",
-  "version": "8754edfc5f55b37a"
+  "manifest": "/manifest.json?v=d87bf4426152085e",
+  "version": "62fa694af0a4e0d8"
 } as const;
