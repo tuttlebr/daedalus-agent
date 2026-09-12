@@ -16,6 +16,7 @@ hooks:
 * bind each HTTP request's OAuth callback before entering a cached per-user
   workflow, so tool tasks cannot recover a callback from an older request;
 * replace inactive per-user builders whose MCP transport lifecycle has stopped;
+* close failed transports in their owning task and recover stopped session clients;
 * keep application-level MCP errors out of the transport reconnect path; and
 * bound optional MCP group startup, retry requested skipped groups once before
   tool resolution, and expose required versus optional capability readiness.
@@ -37,7 +38,7 @@ import math
 import os
 import re
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -1944,6 +1945,213 @@ def _disconnected_per_user_mcp_group_names(builder) -> list[str]:
     return sorted(disconnected)
 
 
+def _patch_mcp_lifecycle_recovery():
+    """Keep NAT's transport ownership intact when an SDK task fails.
+
+    NAT's worker waits for commands outside its exception handler while SDK
+    task groups remain open. A child failure can cancel that wait, abandoning
+    the stack and leaving is_connected true. Reconnect then queues work on a
+    finished worker. Cleanup must run in the original owner before a new
+    worker can enter a transport; closing that stack from a tool task violates
+    AnyIO's cancel-scope ownership.
+    """
+    import functools
+
+    from nat.plugins.mcp.client.client_base import MCPBaseClient
+
+    if getattr(MCPBaseClient._lifecycle_worker, "_daedalus_lifecycle_recovery", False):
+        return
+    for name, parameters in {
+        "__aenter__": ["self"],
+        "__aexit__": ["self", "exc_type", "exc_value", "traceback"],
+        "_lifecycle_worker": ["self"],
+        "_close_connection": ["self"],
+        "_run_lifecycle_command": ["self", "command"],
+    }.items():
+        signature = inspect.signature(getattr(MCPBaseClient, name))
+        if list(signature.parameters) != parameters:
+            raise RuntimeError(
+                f"Unexpected MCPBaseClient.{name} signature: {signature}"
+            )
+
+    original_enter = MCPBaseClient.__aenter__
+    original_exit = MCPBaseClient.__aexit__
+    original_worker = MCPBaseClient._lifecycle_worker
+    original_connected = MCPBaseClient.is_connected.fget
+
+    @functools.wraps(original_enter)
+    async def enter(self):
+        result = await original_enter(self)
+        self._daedalus_lifecycle_closed = False
+        return result
+
+    @functools.wraps(original_exit)
+    async def leave(self, exc_type, exc_value, traceback):
+        # An explicit close must never race with reconnect to resurrect a client.
+        self._daedalus_lifecycle_closed = True
+        return await original_exit(self, exc_type, exc_value, traceback)
+
+    @functools.wraps(original_worker)
+    async def worker(self):
+        try:
+            await original_worker(self)
+        finally:
+            try:
+                await self._close_connection()
+            except (Exception, asyncio.CancelledError) as exc:
+                # Preserve the worker's original failure/cancellation. NAT clears
+                # connection state before closing the stack, even if exit fails.
+                logger.warning(
+                    "MCP transport owner cleanup failed: %s", type(exc).__name__
+                )
+
+    async def command(self, command):
+        if command == "reconnect" and getattr(
+            self, "_daedalus_lifecycle_closed", False
+        ):
+            raise RuntimeError("Cannot reconnect a closed MCP client")
+        task = self._lifecycle_task
+        if (
+            command == "reconnect"
+            and task is not None
+            and task.done()
+            and self._initial_connection
+            and not getattr(self, "_daedalus_lifecycle_closed", False)
+        ):
+            # _reconnect owns NAT's reconnect lock. The previous task has already
+            # finished its cleanup, so only this new task can own the new stack.
+            if not task.cancelled():
+                task.exception()
+            self._lifecycle_commands = asyncio.Queue()
+            task = asyncio.create_task(
+                self._lifecycle_worker(), name=f"mcp-client-{self.server_name}"
+            )
+            self._lifecycle_task = task
+            command = "connect"
+
+        if self._lifecycle_commands is None or task is None or task.done():
+            raise RuntimeError("MCP client lifecycle is not running")
+
+        future = asyncio.get_running_loop().create_future()
+        try:
+            await self._lifecycle_commands.put((command, future))
+            # A worker can die during initialization/reconnect as well as while
+            # idle. Never leave the command caller waiting on an orphaned future.
+            await asyncio.wait((future, task), return_when=asyncio.FIRST_COMPLETED)
+            if future.done():
+                return await future
+            cause = None if task.cancelled() else task.exception()
+            raise RuntimeError(
+                "MCP transport lifecycle stopped during command"
+            ) from cause
+        finally:
+            if not future.done():
+                future.cancel()
+
+    def connected(self):
+        task = self._lifecycle_task
+        return bool(
+            original_connected(self)
+            and task is not None
+            and not task.done()
+            and not getattr(self, "_daedalus_lifecycle_closed", False)
+        )
+
+    worker._daedalus_lifecycle_recovery = True
+    MCPBaseClient.__aenter__ = enter
+    MCPBaseClient.__aexit__ = leave
+    MCPBaseClient._lifecycle_worker = worker
+    MCPBaseClient._run_lifecycle_command = command
+    MCPBaseClient.is_connected = property(connected)
+    logger.info("MCP transport owner cleanup and lifecycle recovery patch applied")
+
+
+async def _close_stopped_mcp_session(session_data):
+    """Ask the session's lifetime task to close; never exit its stack here."""
+    task = session_data.lifetime_task
+    session_data.stop_event.set()
+    if task is None:
+        return
+    try:
+        done, _ = await asyncio.wait((task,), timeout=_MCP_RECOVERY_TOTAL_TIMEOUT)
+        if done:
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.warning(
+                    "Stopped MCP session cleanup failed: %s", type(exc).__name__
+                )
+        else:
+            logger.warning("Stopped MCP session cleanup timed out")
+    finally:
+        if not task.done():
+            task.cancel()
+            # Retain the result consumer even if this request is cancelled.
+            task.add_done_callback(
+                lambda completed: None
+                if completed.cancelled()
+                else completed.exception()
+            )
+
+
+def _patch_mcp_session_recovery():
+    """Evict stopped per-session clients before acquiring a tool-call lease."""
+    import functools
+
+    from nat.plugins.mcp.client.client_impl import MCPFunctionGroup
+
+    original_usage = MCPFunctionGroup._session_usage_context
+    if getattr(original_usage, "_daedalus_session_recovery", False):
+        return
+    signature = inspect.signature(original_usage)
+    if list(signature.parameters) != ["self", "session_id"]:
+        raise RuntimeError(
+            f"Unexpected MCPFunctionGroup._session_usage_context signature: {signature}"
+        )
+
+    @asynccontextmanager
+    @functools.wraps(original_usage)
+    async def usage(self, session_id):
+        recovery_lock = getattr(self, "_daedalus_session_recovery_lock", None)
+        if recovery_lock is None:
+            recovery_lock = asyncio.Lock()
+            self._daedalus_session_recovery_lock = recovery_lock
+        async with AsyncExitStack() as stack:
+            async with recovery_lock:
+                stale = None
+                busy = False
+                async with self._session_rwlock.writer:
+                    data = self._sessions.get(session_id)
+                    if data is not None and (
+                        not data.client.is_connected
+                        or (
+                            data.lifetime_task is not None and data.lifetime_task.done()
+                        )
+                    ):
+                        # Leases belong to this SessionData, including in-flight
+                        # mutations. Do not replace it until all calls finish.
+                        busy = data.ref_count > 0
+                        if not busy:
+                            stale = self._sessions.pop(session_id)
+                if stale is not None:
+                    logger.warning("Replacing stopped cached MCP session client")
+                    await _close_stopped_mcp_session(stale)
+                client = None
+                if not busy:
+                    # Acquire NAT's ref_count before another caller can evict
+                    # this generation. Release the recovery lock before the call.
+                    client = await stack.enter_async_context(
+                        original_usage(self, session_id)
+                    )
+            yield client
+
+    usage._daedalus_session_recovery = True
+    MCPFunctionGroup._session_usage_context = usage
+    logger.info("MCP stopped session cache recovery patch applied")
+
+
 def _patch_per_user_mcp_builder_recovery():
     """Rebuild an inactive cached workflow after an MCP lifecycle stops."""
     try:
@@ -2445,6 +2653,8 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     # created them. Propagate each later request's OAuth callback explicitly.
     _patch_mcp_auth_context_propagation()
     _patch_mcp_auth_transport_timeout()
+    _patch_mcp_lifecycle_recovery()
+    _patch_mcp_session_recovery()
     _patch_per_user_mcp_builder_recovery()
 
     # Patch MCPToolClient to add the approval gate + diagnostic logging, then

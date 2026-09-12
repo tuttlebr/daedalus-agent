@@ -830,6 +830,9 @@ def main() -> None:
     from google_workspace_oauth_contract_check import check_google_workspace_oauth
 
     asyncio.run(check_google_workspace_oauth())
+    from mcp_lifecycle_contract_check import check_mcp_lifecycle
+
+    asyncio.run(check_mcp_lifecycle())
     if not getattr(MCPToolClient.acall, "_daedalus_approval_gate", False):
         raise RuntimeError("MCP approval gate did not attach to acall")
     if not getattr(

@@ -131,6 +131,7 @@ COPY runtime_contract_check.py /workspace/runtime_contract_check.py
 COPY agent_loop_contract_check.py /workspace/agent_loop_contract_check.py
 COPY tool_catalog_contract_check.py /workspace/tool_catalog_contract_check.py
 COPY google_workspace_oauth_contract_check.py /workspace/google_workspace_oauth_contract_check.py
+COPY mcp_lifecycle_contract_check.py /workspace/mcp_lifecycle_contract_check.py
 COPY milvus_collection_migration.py /workspace/milvus_collection_migration.py
 COPY image_api.py /workspace/image_api.py
 COPY collection_metadata_api.py /workspace/collection_metadata_api.py
@@ -156,6 +157,7 @@ RUN rm -f \
     /workspace/pylock.runtime-linux-amd64.toml \
     /workspace/pylock.runtime-linux-arm64.toml \
     /workspace/runtime_contract_check.py \
+    /workspace/mcp_lifecycle_contract_check.py \
     /workspace/google_workspace_oauth_contract_check.py
 
 FROM runtime_base AS backend
