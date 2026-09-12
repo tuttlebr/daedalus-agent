@@ -245,6 +245,10 @@ test('cancels active backend work through the durable job endpoint', async ({
   await sendMessage(page, 'E2E_CANCEL');
   const createdResponse = await jobCreated;
   expect(createdResponse.ok()).toBeTruthy();
+  const { jobId } = await createdResponse.json();
+  await expect(
+    page.getByText('E2E cancellation pending', { exact: true }),
+  ).toBeVisible();
 
   const cancelResponse = page.waitForResponse(
     (response) =>
@@ -261,6 +265,61 @@ test('cancels active backend work through the durable job endpoint', async ({
   await expect(
     page.getByRole('button', { name: 'Stop generating' }),
   ).toBeHidden();
+  await expect
+    .poll(async () => {
+      const status = await browserGet(page, `/api/chat/async?jobId=${jobId}`);
+      return JSON.parse(status.body).status;
+    })
+    .toBe('error');
+  const status = JSON.parse(
+    (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
+  );
+  expect(status.partialResponse).toBe('E2E cancellation pending');
+  await page.reload();
+  await expect(
+    page.getByText('E2E cancellation pending', { exact: true }),
+  ).toBeVisible();
+});
+
+test('preserves assistant text and research evidence after a late error and reload', async ({
+  page,
+}) => {
+  await login(page);
+  const jobCreated = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/chat/async'),
+  );
+  await sendMessage(page, 'E2E_LATE_ERROR');
+  const created = await jobCreated;
+  const { jobId } = await created.json();
+  const { conversationId } = created.request().postDataJSON();
+  await expect
+    .poll(async () => {
+      return JSON.parse(
+        (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
+      ).status;
+    })
+    .toBe('error');
+
+  const answer =
+    'Research finding preserved before failure. Additional accepted finding.';
+  await expect(page.getByText(answer, { exact: true })).toBeVisible();
+  const stored = JSON.parse(
+    (await browserGet(page, `/api/conversations/${conversationId}`)).body,
+  );
+  const assistant = stored.messages.at(-1);
+  expect(assistant.content).toBe(answer);
+  expect(JSON.stringify(assistant.intermediateSteps)).toContain(
+    'Full research evidence survives the late error.',
+  );
+  expect(assistant.errorMessages).toBeTruthy();
+
+  await page.reload();
+  await expect(page.getByText(answer, { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Agent Activity/ }),
+  ).toBeVisible();
 });
 
 test('rejects a second active job for the same conversation', async ({

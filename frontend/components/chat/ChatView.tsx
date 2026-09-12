@@ -26,6 +26,7 @@ import {
   withoutOAuthPromptsForConversation,
 } from '@/utils/app/oauthPrompts';
 import {
+  isStaleCumulativeSnapshot,
   reduceStreamingUpdates,
   type BufferedStreamingUpdate,
 } from '@/utils/app/streamingBuffer';
@@ -432,6 +433,21 @@ export const ChatView = memo(() => {
       if (target.role === 'user') return;
 
       const nextUpdates = { ...updates };
+      if (nextUpdates.errorMessages) {
+        if (
+          typeof nextUpdates.content === 'string' &&
+          isStaleCumulativeSnapshot(target.content, nextUpdates.content)
+        ) {
+          delete nextUpdates.content;
+        }
+        if (
+          nextUpdates.intermediateSteps &&
+          nextUpdates.intermediateSteps.length <
+            (target.intermediateSteps?.length || 0)
+        ) {
+          delete nextUpdates.intermediateSteps;
+        }
+      }
       if (typeof nextUpdates.content === 'string') {
         nextUpdates.content = sanitizeMessageContentFromPriorAssistant(
           nextUpdates.content,
@@ -768,6 +784,13 @@ export const ChatView = memo(() => {
                     ? { content: status.fullResponse || status.partialResponse }
                     : {}),
                   intermediateSteps: status.intermediateSteps,
+                  ...(status.status === 'error'
+                    ? {
+                        errorMessages: buildMessageError(
+                          status.error || 'Response interrupted',
+                        ),
+                      }
+                    : {}),
                 },
                 status.assistantMessageId,
               );
@@ -894,42 +917,30 @@ export const ChatView = memo(() => {
 
         const errorMessages = buildMessageError(error);
 
-        if (context?.partialResponse) {
-          const conv = useConversationStore
-            .getState()
-            .conversations.find((c) => c.id === convId);
-          if (conv && conv.messages.length > 0) {
-            updateAssistantMessage(
-              convId,
-              {
-                content: `${context.partialResponse}\n\n*[Response interrupted]*`,
-                intermediateSteps: context.intermediateSteps,
-                errorMessages,
-              },
-              context.assistantMessageId,
-            );
-          }
-        } else {
-          const conv = useConversationStore
-            .getState()
-            .conversations.find((c) => c.id === convId);
-          if (conv && conv.messages.length > 0) {
-            updateAssistantMessage(
-              convId,
-              {
-                content: '',
-                intermediateSteps: context?.intermediateSteps,
-                errorMessages,
-              },
-              context?.assistantMessageId,
-            );
-          } else {
-            addMessage(convId, {
-              role: 'assistant',
-              content: '',
+        const conv = useConversationStore
+          .getState()
+          .conversations.find((c) => c.id === convId);
+        if (conv && conv.messages.length > 0) {
+          updateAssistantMessage(
+            convId,
+            {
+              // A transport error may carry no server snapshot. Keep the
+              // text already received, including the just-flushed UI buffer.
+              ...(context?.partialResponse
+                ? { content: context.partialResponse }
+                : {}),
+              intermediateSteps: context?.intermediateSteps,
               errorMessages,
-            });
-          }
+            },
+            context?.assistantMessageId,
+          );
+        } else {
+          addMessage(convId, {
+            role: 'assistant',
+            content: context?.partialResponse || '',
+            intermediateSteps: context?.intermediateSteps,
+            errorMessages,
+          });
         }
 
         setStreaming(convId, false);

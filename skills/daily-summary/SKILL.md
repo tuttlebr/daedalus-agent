@@ -69,8 +69,10 @@ script execution. Use `briefing_renderer_tool` for the quality gates; do not cal
 
 ## Output contract
 
-Return exactly one Markdown code block labeled `html`. Put one complete
-standalone HTML document inside it.
+For a successfully rendered edition, return exactly one Markdown code block
+labeled `html`. Put one complete standalone HTML document inside it. When
+rendering is unavailable, use the sourced text fallback in step 6; the HTML
+requirements below apply to validated editions.
 
 - The first non-whitespace bytes inside the fence must be `<!DOCTYPE html>`.
 - The last non-whitespace bytes inside the fence must be `</html>`.
@@ -228,12 +230,14 @@ object or array from the verified source material; do not patch delimiters or
 inspect successive string slices. A successful shell command is not evidence
 that an edition passes validation.
 
-The runtime allows two submissions and bounds auxiliary calls during repair.
-On success it delivers the exact validated HTML in the required single `html`
-fence. If correction fails or the budget is exhausted, it delivers a compact
-HTML error edition and ends the run. Do not publish, rewrite, or attempt to
-bypass that terminal result. If `briefing_renderer_tool` is unavailable, return
-a small HTML error edition explaining that validation is unavailable.
+The renderer allows two attempts per request. On success it delivers the exact
+validated HTML in the required single `html` fence. If rendering remains
+unavailable or `attempts_remaining=0`, use the returned edition and collected
+sources to deliver the useful reporting as a plain-text briefing with source
+links. State that the HTML edition could not be validated and identify any
+unfinished desks. Keep unsupported claims out of the fallback. Do not restart
+the research, bypass validation by writing your own HTML, or replace collected
+reporting with an error-only edition.
 
 ## Failure behavior
 

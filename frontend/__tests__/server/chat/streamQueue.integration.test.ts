@@ -88,4 +88,84 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     expect(await client.exists(queue.streamPayloadKey(jobId))).toBe(0);
     expect(await client.exists(queue.streamBackendStartedKey(jobId))).toBe(0);
   });
+
+  it('keeps long-running job recovery state alive only for the lease owner', async () => {
+    const { sessionKey } = await import('@/server/session/redis');
+    const state = await import('@/server/chat/streamState');
+    const guard = await import('@/server/chat/conversationJobGuard');
+    const activeJobId = `${jobId}-long-running`;
+    const guardKey = guard.conversationJobGuardKey('testuser', activeJobId);
+    const keys = [
+      sessionKey(['async-job-request', activeJobId]),
+      sessionKey(['async-job-status', activeJobId]),
+      queue.streamPayloadKey(activeJobId),
+      queue.streamBackendStartedKey(activeJobId),
+      state.streamResponseKey(activeJobId),
+      state.streamStepsKey(activeJobId),
+      state.legacyStreamStepsKey(activeJobId),
+      sessionKey(['async-job-abort', activeJobId]),
+      sessionKey(['async-job-finalization', activeJobId]),
+    ];
+    try {
+      await queue.acquireStreamLease(
+        activeJobId,
+        'active-owner',
+        30000,
+        client,
+      );
+      for (const key of keys)
+        await client.set(key, 'saved progress', 'PX', 500);
+      await client.set(
+        guardKey,
+        JSON.stringify({ jobId: activeJobId }),
+        'PX',
+        500,
+      );
+
+      expect(
+        await queue.renewStreamLease(
+          activeJobId,
+          'other-owner',
+          30000,
+          client,
+          guardKey,
+        ),
+      ).toBe(false);
+      for (const key of [...keys, guardKey]) {
+        expect(await client.pttl(key)).toBeLessThanOrEqual(500);
+      }
+
+      expect(
+        await queue.renewStreamLease(
+          activeJobId,
+          'active-owner',
+          30000,
+          client,
+          guardKey,
+        ),
+      ).toBe(true);
+      for (const key of keys) {
+        expect(await client.ttl(key)).toBeGreaterThanOrEqual(3599);
+        expect(await client.get(key)).toBe('saved progress');
+      }
+      expect(await client.ttl(guardKey)).toBeGreaterThanOrEqual(7199);
+
+      await client.set(
+        guardKey,
+        JSON.stringify({ jobId: 'a-new-job' }),
+        'PX',
+        500,
+      );
+      await queue.renewStreamLease(
+        activeJobId,
+        'active-owner',
+        30000,
+        client,
+        guardKey,
+      );
+      expect(await client.pttl(guardKey)).toBeLessThanOrEqual(500);
+    } finally {
+      await client.del(...keys, guardKey, queue.streamLeaseKey(activeJobId));
+    }
+  });
 });

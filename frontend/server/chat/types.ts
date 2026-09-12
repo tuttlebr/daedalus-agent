@@ -74,6 +74,21 @@ export interface BackgroundExecutionControl {
   approvalToken?: string;
 }
 
+export interface StreamFailureSnapshot {
+  response: string;
+  pendingSteps: any[];
+  persistedStepCount: number;
+}
+
+export class StreamUserCancellationError extends Error {
+  snapshot?: StreamFailureSnapshot;
+
+  constructor() {
+    super('Job canceled by user');
+    this.name = 'StreamUserCancellationError';
+  }
+}
+
 export interface StreamQueuePayload {
   messagesForNat: any[];
   verifiedUsername: string;

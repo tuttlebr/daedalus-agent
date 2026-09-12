@@ -5,8 +5,8 @@ import json
 import os
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk
-from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.messages import AIMessageChunk
+from langchain_core.outputs import ChatGenerationChunk
 from langchain_core.tools import StructuredTool
 from nat.builder.context import Context
 from nat.data_models.api_server import ChatRequest
@@ -18,6 +18,7 @@ from nat_helpers.briefing_renderer import (
 )
 from nat_helpers.per_user_tool_calling import (
     DaedalusPerUserResponsesAPIAgentWorkflowConfig,
+    IncompleteAgentRun,
     _responses_api_agent_workflow,
 )
 from pydantic import Field
@@ -30,8 +31,7 @@ def _require(condition, detail):
 
 class ContractLLM(BaseChatModel):
     model_name: str = "offline-contract"
-    mode: str = "repeat"
-    calls: int = 0
+    mode: str = "repeat_success"
     finalizations: int = 0
     tool_name: str = "lookup"
     seen: list = Field(default_factory=list)
@@ -44,65 +44,115 @@ class ContractLLM(BaseChatModel):
         return self.bind(tools=tools, **kwargs)
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        _require(kwargs.get("tools") == [], "Agent loop runtime contract failed")
-        _require(
-            kwargs.get("tool_choice") == "none", "Agent loop runtime contract failed"
-        )
         self.finalizations += 1
-        if self.mode == "finalizer_error":
-            raise RuntimeError("offline finalizer failure")
-        if self.mode == "finalizer_tools":
-            return ChatResult(
-                generations=[
-                    ChatGeneration(
-                        message=AIMessage(
-                            content="",
-                            tool_calls=[
-                                {
-                                    "name": "lookup",
-                                    "args": {"value": 2},
-                                    "id": "forbidden",
-                                }
-                            ],
-                        )
-                    )
-                ]
-            )
-        return ChatResult(
-            generations=[
-                ChatGeneration(
-                    message=AIMessage(
-                        content="Verified partial results; request incomplete."
-                    )
-                )
-            ]
-        )
-
-    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-        if self.mode == "finalizer_timeout":
-            await asyncio.sleep(60)
-        return self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        raise RuntimeError("Recovery must not make another model call")
 
     async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
-        self.calls += 1
-        self.seen.append(current_agent_run().run_id)
-        if self.mode == "complete" or (self.mode == "progress" and self.calls > 30):
+        run_id = current_agent_run().run_id
+        self.seen.append(run_id)
+        call = self.seen.count(run_id)
+        _require(kwargs.get("tools"), "Recovery attempted a tools-free model call")
+        if (
+            self.mode == "complete"
+            or (self.mode == "answer_commentary" and call > 1)
+            or (self.mode == "progress" and call > 30)
+            or (self.mode == "sandbox_progress" and call > 31)
+            or (self.mode in {"reset_success", "reset_changed"} and call > 7)
+        ):
             yield ChatGenerationChunk(message=AIMessageChunk(content="Completed."))
             return
-        value = self.calls if self.mode == "progress" else 1
+        if self.mode in {"provider_error", "truncated"} and call == 3:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(
+                    content=(
+                        [
+                            {
+                                "type": "text",
+                                "text": "Useful partial answer: retained evidence.",
+                                "phase": "final_answer",
+                            }
+                        ]
+                        if self.mode == "truncated"
+                        else "Useful partial answer: retained evidence."
+                    ),
+                    chunk_position="last" if self.mode == "truncated" else None,
+                    response_metadata=(
+                        {"finish_reason": "length"} if self.mode == "truncated" else {}
+                    ),
+                )
+            )
+            if self.mode == "provider_error":
+                raise RuntimeError("Synthetic provider failure")
+            return
+        if self.mode in {"artifact_commentary", "answer_commentary"}:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(content="Preparing verified results. ")
+            )
+        value = (
+            call
+            if self.mode
+            in {"progress", "sandbox_progress", "provider_error", "truncated"}
+            else 2
+            if self.mode in {"reset_success", "reset_changed"} and call == 4
+            else 1
+        )
         yield ChatGenerationChunk(
             message=AIMessageChunk(
                 content="",
+                response_metadata=(
+                    {"id": "resp_fixture", "status": "incomplete"}
+                    if self.mode == "incomplete_tool"
+                    else {"id": "resp_fixture"}
+                    if self.mode == "missing_terminal_tool"
+                    else {}
+                ),
                 tool_call_chunks=[
                     {
                         "name": self.tool_name,
                         "args": json.dumps({"value": value}),
-                        "id": f"call-{self.calls}",
+                        "id": f"call-{call}",
                         "index": 0,
                     }
                 ],
             )
         )
+
+
+def _sandbox_output(value: int) -> str:
+    return (
+        "## Sandbox Execution Result\n"
+        f"Request ID: fixture-{value}\nExit code: {1 if value == 1 else 0}\n"
+        "Duration: 1 ms\nTimed out: False\nTruncated: False\n"
+        f"stdout (JSON string): {json.dumps(f'evidence {value}')}\n"
+        f"stderr (JSON string): {json.dumps('failed lookup' if value == 1 else '')}"
+    )
+
+
+def _lookup_runner(mode, executions):
+    async def lookup(value: int) -> str:
+        """Read an offline fixture."""
+        executions.append(value)
+        if mode in {"artifact", "artifact_commentary"}:
+            run = current_agent_run()
+            run.terminal_reason = "validated_artifact"
+            run.terminal_content = "```html\n<p>exact validated fixture</p>\n```"
+        if mode == "sandbox_progress":
+            return _sandbox_output(value)
+        if mode in {"repeat_failure", "reset_changed"} or (
+            mode == "reset_success" and value == 1
+        ):
+            return "Error: fixture unavailable"
+        return f"result {value}"
+
+    return lookup
+
+
+class ContractBuilder:
+    def __init__(self, tool):
+        self.tool = tool
+
+    async def get_tools(self, **kwargs):
+        return [self.tool]
 
 
 async def verify_agent_loop_contract():
@@ -113,128 +163,154 @@ async def verify_agent_loop_contract():
     try:
         for streaming in (False, True):
             for mode in (
-                "repeat",
+                "repeat_success",
+                "repeat_failure",
+                "reset_success",
+                "reset_changed",
+                "sandbox_progress",
                 "complete",
                 "progress",
                 "artifact",
-                "finalizer_error",
-                "finalizer_tools",
-                "finalizer_timeout",
-                "briefing_failure",
+                "artifact_commentary",
+                "answer_commentary",
+                "provider_error",
+                "truncated",
                 "recursion",
+                "incomplete_tool",
+                "missing_terminal_tool",
             ):
                 executions = []
 
-                async def lookup(value: int) -> str:
-                    """Read an offline fixture."""
-                    executions.append(value)
-                    if mode == "artifact":
-                        run = current_agent_run()
-                        run.terminal_reason = "validated_artifact"
-                        run.terminal_content = (
-                            "```html\n<p>exact validated fixture</p>\n```"
-                        )
-                    if mode == "briefing_failure":
-                        current_agent_run().briefing = True
-                        return "Error: validation failed"
-                    return f"result {value}"
+                tool_name = (
+                    "llm_sandbox_tool" if mode == "sandbox_progress" else "lookup"
+                )
+                tool = StructuredTool.from_function(
+                    coroutine=_lookup_runner(mode, executions), name=tool_name
+                )
 
-                tool = StructuredTool.from_function(coroutine=lookup, name="lookup")
-
-                class Builder:
-                    async def get_tools(self, **kwargs):
-                        return [tool]
-
-                llm = ContractLLM(mode=mode)
+                llm = ContractLLM(mode=mode, tool_name=tool_name)
                 config = DaedalusPerUserResponsesAPIAgentWorkflowConfig(
                     llm_name="offline",
-                    nat_tools=["lookup"],
+                    nat_tools=[tool_name],
                     tool_output_compaction_enabled=False,
-                    max_iterations=2 if mode == "recursion" else 128,
+                    max_iterations=(
+                        2
+                        if mode == "recursion"
+                        else 8
+                        if mode == "repeat_success"
+                        else 128
+                    ),
                 )
                 if mode == "recursion":
                     config.loop_guard.enabled = False
-                if mode == "finalizer_timeout":
-                    config.loop_guard.final_response_timeout = 0.01
+                incomplete = mode in {
+                    "repeat_success",
+                    "repeat_failure",
+                    "provider_error",
+                    "truncated",
+                    "recursion",
+                    "incomplete_tool",
+                    "missing_terminal_tool",
+                }
                 async with _responses_api_agent_workflow(
-                    config, Builder(), llm
+                    config, ContractBuilder(tool), llm
                 ) as info:
                     request = ChatRequest(
-                        messages=[{"role": "user", "content": "offline fixture"}]
+                        messages=[
+                            {"role": "user", "content": "historical request"},
+                            {"role": "assistant", "content": "OLD_TURN_NOT_RECOVERY"},
+                            {"role": "user", "content": "offline fixture"},
+                        ]
                     )
-                    for invocation in range(2):
+                    for _ in range(2):
                         before = len(executions)
                         if streaming:
-                            chunks = [c async for c in info.stream_fn(request)]
+                            chunks = []
+                            interrupted = False
+                            try:
+                                async for chunk in info.stream_fn(request):
+                                    chunks.append(chunk)
+                            except IncompleteAgentRun:
+                                interrupted = True
+                            _require(interrupted == incomplete, (mode, interrupted))
                             text = "".join(
                                 c.choices[0].delta.content or "" for c in chunks
                             )
+                            terminals = sum(
+                                bool(getattr(c.choices[0], "daedalus_terminal", False))
+                                for c in chunks
+                            )
                             _require(
-                                sum(
-                                    bool(
-                                        getattr(
-                                            c.choices[0], "daedalus_terminal", False
-                                        )
-                                    )
-                                    for c in chunks
-                                )
-                                == 1,
-                                "Agent loop runtime contract failed",
+                                terminals == (0 if incomplete else 1), (mode, terminals)
                             )
                         else:
                             text = await info.single_fn(request)
                         _require(
-                            current_agent_run() is None,
-                            "Agent loop runtime contract failed",
+                            current_agent_run() is None, "Agent run context leaked"
+                        )
+                        _require(
+                            llm.finalizations == 0, "Recovery made another model call"
+                        )
+                        _require(
+                            "OLD_TURN_NOT_RECOVERY" not in text,
+                            "Recovery leaked prior turns",
                         )
                         delta = len(executions) - before
-                        if mode in (
-                            "repeat",
-                            "finalizer_error",
-                            "finalizer_tools",
-                            "finalizer_timeout",
-                        ):
-                            _require(delta == 4, (mode, delta))
-                            _require(
-                                "incomplete" in text,
-                                "Agent loop runtime contract failed",
-                            )
-                        elif mode == "recursion":
-                            _require(
-                                0 < delta <= 3, "Agent loop runtime contract failed"
-                            )
-                            _require(
-                                "incomplete" in text,
-                                "Agent loop runtime contract failed",
-                            )
-                        elif mode == "briefing_failure":
-                            _require(
-                                delta == 4 and "Briefing unavailable" in text,
-                                "Briefing fallback failed",
-                            )
-                            _require(
-                                llm.finalizations == 0, "Briefing fallback called model"
-                            )
-                        elif mode == "artifact":
-                            _require(delta == 1, "Agent loop runtime contract failed")
-                            _require(
-                                text == "```html\n<p>exact validated fixture</p>\n```",
-                                "Agent loop runtime contract failed",
-                            )
-                            _require(
-                                llm.finalizations == 0,
-                                "Agent loop runtime contract failed",
-                            )
-                        else:
-                            _require(
-                                text == "Completed.",
-                                "Agent loop runtime contract failed",
-                            )
-                            if mode == "progress" and invocation == 0:
+                        if incomplete:
+                            _require("incomplete" in text.lower(), (mode, text))
+                            if mode == "repeat_failure":
+                                _require(delta == 4, (mode, delta))
+                                if not streaming:
+                                    _require(
+                                        "fixture unavailable" in text,
+                                        "Tool evidence lost",
+                                    )
+                            elif mode == "repeat_success":
+                                _require(4 < delta <= 9, (mode, delta))
+                                if not streaming:
+                                    _require(
+                                        "result 1" in text,
+                                        "Successful tool evidence lost",
+                                    )
+                            elif mode == "recursion":
+                                _require(0 < delta <= 3, (mode, delta))
+                            elif mode in {"incomplete_tool", "missing_terminal_tool"}:
                                 _require(
-                                    delta == 30, "Agent loop runtime contract failed"
+                                    delta == 0,
+                                    (mode, "Incomplete response executed tools", delta),
                                 )
-                    if mode == "repeat":
+                            else:
+                                _require(delta == 2, (mode, delta))
+                                _require(
+                                    "Useful partial answer: retained evidence." in text,
+                                    (mode, "Partial model output lost", text),
+                                )
+                                if not streaming:
+                                    _require(
+                                        "result 1" in text and "result 2" in text,
+                                        "Tool evidence lost",
+                                    )
+                        elif mode in {"artifact", "artifact_commentary"}:
+                            _require(delta == 1, (mode, delta))
+                            expected = "```html\n<p>exact validated fixture</p>\n```"
+                            if streaming and mode == "artifact_commentary":
+                                expected = "Preparing verified results. " + expected
+                            _require(text == expected, text)
+                        else:
+                            expected = "Completed."
+                            if streaming and mode == "answer_commentary":
+                                expected = "Preparing verified results. " + expected
+                            _require(text == expected, (mode, text))
+                            expected_calls = {
+                                "complete": 0,
+                                "answer_commentary": 1,
+                                "progress": 30,
+                                "sandbox_progress": 31,
+                                "reset_success": 7,
+                                "reset_changed": 7,
+                            }
+                            _require(delta == expected_calls[mode], (mode, delta))
+                    if mode == "repeat_failure":
                         before = len(executions)
                         outputs = await asyncio.gather(
                             info.single_fn(request), info.single_fn(request)
@@ -244,7 +320,7 @@ async def verify_agent_loop_contract():
                             "Concurrent requests shared a budget",
                         )
                         _require(
-                            all("incomplete" in output for output in outputs),
+                            all("incomplete" in output.lower() for output in outputs),
                             "Concurrent termination failed",
                         )
                     if streaming and mode == "complete":
@@ -257,7 +333,7 @@ async def verify_agent_loop_contract():
                         )
                 expected_runs = (
                     4
-                    if mode == "repeat"
+                    if mode == "repeat_failure"
                     else 3
                     if streaming and mode == "complete"
                     else 2
@@ -272,9 +348,13 @@ async def verify_agent_loop_contract():
         ]
         _require(
             any(
-                o["outcome"] == "repeated_tool_result" and o["failed"] for o in outcomes
+                o["outcome"] == "repeated_tool_error" and o["failed"] for o in outcomes
             ),
             "Failed run missing from NAT telemetry",
+        )
+        _require(
+            any(o["outcome"] == "iteration_limit" and o["failed"] for o in outcomes),
+            "Iteration limit missing from NAT telemetry",
         )
         _require(
             any(
@@ -304,10 +384,17 @@ async def verify_agent_loop_contract():
             with agent_run_scope() as run:
                 output = await info.single_fn(BriefingRendererInput(edition={}))
                 _require(
-                    json.loads(output)["terminal"],
-                    "Briefing unavailable state did not terminate",
+                    json.loads(output)["terminal"] is False,
+                    "Renderer failure stopped useful work",
                 )
-                _require(run.terminal_content is not None, "Briefing fallback missing")
+                _require(
+                    run.terminal_content is None,
+                    "Renderer replaced research with fallback HTML",
+                )
+                _require(
+                    json.loads(output)["edition"] == {},
+                    "Renderer lost submitted edition",
+                )
     finally:
         subscription.unsubscribe()
         if previous is None:

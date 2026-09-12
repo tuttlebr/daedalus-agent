@@ -38,7 +38,11 @@ import {
   getStreamResponse,
   getStreamSteps,
 } from './streamState';
-import type { AsyncJobRequest, AsyncJobStatus } from './types';
+import type {
+  AsyncJobRequest,
+  AsyncJobStatus,
+  StreamFailureSnapshot,
+} from './types';
 
 import {
   MAX_PUSH_SUBSCRIPTIONS,
@@ -581,6 +585,7 @@ export async function finalizeError(
   jobId: string,
   jobRequest: AsyncJobRequest,
   errorMessage: string,
+  streamSnapshot?: StreamFailureSnapshot,
 ): Promise<boolean> {
   await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
     () => {},
@@ -589,13 +594,27 @@ export async function finalizeError(
   const statusKey = sessionKey(['async-job-status', jobId]);
   const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
   const partialResponse = stripReplayedAssistantPrefix(
-    await getStreamResponse(jobId, currentStatus?.partialResponse || ''),
+    streamSnapshot?.response ??
+      (await getStreamResponse(jobId, currentStatus?.partialResponse || '')),
     jobRequest.messages || [],
   );
-  const intermediateSteps = await getStreamSteps(
+  let intermediateSteps = await getStreamSteps(
     jobId,
     currentStatus?.intermediateSteps || [],
   );
+  if (streamSnapshot?.pendingSteps.length) {
+    if (intermediateSteps.length < streamSnapshot.persistedStepCount) {
+      throw new Error(
+        'Cannot finalize before persisted stream steps are available',
+      );
+    }
+    // A failed append may have committed before its reply was lost. Replace
+    // only the unacknowledged suffix instead of duplicating those events.
+    intermediateSteps = [
+      ...intermediateSteps.slice(0, streamSnapshot.persistedStepCount),
+      ...streamSnapshot.pendingSteps,
+    ];
+  }
 
   const responseWithArtifacts = attachSandboxArtifacts(
     partialResponse,

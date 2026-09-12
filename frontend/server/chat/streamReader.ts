@@ -36,11 +36,12 @@ import {
   appendStreamSteps,
   clearStreamState,
 } from './streamState';
-import type {
-  AsyncJobRequest,
-  AsyncJobStatus,
-  BackgroundExecutionControl,
-  OAuthRequest,
+import {
+  StreamUserCancellationError,
+  type AsyncJobRequest,
+  type AsyncJobStatus,
+  type BackgroundExecutionControl,
+  type OAuthRequest,
 } from './types';
 
 import { saveOAuthCallbackTarget } from '@/server/mcpOAuth';
@@ -624,12 +625,14 @@ export async function startBackgroundStreamReader(
             });
             continue;
           }
-          if (parsed.error) {
+          if (parsed.error || currentSseEvent === 'error') {
             const backendMessage =
               typeof parsed.error === 'string'
                 ? parsed.error.trim()
                 : typeof parsed.error?.message === 'string'
                 ? parsed.error.message.trim()
+                : typeof parsed.message === 'string'
+                ? parsed.message.trim()
                 : '';
             throw new Error(
               backendMessage
@@ -768,6 +771,13 @@ export async function startBackgroundStreamReader(
           await clearStreamState(jobId).catch(() => {});
         } else {
           await persistPendingState().catch(() => {});
+          if (control.signal.reason instanceof StreamUserCancellationError) {
+            control.signal.reason.snapshot = {
+              response: partialResponse,
+              pendingSteps,
+              persistedStepCount,
+            };
+          }
         }
         throw abortReason(control.signal);
       }
@@ -781,6 +791,11 @@ export async function startBackgroundStreamReader(
         jobId,
         jobRequest,
         err.message || 'Backend stream reader failed',
+        {
+          response: partialResponse,
+          pendingSteps,
+          persistedStepCount,
+        },
       ).catch((finalizeErr) => {
         logger.error(
           `Job ${jobId}: Failed to finalize stream reader error`,

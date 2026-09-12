@@ -16,7 +16,7 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.function import FunctionBaseConfig
-from nat_helpers.agent_loop_guard import briefing_error_response, current_agent_run
+from nat_helpers.agent_loop_guard import current_agent_run
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,9 @@ class BriefingRendererConfig(FunctionBaseConfig, name="briefing_renderer"):
         "Render and validate the Daily Daedalus from an edition object following "
         "the daily-summary skill. The backend supplies canonical resources and "
         "serializes JSON. Submit one corrected object if validation fails. "
-        "A validated edition or terminal error edition is delivered directly."
+        "A validated edition is delivered directly. If rendering fails, the "
+        "submitted edition is returned so the available research can be delivered "
+        "as text. At most two rendering attempts are allowed per request."
     )
 
 
@@ -152,7 +154,6 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
             return _result(
                 passed=False, error="A request-scoped agent run is required."
             )
-        run.briefing = True
         # Parallel model calls share this invocation's lock and budget. Another
         # conversation or subsequent turn gets a different context object.
         async with run.artifact_lock:
@@ -160,34 +161,45 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                 return _result(
                     passed=run.terminal_reason == "validated_artifact", terminal=True
                 )
-            run.attempts["briefing"] += 1
-            attempt = run.attempts["briefing"]
+            retained_edition = None
 
-            def fail(errors, *, retryable=True):
-                terminal = attempt >= 2 or not retryable
-                if terminal:
-                    run.terminal_reason = "briefing_validation_failed"
-                    run.terminal_content = briefing_error_response()
-                elif run.repair_phase is None:
-                    run.repair_phase = "briefing"
+            def fail(errors):
+                remaining = max(0, 2 - run.attempts["briefing"])
                 return _result(
                     passed=False,
                     errors=[str(error)[:500] for error in errors[:5]],
-                    attempts_remaining=max(0, 2 - attempt) if not terminal else 0,
-                    terminal=terminal,
+                    attempts_remaining=remaining,
+                    terminal=False,
+                    edition=retained_edition,
+                    next_step=(
+                        "Correct the reported errors and retry, or deliver the "
+                        "available research as text."
+                        if remaining
+                        else "Do not retry this renderer in this request. Deliver "
+                        "the available research as text and explain that HTML "
+                        "rendering failed."
+                    ),
                 )
 
-            if attempt > 2:
-                return fail(["Briefing repair budget exhausted."])
-            stage = "edition_serialization"
             try:
                 serialized = json.dumps(
                     input_data.edition, ensure_ascii=False, allow_nan=False
                 )
-                if len(serialized.encode()) > config.max_edition_bytes:
-                    return fail(
-                        ["Edition exceeds the size budget; submit a smaller edition."]
-                    )
+            except (TypeError, ValueError):
+                return fail(["Edition must contain only valid JSON values."])
+            if len(serialized.encode()) > config.max_edition_bytes:
+                return fail(
+                    [
+                        "Edition exceeds the size budget; submit a smaller edition. "
+                        "The original edition remains in the tool-call arguments."
+                    ]
+                )
+            retained_edition = input_data.edition
+            if run.attempts["briefing"] >= 2:
+                return fail(["Briefing rendering attempt limit reached."])
+            run.attempts["briefing"] += 1
+            stage = "resource_loading"
+            try:
                 root = Path(config.skill_directory)
                 files = {
                     name: (root / relative).read_text(encoding="utf-8")
@@ -263,7 +275,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                 return _result(
                     passed=True, terminal=True, metrics=report.get("metrics", {})
                 )
-            except (TypeError, ValueError, OSError, TimeoutError, KeyError) as exc:
+            except Exception as exc:
                 logger.warning(
                     "Briefing transport recovery: stage=%s error_class=%s",
                     stage,
@@ -287,13 +299,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                         rendering="local_recovery",
                         metrics=report.get("metrics", {}),
                     )
-                except (
-                    TypeError,
-                    ValueError,
-                    OSError,
-                    TimeoutError,
-                    KeyError,
-                ) as recovery:
+                except Exception as recovery:
                     logger.warning(
                         "Briefing recovery unavailable: stage=%s error_class=%s",
                         stage,
@@ -304,7 +310,6 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                             f"Briefing rendering failed at {stage}; canonical recovery "
                             f"is unavailable ({type(recovery).__name__})."
                         ],
-                        retryable=False,
                     )
 
     return render

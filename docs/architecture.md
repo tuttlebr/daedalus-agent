@@ -42,6 +42,43 @@ The frontend calls `/v1/chat/completions`. The backend calls the model provider'
 `/responses` API. These are different interfaces. A provider that only implements
 Chat Completions cannot run the current agent unchanged.
 
+## Keep execution and recovery simple
+
+The workflow uses the toolkit's model → tools → model graph. The per-user
+adapter supplies OAuth-scoped tools, inbound history, optional memory recall,
+reversible tool-result compaction, and the application's stream format. The
+pinned toolkit's built-in Responses workflow does not supply all those
+application contracts, so changing only the workflow type would lose behavior.
+
+Execution has two bounds: `max_iterations` and consecutive identical failed tool
+calls (`loop_guard.repeated_error_limit`, default four). A successful call or a
+change in arguments or error output resets the failure counter. Successful
+polling, sandbox previews, and new research do not consume a separate repair
+budget. Approval gates and successfully validated deliverables can end execution
+directly. Renderer validation failures return their input and errors to the
+agent; they do not replace the entire task with an error edition.
+
+Recovery does not call the model. Streamed text and complete tool activity are
+saved by the existing Redis journal. An execution error, incomplete provider
+response, or iteration limit preserves that work and marks the streamed request
+failed. Open **Agent Activity** on the saved response to inspect collected tool
+results. Single-response API callers and streams without activity events receive
+an explicitly incomplete transcript including current-turn tool evidence.
+
+The owning worker renews active job recovery records and the conversation lock
+while work continues, including silent long tool calls. Cancellation lets that
+worker save its accepted buffers before finalization. A replacement worker
+preserves the saved partial response instead of automatically replaying tools.
+There is no second checkpoint database or automatic restart of external actions.
+
+These are recovery guarantees for data accepted and persisted by the worker,
+not an indefinite archive: conversation storage retains its existing seven-day
+expiry. Redis availability and persistence remain necessary; bytes not yet
+received or flushed when a process is killed cannot be recovered. Removing the
+old `window`, `repeated_call_limit`, `repair_call_limit`, and
+`final_response_timeout` settings requires no data migration. Deploy the backend
+and frontend/stream-worker changes together.
+
 ## State and dependencies
 
 Redis stores accounts, sessions, conversations, jobs, approvals, and other

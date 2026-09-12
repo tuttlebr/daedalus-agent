@@ -18,7 +18,7 @@ import {
   STREAM_READ_IDLE_TIMEOUT_MS,
 } from '@/server/chat/constants';
 import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
-import { finalizeSuccess } from '@/server/chat/finalization';
+import { finalizeError, finalizeSuccess } from '@/server/chat/finalization';
 import {
   appendDocumentAttachmentContext,
   compactDocumentIngestionMessage,
@@ -30,6 +30,7 @@ import {
   buildNatSessionId,
 } from '@/server/chat/natMessages';
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
+import { StreamUserCancellationError } from '@/server/chat/types';
 import { reserveConversationForUser } from '@/server/session/conversationStore';
 import {
   clearStreamingState,
@@ -42,17 +43,6 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const independentReference = JSON.parse(
-  gunzipSync(
-    readFileSync(
-      path.resolve(
-        __dirname,
-        '../../../../../test-fixtures/code-audit-independent-20260909.json.gz',
-      ),
-    ),
-  ).toString(),
-);
 
 const PRIVATE_COLLECTION = 'user_uploads_testuser_hash';
 
@@ -2068,11 +2058,19 @@ async function runStreamTurn(
   }
 }
 
-async function startBlockedStreamTurn() {
+async function startBlockedStreamTurn(chunks: string[] = []) {
   mocks.resolve4.mockResolvedValue(['10.0.2.61']);
   mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
   const store = wireRedisStore();
-  const read = vi.fn(() => new Promise<never>(() => {}));
+  let index = 0;
+  const read = vi.fn(() =>
+    index < chunks.length
+      ? Promise.resolve({
+          done: false,
+          value: new TextEncoder().encode(chunks[index++]),
+        })
+      : new Promise<never>(() => {}),
+  );
   const cancel = vi.fn().mockResolvedValue(undefined);
   const releaseLock = vi.fn();
   stubFetch(async () => ({
@@ -2096,7 +2094,7 @@ async function startBlockedStreamTurn() {
     signal: controller.signal,
   });
 
-  for (let i = 0; i < 10 && read.mock.calls.length === 0; i += 1) {
+  for (let i = 0; i < 200 && read.mock.calls.length <= chunks.length; i += 1) {
     await Promise.resolve();
   }
 
@@ -2134,6 +2132,76 @@ describe('chat/async streaming + finalize (characterization)', () => {
     mocks.redisGet.mockResolvedValue(null);
     mocks.redisLrange.mockResolvedValue([]);
     mocks.redisXadd.mockResolvedValue('1-0');
+  });
+
+  it.each(['APPEND', 'RPUSH'])(
+    'journals accepted output when repeated %s checkpoint writes fail',
+    async (command) => {
+      const { statusKey, store } = await runStreamTurn(
+        [
+          command === 'APPEND'
+            ? 'data: {"choices":[{"delta":{"content":"Useful accepted answer"}}]}\n'
+            : 'intermediate_data: {"name":"Function Complete: <research>","id":"r1","parent_id":"root","payload":"Useful tool evidence"}\n',
+          'data: [DONE]\n',
+        ],
+        {
+          configureStore() {
+            const evaluate = mocks.redisEval.getMockImplementation()!;
+            mocks.redisEval.mockImplementation(async (...args: any[]) => {
+              if (String(args[0]).includes(`redis.call('${command}'`)) {
+                throw new Error('Checkpoint append unavailable');
+              }
+              return evaluate(...args);
+            });
+          },
+        },
+      );
+      const status = store.get(statusKey);
+      expect(status.status).toBe('error');
+      if (command === 'APPEND') {
+        expect(status.partialResponse).toBe('Useful accepted answer');
+      } else {
+        expect(status.intermediateSteps).toHaveLength(1);
+        expect(status.intermediateSteps[0].payload.data.output).toContain(
+          'Useful tool evidence',
+        );
+      }
+      const saved = store.get('daedalus:conversation:conv-1');
+      expect(saved.messages.at(-1).intermediateSteps).toEqual(
+        status.intermediateSteps,
+      );
+      expect(saved.messages.at(-1).content).toBe(
+        status.partialResponse ||
+          '[Error occurred before response was generated]',
+      );
+    },
+  );
+
+  it('preserves accepted text and tool results when NAT emits an SSE error event', async () => {
+    const { statusKey, store } = await runStreamTurn([
+      'data: {"choices":[{"delta":{"content":"Preserved research answer."}}]}\n\n',
+      'intermediate_data: {"name":"Function Complete: <research>","id":"r1","parent_id":"root","payload":"Preserved full tool result."}\n\n',
+      'event: error\ndata: {"code":"workflow_error","message":"This request is incomplete","details":"IncompleteAgentRun"}\n\n',
+    ]);
+    const status = store.get(statusKey);
+    expect(status.status).toBe('error');
+    expect(status.error).toBe(
+      'Backend stream failed: This request is incomplete',
+    );
+    expect(status.partialResponse).toBe('Preserved research answer.');
+    expect(status.intermediateSteps).toHaveLength(1);
+    expect(status.intermediateSteps[0].payload.data.output).toContain(
+      'Preserved full tool result.',
+    );
+    expect(store.get('daedalus:conversation:conv-1').messages.at(-1)).toEqual(
+      expect.objectContaining({
+        content: 'Preserved research answer.',
+        intermediateSteps: status.intermediateSteps,
+        errorMessages: expect.objectContaining({
+          message: 'Backend stream failed: This request is incomplete',
+        }),
+      }),
+    );
   });
 
   it.each(['APPEND', 'RPUSH'])(
@@ -2244,6 +2312,16 @@ describe('chat/async streaming + finalize (characterization)', () => {
   });
 
   it('matches independently derived stream records across every supplied transport partition', async () => {
+    const independentReference = JSON.parse(
+      gunzipSync(
+        readFileSync(
+          path.resolve(
+            __dirname,
+            '../../../../../test-fixtures/code-audit-independent-20260909.json.gz',
+          ),
+        ),
+      ).toString(),
+    );
     for (const fixture of independentReference.framing.streams) {
       // Adapt the fixed logical records to this application's content/step
       // fields. No framing or chunk-parsing helper computes these expectations.
@@ -2867,7 +2945,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(releaseLock).toHaveBeenCalledTimes(1);
       expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBe(true);
       expect(store.get(`daedalus:async-job-status:${jobId}`)?.status).toBe(
-        'error',
+        'pending',
       );
     } finally {
       vi.unstubAllGlobals();
@@ -3557,6 +3635,45 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
     expect(store.has(`daedalus:async-job-steps:${jobId}`)).toBe(false);
     expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
+  });
+
+  it('lets the worker preserve buffered output before finalizing stream cancellation', async () => {
+    const { jobId, store, controller, executionPromise } =
+      await startBlockedStreamTurn([
+        'data: {"choices":[{"delta":{"content":"First result. "}}]}\n',
+        'data: {"choices":[{"delta":{"content":"Buffered second result."}}]}\n',
+      ]);
+    try {
+      const requestKey = `daedalus:async-job-request:${jobId}`;
+      const statusKey = `daedalus:async-job-status:${jobId}`;
+      const res = makeRes();
+      await handler({ method: 'DELETE', query: { jobId } } as any, res);
+      expect(res.json).toHaveBeenCalledWith({ success: true, canceled: true });
+      expect(store.get(statusKey).finalizedAt).toBeUndefined();
+      expect(store.has(requestKey)).toBe(true);
+      expect(store.has(`daedalus:async-stream-payload:${jobId}`)).toBe(true);
+
+      const reason = new StreamUserCancellationError();
+      const stopped = expect(executionPromise).rejects.toBe(reason);
+      controller.abort(reason);
+      await stopped;
+      await finalizeError(
+        jobId,
+        store.get(requestKey),
+        reason.message,
+        reason.snapshot,
+      );
+
+      expect(store.get(statusKey)).toEqual(
+        expect.objectContaining({
+          status: 'error',
+          error: 'Job canceled by user',
+          partialResponse: 'First result. Buffered second result.',
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('DELETE returns 404 and sets no abort flag for a job owned by another user', async () => {

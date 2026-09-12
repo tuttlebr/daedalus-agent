@@ -1558,8 +1558,8 @@ def test_daily_briefing_routes_to_validated_source_image_html_response():
         assert "skill_name=daily-summary your first tool call" in skills_desc, path
         assert "Do not call get_memory" in skills_desc, path
         assert "daily briefing" in daily_skill, path
-        assert (
-            "Return exactly one Markdown code block labeled `html`" in daily_skill
+        assert "exactly one Markdown code block labeled `html`" in " ".join(
+            daily_skill.split()
         ), path
         assert "operation=analyze only" in visual_media_desc, path
         assert "loaded daily-summary skill directs it" in visual_media_desc, path

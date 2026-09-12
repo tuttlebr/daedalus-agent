@@ -1,4 +1,4 @@
-import { jsonSetWithExpiry } from '@/server/session/redis';
+import { getRedis, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
 import { REDIS_CLIENT_OPTIONS } from '@/server/session/redisShared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,6 +39,7 @@ vi.mock('ioredis', () => {
     call = vi.fn().mockResolvedValue([['JSON.GET', -1, [], 0, 0, 0]]);
     eval = vi.fn().mockResolvedValue(1);
     set = vi.fn().mockResolvedValue('OK');
+    get = vi.fn().mockResolvedValue(null);
     expire = vi.fn().mockResolvedValue(1);
     del = vi.fn().mockResolvedValue(1);
     on = vi.fn();
@@ -49,6 +50,45 @@ vi.mock('ioredis', () => {
     }
   }
   return { default: FakeRedis };
+});
+
+describe('Redis JSON reads preserve the distinction between missing and unavailable', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const client = getRedis() as any;
+    client.call.mockImplementation(async (command: string) =>
+      command === 'COMMAND' ? [['JSON.GET', -1, [], 0, 0, 0]] : null,
+    );
+    client.get.mockResolvedValue(null);
+    await jsonGet('initialize-json-capability');
+    vi.clearAllMocks();
+  });
+
+  it('propagates a RedisJSON read outage instead of returning a missing record', async () => {
+    const client = getRedis() as any;
+    client.call.mockRejectedValueOnce(
+      new Error('MASTERDOWN Redis unavailable'),
+    );
+    await expect(jsonGet('active-job')).rejects.toThrow(
+      'MASTERDOWN Redis unavailable',
+    );
+    expect(client.get).not.toHaveBeenCalled();
+  });
+
+  it('still returns null for a truly absent RedisJSON key', async () => {
+    await expect(jsonGet('missing-job')).resolves.toBeNull();
+  });
+
+  it('retains plain JSON compatibility without hiding fallback read failures', async () => {
+    const client = getRedis() as any;
+    client.call.mockRejectedValue(new Error('WRONGTYPE key holds plain JSON'));
+    client.get.mockResolvedValueOnce('{"status":"streaming"}');
+    await expect(jsonGet('legacy-job')).resolves.toEqual({
+      status: 'streaming',
+    });
+    client.get.mockRejectedValueOnce(new Error('Connection lost'));
+    await expect(jsonGet('legacy-job')).rejects.toThrow('Connection lost');
+  });
 });
 
 describe('server/session/redis jsonSetWithExpiry — H4 atomic TTL', () => {

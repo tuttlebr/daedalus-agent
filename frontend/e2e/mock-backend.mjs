@@ -108,6 +108,28 @@ async function streamChat(req, res) {
     return;
   }
 
+  if (prompt.includes('E2E_LATE_ERROR')) {
+    sendToken(res, 'Research finding preserved before failure.');
+    res.write(
+      `intermediate_data: ${JSON.stringify({
+        name: 'Function Complete: <research>',
+        id: 'research-preserved',
+        parent_id: 'root',
+        payload: 'Full research evidence survives the late error.',
+      })}\n\n`,
+    );
+    await wait(1000);
+    sendToken(res, ' Additional accepted finding.');
+    res.end(
+      `event: error\ndata: ${JSON.stringify({
+        code: 'workflow_error',
+        message: 'Research execution interrupted',
+        details: 'IncompleteAgentRun',
+      })}\n\n`,
+    );
+    return;
+  }
+
   if (prompt.includes('E2E_DISCONNECT')) {
     sendToken(res, 'E2E before disconnect');
     await wait(2_500);

@@ -239,7 +239,9 @@ export async function jsonGet(key: string, path: string = '$'): Promise<any> {
       return await getPlainJson(client, key);
     }
     console.error('Error in jsonGet:', error);
-    return null;
+    // Only an absent key is null. A read outage must not look like a missing
+    // job/conversation and authorize cleanup of its durable state.
+    throw error;
   }
 }
 

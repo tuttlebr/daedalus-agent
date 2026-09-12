@@ -2,7 +2,10 @@ import { Logger } from '@/utils/logger';
 
 import { selectStreamBackendBaseUrl } from '@/server/chat/backendSelection';
 import { JOB_EXPIRY_SECONDS, sleep } from '@/server/chat/constants';
-import { releaseConversationJobGuard } from '@/server/chat/conversationJobGuard';
+import {
+  conversationJobGuardKey,
+  releaseConversationJobGuard,
+} from '@/server/chat/conversationJobGuard';
 import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
 import {
   finalizeError,
@@ -25,7 +28,11 @@ import {
   type StreamQueueEntry,
 } from '@/server/chat/streamQueue';
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
-import type { AsyncJobRequest, AsyncJobStatus } from '@/server/chat/types';
+import {
+  StreamUserCancellationError,
+  type AsyncJobRequest,
+  type AsyncJobStatus,
+} from '@/server/chat/types';
 import { positiveIntegerFromEnv } from '@/server/config/env';
 import {
   getRedis,
@@ -242,7 +249,18 @@ export async function processStreamQueueEntry(
     heartbeatTimer = setInterval(() => {
       if (heartbeatInFlight || controller.signal.aborted) return;
       heartbeatInFlight = true;
-      void renewStreamLease(entry.jobId, ownerToken, options.leaseTtlMs)
+      void renewStreamLease(
+        entry.jobId,
+        ownerToken,
+        options.leaseTtlMs,
+        undefined,
+        jobRequest.conversationId
+          ? conversationJobGuardKey(
+              jobRequest.userId,
+              jobRequest.conversationId,
+            )
+          : undefined,
+      )
         .then((renewed) => {
           if (!renewed) abortForLostLease();
         })
@@ -259,7 +277,7 @@ export async function processStreamQueueEntry(
       void jsonGet(abortKey(entry.jobId))
         .then((canceled) => {
           if (canceled && !controller.signal.aborted) {
-            controller.abort(new Error('Job canceled by user'));
+            controller.abort(new StreamUserCancellationError());
           }
         })
         .catch((error) => {
@@ -337,7 +355,18 @@ export async function processStreamQueueEntry(
       ? 'recovered_as_error'
       : 'finalization_pending';
   } catch (error) {
-    if (controller.signal.aborted) return 'interrupted';
+    if (controller.signal.aborted) {
+      if (!(controller.signal.reason instanceof StreamUserCancellationError)) {
+        return 'interrupted';
+      }
+      // The reader has stopped and flushed its buffers. Only the current
+      // owner may now take the terminal snapshot for a user cancellation.
+      if (
+        !(await renewStreamLease(entry.jobId, ownerToken, options.leaseTtlMs))
+      ) {
+        return 'interrupted';
+      }
+    }
 
     const status = await loadJobStatus(entry.jobId);
     if (isTerminal(status)) {
@@ -360,6 +389,9 @@ export async function processStreamQueueEntry(
         entry.jobId,
         jobRequest,
         error instanceof Error ? error.message : 'Stream worker failed',
+        ...(error instanceof StreamUserCancellationError && error.snapshot
+          ? [error.snapshot]
+          : []),
       );
       return (await acknowledgeTerminalEntry(entry))
         ? 'recovered_as_error'

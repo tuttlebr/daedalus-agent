@@ -20,6 +20,7 @@ import {
   resumePendingFinalization,
 } from '@/server/chat/finalization';
 import {
+  abortKey,
   clearOAuthStatusFields,
   isTerminalJobStatus,
   updateJobStatus,
@@ -719,14 +720,27 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
     const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
 
     let canceled = false;
+    const workerOwnsFinalization =
+      jobRequest.executionMode === 'stream' &&
+      (currentStatus?.status === 'pending' ||
+        currentStatus?.status === 'streaming');
     if (currentStatus && !isTerminalJobStatus(currentStatus.status)) {
-      // finalizeError also records the durable abort flag that lets the stream
-      // worker stop backend work even when the API and worker run in
-      // different processes.
-      canceled = await finalizeError(jobId, jobRequest, 'Job canceled by user');
+      if (workerOwnsFinalization) {
+        // Let the stream owner flush accepted output before claiming the
+        // terminal snapshot. The durable queue also handles queued jobs and
+        // worker replacement; keep its request/payload available until then.
+        await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
+        canceled = true;
+      } else {
+        canceled = await finalizeError(
+          jobId,
+          jobRequest,
+          'Job canceled by user',
+        );
+      }
     }
 
-    if (canceled) {
+    if (canceled && !workerOwnsFinalization) {
       await Promise.all([
         jsonDel(requestKey),
         jsonDel(streamPayloadKey(jobId)),

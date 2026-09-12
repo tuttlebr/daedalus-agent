@@ -623,7 +623,6 @@ def main() -> None:
         DaedalusPerUserResponsesAPIAgentWorkflowConfig,
         _bind_responses_llm,
         _content_text,
-        _has_final_answer_phase,
         _terminal_stream_chunk,
     )
 
@@ -645,13 +644,6 @@ def main() -> None:
         or not getattr(terminal_chunk.choices[0], "daedalus_terminal", False)
     ):
         raise RuntimeError("Responses API early stream terminal marker is missing")
-    if not _has_final_answer_phase(
-        [{"type": "text", "text": "done", "phase": "final_answer"}]
-    ) or _has_final_answer_phase(
-        [{"type": "function_call", "name": "lookup", "arguments": "{}"}]
-    ):
-        raise RuntimeError("Responses API final-answer phase detection is broken")
-
     per_user_agent = GlobalTypeRegistry.get().get_function(
         DaedalusPerUserResponsesAPIAgentWorkflowConfig
     )

@@ -91,6 +91,87 @@ describe('ChatView OAuth banner', () => {
     document.body.innerHTML = '';
   });
 
+  it('keeps buffered assistant text and tool evidence when an error has no snapshot', async () => {
+    const { root } = renderChatView();
+    const step = {
+      payload: {
+        event_type: 'TOOL_END',
+        UUID: 'research-1',
+        data: { output: 'Useful research evidence' },
+      },
+    };
+    await act(async () => {
+      mocks.asyncOptions.onIntermediateStep({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        step,
+      });
+      mocks.asyncOptions.onToken({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        content: 'Useful answer still in the UI buffer.',
+        responseStart: 0,
+      });
+      mocks.asyncOptions.onError('Connection interrupted', {
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+      });
+    });
+
+    const assistant =
+      useConversationStore.getState().conversations[0].messages[1];
+    expect(assistant.content).toBe('Useful answer still in the UI buffer.');
+    expect(assistant.intermediateSteps).toEqual([step]);
+    expect(assistant.errorMessages?.message).toContain('Connection lost');
+    act(() => root.unmount());
+  });
+
+  it('keeps newer text and steps when terminal error snapshots lag behind live events', async () => {
+    const { root } = renderChatView();
+    const steps = ['first', 'second'].map((id) => ({
+      payload: {
+        event_type: 'TOOL_END',
+        UUID: id,
+        data: { output: `${id} finding` },
+      },
+    }));
+    await act(async () => {
+      for (const step of steps) {
+        mocks.asyncOptions.onIntermediateStep({
+          conversationId: 'conv-1',
+          assistantMessageId: 'assistant-1',
+          step,
+        });
+      }
+      mocks.asyncOptions.onToken({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        content: 'First finding. Second newer finding.',
+        responseStart: 0,
+      });
+      mocks.asyncOptions.onProgress({
+        status: 'error',
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        partialResponse: 'First finding.',
+        intermediateSteps: steps.slice(0, 1),
+        error: 'Backend disconnected',
+      });
+      mocks.asyncOptions.onError('Backend disconnected', {
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        partialResponse: 'First finding.',
+        intermediateSteps: steps.slice(0, 1),
+      });
+    });
+
+    const assistant =
+      useConversationStore.getState().conversations[0].messages[1];
+    expect(assistant.content).toBe('First finding. Second newer finding.');
+    expect(assistant.intermediateSteps).toEqual(steps);
+    act(() => root.unmount());
+  });
+
   it('keeps OAuth prompts through streaming, then shows success after click', async () => {
     const { root } = renderChatView();
 

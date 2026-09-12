@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/server/chat/conversationJobGuard', () => ({
+  conversationJobGuardKey: (userId: string, conversationId: string) =>
+    `guard:${userId}:${conversationId}`,
   releaseConversationJobGuard: mocks.releaseConversationJobGuard,
 }));
 
@@ -388,9 +390,13 @@ describe('durable stream worker entry processing', () => {
     mocks.store.set('daedalus:async-job-abort:job-1', true);
     await vi.advanceTimersByTimeAsync(20);
 
-    await expect(promise).resolves.toBe('interrupted');
-    expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
-    expect(mocks.finalizeError).not.toHaveBeenCalled();
+    await expect(promise).resolves.toBe('recovered_as_error');
+    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.any(Object),
+      'Job canceled by user',
+    );
   });
 
   it('aborts without replay or acknowledgement when the visibility lease is lost', async () => {

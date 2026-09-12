@@ -115,6 +115,8 @@ def test_one_correction_then_success(tmp_path):
             first = json.loads(await render(BriefingRendererInput(edition=invalid)))
             assert first["attempts_remaining"] == 1
             assert "editors_note" in first["errors"][0]
+            assert first["edition"] == invalid
+            assert first["terminal"] is False
             assert run.terminal_content is None
             second = json.loads(await render(BriefingRendererInput(edition=edition())))
             assert second["passed"]
@@ -123,22 +125,31 @@ def test_one_correction_then_success(tmp_path):
     asyncio.run(scenario())
 
 
-def test_parallel_invalid_submissions_exhaust_budget_and_cannot_restart(tmp_path):
+def test_parallel_failures_preserve_edition_and_only_stop_further_rendering(tmp_path):
     sandbox = Sandbox(tmp_path)
+    invalid = edition()
+    invalid["editors_note"] = []
 
     async def scenario():
         with agent_run_scope() as run:
             render = runner(sandbox)
             results = await asyncio.gather(
-                *(render(BriefingRendererInput(edition={})) for _ in range(4))
+                *(render(BriefingRendererInput(edition=invalid)) for _ in range(4))
             )
+            results = [json.loads(result) for result in results]
             assert run.attempts["briefing"] == 2
-            assert run.terminal_reason == "briefing_validation_failed"
-            assert "Briefing unavailable" in run.terminal_content
-            assert all(not json.loads(r)["passed"] for r in results)
+            assert run.terminal_reason is None
+            assert run.terminal_content is None
+            assert run.stop_reason is None
+            assert all(not result["passed"] for result in results)
+            assert all(not result["terminal"] for result in results)
+            assert all(result["edition"] == invalid for result in results)
+            assert [result["attempts_remaining"] for result in results] == [1, 0, 0, 0]
             calls = len(sandbox.calls)
-            await render(BriefingRendererInput(edition=edition()))
+            final = json.loads(await render(BriefingRendererInput(edition=edition())))
             assert len(sandbox.calls) == calls
+            assert final["edition"] == edition()
+            assert "Do not retry" in final["next_step"]
 
     asyncio.run(scenario())
 
@@ -184,7 +195,7 @@ def test_malformed_sandbox_envelope_recovers_content_without_weakening_schema():
     asyncio.run(scenario())
 
 
-def test_missing_resources_fail_terminally_and_next_run_has_fresh_budget(tmp_path):
+def test_missing_resources_preserve_research_and_next_run_has_fresh_budget(tmp_path):
     sandbox = Sandbox(tmp_path)
 
     async def scenario():
@@ -193,10 +204,70 @@ def test_missing_resources_fail_terminally_and_next_run_has_fresh_budget(tmp_pat
         )
         for _ in range(2):
             with agent_run_scope() as run:
-                result = json.loads(await render(BriefingRendererInput(edition={})))
-                assert result["terminal"]
+                result = json.loads(
+                    await render(BriefingRendererInput(edition=edition()))
+                )
+                assert not result["passed"]
+                assert result["terminal"] is False
+                assert result["edition"] == edition()
+                assert result["attempts_remaining"] == 1
                 assert run.attempts["briefing"] == 1
-                assert "Briefing unavailable" in run.terminal_content
+                assert run.terminal_content is None
+                assert run.terminal_reason is None
         assert not sandbox.calls
+
+    asyncio.run(scenario())
+
+
+def test_unexpected_transport_errors_preserve_edition_and_bound_recovery(monkeypatch):
+    calls = []
+
+    async def unavailable(**_args):
+        calls.append("sandbox")
+        raise RuntimeError("transport unavailable")
+
+    async def unavailable_locally(*_args):
+        calls.append("local")
+        raise RuntimeError("renderer unavailable")
+
+    monkeypatch.setattr(
+        "nat_helpers.briefing_renderer._render_locally", unavailable_locally
+    )
+
+    async def scenario():
+        with agent_run_scope() as run:
+            render = runner(unavailable)
+            for _ in range(4):
+                result = json.loads(
+                    await render(BriefingRendererInput(edition=edition()))
+                )
+                assert not result["passed"]
+                assert result["terminal"] is False
+                assert result["edition"] == edition()
+                assert run.terminal_content is None
+            assert run.attempts["briefing"] == 2
+            assert calls == ["sandbox", "local", "sandbox", "local"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "invalid", [{"unsupported": float("nan")}, {"large": "x" * 200_000}]
+)
+def test_unrenderable_inputs_return_bounded_errors_without_execution(tmp_path, invalid):
+    sandbox = Sandbox(tmp_path)
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(
+                await runner(sandbox)(BriefingRendererInput(edition=invalid))
+            )
+            assert not result["passed"]
+            assert result["edition"] is None
+            assert result["terminal"] is False
+            assert len(json.dumps(result)) < 1000
+            assert run.terminal_content is None
+            assert not run.attempts["briefing"]
+            assert not sandbox.calls
 
     asyncio.run(scenario())

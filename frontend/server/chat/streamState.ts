@@ -134,12 +134,8 @@ export async function getStreamResponse(
   jobId: string,
   fallback = '',
 ): Promise<string> {
-  try {
-    const response = await getRedis().get(streamResponseKey(jobId));
-    return response === null ? fallback : response;
-  } catch {
-    return fallback;
-  }
+  const response = await getRedis().get(streamResponseKey(jobId));
+  return response === null ? fallback : response;
 }
 
 /**
@@ -150,21 +146,19 @@ export async function getStreamSteps(
   jobId: string,
   fallback: any[] = [],
 ): Promise<any[]> {
-  try {
-    const serialized = await getRedis().lrange(streamStepsKey(jobId), 0, -1);
-    if (serialized.length > 0) {
-      const parsed: any[] = [];
-      for (const entry of serialized) {
-        try {
-          parsed.push(JSON.parse(entry));
-        } catch {
-          // Ignore a corrupt individual event instead of hiding valid events.
-        }
+  // A failed read is not empty history. Let callers retry instead of taking
+  // an empty terminal snapshot and deleting the durable stream evidence.
+  const serialized = await getRedis().lrange(streamStepsKey(jobId), 0, -1);
+  if (serialized.length > 0) {
+    const parsed: any[] = [];
+    for (const entry of serialized) {
+      try {
+        parsed.push(JSON.parse(entry));
+      } catch {
+        // Ignore a corrupt individual event instead of hiding valid events.
       }
-      if (parsed.length > 0) return parsed;
     }
-  } catch {
-    // Fall through to the legacy representation.
+    if (parsed.length > 0) return parsed;
   }
 
   const legacy = (await jsonGet(legacyStreamStepsKey(jobId))) as any[] | null;

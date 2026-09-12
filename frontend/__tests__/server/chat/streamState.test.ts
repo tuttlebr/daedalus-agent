@@ -103,4 +103,17 @@ describe('normalized live stream state', () => {
     );
     expect(jsonDel).toHaveBeenCalledWith(legacyStreamStepsKey('job-5'));
   });
+
+  it('does not turn failed durability reads into empty response or tool history', async () => {
+    mocks.get.mockRejectedValue(new Error('Response read unavailable'));
+    mocks.lrange.mockRejectedValue(new Error('Step read unavailable'));
+
+    await expect(getStreamResponse('job-6')).rejects.toThrow(
+      'Response read unavailable',
+    );
+    await expect(getStreamSteps('job-6')).rejects.toThrow(
+      'Step read unavailable',
+    );
+    expect(jsonGet).not.toHaveBeenCalled();
+  });
 });

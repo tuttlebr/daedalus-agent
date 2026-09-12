@@ -40,13 +40,50 @@ from nat.utils.type_converter import GlobalTypeConverter
 from nat_helpers.agent_loop_guard import (
     LoopGuardSettings,
     agent_run_scope,
-    briefing_error_response,
     current_agent_run,
 )
 from nat_helpers.history_budget import _select_history_payloads
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
+
+
+class IncompleteAgentRun(RuntimeError):
+    """Tool execution ended without completing the request; emitted work is retained."""
+
+
+def _incomplete_notice(run) -> str:
+    reason = {
+        "iteration_limit": "the configured iteration limit was reached",
+        "repeated_tool_error": "the same tool call failed repeatedly without a change",
+        "execution_error": "execution failed before the answer was complete",
+        "incomplete_model_response": "the model returned an incomplete response",
+    }.get(run.stop_reason, "execution stopped before the answer was complete")
+    return f"This request is incomplete: {reason}. Earlier output may be partial or unverified."
+
+
+def _recovered_tool_results(run):
+    """Return exact current-turn evidence for callers without the activity stream.
+
+    The streaming frontend already journals tool events. Single-response API
+    callers need the collected results in their response instead. Never use a
+    second model call to recover this work, or include prior conversation data.
+    """
+    import re
+
+    for message in run.last_messages[run.initial_messages :]:
+        if getattr(message, "type", None) != "tool":
+            continue
+        content = message.content
+        if not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=False, default=str)
+        fence = "`" * max(
+            3, 1 + max((len(m[0]) for m in re.finditer(r"`+", content)), default=0)
+        )
+        yield (
+            f"\n\nCollected tool result ({getattr(message, 'name', None) or 'tool'}; "
+            f"not a verified final answer):\n\n{fence}text\n{content}\n{fence}"
+        )
 
 
 class DaedalusPerUserResponsesAPIAgentWorkflowConfig(
@@ -169,14 +206,6 @@ def _memory_context_budget_seconds() -> float:
     except ValueError:
         return 2.5
     return budget if budget > 0 else 2.5
-
-
-def _has_final_answer_phase(content: object) -> bool:
-    """Identify the Responses message item that owns the user-facing answer."""
-    return isinstance(content, list) and any(
-        isinstance(block, dict) and block.get("phase") == "final_answer"
-        for block in content
-    )
 
 
 def _bind_responses_llm(
@@ -318,18 +347,42 @@ async def _responses_api_agent_workflow(
     original_tool_conditional_edge = agent.tool_conditional_edge
 
     async def _approval_terminal_edge(state):
-        from nat_helpers.front_end import _has_terminal_mcp_approval
+        from nat_helpers.front_end import _decode_valid_mcp_approval_marker
 
-        if _has_terminal_mcp_approval(state.messages):
-            logger.info("Ending agent graph at MCP approval boundary")
-            return AgentDecision.END
         run = current_agent_run()
         if run is not None:
             run.observe(state.messages)
+        for message in reversed(state.messages):
+            if getattr(message, "type", None) != "tool":
+                break
+            marker = _decode_valid_mcp_approval_marker(message.content)
+            if marker:
+                logger.info("Ending agent graph at MCP approval boundary")
+                if run is not None:
+                    run.terminal_content = marker
+                return AgentDecision.END
+        if run is not None:
             if run.terminal_content is not None or run.stop_reason:
                 return AgentDecision.END
         return await original_tool_conditional_edge(state)
 
+    original_validate_response = agent._validate_llm_response
+
+    async def _validate_response(response, state):
+        # Responses reports token-limit exhaustion as status=incomplete, not
+        # Chat Completions' finish_reason=length. Check at the graph boundary
+        # before partial tool calls can execute. The text has already streamed.
+        metadata = response.response_metadata
+        status = metadata.get("status")
+        # LangChain 1.3 also ignores response.failed events. In that case only
+        # response.created's id remains. A created response without a completed
+        # status is not a completed answer, even if some text arrived.
+        if status not in {None, "completed"} or (metadata.get("id") and status is None):
+            current_agent_run().stop_reason = "incomplete_model_response"
+            raise IncompleteAgentRun("The model response did not complete.")
+        return await original_validate_response(response, state)
+
+    agent._validate_llm_response = _validate_response
     agent.return_direct = ["__daedalus_mcp_approval_terminal__"]
     agent.tool_conditional_edge = _approval_terminal_edge
     graph = await agent.build_graph()
@@ -411,41 +464,14 @@ async def _responses_api_agent_workflow(
         if run is not None:
             # Historical failures and skill loads do not consume this turn's
             # budget. Every invocation gets an independent context object.
+            additional_props = getattr(message, "additional_props", None)
+            run.activity_stream_requested = isinstance(additional_props, dict) and (
+                additional_props.get("enableIntermediateSteps") is True
+            )
+            run.initial_messages = len(messages)
             run.processed = len(messages)
             run.last_messages = messages
         return ToolCallAgentGraphState(messages=messages)
-
-    async def _stopped_response(run) -> str:
-        if run.terminal_content is not None:
-            return run.terminal_content
-        if run.briefing:
-            return briefing_error_response()
-        # One bounded synthesis call can salvage verified work. The finalizer
-        # has no tools and is outside the graph, so it cannot restart the loop.
-        fallback = (
-            "I stopped because repeated tool calls were not resolving the problem. "
-            "This request is incomplete."
-        )
-        try:
-            finalizer = llm.bind(
-                tools=[],
-                tool_choice="none",
-                instructions=(config.instructions or "")
-                + "\nThe runtime has ended tool execution for this request. "
-                "Give a concise final response with verified results, unfinished "
-                "work, and the specific blocker. Do not claim completion, invent "
-                "an artifact, propose more tool calls, or ask to keep retrying.",
-            )
-            async with asyncio.timeout(config.loop_guard.final_response_timeout):
-                run.model_calls += 1
-                response = await finalizer.ainvoke(run.last_messages)
-            if not getattr(response, "tool_calls", None):
-                return _content_text(response.content) or fallback
-        except Exception as exc:
-            logger.warning(
-                "Loop finalization unavailable: error_class=%s", type(exc).__name__
-            )
-        return fallback
 
     def _record_outcome(run, outcome):
         outcome = run.terminal_reason or run.stop_reason or outcome
@@ -500,31 +526,10 @@ async def _responses_api_agent_workflow(
         except Exception:
             logger.debug("Agent outcome span unavailable", exc_info=True)
 
-    async def _response_fn(chat_request_or_message: ChatRequestOrMessage) -> str:
-        with agent_run_scope(config.loop_guard) as run:
-            outcome = "cancelled_or_error"
-            try:
-                try:
-                    state = await graph.ainvoke(
-                        await _initial_state(chat_request_or_message),
-                        config={"recursion_limit": (config.max_iterations + 1) * 2},
-                    )
-                except GraphRecursionError:
-                    run.stop_reason = "iteration_limit"
-                if run.stop_reason or run.terminal_content is not None:
-                    return await _stopped_response(run)
-                final_state = ToolCallAgentGraphState(**state)
-                content = final_state.messages[-1].content
-                outcome = "completed"
-                return _content_text(content) or str(content)
-            finally:
-                _record_outcome(run, outcome)
-
     async def _stream_graph(
         chat_request_or_message: ChatRequestOrMessage,
     ) -> AsyncGenerator[ChatResponseChunk]:
         chunk_id = str(uuid.uuid4())
-        final_answer_started = False
         try:
             async for msg, metadata in graph.astream(
                 await _initial_state(chat_request_or_message),
@@ -535,9 +540,6 @@ async def _responses_api_agent_workflow(
                     continue
                 if metadata.get("langgraph_node") != "agent":
                     continue
-
-                if _has_final_answer_phase(msg.content):
-                    final_answer_started = True
 
                 text = _content_text(msg.content)
                 if text:
@@ -582,50 +584,100 @@ async def _responses_api_agent_workflow(
                         object="chat.completion.chunk",
                     )
 
-                # LangChain emits chunk_position="last" for Responses
-                # response.completed. Only treat it as user-terminal after the
-                # final_answer message item has started; tool-call iterations
-                # also have a last chunk and must continue through the graph.
-                if getattr(msg, "chunk_position", None) == "last":
-                    if final_answer_started:
-                        yield _terminal_stream_chunk(
-                            chunk_id,
-                            getattr(llm, "model_name", "unknown-model"),
-                        )
-                        return
         except GraphRecursionError:
             current_agent_run().stop_reason = "iteration_limit"
+
+    async def _run(
+        chat_request_or_message: ChatRequestOrMessage,
+        *,
+        include_recovery_evidence: bool = False,
+    ) -> AsyncGenerator[ChatResponseChunk]:
+        with agent_run_scope(config.loop_guard) as run:
+            outcome = "cancelled_or_error"
+            chunk_id = str(uuid.uuid4())
+            buffered_text: list[str] = []
+            try:
+                try:
+                    async with aclosing(
+                        _stream_graph(chat_request_or_message)
+                    ) as stream:
+                        async for chunk in stream:
+                            chunk_id = chunk.id
+                            if include_recovery_evidence:
+                                buffered_text.extend(
+                                    choice.delta.content or ""
+                                    for choice in chunk.choices
+                                )
+                            else:
+                                yield chunk
+                except Exception as exc:
+                    # Cancellation is a BaseException and must propagate. OAuth
+                    # failures before work starts also retain their normal path.
+                    if not run.tool_calls and not run.model_calls:
+                        raise
+                    run.stop_reason = run.stop_reason or "execution_error"
+                    logger.warning(
+                        "Agent execution failed: error_class=%s", type(exc).__name__
+                    )
+                if run.terminal_content is not None:
+                    yield ChatResponseChunk.create_streaming_chunk(
+                        run.terminal_content,
+                        id_=chunk_id,
+                    )
+                elif run.stop_reason:
+                    # Already emitted assistant text is never replaced. The
+                    # frontend persists its tool/activity stream and marks this
+                    # request failed when IncompleteAgentRun reaches the SSE API.
+                    notice = _incomplete_notice(run)
+                    if include_recovery_evidence:
+                        yield ChatResponseChunk.create_streaming_chunk(
+                            "".join(buffered_text), id_=chunk_id
+                        )
+                    yield ChatResponseChunk.create_streaming_chunk(
+                        "\n\n" + notice, id_=chunk_id
+                    )
+                    if include_recovery_evidence or not run.activity_stream_requested:
+                        for evidence in _recovered_tool_results(run):
+                            yield ChatResponseChunk.create_streaming_chunk(
+                                evidence, id_=chunk_id
+                            )
+                    raise IncompleteAgentRun(notice)
+                elif include_recovery_evidence:
+                    # Successful single-response calls return only the final
+                    # answer, just as before; commentary is retained on errors.
+                    content = run.last_messages[-1].content
+                    yield ChatResponseChunk.create_streaming_chunk(
+                        _content_text(content) or str(content), id_=chunk_id
+                    )
+                outcome = "completed"
+                yield _terminal_stream_chunk(
+                    chunk_id, getattr(llm, "model_name", "unknown-model")
+                )
+            finally:
+                _record_outcome(run, outcome)
 
     async def _stream_fn(
         chat_request_or_message: ChatRequestOrMessage,
     ) -> AsyncGenerator[ChatResponseChunk]:
-        with agent_run_scope(config.loop_guard) as run:
-            outcome = "cancelled_or_error"
-            terminal_sent = False
-            chunk_id = str(uuid.uuid4())
-            try:
-                async with aclosing(_stream_graph(chat_request_or_message)) as stream:
-                    async for chunk in stream:
-                        chunk_id = chunk.id
-                        terminal_sent |= any(
-                            getattr(choice, "daedalus_terminal", False)
-                            for choice in chunk.choices
-                        )
-                        if terminal_sent:
-                            outcome = "completed"
-                        yield chunk
-                if run.stop_reason or run.terminal_content is not None:
-                    yield ChatResponseChunk.create_streaming_chunk(
-                        await _stopped_response(run),
-                        id_=chunk_id,
-                    )
-                outcome = "completed"
-                if not terminal_sent:
-                    yield _terminal_stream_chunk(
-                        chunk_id, getattr(llm, "model_name", "unknown-model")
-                    )
-            finally:
-                _record_outcome(run, outcome)
+        async with aclosing(_run(chat_request_or_message)) as stream:
+            async for chunk in stream:
+                yield chunk
+
+    async def _response_fn(chat_request_or_message: ChatRequestOrMessage) -> str:
+        # Use exactly the streaming execution path, including partial model
+        # output that NAT would otherwise discard on response validation errors.
+        parts = []
+        try:
+            async with aclosing(
+                _run(chat_request_or_message, include_recovery_evidence=True)
+            ) as stream:
+                async for chunk in stream:
+                    parts.extend(choice.delta.content or "" for choice in chunk.choices)
+        except IncompleteAgentRun:
+            # Single-response callers cannot receive text after an HTTP error.
+            # Return an explicitly incomplete transcript with the actual evidence.
+            pass
+        return "".join(parts)
 
     try:
         yield FunctionInfo.create(

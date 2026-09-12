@@ -1,4 +1,10 @@
 import { JOB_EXPIRY_SECONDS } from './constants';
+import { CONVERSATION_JOB_GUARD_TTL_SECONDS } from './conversationJobGuard';
+import {
+  legacyStreamStepsKey,
+  streamResponseKey,
+  streamStepsKey,
+} from './streamState';
 import type { StreamQueuePayload } from './types';
 
 import {
@@ -145,23 +151,56 @@ export async function acquireStreamLease(
   );
 }
 
-const RENEW_LEASE_LUA =
-  "if redis.call('get', KEYS[1]) == ARGV[1] then " +
-  "return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end";
+const RENEW_LEASE_LUA = `
+if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('pexpire', KEYS[1], ARGV[2])
+for index = 2, 10 do
+  redis.call('expire', KEYS[index], ARGV[3])
+end
+if KEYS[11] then
+  local guard = redis.call('get', KEYS[11])
+  if guard then
+    local ok, value = pcall(cjson.decode, guard)
+    if ok and value.jobId == ARGV[4] then
+      redis.call('expire', KEYS[11], ARGV[5])
+    end
+  end
+end
+return 1
+`;
 
 export async function renewStreamLease(
   jobId: string,
   ownerToken: string,
   ttlMs: number,
   client: Redis = getRedis(),
+  conversationGuardKey?: string,
 ): Promise<boolean> {
+  // Every key needed to recover a running job must outlive that job, even
+  // while a long tool call produces no new response/step writes.
+  const keys = [
+    streamLeaseKey(jobId),
+    sessionKey(['async-job-request', jobId]),
+    sessionKey(['async-job-status', jobId]),
+    streamPayloadKey(jobId),
+    streamBackendStartedKey(jobId),
+    streamResponseKey(jobId),
+    streamStepsKey(jobId),
+    legacyStreamStepsKey(jobId),
+    sessionKey(['async-job-abort', jobId]),
+    sessionKey(['async-job-finalization', jobId]),
+    ...(conversationGuardKey ? [conversationGuardKey] : []),
+  ];
   return (
     (await client.eval(
       RENEW_LEASE_LUA,
-      1,
-      streamLeaseKey(jobId),
+      keys.length,
+      ...keys,
       ownerToken,
       ttlMs,
+      JOB_EXPIRY_SECONDS,
+      jobId,
+      CONVERSATION_JOB_GUARD_TTL_SECONDS,
     )) === 1
   );
 }
