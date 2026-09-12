@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 import redis as redis_lib
+from nat_helpers.content_credentials import sign_final_image
 
 logger = logging.getLogger(__name__)
 
@@ -240,11 +241,18 @@ async def store_image_in_redis(
     user_id: str | None = None,
     session_id: str | None = None,
     image_context: dict | None = None,
+    *,
+    is_partial: bool = False,
 ) -> str:
     """Store a generated or augmented image in Redis.
 
     Returns the ``image_id`` for retrieval via ``/api/generated-image/{id}``.
     """
+    # All Chat and Create finals pass this boundary. Preview frames are stored
+    # for progressive display but must never be signed as completed output.
+    if not is_partial:
+        b64_data = await asyncio.to_thread(sign_final_image, b64_data, mime_type)
+
     image_id = str(uuid.uuid4())
     redis_key = f"generated:image:{image_id}"
 

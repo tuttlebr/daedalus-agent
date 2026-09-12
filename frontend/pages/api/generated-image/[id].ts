@@ -148,7 +148,9 @@ export default async function handler(
     // Decode base64 data
     const imageBuffer = Buffer.from(record.data, 'base64');
 
-    if (wantThumbnail) {
+    // Downloads must retain the signed original even if a thumbnail query
+    // parameter is present. Re-encoding would strip its Content Credentials.
+    if (wantThumbnail && !wantsDownload) {
       try {
         const thumbBuffer = await sharp(imageBuffer)
           .resize(THUMBNAIL_MAX_SIZE, THUMBNAIL_MAX_SIZE, {

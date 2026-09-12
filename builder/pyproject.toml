@@ -10,6 +10,7 @@ description = "Test suite for Daedalus builder packages"
 
 [project.optional-dependencies]
 test = [
+    "c2pa-python==0.37.10",
     "pytest>=8",
     "pytest-cov>=5",
     "pydantic>=2",

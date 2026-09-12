@@ -6,6 +6,7 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "nat_helpers"
 dynamic = ["version"]
 dependencies = [
+  "c2pa-python==0.37.10",
   "nvidia-nat[redis,mcp,langchain,phoenix]==1.8.0",
   "fastapi>=0.115,<1",
   "httpx>=0.28",

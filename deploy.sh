@@ -12,6 +12,7 @@ RELEASE="daedalus"
 ENV_FILE="$SCRIPT_DIR/.env"
 VALUES_FILE="$SCRIPT_DIR/custom-values.yaml"
 BACKEND_CONFIG="$SCRIPT_DIR/backend/tool-calling-config.yaml"
+CONTENT_CREDENTIALS_DIR="${CONTENT_CREDENTIALS_DIR:-$HOME/.config/daedalus/content-credentials}"
 SKIP_BUILD=false
 SKIP_TLS=false
 SKIP_MCP_PREFLIGHT=false
@@ -55,6 +56,9 @@ Options:
   -f, --values PATH          Helm values file (default: custom-values.yaml)
       --backend-config PATH  Backend config or inherited overlay
                              (default: backend/tool-calling-config.yaml)
+      --content-credentials-dir PATH
+                             Reuse or generate local image signing credentials
+                             (default: $CONTENT_CREDENTIALS_DIR)
       --skip-build           Skip docker compose build/push
       --skip-tls             Skip TLS secret creation
       --skip-document-storage-preflight
@@ -91,6 +95,7 @@ while [[ $# -gt 0 ]]; do
     -e|--env-file)      ENV_FILE="$2"; shift 2 ;;
     -f|--values)        VALUES_FILE="$2"; shift 2 ;;
     --backend-config)   BACKEND_CONFIG="$2"; shift 2 ;;
+    --content-credentials-dir) CONTENT_CREDENTIALS_DIR="$2"; shift 2 ;;
     --skip-build)       SKIP_BUILD=true; shift ;;
     --skip-tls)         SKIP_TLS=true; shift ;;
     --skip-document-storage-preflight) SKIP_DOCUMENT_STORAGE_PREFLIGHT=true; shift ;;
@@ -139,6 +144,31 @@ if [[ "$DRY_RUN" == false && "$ALLOW_DIRTY_SOURCE" != true ]]; then
     echo "Commit the intended source or pass --allow-dirty-source for development." >&2
     exit 1
   fi
+fi
+
+# Verify image signing before building/pushing. These are Content Credentials
+# for generated images, separate from container release signatures.
+CONTENT_CREDENTIALS_HELM_ARGS=()
+if [[ "$DRY_RUN" == true ]]; then
+  log "Would reuse valid Content Credentials or create a verified replacement in $CONTENT_CREDENTIALS_DIR"
+  # Render a placeholder without creating credentials or reading private keys.
+  CONTENT_CREDENTIALS_HELM_ARGS=(
+    --set-string contentCredentials.mode=local
+    --set-string contentCredentials.existingSecret=daedalus-c2pa-dry-run
+    --set-string "contentCredentials.creatorName=Brandon Tuttle"
+    --set-string contentCredentials.signingAlgorithm=es256
+    --set-string contentCredentials.certificateKey=chain.pem
+    --set-string contentCredentials.privateKeyKey=key.pem
+  )
+else
+  command -v uv >/dev/null 2>&1 || {
+    echo "ERROR: uv is required to prepare image Content Credentials" >&2
+    exit 1
+  }
+  CONTENT_CREDENTIALS_DIR="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().absolute())' "$CONTENT_CREDENTIALS_DIR")"
+  uv run "$SCRIPT_DIR/scripts/create_content_credentials.py" \
+    --ensure --output-dir "$CONTENT_CREDENTIALS_DIR"
+  CONTENT_CREDENTIALS_HELM_ARGS=( -f "$CONTENT_CREDENTIALS_DIR/helm-values.yaml" )
 fi
 
 if [[ "$SKIP_BUILD" == false ]]; then
@@ -420,6 +450,17 @@ if [[ "$DRY_RUN" == true ]]; then
   echo "[dry-run] kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -"
 else
   kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+fi
+
+log "Installing image Content Credentials in namespace $NAMESPACE"
+if [[ "$DRY_RUN" == true ]]; then
+  echo "[dry-run] apply only chain.pem and key.pem from $CONTENT_CREDENTIALS_DIR to the certificate fingerprint Secret"
+else
+  CONTENT_CREDENTIALS_SECRET="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["kubernetesSecret"])' "$CONTENT_CREDENTIALS_DIR/verification.json")"
+  kubectl -n "$NAMESPACE" create secret generic "$CONTENT_CREDENTIALS_SECRET" \
+    --from-file="chain.pem=$CONTENT_CREDENTIALS_DIR/chain.pem" \
+    --from-file="key.pem=$CONTENT_CREDENTIALS_DIR/key.pem" \
+    --dry-run=client -o yaml | kubectl -n "$NAMESPACE" apply -f -
 fi
 
 HELM_SECRET_ARGS=()
@@ -715,6 +756,7 @@ render_effective_helm_manifests() {
   if [[ -f "$VALUES_FILE" ]]; then
     render_cmd+=( -f "$VALUES_FILE" )
   fi
+  render_cmd+=( "${CONTENT_CREDENTIALS_HELM_ARGS[@]}" )
   if [[ -n "${HELM_SECRET_ARGS[*]-}" ]]; then
     render_cmd+=( "${HELM_SECRET_ARGS[@]}" )
   fi
@@ -920,6 +962,7 @@ HELM_CMD=(helm upgrade --install "$RELEASE" "$SCRIPT_DIR/helm/daedalus"
 if [[ -f "$VALUES_FILE" ]]; then
   HELM_CMD+=( -f "$VALUES_FILE" )
 fi
+HELM_CMD+=( "${CONTENT_CREDENTIALS_HELM_ARGS[@]}" )
 
 if [[ -f "$BACKEND_CONFIG" ]]; then
   HELM_CMD+=(

@@ -126,6 +126,31 @@ describe('/api/generated-image/[id]', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'Forbidden' });
   });
 
+  it('preserves signed original bytes when download and thumbnail are both requested', async () => {
+    const handler = await loadHandler('false');
+    const { req, res } = createMockReqRes('abc-123', {
+      download: '1',
+      thumbnail: 'true',
+    });
+    const original = Buffer.from('original image with embedded C2PA manifest');
+    mocks.redisCall.mockResolvedValueOnce(
+      JSON.stringify([
+        {
+          data: original.toString('base64'),
+          mimeType: 'image/webp',
+          userId: 'testuser',
+        },
+      ]),
+    );
+
+    await handler(req, res);
+
+    expect(res.send).toHaveBeenCalledWith(original);
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
+    const sharp = (await import('sharp')).default;
+    expect(sharp).not.toHaveBeenCalled();
+  });
+
   it('does not fall back to a matching session when another user owns the image', async () => {
     const handler = await loadHandler('false');
     mocks.redisCall.mockResolvedValueOnce(

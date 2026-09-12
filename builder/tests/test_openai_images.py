@@ -88,7 +88,7 @@ async def _collect_transparent_generate(client):
     ]
 
 
-def test_stream_generate_images_forwards_stream_options_and_finalizes_last_partial():
+def test_stream_generate_images_forwards_options_without_promoting_partials():
     client = _Client(
         [
             _Event("image_generation.partial_image", "partial-1", 0),
@@ -108,7 +108,6 @@ def test_stream_generate_images_forwards_stream_options_and_finalizes_last_parti
     assert [(event.image.b64_json, event.partial) for event in events] == [
         ("partial-1", True),
         ("partial-2", True),
-        ("partial-2", False),
     ]
     assert all(event.image.mime_type == "image/webp" for event in events)
 

@@ -9,6 +9,7 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.content_credentials import ContentCredentialsError
 from nat_helpers.identity import resolve_authenticated_user_id
 from nat_helpers.image_brief import ImageBrief, ImageOptions, prepare_image_request
 from nat_helpers.image_input_budget import (
@@ -612,6 +613,8 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
                     effective_user_id,
                 )
             return "Error: operation must be one of generate, edit, analyze."
+        except ContentCredentialsError as exc:
+            return f"Error: {exc}"
         except httpx.HTTPStatusError as exc:
             logger.error(
                 "Media API returned %d for operation=%s url=%s body=%s",

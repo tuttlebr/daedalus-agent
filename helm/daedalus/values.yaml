@@ -124,6 +124,16 @@ contextServices:
   unifiMcp: { namespace: daedalus, port: 8080 }
   espnMcp: { namespace: daedalus, port: 8000 }
 
+# Embedded Content Credentials for final generated/edited images in Chat/Create.
+# Keep off until credentials are provisioned. See docs/content-credentials.md.
+contentCredentials:
+  mode: 'off' # off | local; generate credentials with scripts/create_content_credentials.py
+  creatorName: Brandon Tuttle
+  signingAlgorithm: es256
+  existingSecret: '' # Secret containing the local certificate chain and signing key
+  certificateKey: chain.pem
+  privateKeyKey: key.pem
+
 backend:
   # Default backend configuration
   default:

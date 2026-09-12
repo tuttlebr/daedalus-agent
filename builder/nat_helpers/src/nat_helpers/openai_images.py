@@ -19,6 +19,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
+from nat_helpers.content_credentials import check_signing_configuration
 from nat_helpers.image_brief import normalize_image_options
 from openai import AsyncOpenAI
 
@@ -136,13 +137,9 @@ async def _stream_image_events(
 ) -> AsyncIterator[ImageStreamEvent]:
     """Normalize OpenAI image stream events.
 
-    The Image API examples currently surface final images as stream events too.
-    If there is no explicit completed event, use the last partial per image as
-    the final result so callers still finish cleanly.
+    Only explicit provider completion events are final. An exhausted or
+    interrupted stream must never promote a preview into signed final output.
     """
-    last_by_image: dict[int, ImageStreamEvent] = {}
-    saw_final = False
-
     async for event in stream:
         event_type = str(_event_value(event, "type") or "")
         if event_type.endswith(".partial_image") or event_type.endswith(
@@ -158,24 +155,12 @@ async def _stream_image_events(
                 partial_index=_event_value(event, "partial_image_index"),
                 image_index=image_index,
             )
-            last_by_image[image_index] = partial
             yield partial
             continue
 
-        if "completed" in event_type or "final" in event_type:
+        if event_type in {"image_generation.completed", "image_edit.completed"}:
             for result in _event_results(event, mime):
-                saw_final = True
                 yield ImageStreamEvent(image=result, partial=False)
-
-    if not saw_final:
-        for image_index in sorted(last_by_image):
-            partial = last_by_image[image_index]
-            yield ImageStreamEvent(
-                image=partial.image,
-                partial=False,
-                partial_index=partial.partial_index,
-                image_index=image_index,
-            )
 
 
 async def generate_images(
@@ -202,6 +187,7 @@ async def generate_images(
         kwargs.get("size"),
     )
 
+    check_signing_configuration()
     response = await client.images.generate(**kwargs)
     mime = _mime_for_output_format(kwargs.get("output_format"))
 
@@ -237,6 +223,7 @@ async def stream_generate_images(
         kwargs.get("size"),
         kwargs.get("partial_images"),
     )
+    check_signing_configuration()
     stream = await client.images.generate(**kwargs)
     async for event in _stream_image_events(
         stream, _mime_for_output_format(kwargs.get("output_format"))
@@ -277,6 +264,7 @@ async def edit_images(
         mask is not None,
     )
 
+    check_signing_configuration()
     response = await client.images.edit(**kwargs)
     mime = _mime_for_output_format(kwargs.get("output_format"))
 
@@ -317,6 +305,7 @@ async def stream_edit_images(
         kwargs.get("partial_images"),
         mask is not None,
     )
+    check_signing_configuration()
     stream = await client.images.edit(**kwargs)
     async for event in _stream_image_events(
         stream, _mime_for_output_format(kwargs.get("output_format"))

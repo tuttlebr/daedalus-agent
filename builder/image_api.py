@@ -29,6 +29,7 @@ from typing import Annotated, Any, Literal
 import redis
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
+from nat_helpers.content_credentials import ContentCredentialsError
 from nat_helpers.image_brief import ImageBrief, ImageContext, prepare_image_request
 from nat_helpers.image_input_budget import (
     MAX_IMAGE_INPUTS,
@@ -345,6 +346,8 @@ async def _store_results(
     user_id: str,
     session_id: str | None,
     image_context: ImageContext | None = None,
+    *,
+    is_partial: bool = False,
 ) -> list[str]:
     redis_client = _get_redis()
     ids: list[str] = []
@@ -358,6 +361,7 @@ async def _store_results(
             user_id=user_id,
             session_id=session_id,
             image_context=image_context.model_dump() if image_context else None,
+            is_partial=is_partial,
         )
         ids.append(image_id)
     return ids
@@ -370,10 +374,18 @@ async def _store_result(
     user_id: str,
     session_id: str | None,
     image_context: ImageContext | None = None,
+    *,
+    is_partial: bool = False,
 ) -> str:
     return (
         await _store_results(
-            [result], prompt, source, user_id, session_id, image_context
+            [result],
+            prompt,
+            source,
+            user_id,
+            session_id,
+            image_context,
+            is_partial=is_partial,
         )
     )[0]
 
@@ -402,6 +414,7 @@ async def _stream_stored_images(
                 user_id=user_id,
                 session_id=session_id,
                 image_context=image_context,
+                is_partial=event.partial,
             )
             if event.partial:
                 yield _sse(
@@ -431,6 +444,8 @@ async def _stream_stored_images(
             ).model_dump(),
         )
         yield "data: [DONE]\n\n"
+    except ContentCredentialsError as exc:
+        yield _sse("error", {"type": "error", "error": str(exc)})
     except OpenAIError:
         logger.exception("%s stream failed", source)
         yield _sse(
@@ -520,6 +535,8 @@ async def generate(
         results = await generate_images(
             client, model=model, prompt=context.prompt, **options
         )
+    except ContentCredentialsError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     except OpenAIError as e:
         logger.exception("images.generate failed")
         # F-022: log the full upstream error server-side; return a generic
@@ -531,14 +548,17 @@ async def generate(
     if not results:
         raise HTTPException(status_code=502, detail="No image returned by the model")
 
-    ids = await _store_results(
-        results,
-        context.prompt,
-        source="image_panel_generate",
-        user_id=user_id,
-        session_id=(x_session_id or req.sessionId or None),
-        image_context=context,
-    )
+    try:
+        ids = await _store_results(
+            results,
+            context.prompt,
+            source="image_panel_generate",
+            user_id=user_id,
+            session_id=(x_session_id or req.sessionId or None),
+            image_context=context,
+        )
+    except ContentCredentialsError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     return ImageResponse(
         imageIds=ids, model=model, prompt=context.prompt, imageContext=context
     )
@@ -704,6 +724,8 @@ async def edit(
             mask=mask_file,
             **options,
         )
+    except ContentCredentialsError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     except OpenAIError as e:
         logger.exception("images.edit failed")
         # F-022: log the full upstream error server-side; return a generic
@@ -715,14 +737,17 @@ async def edit(
     if not results:
         raise HTTPException(status_code=502, detail="No image returned by the model")
 
-    ids = await _store_results(
-        results,
-        context.prompt,
-        source="image_panel_edit",
-        user_id=user_id,
-        session_id=(x_session_id or req.sessionId or None),
-        image_context=context,
-    )
+    try:
+        ids = await _store_results(
+            results,
+            context.prompt,
+            source="image_panel_edit",
+            user_id=user_id,
+            session_id=(x_session_id or req.sessionId or None),
+            image_context=context,
+        )
+    except ContentCredentialsError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     return ImageResponse(
         imageIds=ids, model=model, prompt=context.prompt, imageContext=context
     )

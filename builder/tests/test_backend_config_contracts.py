@@ -268,6 +268,7 @@ def _imported_runtime_distributions(package_dir: Path) -> set[str]:
     }
     local_modules.update(path.stem for path in builder_dir.glob("*.py"))
     import_to_distribution = {
+        "c2pa": "c2pa-python",
         "langchain_core": "langchain-core",
         "nat": "nvidia-nat",
         "nv_ingest_client": "nv-ingest-client",

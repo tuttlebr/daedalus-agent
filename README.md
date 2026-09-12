@@ -28,6 +28,10 @@ What separates Daedalus from a typical chat wrapper:
 
 ## Deployment Modes
 
+`make deploy` automatically prepares local C2PA credentials and enables signing
+for final Chat and Create images. See the
+[Content Credentials setup guide](docs/content-credentials.md).
+
 Daedalus supports two practical ways to run the project.
 
 | Mode                 | What it starts                                                                                               | Best for                                                          |

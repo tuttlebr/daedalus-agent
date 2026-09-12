@@ -67,6 +67,49 @@ the explicit tag. Call with: include "daedalus.image" .Values.images.backend
 {{- .Values.redis.auth.existingSecret | default (printf "%s-redis-auth" (include "daedalus.fullname" .)) -}}
 {{- end -}}
 
+{{- define "daedalus.contentCredentialsEnv" -}}
+{{- $c := .Values.contentCredentials -}}
+{{- if not (has $c.mode (list "off" "local")) -}}
+{{- fail "contentCredentials.mode must be off or local" -}}
+{{- end -}}
+- name: C2PA_SIGNING_MODE
+  value: {{ $c.mode | quote }}
+{{- if ne $c.mode "off" }}
+{{- $_ := required "contentCredentials.existingSecret is required for signing" $c.existingSecret }}
+- name: C2PA_CREATOR_NAME
+  value: {{ required "contentCredentials.creatorName is required" $c.creatorName | quote }}
+- name: C2PA_CERTIFICATE_FILE
+  value: /etc/c2pa/chain.pem
+- name: C2PA_SIGNING_ALGORITHM
+  value: {{ $c.signingAlgorithm | quote }}
+- name: C2PA_PRIVATE_KEY_FILE
+  value: /etc/c2pa/key.pem
+{{- end }}
+{{- end -}}
+
+{{- define "daedalus.contentCredentialsMount" -}}
+{{- if ne .Values.contentCredentials.mode "off" -}}
+- name: content-credentials
+  mountPath: /etc/c2pa
+  readOnly: true
+{{- end -}}
+{{- end -}}
+
+{{- define "daedalus.contentCredentialsVolume" -}}
+{{- $c := .Values.contentCredentials -}}
+{{- if ne $c.mode "off" -}}
+- name: content-credentials
+  secret:
+    secretName: {{ $c.existingSecret | quote }}
+    defaultMode: 0440
+    items:
+      - key: {{ $c.certificateKey | quote }}
+        path: chain.pem
+      - key: {{ $c.privateKeyKey | quote }}
+        path: key.pem
+{{- end -}}
+{{- end -}}
+
 {{- define "daedalus.redisTlsSecretName" -}}
 {{- required "redis.tls.existingSecret is required when redis.tls.enabled=true" .Values.redis.tls.existingSecret -}}
 {{- end -}}
