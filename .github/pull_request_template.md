@@ -1,15 +1,13 @@
-## Summary
+## What changed and why?
 
--
+Describe the problem and resulting behavior. Link an issue if useful.
 
 ## Validation
 
-- [ ] Ran `make ci` (or the per-area targets below) without failures
-- [ ] Builder tests (`make builder`)
-- [ ] Frontend lint/typecheck/tests/build (`make frontend`)
-- [ ] Helm lint (`make helm`)
-- [ ] Docs updated, if needed
+List the checks you ran and their results. Mention anything you could not test.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for checks by area.
 
-## Notes
+## Adoption or maintenance impact
 
--
+Mention new dependencies, configuration, migrations, or ongoing maintenance,
+if applicable.

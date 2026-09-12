@@ -13,7 +13,10 @@ Depending on values, the chart can deploy:
 - the autonomous-agent worker Deployment
 - PVCs, PodDisruptionBudget, NetworkPolicy, and optional Cilium policies
 
-The top-level [`../../README.md`](../../README.md) contains the end-to-end deployment guide and request-flow diagrams. This file focuses on the chart itself.
+Start with the [project README](../../README.md) for local setup. The
+[operations reference](../../docs/operations.md) contains the full deployment
+guide and request-flow diagrams. This file focuses on the chart itself;
+`custom-values.yaml` records the maintainer's home deployment settings.
 
 ## Prerequisites
 
@@ -358,5 +361,5 @@ exportfs -ra
 ## Recommended Reading
 
 - [`values.yaml`](values.yaml) for the default chart values
-- [`../../custom-values.yaml`](../../custom-values.yaml) for a fuller production example
-- [`../../README.md`](../../README.md) for deployment instructions and Kubernetes flow diagrams
+- [`../../custom-values.yaml`](../../custom-values.yaml) for the maintainer's home deployment settings
+- [Operations reference](../../docs/operations.md) for deployment instructions and Kubernetes flow diagrams

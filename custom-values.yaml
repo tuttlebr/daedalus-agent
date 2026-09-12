@@ -1,3 +1,6 @@
+# My home deployment: registry, domains, nodes, and services are specific to me.
+# For your own deployment, start with helm/daedalus/values.yaml and adapt the
+# settings you need. See docs/operations.md before running deploy.sh.
 global:
   nameOverride: ''
   fullnameOverride: ''

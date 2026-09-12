@@ -66,6 +66,18 @@ The Create image path is independently job-based:
 
 Use Node.js 22.
 
+The commands below run from `frontend/`. `npm run dev` starts the Next.js server
+on port 5000; it does not start Redis, the agent backend, or the stream worker.
+Use the [local setup](../README.md#local-setup) first to learn the complete
+request path. For a host-side dev server, supply login settings and
+the same `SESSION_SECRET` in `frontend/.env.local`, set `DEPLOYMENT_MODE=local`, and use
+host-reachable backend and Redis URLs (`BACKEND_HOST=127.0.0.1`,
+`BACKEND_PORT=8000`, and a `REDIS_URL` matching your Compose Redis credentials).
+For live updates through the local stack, set
+`NEXT_PUBLIC_WEBSOCKET_URL=ws://localhost:8080/ws`. Keep the Compose stream worker
+running against that same Redis instance. Set
+`NEXT_PUBLIC_BASE_URL=http://localhost:5000` for the dev server.
+
 ```bash
 npm ci --legacy-peer-deps
 npm run dev
@@ -141,7 +153,7 @@ applies the seven-day prefix TTL during startup. Production stays
 provider-neutral through `DOCUMENT_OBJECT_*`.
 
 See [`../.env.template`](../.env.template), [`env.example`](env.example), and
-the top-level [`../README.md`](../README.md) for the complete deployment setup.
+the [operations reference](../docs/operations.md) for the complete deployment setup.
 
 ## Key Areas
 
@@ -180,6 +192,7 @@ artifacts are already current.
 
 ## Related Docs
 
-- [`../README.md`](../README.md) for full-stack setup and deployment
+- [Project README](../README.md) for local setup
+- [Operations reference](../docs/operations.md) for the full deployment
 - [`pages/api/milvus/README.md`](pages/api/milvus/README.md) for the collection
   metadata trust boundary

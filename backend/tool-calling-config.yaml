@@ -1,3 +1,5 @@
+# Full workflow for my home deployment, including personal integrations.
+# New installations can start with backend/local-chat-config.yaml instead.
 authentication:
   espn_mcp_server:
     _type: api_key

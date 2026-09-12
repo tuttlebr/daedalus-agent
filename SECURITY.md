@@ -1,9 +1,22 @@
 # Security Policy: Daedalus
 
+Daedalus is my personal project, built and maintained for myself and my wife.
+I handle security reports as an individual, as time allows. There is no dedicated
+security team, response-time commitment, or supported-version matrix; fixes
+normally target the current `main` branch.
+
+## Reporting an issue
+
+Use GitHub's private vulnerability reporting option on this repository if it is
+available. If it is unavailable, open an issue asking for a private contact
+method without publishing exploit details or personal data. Include the affected
+commit, setup, reproduction steps, and impact in the private report. Do not
+include real credentials, conversations, uploads, or OAuth tokens.
+
 ## Security Architecture & Context
 
-Daedalus is a production-oriented AI agent platform built on the NVIDIA NeMo
-Agent Toolkit. It combines a Next.js web application, a FastAPI agent backend,
+Daedalus is a self-hosted personal assistant built on the NVIDIA NeMo Agent
+Toolkit. It combines a Next.js web application, a FastAPI agent backend,
 Redis-backed state, document retrieval, autonomous background work, external
 model and tool integrations, and Docker Compose and Kubernetes deployment
 surfaces.
@@ -14,16 +27,11 @@ per-user data boundaries, authorizing agent and MCP tool execution, protecting
 credentials and uploaded content, and constraining untrusted model, document,
 and web inputs.
 
-**Repository Exposure Classification:** Public.
-Basis: the origin is hosted on GitHub and GitHub reports the repository as
-public; this document is written to public-safe detail.
-
-**Service Exposure Classification:** External / Regulated (high confidence).
-Basis: Daedalus is externally distributed, supports ingress and API deployment,
-and handles authentication credentials, OAuth tokens, user conversations,
-uploaded files, operational integrations, and deployment automation. This
-classification describes service context, not vulnerability severity or a
-claim that every deployment is regulated.
+The intended use is a personally operated installation with a small number of
+accounts. Exposure depends on how you deploy it. The controls below protect
+private conversations, credentials, and tool access even in a household setup;
+they are implementation details, not a compliance certification or a claim of
+isolation suitable for hosting unrelated customers.
 
 ### Components and Trust Boundaries
 
@@ -206,7 +214,7 @@ For production deployments:
 
 Security reports are in scope when they demonstrate an impact to Daedalus's
 confidentiality, integrity, availability, authentication, authorization,
-tenant separation, tool-execution policy, secret handling, or deployment
+user separation, tool-execution policy, secret handling, or deployment
 security.
 
 Examples include:
