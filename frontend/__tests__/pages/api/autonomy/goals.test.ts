@@ -8,7 +8,7 @@ import {
   createGoal,
   importGoals,
   listGoals,
-  saveGoals,
+  mutateGoals,
 } from '@/server/autonomy/store';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,7 +22,7 @@ vi.mock('@/server/autonomy/store', () => ({
   importGoals: vi.fn(),
   listGoals: vi.fn(),
   nowMs: vi.fn(() => 12345),
-  saveGoals: vi.fn(),
+  mutateGoals: vi.fn(),
 }));
 
 function createMockReqRes(
@@ -61,6 +61,9 @@ function goal(id: string, title: string): AutonomyGoal {
 describe('autonomy goals API handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(mutateGoals).mockImplementation(async (userId, mutate) =>
+      mutate(await listGoals(userId)),
+    );
     vi.mocked(requireAuthenticatedUser).mockResolvedValue({
       username: 'testuser',
     } as Awaited<ReturnType<typeof requireAuthenticatedUser>>);
@@ -74,7 +77,10 @@ describe('autonomy goals API handler', () => {
 
     await handler(req, res);
 
-    expect(saveGoals).toHaveBeenCalledWith('testuser', [keep]);
+    expect(mutateGoals).toHaveBeenCalledWith('testuser', expect.any(Function));
+    expect(vi.mocked(mutateGoals).mock.calls[0][1]([keep, remove])).toEqual([
+      keep,
+    ]);
     expect(res.status).toHaveBeenCalledWith(204);
     expect(res.end).toHaveBeenCalled();
   });
@@ -87,7 +93,9 @@ describe('autonomy goals API handler', () => {
 
     await handler(req, res);
 
-    expect(saveGoals).toHaveBeenCalledWith('testuser', [keep]);
+    expect(vi.mocked(mutateGoals).mock.calls[0][1]([keep, remove])).toEqual([
+      keep,
+    ]);
     expect(res.status).toHaveBeenCalledWith(204);
   });
 
@@ -96,7 +104,7 @@ describe('autonomy goals API handler', () => {
 
     await handler(req, res);
 
-    expect(saveGoals).not.toHaveBeenCalled();
+    expect(mutateGoals).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ error: 'id is required' });
   });

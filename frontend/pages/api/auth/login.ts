@@ -3,6 +3,10 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { createSession } from '@/utils/auth/session';
 import { verifyCredentials, initializeUsers } from '@/utils/auth/users';
 
+import {
+  incrementExpiringCounter,
+  readExpiringCounter,
+} from '@/server/redisCounter';
 import { getRedis, sessionKey } from '@/server/session/redis';
 import { createHash } from 'crypto';
 
@@ -50,24 +54,20 @@ async function getLockoutSeconds(
   username: string,
   ip: string,
 ): Promise<number> {
-  const redis = getRedis();
   const key = loginAttemptKey(username, ip);
-  const attempts = Number((await redis.get(key)) || 0);
+  const [attempts, ttl] = await readExpiringCounter(key, LOGIN_LOCKOUT_SECONDS);
   if (attempts < LOGIN_MAX_ATTEMPTS) return 0;
-  const ttl = await redis.ttl(key);
   return ttl > 0 ? ttl : LOGIN_LOCKOUT_SECONDS;
 }
 
 async function recordFailedLogin(username: string, ip: string): Promise<void> {
-  const redis = getRedis();
   const key = loginAttemptKey(username, ip);
-  const attempts = await redis.incr(key);
-  if (attempts === 1) {
-    await redis.expire(key, LOGIN_WINDOW_SECONDS);
-  }
-  if (attempts >= LOGIN_MAX_ATTEMPTS) {
-    await redis.expire(key, LOGIN_LOCKOUT_SECONDS);
-  }
+  await incrementExpiringCounter(
+    key,
+    LOGIN_WINDOW_SECONDS,
+    LOGIN_MAX_ATTEMPTS,
+    LOGIN_LOCKOUT_SECONDS,
+  );
 }
 
 async function clearFailedLogins(username: string, ip: string): Promise<void> {

@@ -22,6 +22,58 @@ import httpx
 from .url_guard import UnsafeURLError, resolve_public_addresses, validate_public_url
 
 _DEFAULT_MAX_REDIRECTS = 10
+_DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+
+
+class ResponseSizeError(UnsafeURLError):
+    """A public response exceeds the bounded fetch contract."""
+
+
+def _check_response_size(response: httpx.Response, limit: int) -> None:
+    encoding = response.headers.get("content-encoding", "identity").strip().lower()
+    # Request identity encoding; rejecting a peer that ignores it avoids an
+    # unbounded decompression allocation before a decoded-byte check can run.
+    if encoding not in {"", "identity"}:
+        raise ResponseSizeError("Public fetch requires identity content encoding.")
+    length = response.headers.get("content-length")
+    if length and length.isdecimal() and int(length) > limit:
+        raise ResponseSizeError(f"Public response exceeds {limit} byte limit.")
+
+
+class _BoundedSyncStream(httpx.SyncByteStream):
+    def __init__(self, stream, limit):
+        self.stream, self.limit = stream, limit
+
+    def __iter__(self):
+        total = 0
+        for chunk in self.stream:
+            total += len(chunk)
+            if total > self.limit:
+                raise ResponseSizeError(
+                    f"Public response exceeds {self.limit} byte limit."
+                )
+            yield chunk
+
+    def close(self):
+        self.stream.close()
+
+
+class _BoundedAsyncStream(httpx.AsyncByteStream):
+    def __init__(self, stream, limit):
+        self.stream, self.limit = stream, limit
+
+    async def __aiter__(self):
+        total = 0
+        async for chunk in self.stream:
+            total += len(chunk)
+            if total > self.limit:
+                raise ResponseSizeError(
+                    f"Public response exceeds {self.limit} byte limit."
+                )
+            yield chunk
+
+    async def aclose(self):
+        await self.stream.aclose()
 
 
 class _PinnedPublicSyncBackend(httpcore.NetworkBackend):
@@ -90,7 +142,11 @@ class PublicHTTPTransport(httpx.HTTPTransport):
         *,
         verify: bool = True,
         limits: httpx.Limits = httpx.Limits(),
+        max_response_bytes: int = _DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
+        if max_response_bytes < 1:
+            raise ValueError("max_response_bytes must be positive")
+        self.max_response_bytes = max_response_bytes
         super().__init__(verify=verify, trust_env=False, limits=limits)
         self._pool = httpcore.ConnectionPool(
             ssl_context=httpx.create_ssl_context(verify=verify, trust_env=False),
@@ -99,6 +155,17 @@ class PublicHTTPTransport(httpx.HTTPTransport):
             keepalive_expiry=limits.keepalive_expiry,
             network_backend=_PinnedPublicSyncBackend(),
         )
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        request.headers["accept-encoding"] = "identity"
+        response = super().handle_request(request)
+        try:
+            _check_response_size(response, self.max_response_bytes)
+        except ResponseSizeError:
+            response.close()
+            raise
+        response.stream = _BoundedSyncStream(response.stream, self.max_response_bytes)
+        return response
 
 
 class PublicAsyncHTTPTransport(httpx.AsyncHTTPTransport):
@@ -109,7 +176,11 @@ class PublicAsyncHTTPTransport(httpx.AsyncHTTPTransport):
         *,
         verify: bool = True,
         limits: httpx.Limits = httpx.Limits(),
+        max_response_bytes: int = _DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
+        if max_response_bytes < 1:
+            raise ValueError("max_response_bytes must be positive")
+        self.max_response_bytes = max_response_bytes
         super().__init__(verify=verify, trust_env=False, limits=limits)
         self._pool = httpcore.AsyncConnectionPool(
             ssl_context=httpx.create_ssl_context(verify=verify, trust_env=False),
@@ -118,6 +189,17 @@ class PublicAsyncHTTPTransport(httpx.AsyncHTTPTransport):
             keepalive_expiry=limits.keepalive_expiry,
             network_backend=_PinnedPublicAsyncBackend(),
         )
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        request.headers["accept-encoding"] = "identity"
+        response = await super().handle_async_request(request)
+        try:
+            _check_response_size(response, self.max_response_bytes)
+        except ResponseSizeError:
+            await response.aclose()
+            raise
+        response.stream = _BoundedAsyncStream(response.stream, self.max_response_bytes)
+        return response
 
 
 def get_public_response(

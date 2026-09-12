@@ -9,9 +9,10 @@ import {
   AutonomyRun,
 } from '@/types/autonomy';
 
+import { updateJsonAtomically } from '@/server/atomicJson';
 import { sanitizeSourcePolicy } from '@/server/chat/sourcePolicy';
 import { positiveIntegerFromEnv } from '@/server/config/env';
-import { getRedis, jsonGet, jsonSet, sessionKey } from '@/server/session/redis';
+import { getRedis, jsonGet, sessionKey } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
 const DEFAULT_INTERVAL_SECONDS = 14_400;
@@ -134,47 +135,48 @@ async function getList<T>(userId: string, name: string): Promise<T[]> {
   return Array.isArray(value) ? value : [];
 }
 
-async function setValue(
+function normalizeConfig(
   userId: string,
-  name: string,
-  value: unknown,
-): Promise<void> {
-  await jsonSet(autonomyKey(userId, name), '$', value);
+  existing: Partial<AutonomyConfig> | null,
+): AutonomyConfig {
+  const defaults = defaultConfig(userId);
+  const stored = existing && typeof existing === 'object' ? existing : {};
+  const storedSourcePolicy = sanitizeSourcePolicy(stored.sourcePolicy);
+  return {
+    ...defaults,
+    ...stored,
+    sourcePolicy: {
+      ...defaults.sourcePolicy,
+      ...(storedSourcePolicy || {}),
+      requirePlanApproval: false,
+    },
+  };
 }
 
 export async function getConfig(userId: string): Promise<AutonomyConfig> {
   const existing = await jsonGet(autonomyKey(userId, 'config'));
-  if (existing && typeof existing === 'object') {
-    const defaults = defaultConfig(userId);
-    const stored = existing as Partial<AutonomyConfig>;
-    const storedSourcePolicy = sanitizeSourcePolicy(stored.sourcePolicy);
-    return {
-      ...defaults,
-      ...stored,
-      sourcePolicy: {
-        ...defaults.sourcePolicy,
-        ...(storedSourcePolicy || {}),
-        requirePlanApproval: false,
-      },
-    };
-  }
-  const created = defaultConfig(userId);
-  await setValue(userId, 'config', created);
-  return created;
+  if (existing && typeof existing === 'object')
+    return normalizeConfig(userId, existing);
+  const created = await updateJsonAtomically<AutonomyConfig>(
+    autonomyKey(userId, 'config'),
+    (current) => current || defaultConfig(userId),
+  );
+  return normalizeConfig(userId, created);
 }
 
 export async function saveConfig(
   userId: string,
   patch: Partial<AutonomyConfig>,
 ): Promise<AutonomyConfig> {
-  const current = await getConfig(userId);
-  const next: AutonomyConfig = {
-    ...current,
-    ...sanitizeConfigPatch(patch),
-    userId,
-    updatedAt: nowMs(),
-  };
-  await setValue(userId, 'config', next);
+  const next = (await updateJsonAtomically<AutonomyConfig>(
+    autonomyKey(userId, 'config'),
+    (current) => ({
+      ...normalizeConfig(userId, current),
+      ...sanitizeConfigPatch(patch),
+      userId,
+      updatedAt: nowMs(),
+    }),
+  )) as AutonomyConfig;
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
     timestamp: nowMs(),
@@ -191,12 +193,23 @@ export async function saveGoals(
   userId: string,
   goals: AutonomyGoal[],
 ): Promise<void> {
-  await setValue(userId, 'goals', goals);
+  await mutateGoals(userId, () => goals);
+}
+
+export async function mutateGoals(
+  userId: string,
+  mutate: (goals: AutonomyGoal[]) => AutonomyGoal[],
+): Promise<AutonomyGoal[]> {
+  const goals = (await updateJsonAtomically<AutonomyGoal[]>(
+    autonomyKey(userId, 'goals'),
+    (current) => mutate(Array.isArray(current) ? current : []),
+  )) as AutonomyGoal[];
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
     timestamp: nowMs(),
     data: { goals },
   });
+  return goals;
 }
 
 function sanitizeGoalId(value: unknown): string {
@@ -279,14 +292,18 @@ export async function importGoals(
   rawGoals: unknown[],
   mode: 'replace' | 'append' = 'replace',
 ): Promise<{ goals: AutonomyGoal[]; imported: number; skipped: number }> {
-  const existingGoals = await listGoals(userId);
-  const importedGoals = normalizeImportedGoals(
-    rawGoals,
-    mode === 'append' ? existingGoals : [],
-  );
-  const goals =
-    mode === 'append' ? [...importedGoals, ...existingGoals] : importedGoals;
-  await saveGoals(userId, goals);
+  let importedGoals: AutonomyGoal[] = [];
+  const goals = await mutateGoals(userId, (existingGoals) => {
+    importedGoals = normalizeImportedGoals(
+      rawGoals,
+      mode === 'append' ? existingGoals : [],
+    );
+    // The API rejects an empty import; it must not erase existing goals first.
+    if (!importedGoals.length) return existingGoals;
+    return mode === 'append'
+      ? [...importedGoals, ...existingGoals]
+      : importedGoals;
+  });
   return {
     goals,
     imported: importedGoals.length,
@@ -309,9 +326,7 @@ export async function createGoal(
     updatedAt: timestamp,
     lastRunAt: null,
   };
-  const goals = await listGoals(userId);
-  goals.unshift(goal);
-  await saveGoals(userId, goals);
+  await mutateGoals(userId, (goals) => [goal, ...goals]);
   return goal;
 }
 
@@ -613,18 +628,20 @@ export async function cancelRun(userId: string, runId: string): Promise<void> {
     'EX',
     CANCEL_FLAG_TTL_SECONDS,
   );
-  const runs = await listRuns(userId);
-  const next = runs.map((run) =>
-    run.id === runId && ['queued', 'running'].includes(run.status)
-      ? {
-          ...run,
-          status: 'cancelled' as const,
-          updatedAt: nowMs(),
-          completedAt: nowMs(),
-        }
-      : run,
+  await updateJsonAtomically<AutonomyRun[]>(
+    autonomyKey(userId, 'runs'),
+    (current) =>
+      (Array.isArray(current) ? current : []).map((run) =>
+        run.id === runId && ['queued', 'running'].includes(run.status)
+          ? {
+              ...run,
+              status: 'cancelled' as const,
+              updatedAt: nowMs(),
+              completedAt: nowMs(),
+            }
+          : run,
+      ),
   );
-  await setValue(userId, 'runs', next);
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
     timestamp: nowMs(),

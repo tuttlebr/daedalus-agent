@@ -7,6 +7,8 @@
  *
  * Port: 3001 (internal only, proxied via NGINX at /ws)
  */
+import { isConfiguredUsername } from './utils/auth/config';
+
 import { positiveIntegerFromEnv } from './server/config/env';
 import { primeDns } from './server/session/dns-cache';
 import {
@@ -229,6 +231,7 @@ function isRedisJsonUnavailableForRead(error: unknown): boolean {
     message.includes('unknown command') ||
     message.includes('unknown subcommand') ||
     message.includes('wrongtype') ||
+    message.includes('wrong redis type') ||
     message.includes('wrong kind of value')
   );
 }
@@ -283,6 +286,21 @@ interface SessionData {
   lastActivity: number;
 }
 
+// Shared by the initial handshake and periodic revalidation. Account removal
+// applies to persisted sessions without rebuilding user/password records here.
+export async function readConfiguredSession(
+  redis: Redis,
+  sessionId: string,
+): Promise<SessionData | null> {
+  const key = sessionKey(['auth-session', sessionId]);
+  const session = await getJsonOrPlain<SessionData>(redis, key);
+  if (session && !isConfiguredUsername(session.username)) {
+    await redis.del(key);
+    return null;
+  }
+  return session;
+}
+
 async function validateSession(
   req: IncomingMessage,
 ): Promise<SessionData | null> {
@@ -293,10 +311,7 @@ async function validateSession(
 
     if (!sessionId) return null;
 
-    const redis = getRedis();
-    const key = sessionKey(['auth-session', sessionId]);
-
-    return await getJsonOrPlain<SessionData>(redis, key);
+    return await readConfiguredSession(getRedis(), sessionId);
   } catch (err) {
     console.error('[WS] Session validation error:', err);
     return null;
@@ -488,7 +503,11 @@ async function canSubscribeToChat(
 
   try {
     if ((await redis.sismember(userConversationsKey, conversationId)) === 1) {
-      return true;
+      const conversation = await getJsonOrPlain<{ ownerId?: string }>(
+        redis,
+        sessionKey(['conversation', conversationId]),
+      );
+      return !conversation?.ownerId || conversation.ownerId === userId;
     }
   } catch (error) {
     console.error(
@@ -680,6 +699,7 @@ function unsubscribeFromUserChannel(userId: string): void {
 }
 
 export interface ConnectionInitializationDependencies {
+  getSession: (sessionId: string) => Promise<SessionData | null>;
   subscribeToUserChannel: (userId: string) => Promise<void>;
   unsubscribeFromUserChannel: (userId: string) => void;
   getStreamingStates: (
@@ -699,6 +719,7 @@ export interface ConnectionInitializationDependencies {
 
 const defaultConnectionInitializationDependencies: ConnectionInitializationDependencies =
   {
+    getSession: (sessionId) => readConfiguredSession(getRedis(), sessionId),
     subscribeToUserChannel,
     unsubscribeFromUserChannel,
     getStreamingStates,
@@ -885,14 +906,11 @@ export async function initializeAuthenticatedConnection(
     // Client timeout: close if no ping received
     resetTimeout();
 
-    // Revoke this socket if its session is deleted (logout), expires, or its
-    // sid is rotated (re-login).
+    // Revoke this socket if its account is removed from configuration, its
+    // session is deleted (logout), expires, or its sid is rotated (re-login).
     conn.revalidateTimer = setInterval(async () => {
       try {
-        const current = await getJsonOrPlain<SessionData>(
-          getRedis(),
-          sessionKey(['auth-session', sid]),
-        );
+        const current = await dependencies.getSession(sid);
         if (!current || current.username !== userId) {
           console.log(`[WS] Session ended for ${userId}; closing socket`);
           // 4003 (not 4001) lets a re-login reconnect with the current cookie;

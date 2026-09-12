@@ -1,4 +1,7 @@
-import { getRedis, sessionKey } from '@/server/session/redis';
+import {
+  ConversationWriteError,
+  readConversationForUser,
+} from './conversationStore';
 
 /**
  * Verify that a user owns a conversation.
@@ -12,8 +15,11 @@ export async function verifyConversationOwnership(
   username: string,
   conversationId: string,
 ): Promise<boolean> {
-  const userConversationsKey = sessionKey(['user', username, 'conversations']);
-  return (
-    (await getRedis().sismember(userConversationsKey, conversationId)) === 1
-  );
+  try {
+    await readConversationForUser(username, conversationId);
+    return true;
+  } catch (error) {
+    if (error instanceof ConversationWriteError) return false;
+    throw error;
+  }
 }

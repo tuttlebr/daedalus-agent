@@ -10,6 +10,16 @@ const mockSismember = vi.fn().mockResolvedValue(1);
 vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     sismember: mockSismember,
+    eval: async (script: string, _count: number, ...args: any[]) => {
+      if (script.includes('READ_OWNED_CONVERSATION')) {
+        const value = await jsonGet(args[0]);
+        return [
+          value ? JSON.stringify(value) : '',
+          await mockSismember(args[1], args[2]),
+        ];
+      }
+      throw new Error('Unexpected Redis script in route fixture');
+    },
   })),
   getStreamingStates: vi.fn().mockResolvedValue({}),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),

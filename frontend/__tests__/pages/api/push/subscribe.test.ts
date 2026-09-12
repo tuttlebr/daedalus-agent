@@ -3,6 +3,7 @@ import handler from '@/pages/api/push/subscribe';
 
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 import { jsonGet, jsonSetWithExpiry, jsonDel } from '@/server/session/redis';
+import { createECDH, randomBytes } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- Mocks ---
@@ -22,6 +23,10 @@ vi.mock('@/server/session/redis', () => ({
 vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: authMocks.requireAuthenticatedUser,
 }));
+
+const validKey1 = createECDH('prime256v1').generateKeys().toString('base64url');
+const validKey2 = createECDH('prime256v1').generateKeys().toString('base64url');
+const validAuth = randomBytes(16).toString('base64url');
 
 // --- Helpers ---
 
@@ -51,7 +56,7 @@ describe('push/subscribe API handler', () => {
   describe('authentication', () => {
     it('returns 401 when no user ID', async () => {
       const { req, res } = createMockReqRes('POST', {
-        endpoint: 'https://push.example.com/sub1',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
       });
       (requireAuthenticatedUser as any).mockImplementationOnce(async () => {
         res.status(401).json({ error: 'Not authenticated' });
@@ -71,8 +76,8 @@ describe('push/subscribe API handler', () => {
     it('stores subscription and returns 201', async () => {
       (jsonGet as any).mockResolvedValue([]);
       const subscription = {
-        endpoint: 'https://push.example.com/sub1',
-        keys: { p256dh: 'key1', auth: 'auth1' },
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
+        keys: { p256dh: validKey1, auth: validAuth },
       };
       const { req, res } = createMockReqRes('POST', subscription);
 
@@ -89,14 +94,14 @@ describe('push/subscribe API handler', () => {
 
     it('replaces existing subscription with same endpoint', async () => {
       const oldSubscription = {
-        endpoint: 'https://push.example.com/sub1',
-        keys: { p256dh: 'old-key', auth: 'old-auth' },
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
+        keys: { p256dh: validKey1, auth: validAuth },
       };
       (jsonGet as any).mockResolvedValue([oldSubscription]);
 
       const newSubscription = {
-        endpoint: 'https://push.example.com/sub1',
-        keys: { p256dh: 'new-key', auth: 'new-auth' },
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
+        keys: { p256dh: validKey2, auth: validAuth },
       };
       const { req, res } = createMockReqRes('POST', newSubscription);
 
@@ -105,20 +110,20 @@ describe('push/subscribe API handler', () => {
       // Should have replaced the old subscription, not appended
       const savedData = (jsonSetWithExpiry as any).mock.calls[0][1];
       expect(savedData).toHaveLength(1);
-      expect(savedData[0].keys.p256dh).toBe('new-key');
+      expect(savedData[0].keys.p256dh).toBe(validKey2);
       expect(res.status).toHaveBeenCalledWith(201);
     });
 
     it('appends subscription for new endpoint', async () => {
       const existingSub = {
-        endpoint: 'https://push.example.com/sub1',
-        keys: { p256dh: 'key1', auth: 'auth1' },
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
+        keys: { p256dh: validKey1, auth: validAuth },
       };
       (jsonGet as any).mockResolvedValue([existingSub]);
 
       const newSub = {
-        endpoint: 'https://push.example.com/sub2',
-        keys: { p256dh: 'key2', auth: 'auth2' },
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub2',
+        keys: { p256dh: validKey2, auth: validAuth },
       };
       const { req, res } = createMockReqRes('POST', newSub);
 
@@ -155,7 +160,10 @@ describe('push/subscribe API handler', () => {
 
     it('returns 500 when Redis fails during POST', async () => {
       (jsonGet as any).mockRejectedValueOnce(new Error('Redis down'));
-      const subscription = { endpoint: 'https://push.example.com/sub1' };
+      const subscription = {
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
+        keys: { p256dh: validKey1, auth: validAuth },
+      };
       const { req, res } = createMockReqRes('POST', subscription);
 
       await handler(req, res);
@@ -171,12 +179,12 @@ describe('push/subscribe API handler', () => {
 
   describe('DELETE', () => {
     it('removes subscription by endpoint', async () => {
-      const sub1 = { endpoint: 'https://push.example.com/sub1' };
-      const sub2 = { endpoint: 'https://push.example.com/sub2' };
+      const sub1 = { endpoint: 'https://fcm.googleapis.com/fcm/send/sub1' };
+      const sub2 = { endpoint: 'https://fcm.googleapis.com/fcm/send/sub2' };
       (jsonGet as any).mockResolvedValue([sub1, sub2]);
 
       const { req, res } = createMockReqRes('DELETE', {
-        endpoint: 'https://push.example.com/sub1',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
       });
 
       await handler(req, res);
@@ -192,11 +200,11 @@ describe('push/subscribe API handler', () => {
     });
 
     it('deletes key when last subscription is removed', async () => {
-      const sub = { endpoint: 'https://push.example.com/sub1' };
+      const sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/sub1' };
       (jsonGet as any).mockResolvedValue([sub]);
 
       const { req, res } = createMockReqRes('DELETE', {
-        endpoint: 'https://push.example.com/sub1',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
       });
 
       await handler(req, res);
@@ -221,7 +229,7 @@ describe('push/subscribe API handler', () => {
     it('returns 500 when Redis fails during DELETE', async () => {
       (jsonGet as any).mockRejectedValueOnce(new Error('Redis down'));
       const { req, res } = createMockReqRes('DELETE', {
-        endpoint: 'https://push.example.com/sub1',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
       });
 
       await handler(req, res);

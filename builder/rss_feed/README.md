@@ -3,7 +3,7 @@
 This package registers a single feed search function that fetches RSS entries,
 reranks them against a user query, fetches the best match through a public-IP
 validated transport, converts a local response file with MarkItDown, and returns
-the article body as markdown.
+a JSON result containing article markdown and source metadata.
 
 ## What It Does
 
@@ -48,10 +48,15 @@ Required inputs:
 ## Function Signature
 
 ```python
-content = await search_rss(
+import json
+
+result = json.loads(await search_rss(
     query="latest AI infrastructure announcements",
     feed_scope="auto",  # or one named feed in `feeds`
-)
+))
+if result["success"]:
+    content = result["content"]
+    source_url = result["source"]["url"]
 ```
 
 `feed_scope="auto"` searches every configured feed; specifying a named scope
@@ -59,10 +64,13 @@ restricts the search to that feed.
 
 ## Response Shape
 
-`search_rss` returns the scraped article markdown directly when a relevant
-entry is found, or an `"Error: <reason>"` prefixed string when nothing can be
-retrieved (missing feed config, empty results, reranker error, or scrape
-failure).
+`search_rss` returns a JSON string. Always parse it and inspect `success`.
+Successful results carry `content` (article markdown), `source` (title, URL and
+available feed/author/publication metadata), `query`, `content_truncated`,
+`entries_count`, and `cached`. `feed_scope` is included when available.
+Failures have `success: false` and a bounded `error` string. Optional fields
+whose value is null are omitted. A failure can still include source metadata;
+do not interpret the presence of a source as successful retrieval.
 
 ## Processing Flow
 
@@ -76,7 +84,7 @@ failure).
 
 ## Failure Modes
 
-All failure modes surface as `"Error: <reason>"` strings:
+Failure results use the same JSON envelope with `success: false`:
 
 - RSS feed not configured or unreachable.
 - Reranker endpoint or model configuration missing.

@@ -76,6 +76,26 @@ describe('imageHandler blob cache', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith(url);
   });
 
+  it('retains a shared concurrent image until both consumers release it', async () => {
+    mockImageFetch(128);
+    const { fetchImageAsBlob, revokeImageBlob } = await import(
+      '@/utils/app/imageHandler'
+    );
+    const ref = { imageId: 'shared', sessionId: 'generated' };
+    const [first, second] = await Promise.all([
+      fetchImageAsBlob(ref, true),
+      fetchImageAsBlob(ref, true),
+    ]);
+    expect(first).toBe(second);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    revokeImageBlob('shared-thumb', first);
+    vi.advanceTimersByTime(100);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    revokeImageBlob('shared-thumb', second);
+    vi.advanceTimersByTime(100);
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(first);
+  });
+
   it('revokes oversized temporary blob URLs directly', async () => {
     mockImageFetch(4 * 1024 * 1024);
     const { fetchImageAsBlob, revokeImageBlob } = await import(

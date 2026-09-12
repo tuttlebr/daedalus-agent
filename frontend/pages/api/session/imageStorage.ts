@@ -281,8 +281,13 @@ async function processImage(
         metadata.format,
         metadata.hasAlpha,
       );
-      storedBuffer = buffer;
-      actualMimeType = mimeTypeForFormat(metadata.format, mimeType);
+      // SVG is an active document when opened directly on our authenticated
+      // origin. Persist the inert derivative instead of its executable source.
+      storedBuffer = metadata.format === 'svg' ? normalized.buffer : buffer;
+      actualMimeType =
+        metadata.format === 'svg'
+          ? normalized.mimeType
+          : mimeTypeForFormat(metadata.format, mimeType);
       editBuffer = normalized.buffer;
       editMimeType = normalized.mimeType;
     }
@@ -589,16 +594,25 @@ export default async function handler(
 
       // Determine which version to return
       const useThumbnail = wantThumbnail && image.thumbnail;
-      const imageData = useThumbnail ? image.thumbnail! : image.data;
-      const imageMimeType = useThumbnail
+      let imageData = useThumbnail ? image.thumbnail! : image.data;
+      let imageMimeType = useThumbnail
         ? image.thumbnailMimeType || 'image/jpeg'
         : image.mimeType;
+      // Old records may still contain SVG originals. Never serve those as
+      // active same-origin documents during the retention/migration window.
+      if (/^image\/svg\+xml(?:;|$)/i.test(imageMimeType)) {
+        imageData = (
+          await sharp(Buffer.from(imageData, 'base64')).png().toBuffer()
+        ).toString('base64');
+        imageMimeType = 'image/png';
+      }
 
       // Return image data with aggressive caching
       res.setHeader('Content-Type', imageMimeType);
       res.setHeader('Cache-Control', 'private, max-age=86400, immutable'); // 24 hours
       res.setHeader('ETag', `"${imageId}${useThumbnail ? '-thumb' : ''}"`);
       res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
 
       // Add headers to indicate thumbnail availability and image dimensions
       if (image.thumbnail) {

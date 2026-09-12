@@ -12,7 +12,6 @@ import time
 import traceback
 from typing import Any
 
-
 from .backend_client import BackendClient, OAuthRequiredError, RunAbortedError
 from .models import new_run, now_ms
 from .prompt import (
@@ -217,9 +216,7 @@ def run_once(
         )
         store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
         execution_id = str(request.get("id") or run["id"])
-        response = backend.call(
-            messages, execution_id=execution_id, abort=abort
-        )
+        response = backend.call(messages, execution_id=execution_id, abort=abort)
         run["metrics"]["responseChars"] = len(response or "")
 
         # F-016: the lease was lost while this run was in flight, so another

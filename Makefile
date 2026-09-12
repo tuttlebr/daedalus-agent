@@ -78,7 +78,8 @@ helm: ## helm lint + template render  (CI job: helm)
 redis-upgrade: ## persisted Redis Helm upgrade, ACL, and TLS rotation  (CI job: redis-upgrade)
 	bash scripts/test_redis_helm_upgrade.sh
 
-docker: ## docker compose config + build runtime images  (CI job: docker)
+docker: ## validate all shipped image references, build and scan runtime images
+	python3 scripts/check_image_inventory.py
 	@set -eu; \
 		created_env=0; \
 		if [ ! -f .env ]; then \
@@ -92,7 +93,9 @@ docker: ## docker compose config + build runtime images  (CI job: docker)
 			image=$$(docker compose config --format json | jq -r ".services.\"$$service\".image"); \
 			$(TRIVY) image --severity CRITICAL,HIGH --exit-code 1 \
 				--skip-files "$(TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES)" "$$image"; \
-		done
+		done; \
+		python3 scripts/test_compose_redis.py --image "$$image"
+	TRIVY=$(TRIVY) python3 scripts/check_image_inventory.py --scan-upstream
 
 security: ## secret, production dependency, and filesystem vulnerability scans  (CI job: security)
 	gitleaks detect --source . --verbose --redact

@@ -162,3 +162,21 @@ def test_stream_edit_images_drops_moderation_and_normalizes_transparent_jpeg():
     assert [(event.image.b64_json, event.partial) for event in events] == [
         ("final", False)
     ]
+
+
+def test_image_stream_error_does_not_promote_a_partial_to_success():
+    import pytest
+    from nat_helpers.openai_images import _stream_image_events
+
+    async def broken():
+        yield {"type": "image_generation.partial_image", "partial_image_b64": "eA=="}
+        raise OSError("fixture connection interrupted")
+
+    async def collect():
+        events = []
+        with pytest.raises(OSError, match="interrupted"):
+            async for event in _stream_image_events(broken(), "image/png"):
+                events.append(event)
+        assert len(events) == 1 and events[0].partial is True
+
+    asyncio.run(collect())

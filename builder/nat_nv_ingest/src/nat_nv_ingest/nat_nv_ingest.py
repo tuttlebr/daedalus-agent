@@ -23,6 +23,7 @@ from nat_helpers.identity import (
     resolve_authenticated_user_id,
 )
 from nat_helpers.milvus import close_milvus_client, owned_milvus_connection_args
+from nat_helpers.threaded_work import run_with_thread_ownership
 from nv_ingest_client.client import Ingestor, NvIngestClient
 from pydantic import BaseModel, ConfigDict, Field
 from pymilvus import MilvusClient
@@ -769,7 +770,7 @@ class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
     )
     ingest_timeout_seconds: float = Field(
         default=300.0,
-        description="Hard timeout for one document's NV-Ingest call",
+        description="Maximum wait for one document; a running SDK call retains collection ownership until it settles",
     )
 
     # Retrieval mode for the consolidated user document tool
@@ -2007,17 +2008,17 @@ class NvIngestDocumentProcessor:
                             "Waiting for the collection write lock",
                             attempt=attempt + 1,
                         )
-                    async with collection_ingest_lock:
-                        await _emit_stage(
-                            "submitting",
-                            filename,
-                            "Submitting document to NV-Ingest",
-                            attempt=attempt + 1,
-                        )
-                        success_payload = await asyncio.wait_for(
-                            asyncio.to_thread(run_ingest_with_postproc),
-                            timeout=ingest_timeout,
-                        )
+                    await _emit_stage(
+                        "submitting",
+                        filename,
+                        "Submitting document to NV-Ingest",
+                        attempt=attempt + 1,
+                    )
+                    success_payload = await run_with_thread_ownership(
+                        run_ingest_with_postproc,
+                        lock=collection_ingest_lock,
+                        timeout=ingest_timeout,
+                    )
                     break
                 except TimeoutError as e:
                     last_exc = e
@@ -2028,7 +2029,9 @@ class NvIngestDocumentProcessor:
                     )
                     return _failure(
                         "Error processing document with NvIngest: "
-                        f"timed out after {ingest_timeout:.0f} seconds.",
+                        f"timed out after {ingest_timeout:.0f} seconds. "
+                        "The SDK operation may still be running; collection ownership "
+                        "is retained until it finishes. Do not retry blindly.",
                         filename=filename,
                     )
                 except Exception as e:

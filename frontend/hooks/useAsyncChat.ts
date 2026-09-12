@@ -1020,7 +1020,14 @@ export const useAsyncChat = (
         return null;
       }
     },
-    [onProgress, onComplete, onError, userId, scheduleNextPoll, removeActiveJob],
+    [
+      onProgress,
+      onComplete,
+      onError,
+      userId,
+      scheduleNextPoll,
+      removeActiveJob,
+    ],
   );
 
   const cancelJob = useCallback(
@@ -1039,16 +1046,40 @@ export const useAsyncChat = (
         await Promise.all(
           jobsToCancel.map(async (job) => {
             // Delete job on server
-            await fetch(`/api/chat/async?jobId=${job.jobId}`, {
+            const response = await fetch(`/api/chat/async?jobId=${job.jobId}`, {
               method: 'DELETE',
               credentials: 'include',
             });
+            if (!response.ok) {
+              throw new Error(
+                `Could not stop the response (HTTP ${response.status}). Please try again.`,
+              );
+            }
+            const outcome = await response.json();
+            if (outcome.canceled !== true) {
+              // A terminal job can legitimately win the cancellation race.
+              // Confirm that state before discarding our recovery markers.
+              const statusResponse = await fetchWithTimeout(
+                `/api/chat/async?jobId=${job.jobId}`,
+                { credentials: 'include' },
+                STATUS_FETCH_TIMEOUT_MS,
+              );
+              const status = statusResponse.ok
+                ? await statusResponse.json()
+                : null;
+              if (!status || !['completed', 'error'].includes(status.status)) {
+                throw new Error(
+                  'Cancellation was not confirmed. The response may still be running; please try again.',
+                );
+              }
+            }
             clearPersistedJobs(userId, job.conversationId);
             removeActiveJob(job.jobId, job.conversationId);
           }),
         );
       } catch (error) {
         logger.error('Error canceling job', error);
+        throw error;
       }
     },
     [userId, removeActiveJob],

@@ -1,7 +1,8 @@
 import type { NextApiResponse } from 'next';
 
 import { positiveIntegerFromEnv } from './config/env';
-import { getRedis, sessionKey } from './session/redis';
+import { incrementExpiringCounter } from './redisCounter';
+import { sessionKey } from './session/redis';
 
 import { createHash } from 'crypto';
 
@@ -57,14 +58,9 @@ export async function checkRateLimit(
   rule: RateLimitRule,
   identity: string,
 ): Promise<RateLimitResult> {
-  const redis = getRedis();
   const key = bucketKey(rule.name, identity);
-  const count = await redis.incr(key);
-  if (count === 1) {
-    await redis.expire(key, rule.windowSeconds);
-  }
+  const [count, ttl] = await incrementExpiringCounter(key, rule.windowSeconds);
   if (count > rule.limit) {
-    const ttl = await redis.ttl(key);
     return {
       allowed: false,
       remaining: 0,

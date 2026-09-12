@@ -56,6 +56,8 @@ spec:
             - containerPort: 3001
               name: ws
           env:
+            - name: PUSH_NOTIFICATIONS_ENABLED
+              value: {{ .Values.frontend.streamWorker.pushNotifications.enabled | quote }}
             - name: SESSION_SECRET
               valueFrom:
                 secretKeyRef:

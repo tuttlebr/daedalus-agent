@@ -129,9 +129,13 @@ async function streamDocumentIngestJob(
   }
 
   if (!response.ok) {
-    clearTimeout(timeoutId);
-    control.signal?.removeEventListener('abort', handleExternalAbort);
-    const errBody = await response.text().catch(() => '');
+    let errBody = '';
+    try {
+      errBody = await response.text();
+    } finally {
+      clearTimeout(timeoutId);
+      control.signal?.removeEventListener('abort', handleExternalAbort);
+    }
     throw new Error(
       `Document ingest failed (${response.status}): ${
         errBody || response.statusText
@@ -150,6 +154,7 @@ async function streamDocumentIngestJob(
   let buffer = '';
   let finalOutput: string | null = null;
   let errorDetail: string | null = null;
+  let completed = false;
 
   try {
     while (true) {
@@ -157,15 +162,19 @@ async function streamDocumentIngestJob(
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
-      let separatorIdx: number;
-      while ((separatorIdx = buffer.indexOf('\n\n')) !== -1) {
-        const rawEvent = buffer.slice(0, separatorIdx);
-        buffer = buffer.slice(separatorIdx + 2);
+      let separator: RegExpExecArray | null;
+      while (
+        (separator = /(?:\r\n|\r(?!\n)|\n)(?:\r\n|\r(?!\n)|\n)/.exec(
+          buffer,
+        )) !== null
+      ) {
+        const rawEvent = buffer.slice(0, separator.index);
+        buffer = buffer.slice(separator.index + separator[0].length);
         if (!rawEvent.trim()) continue;
 
         let event = 'message';
         const dataLines: string[] = [];
-        for (const line of rawEvent.split(/\r?\n/)) {
+        for (const line of rawEvent.split(/\r\n|\r|\n/)) {
           if (line.startsWith('event:')) {
             event = line.slice(6).trim();
           } else if (line.startsWith('data:')) {
@@ -199,6 +208,7 @@ async function streamDocumentIngestJob(
             attempt: optionalNumber(parsed.attempt),
           });
         } else if (event === 'complete') {
+          completed = true;
           finalOutput = typeof parsed.output === 'string' ? parsed.output : '';
         } else if (event === 'error') {
           errorDetail =
@@ -216,8 +226,13 @@ async function streamDocumentIngestJob(
     }
   }
 
-  if (errorDetail) {
+  if (errorDetail !== null) {
     throw new Error(`Document ingest failed: ${errorDetail}`);
+  }
+  if (!completed) {
+    throw new Error(
+      'Document ingest stream ended before completion was confirmed.',
+    );
   }
   return finalOutput || 'Document ingestion completed.';
 }

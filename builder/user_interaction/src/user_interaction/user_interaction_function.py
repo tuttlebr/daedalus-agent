@@ -226,7 +226,11 @@ def _authenticated_user_or_fallback(fallback_user_id: str = "") -> str:
 @register_function(config_type=UserInteractionConfig)
 async def user_interaction_function(config: UserInteractionConfig, builder: Builder):
     _redis_client: Any | None = None
-    enabled = set(config.enabled_operations or _ALL_OPERATIONS)
+    enabled = set(
+        _ALL_OPERATIONS
+        if config.enabled_operations is None
+        else config.enabled_operations
+    )
 
     def _get_redis():
         nonlocal _redis_client
@@ -625,12 +629,13 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
             return f"Error: delete_memory denied: {reason}."
 
         from nat_helpers.hindsight_client import client_from_env, memory_mode
+        from nat_helpers.memory_lifecycle import clear_user_memory
 
         mode = memory_mode()
         if mode == "disabled":
             return "Durable memory is disabled by the operator."
         try:
-            await client_from_env().clear_memories(user_id=resolved_user)
+            await clear_user_memory(client_from_env(), resolved_user)
         except Exception:
             logger.exception("Hindsight memory clear failed")
             return "Error: Hindsight memory could not be cleared."

@@ -118,8 +118,8 @@ spec:
     {{- end }}
 {{- if and .Values.frontend.enabled .Values.frontend.streamWorker.enabled }}
 ---
-# The stream worker has no document-object credential and needs only DNS,
-# backend, and Redis egress.
+# Completion push is opt-in and restricted to the same provider names that
+# the application validates. Object-store access stays exclusive to frontend.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -134,6 +134,16 @@ spec:
       app.kubernetes.io/component: frontend-stream-worker
       app.kubernetes.io/instance: {{ .Release.Name }}
   egress:
+    {{- if .Values.frontend.streamWorker.pushNotifications.enabled }}
+    - toFQDNs:
+        - matchName: fcm.googleapis.com
+        - matchName: updates.push.services.mozilla.com
+        - matchPattern: '*.push.apple.com'
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    {{- end }}
     - toServices:
         - k8sService:
             serviceName: kube-dns

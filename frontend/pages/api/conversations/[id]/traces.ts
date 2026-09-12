@@ -3,14 +3,16 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from '@/utils/auth/session';
 
 import {
+  ConversationWriteError,
+  readConversationForUser,
+} from '@/server/session/conversationStore';
+import {
   getStreamingStates,
   jsonGet,
   sessionKey,
 } from '@/server/session/redis';
-import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
 
 type TraceLine = Record<string, unknown>;
-
 
 function safeFilenameStem(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_') || 'conversation';
@@ -149,18 +151,7 @@ export default async function handler(
   }
 
   try {
-    const ownsConversation = await verifyConversationOwnership(
-      session.username,
-      id,
-    );
-    if (!ownsConversation) {
-      return res.status(403).json({
-        error: 'Forbidden: You do not have access to this conversation',
-      });
-    }
-
-    const conversationKey = sessionKey(['conversation', id]);
-    const conversation = await jsonGet(conversationKey);
+    const conversation = await readConversationForUser(session.username, id);
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
@@ -188,6 +179,8 @@ export default async function handler(
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).send(toJsonl(lines));
   } catch (error) {
+    if (error instanceof ConversationWriteError)
+      return res.status(403).json({ error: error.message });
     console.error('Error exporting conversation traces:', error);
     return res.status(500).json({ error: 'Failed to export traces' });
   }

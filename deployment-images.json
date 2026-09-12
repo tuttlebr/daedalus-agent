@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "builtServices": ["backend", "frontend", "redis"],
+  "upstream": [
+    {
+      "id": "nginx-compose",
+      "image": "nginx:1.31.5-alpine-slim@sha256:3b171d7224b669faa3cc2137fea0a65301791df1ec1f271ebd2a2b7461f7fade",
+      "modes": ["compose"]
+    },
+    {
+      "id": "nginx-helm",
+      "image": "nginxinc/nginx-unprivileged:alpine@sha256:2ddec616f1cb58bcac057aa388f28cb81e35137641ef4226d321714499329bd1",
+      "modes": ["helm-default", "helm-custom"]
+    },
+    {
+      "id": "seaweedfs",
+      "image": "chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62",
+      "modes": ["compose", "e2e"]
+    }
+  ],
+  "platforms": ["linux/amd64", "linux/arm64"]
+}

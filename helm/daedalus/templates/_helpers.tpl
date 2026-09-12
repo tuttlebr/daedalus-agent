@@ -24,18 +24,30 @@ app.kubernetes.io/managed-by: Helm
 {{- end -}}
 
 {{- define "daedalus.nodePlacement" -}}
-{{- if .Values.global.nodePlacement.allowedNodes }}
+{{- $allowedNodes := .Values.global.nodePlacement.allowedNodes -}}
+{{- $allowedArchitectures := .allowedArchitectures | default (list) -}}
+{{- if or $allowedNodes $allowedArchitectures }}
 affinity:
   nodeAffinity:
     requiredDuringSchedulingIgnoredDuringExecution:
       nodeSelectorTerms:
         - matchExpressions:
+            {{- if $allowedNodes }}
             - key: kubernetes.io/hostname
               operator: In
               values:
-              {{- range .Values.global.nodePlacement.allowedNodes }}
+              {{- range $allowedNodes }}
                 - {{ . | quote }}
               {{- end }}
+            {{- end }}
+            {{- if $allowedArchitectures }}
+            - key: kubernetes.io/arch
+              operator: In
+              values:
+              {{- range $allowedArchitectures }}
+                - {{ . | quote }}
+              {{- end }}
+            {{- end }}
 {{- end }}
 {{- end -}}
 

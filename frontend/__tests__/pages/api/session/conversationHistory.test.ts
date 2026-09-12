@@ -33,14 +33,14 @@ function createMockReqRes(method: string, body: any = {}) {
   return { req, res };
 }
 
-describe('session/conversationHistory replay sanitization', () => {
+describe('session/conversationHistory assistant content preservation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
     mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
   });
 
-  it('sanitizes replayed assistant prefixes on GET and writes back cleaned data', async () => {
+  it('preserves repeated assistant text on GET without rewriting stored history', async () => {
     const prior = 'Daily summary for May 13, 2026.';
     const next = 'The namespace is healthy.';
     const conversations = [
@@ -61,24 +61,9 @@ describe('session/conversationHistory replay sanitization', () => {
     const { req, res } = createMockReqRes('GET');
     await handler(req, res);
 
-    const sanitized = [
-      {
-        ...conversations[0],
-        messages: [
-          conversations[0].messages[0],
-          conversations[0].messages[1],
-          conversations[0].messages[2],
-          { role: 'assistant', content: next },
-        ],
-      },
-    ];
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(sanitized);
-    expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(
-      'daedalus:user:testuser:conversationHistory',
-      sanitized,
-      60 * 60 * 24 * 7,
-    );
+    expect(res.json).toHaveBeenCalledWith(conversations);
+    expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 
   it('deduplicates repeated conversation ids on GET and repairs storage', async () => {

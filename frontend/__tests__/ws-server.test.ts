@@ -114,6 +114,7 @@ function connectionDependencies(
   overrides: Partial<ConnectionInitializationDependencies> = {},
 ): ConnectionInitializationDependencies {
   return {
+    getSession: vi.fn().mockResolvedValue(null),
     subscribeToUserChannel: vi.fn().mockResolvedValue(undefined),
     unsubscribeFromUserChannel: vi.fn(),
     getStreamingStates: vi.fn().mockResolvedValue({}),
@@ -231,6 +232,7 @@ describe('authenticated WebSocket initialization', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -262,6 +264,28 @@ describe('authenticated WebSocket initialization', () => {
     expect(socket.closeCalls).toEqual([
       { code: 1011, reason: 'Initialization failed' },
     ]);
+  });
+
+  it('closes a live socket when periodic configured-session validation revokes it', async () => {
+    vi.useFakeTimers();
+    const socket = new FakeWebSocket();
+    const getSession = vi.fn().mockResolvedValue(null);
+    const unsubscribe = vi.fn();
+    await initializeAuthenticatedConnection(
+      socket as unknown as WebSocket,
+      'alice',
+      'removed-session',
+      connectionDependencies({
+        getSession,
+        unsubscribeFromUserChannel: unsubscribe,
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(getSession).toHaveBeenCalledWith('removed-session');
+    expect(socket.closeCalls).toEqual([
+      { code: 4003, reason: 'Session ended' },
+    ]);
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   it('releases and closes the socket when initial state loading rejects', async () => {

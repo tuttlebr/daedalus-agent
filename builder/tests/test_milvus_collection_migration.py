@@ -10,6 +10,7 @@ import pytest
 from milvus_collection_migration import (
     AmbiguousLegacyOwnershipError,
     AppendOnlyMigrationAudit,
+    MigrationStateError,
     MigrationVerificationError,
     OperatorAuthenticationError,
     UserCollectionMigrationExecutor,
@@ -128,6 +129,7 @@ class FakeMilvusClient:
             }
         }
         self.upsert_calls = 0
+        self.insert_calls = 0
         self.verification_count_offset = verification_count_offset
         self.target_query_count = 0
         self.calls = 0
@@ -239,7 +241,18 @@ class FakeMilvusClient:
 
     def upsert(self, *, collection_name: str, data: list[dict[str, Any]]) -> None:
         self.upsert_calls += 1
-        if self.upsert_calls == self.fail_upsert_call:
+        assert not self.descriptions[collection_name]["auto_id"]
+        self._write(collection_name, data, self.upsert_calls)
+
+    def insert(self, *, collection_name: str, data: list[dict[str, Any]]) -> None:
+        self.insert_calls += 1
+        assert not any(
+            entity["id"] in self.entities[collection_name] for entity in data
+        )
+        self._write(collection_name, data, self.insert_calls)
+
+    def _write(self, collection_name, data, calls):
+        if calls == self.fail_upsert_call:
             self.fail_upsert_call = None
             raise RuntimeError("simulated interrupted batch")
         description = self.descriptions[collection_name]
@@ -249,6 +262,15 @@ class FakeMilvusClient:
             )
         for entity in data:
             self.entities[collection_name][entity["id"]] = copy.deepcopy(entity)
+
+    def get(self, *, collection_name, ids, output_fields, consistency_level):
+        assert output_fields == ["*"]
+        assert consistency_level == "Strong"
+        return [
+            copy.deepcopy(self.entities[collection_name][key])
+            for key in ids
+            if key in self.entities[collection_name]
+        ]
 
 
 @pytest.fixture(autouse=True)
@@ -289,13 +311,14 @@ def test_migration_copies_then_verifies_and_records_marker(tmp_path):
     assert client.entities[current] == client.entities[legacy]
     assert client.descriptions[current]["auto_id"] is True
     assert client.descriptions[current]["properties"]["allow_insert_auto_id"] == "false"
-    assert client.upsert_calls == 2
+    assert client.upsert_calls == 0
+    assert client.insert_calls == 2
     records = AppendOnlyMigrationAudit(audit).read()
     assert [record["event"] for record in records] == [
         "migration_started",
         "migration_verified",
     ]
-    assert records[-1]["copied_with"] == "primary-key-upsert"
+    assert records[-1]["copied_with"] == "primary-key-insert-missing"
     assert stat_mode(audit) == 0o600
 
 
@@ -333,17 +356,17 @@ def test_verified_retry_rechecks_evidence_without_copying_again(tmp_path):
     client = FakeMilvusClient()
     executor = _executor(client, tmp_path / "migration.jsonl")
     first = _migrate(executor)
-    upserts_after_first = client.upsert_calls
+    inserts_after_first = client.insert_calls
 
     second = _migrate(executor)
 
     assert second.migration_id == first.migration_id
     assert second.already_complete is True
-    assert client.upsert_calls == upserts_after_first
+    assert client.insert_calls == inserts_after_first
     assert len(executor.audit.read()) == 2
 
 
-def test_interrupted_batch_retry_resumes_with_idempotent_upserts(tmp_path):
+def test_interrupted_batch_retry_inserts_only_missing_auto_ids(tmp_path):
     client = FakeMilvusClient(fail_upsert_call=2)
     executor = _executor(client, tmp_path / "migration.jsonl")
 
@@ -414,3 +437,123 @@ def test_rollback_is_idempotent_and_keeps_both_collections_and_rows(tmp_path):
 
 def stat_mode(path: Path) -> int:
     return path.stat().st_mode & 0o777
+
+
+def test_resume_does_not_repeat_a_committed_auto_id_insert(tmp_path, monkeypatch):
+    client = FakeMilvusClient()
+    executor = _executor(client, tmp_path / "migration.jsonl")
+    original_insert = client.insert
+
+    def disconnected_after_commit(**kwargs):
+        original_insert(**kwargs)
+        raise RuntimeError("response lost after committed insert")
+
+    monkeypatch.setattr(client, "insert", disconnected_after_commit)
+    with pytest.raises(RuntimeError, match="response lost"):
+        _migrate(executor)
+    monkeypatch.setattr(client, "insert", original_insert)
+    assert _migrate(executor).state == "verified"
+    assert client.insert_calls == 2
+    assert client.upsert_calls == 0
+
+
+def test_auto_id_resume_rejects_conflicting_target_row(tmp_path):
+    client = FakeMilvusClient(fail_upsert_call=2)
+    executor = _executor(client, tmp_path / "migration.jsonl")
+    with pytest.raises(RuntimeError):
+        _migrate(executor)
+    _, current = user_collection_migration_names("alice")
+    client.entities[current][1]["text"] = "another writer's data"
+    with pytest.raises(MigrationVerificationError, match="different source data"):
+        _migrate(executor)
+    assert client.insert_calls == 2
+    assert client.entities[current][1]["text"] == "another writer's data"
+
+
+def test_batch_verification_catches_server_replacing_supplied_auto_ids(
+    tmp_path, monkeypatch
+):
+    client = FakeMilvusClient()
+    executor = _executor(client, tmp_path / "migration.jsonl")
+    original_insert = client.insert
+
+    def regenerates_ids(**kwargs):
+        kwargs["data"] = [{**row, "id": row["id"] + 100} for row in kwargs["data"]]
+        original_insert(**kwargs)
+
+    monkeypatch.setattr(client, "insert", regenerates_ids)
+    with pytest.raises(MigrationVerificationError, match="primary-ID and content"):
+        _migrate(executor)
+    assert executor.audit.read()[-1]["event"] == "migration_failed"
+
+
+@pytest.mark.parametrize("completed", [False, True])
+def test_legacy_auto_id_audit_requires_review_before_reuse(tmp_path, completed):
+    client = FakeMilvusClient(fail_upsert_call=None if completed else 2)
+    executor = _executor(client, tmp_path / "migration.jsonl")
+    if completed:
+        _migrate(executor)
+    else:
+        with pytest.raises(RuntimeError):
+            _migrate(executor)
+    # Recreate the original release's valid audit, which did not mark the
+    # insertion strategy at start and used primary-key-upsert at verification.
+    records = executor.audit.read()
+    legacy_audit = AppendOnlyMigrationAudit(tmp_path / "legacy-audit.jsonl")
+    for record in records:
+        record.pop("event_hash")
+        if record["event"] == "migration_started":
+            record.pop("copied_with", None)
+        elif record["event"] == "migration_verified":
+            record["copied_with"] = "primary-key-upsert"
+        legacy_audit.append(record)
+    executor.audit = legacy_audit
+    writes_before = client.insert_calls
+    with pytest.raises(MigrationStateError, match="operator review"):
+        _migrate(executor)
+    assert client.insert_calls == writes_before
+
+
+def test_manual_ids_still_use_verified_upserts(tmp_path):
+    client = FakeMilvusClient()
+    legacy, current = user_collection_migration_names("alice")
+    client.descriptions[legacy]["auto_id"] = False
+    client.descriptions[legacy]["fields"][0]["auto_id"] = False
+    executor = _executor(client, tmp_path / "migration.jsonl")
+    assert _migrate(executor).state == "verified"
+    assert client.upsert_calls == 2
+    assert client.insert_calls == 0
+    assert client.entities[current] == client.entities[legacy]
+    assert executor.audit.read()[-1]["copied_with"] == "primary-key-upsert"
+
+
+def test_empty_legacy_auto_id_retry_records_safe_strategy_before_copy(tmp_path):
+    client = FakeMilvusClient(fail_upsert_call=1)
+    executor = _executor(client, tmp_path / "migration.jsonl")
+    with pytest.raises(RuntimeError):
+        _migrate(executor)
+    legacy_audit = AppendOnlyMigrationAudit(tmp_path / "legacy-audit.jsonl")
+    for record in executor.audit.read():
+        record.pop("event_hash")
+        record.pop("copied_with", None)
+        legacy_audit.append(record)
+    executor.audit = legacy_audit
+    client.fail_upsert_call = 3
+    with pytest.raises(RuntimeError):
+        _migrate(executor)
+    assert executor.audit.read()[-2]["copied_with"] == "primary-key-insert-missing"
+    assert _migrate(executor).state == "verified"
+
+
+def test_clone_uses_field_dimension_without_replaying_described_index_string():
+    from milvus_collection_migration import _clone_collection, _index_config
+
+    client = FakeMilvusClient()
+    legacy, current = user_collection_migration_names("alice")
+    client.indexes[legacy]["embedding_idx"]["dim"] = "2"
+    fingerprint_input = _index_config(client.indexes[legacy]["embedding_idx"])
+    assert fingerprint_input["params"]["dim"] == "2"
+    _clone_collection(client, source_name=legacy, target_name=current)
+    assert "dim" not in client.indexes[current]["embedding_idx"]["params"]
+    assert client.descriptions[current]["fields"][1]["params"]["dim"] == 2
+    assert _index_config(client.indexes[legacy]["embedding_idx"]) == fingerprint_input

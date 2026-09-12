@@ -7,13 +7,12 @@ import { getSession } from '@/utils/auth/session';
 import { touchImage } from '../session/imageStorage';
 
 import { deleteConversationForUser } from '@/server/session/conversationDeletion';
-import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
 import {
-  getRedis,
-  sessionKey,
-  jsonGet,
-  jsonSetWithExpiry,
-} from '@/server/session/redis';
+  ConversationWriteError,
+  saveConversationForUser,
+  readConversationForUser,
+} from '@/server/session/conversationStore';
+import { sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
 import { clampConversations } from '@/server/session/sanitize';
 
 export const config = {
@@ -44,55 +43,30 @@ export default async function handler(
     return res.status(400).json({ error: 'Invalid conversation ID' });
   }
 
-  const redis = getRedis();
-  const conversationKey = sessionKey(['conversation', id]);
-  const userConversationsKey = sessionKey([
-    'user',
-    session.username,
-    'conversations',
-  ]);
-
   if (req.method === 'PUT') {
     const updatedData = req.body;
 
     try {
-      // Fetch existing conversation to merge with
-      const existingData = await jsonGet(conversationKey);
-
-      // If conversation exists, verify ownership before allowing updates
-      if (existingData) {
-        const ownsConversation = await verifyConversationOwnership(
-          session.username,
-          id,
-        );
-        if (!ownsConversation) {
-          return res.status(403).json({
-            error: 'Forbidden: You do not have access to this conversation',
-          });
-        }
-
-        // Conflict detection: reject if client data is stale
-        if (
-          existingData.updatedAt &&
-          updatedData.updatedAt &&
-          existingData.updatedAt > updatedData.updatedAt
-        ) {
-          return res.status(409).json({
-            error: 'Conflict: server has newer data',
-            serverState: existingData,
-          });
-        }
-      }
-
       // Server-authoritative timestamp
-      const dataToSave = sanitizeConversationAssistantReplays({
-        ...existingData,
-        ...updatedData,
-        updatedAt: Date.now(),
-      });
-
-      // Save the merged conversation state (expire after 7 days)
-      await jsonSetWithExpiry(conversationKey, dataToSave, 60 * 60 * 24 * 7);
+      const dataToSave = await saveConversationForUser(
+        session.username,
+        id,
+        (current) => {
+          if (
+            current?.updatedAt &&
+            updatedData.updatedAt &&
+            current.updatedAt > updatedData.updatedAt
+          ) {
+            throw new ConversationWriteError('conflict', current);
+          }
+          return sanitizeConversationAssistantReplays({
+            ...current,
+            ...updatedData,
+            updatedAt: Date.now(),
+          });
+        },
+        true,
+      );
 
       // Touch images referenced in the conversation to extend their TTL
       try {
@@ -112,8 +86,7 @@ export default async function handler(
         console.error('Failed to touch images:', imageError);
       }
 
-      // Add conversation to user's set of conversations (if not already present)
-      await redis.sadd(userConversationsKey, id);
+      // Membership and the authoritative record were saved atomically above.
 
       // Also update the user's conversationHistory list for cross-device synchronization
       try {
@@ -151,6 +124,12 @@ export default async function handler(
 
       return res.status(200).json({ success: true });
     } catch (error) {
+      if (error instanceof ConversationWriteError) {
+        return res.status(error.reason === 'forbidden' ? 403 : 409).json({
+          error: error.message,
+          ...(error.serverState ? { serverState: error.serverState } : {}),
+        });
+      }
       console.error('Error saving conversation:', error);
       return res.status(500).json({ error: 'Failed to save conversation' });
     }
@@ -170,26 +149,15 @@ export default async function handler(
     }
   } else if (req.method === 'GET') {
     try {
-      // Verify ownership before allowing access
-      const ownsConversation = await verifyConversationOwnership(
+      // Fetch the data and its authorization from one Redis snapshot.
+      const conversationData = await readConversationForUser(
         session.username,
         id,
       );
-      if (!ownsConversation) {
-        return res.status(403).json({
-          error: 'Forbidden: You do not have access to this conversation',
-        });
-      }
-
-      // First check for saved conversation data
-      const conversationData = await jsonGet(conversationKey);
 
       if (conversationData) {
         const sanitized =
           sanitizeConversationAssistantReplays(conversationData);
-        if (sanitized !== conversationData) {
-          await jsonSetWithExpiry(conversationKey, sanitized, 60 * 60 * 24 * 7);
-        }
         return res.status(200).json(sanitized);
       }
 
@@ -215,6 +183,8 @@ export default async function handler(
       // No conversation found, return empty state
       return res.status(404).json({ error: 'Conversation not found' });
     } catch (error) {
+      if (error instanceof ConversationWriteError)
+        return res.status(403).json({ error: error.message });
       console.error('Error fetching conversation:', error);
       return res.status(500).json({ error: 'Failed to fetch conversation' });
     }

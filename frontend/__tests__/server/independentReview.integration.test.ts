@@ -57,6 +57,10 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
     beforeAll(async () => {
       if (!process.env.REDIS_URL)
         throw new Error('Disposable REDIS_URL required');
+      // These synthetic sessions belong to an explicitly configured account.
+      vi.stubEnv('AUTH_USER_1_USERNAME', 'alice');
+      vi.stubEnv('AUTH_USER_1_PASSWORD', 'integration-only-password');
+      vi.stubEnv('AUTH_USER_2_USERNAME', '');
       redis = await import('@/server/session/redis');
       auth = await import('@/utils/auth/session');
       jobs = await import('@/server/chat/jobState');
@@ -66,6 +70,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
     });
     afterEach(() => vi.restoreAllMocks());
     afterAll(async () => {
+      vi.unstubAllEnvs();
       if (client) {
         if (keys.size) await client.del(...keys);
         client.disconnect();

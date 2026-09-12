@@ -79,7 +79,7 @@ services:
         condition: service_completed_successfully
 
   nginx:
-    image: nginx:alpine@sha256:7068961d45b07b2af510ac002e9daa63a1d3eba2111202d6768798690800fffd
+    image: nginx:1.31.5-alpine-slim@sha256:3b171d7224b669faa3cc2137fea0a65301791df1ec1f271ebd2a2b7461f7fade
     # TLS termination for Compose is out of scope; the Helm chart owns HTTPS
     # (nginx.https.enabled). Only the plaintext listener is published here.
     ports:
@@ -208,19 +208,13 @@ services:
     environment:
       - REDIS_USERNAME=${REDIS_USERNAME:-default}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-local-compose-redis-password-change-me}
-    # `--user default reset` disables the internal ACL user that Redis replays
-    # AOF transactions as, which makes EXEC reject replayed Stream PEL updates.
-    # It only appears to work here because REDIS_USERNAME defaults to `default`
-    # and is immediately recreated below; setting it to anything else (the
-    # chart uses `daedalus`) would drop stream state on every restart. Keep the
-    # default user permission-complete but unusable over the network, matching
-    # helm/daedalus/templates/redis-init-configmap.yaml.
-    #
-    # maxmemory keeps Redis evicting instead of being OOMKilled; volatile-lru
-    # only evicts keys that carry a TTL.
+    # Generate one password-protected ACL per user. A named app user keeps a
+    # separate random default credential for AOF replay; neither is nopass.
+    entrypoint: ['/usr/local/bin/redis-compose-entrypoint']
     command:
       [
-        'redis-server',
+        '--dir',
+        '/data',
         '--save',
         '60',
         '1',
@@ -230,22 +224,6 @@ services:
         '${REDIS_MAXMEMORY:-1gb}',
         '--maxmemory-policy',
         'volatile-lru',
-        '--user',
-        'default',
-        'on',
-        'nopass',
-        '~*',
-        '&*',
-        '+@all',
-        '--user',
-        '${REDIS_USERNAME:-default}',
-        'on',
-        '>${REDIS_PASSWORD:-local-compose-redis-password-change-me}',
-        '~*',
-        '&*',
-        '+@all',
-        '-@dangerous',
-        '+info',
         '--loadmodule',
         '/opt/redis-stack/lib/rejson.so',
         '--loadmodule',
@@ -266,7 +244,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'redis-cli --no-auth-warning --user "$$REDIS_USERNAME" -a "$$REDIS_PASSWORD" ping | grep -q PONG',
+          'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli --no-auth-warning --user "$$REDIS_USERNAME" ping | grep -q PONG',
         ]
       interval: 5s
       timeout: 3s
@@ -274,7 +252,7 @@ services:
       start_period: 5s
 
   object-store:
-    image: chrislusf/seaweedfs:4.39@sha256:c7d6c721b30ae711db766bbbfd40192776e263d4e51e22f57baef7bef93c12c6
+    image: chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
     command: ['mini', '-dir=/data']
     environment:
       - AWS_ACCESS_KEY_ID=${DOCUMENT_OBJECT_ACCESS_KEY:-daedalus-local}
@@ -299,16 +277,20 @@ services:
       start_period: 10s
 
   object-store-init:
-    image: chrislusf/seaweedfs:4.39@sha256:c7d6c721b30ae711db766bbbfd40192776e263d4e51e22f57baef7bef93c12c6
+    image: chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
     entrypoint: ['/bin/sh', '-ec']
     command:
       - |
+        ttl=$$(sh /scripts/document_object_ttl.sh "$${DOCUMENT_OBJECT_EXPIRY_SECONDS}")
         printf '%s\n' \
-          "fs.configure -locationPrefix=/buckets/$${DOCUMENT_OBJECT_BUCKET}/$${DOCUMENT_OBJECT_PREFIX}/ -ttl=7d -apply" |
+          "fs.configure -locationPrefix=/buckets/$${DOCUMENT_OBJECT_BUCKET}/$${DOCUMENT_OBJECT_PREFIX}/ -ttl=$${ttl} -apply" |
           weed -logtostderr=true shell -master=object-store:9333 -filer=object-store:8888
     environment:
       - DOCUMENT_OBJECT_BUCKET=${DOCUMENT_OBJECT_BUCKET:-nv-ingest}
       - DOCUMENT_OBJECT_PREFIX=${DOCUMENT_OBJECT_PREFIX:-daedalus-documents}
+      - DOCUMENT_OBJECT_EXPIRY_SECONDS=${DOCUMENT_OBJECT_EXPIRY_SECONDS:-604800}
+    volumes:
+      - ./scripts/document_object_ttl.sh:/scripts/document_object_ttl.sh:ro
     networks:
       - ${NETWORK_NAME:-daedalus-network}
     tmpfs:

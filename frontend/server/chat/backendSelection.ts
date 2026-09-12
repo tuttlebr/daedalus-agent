@@ -144,6 +144,8 @@ export async function selectStreamBackendBaseUrl(
           },
           NAT_CONNECTIVITY_TIMEOUT_MS,
         );
+        // Health selection uses only status; release the bounded response body.
+        await healthResponse.body?.cancel();
         if (!healthResponse.ok) {
           throw new Error(`HTTP ${healthResponse.status}`);
         }

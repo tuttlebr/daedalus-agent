@@ -56,6 +56,8 @@ spec:
           {{- end }}
           command: ["node", "stream-worker.js"]
           env:
+            - name: PUSH_NOTIFICATIONS_ENABLED
+              value: {{ .Values.frontend.streamWorker.pushNotifications.enabled | quote }}
             - name: DAEDALUS_INTERNAL_API_TOKEN
               valueFrom:
                 secretKeyRef:

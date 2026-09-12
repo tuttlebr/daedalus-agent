@@ -1,3 +1,4 @@
+import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const RUN_REAL_REDIS = process.env.RUN_REDIS_STREAM_INTEGRATION === '1';
@@ -15,6 +16,12 @@ describe.skipIf(!RUN_REAL_REDIS)(
     let jobId: string;
     let conversationId: string;
     let userId: string;
+    let memoryServer: Server;
+    const memoryRequests: any[] = [];
+    const previousBackend = {
+      host: process.env.BACKEND_HOST,
+      port: process.env.BACKEND_PORT,
+    };
     const observedMessages: Array<{ channel: string; payload: any }> = [];
 
     beforeAll(async () => {
@@ -27,6 +34,20 @@ describe.skipIf(!RUN_REAL_REDIS)(
       jobId = `finalization-${process.pid}-${Date.now()}`;
       conversationId = `conversation-${jobId}`;
       userId = `user-${jobId}`;
+      memoryServer = createServer(async (req, res) => {
+        let body = '';
+        for await (const chunk of req) body += chunk;
+        memoryRequests.push(JSON.parse(body));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ operation_id: `memory-${jobId}` }));
+      });
+      await new Promise<void>((resolve) =>
+        memoryServer.listen(0, '127.0.0.1', resolve),
+      );
+      process.env.BACKEND_HOST = '127.0.0.1';
+      process.env.BACKEND_PORT = String(
+        (memoryServer.address() as { port: number }).port,
+      );
       redis = await import('@/server/session/redis');
       state = await import('@/server/chat/jobState');
       streamState = await import('@/server/chat/streamState');
@@ -34,6 +55,11 @@ describe.skipIf(!RUN_REAL_REDIS)(
       finalization = await import('@/server/chat/finalization');
       client = redis.getRedis();
       if (client.status === 'wait') await client.connect();
+      const { reserveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      // The submission API reserves ownership before it queues this job.
+      await reserveConversationForUser(userId, conversationId);
       subscriber = client.duplicate();
       if (subscriber.status === 'wait') await subscriber.connect();
       subscriber.on('message', (channel: string, payload: string) => {
@@ -47,6 +73,14 @@ describe.skipIf(!RUN_REAL_REDIS)(
     });
 
     afterAll(async () => {
+      if (memoryServer)
+        await new Promise<void>((resolve) =>
+          memoryServer.close(() => resolve()),
+        );
+      if (previousBackend.host === undefined) delete process.env.BACKEND_HOST;
+      else process.env.BACKEND_HOST = previousBackend.host;
+      if (previousBackend.port === undefined) delete process.env.BACKEND_PORT;
+      else process.env.BACKEND_PORT = previousBackend.port;
       if (subscriber) subscriber.disconnect();
       if (client) {
         await client
@@ -56,6 +90,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
             state.finalizerLockKey(jobId),
             state.abortKey(jobId),
             redis.sessionKey(['conversation', conversationId]),
+            redis.sessionKey(['user', userId, 'conversations']),
             redis.sessionKey(['user', userId, 'selectedConversation']),
             redis.sessionKey([
               'streaming',
@@ -68,8 +103,14 @@ describe.skipIf(!RUN_REAL_REDIS)(
             streamState.streamStepsKey(jobId),
             streamState.legacyStreamStepsKey(jobId),
             conversationGuard.conversationJobGuardKey(userId, conversationId),
+            redis.sessionKey(['memory-retention', 'record', 'v1', jobId]),
+            redis.sessionKey(['memory-retention', 'user', userId, 'v1']),
           )
           .catch(() => 0);
+        await client.zrem(
+          redis.sessionKey(['memory-retention', 'queue', 'v1']),
+          jobId,
+        );
         client.disconnect();
       }
     });
@@ -197,7 +238,11 @@ describe.skipIf(!RUN_REAL_REDIS)(
           outcome: successClaimed ? 'completed' : 'error',
         }),
       );
-      expect(await client.exists(conversationKey)).toBe(0);
+      // Submission reserved an empty owned record; no terminal answer is saved yet.
+      expect(await redis.jsonGet(conversationKey)).toMatchObject({
+        ownerId: userId,
+        messages: [],
+      });
 
       const recoveryResults = await Promise.all([
         finalization.resumePendingFinalization(jobId),
@@ -269,6 +314,8 @@ describe.skipIf(!RUN_REAL_REDIS)(
       expect(
         (await state.getFinalizationJournal(jobId))?.eventsPublishedAt,
       ).toBe(eventsPublishedAt);
+      expect(memoryRequests).toHaveLength(successClaimed ? 1 : 0);
+      if (successClaimed) expect(memoryRequests[0].request_id).toBe(jobId);
     });
   },
 );

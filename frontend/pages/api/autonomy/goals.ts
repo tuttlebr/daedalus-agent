@@ -7,7 +7,7 @@ import {
   importGoals,
   listGoals,
   nowMs,
-  saveGoals,
+  mutateGoals,
 } from '@/server/autonomy/store';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 
@@ -66,14 +66,14 @@ export default async function handler(
     if (Number.isFinite(updates.priority)) {
       sanitized.priority = Number(updates.priority);
     }
-    const goals = await listGoals(userId);
-    const next = goals.map(
-      (goal): AutonomyGoal =>
-        goal.id === id
-          ? { ...goal, ...sanitized, id: goal.id, updatedAt: nowMs() }
-          : goal,
+    const next = await mutateGoals(userId, (goals) =>
+      goals.map(
+        (goal): AutonomyGoal =>
+          goal.id === id
+            ? { ...goal, ...sanitized, id: goal.id, updatedAt: nowMs() }
+            : goal,
+      ),
     );
-    await saveGoals(userId, next);
     return res.status(200).json(next.find((goal) => goal.id === id) || null);
   }
 
@@ -82,9 +82,8 @@ export default async function handler(
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'id is required' });
     }
-    await saveGoals(
-      userId,
-      (await listGoals(userId)).filter((goal) => goal.id !== id),
+    await mutateGoals(userId, (goals) =>
+      goals.filter((goal) => goal.id !== id),
     );
     return res.status(204).end();
   }

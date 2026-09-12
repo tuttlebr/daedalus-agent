@@ -85,3 +85,37 @@ def test_audit_citations_rejects_urls_not_seen_in_source_ledger():
         "url_not_in_source_ledger",
         "no_valid_citations",
     }
+
+
+def test_explicit_empty_source_ledger_rejects_all_references():
+    async def scenario():
+        audit = await _audit_fn()
+        answer = "A claim [1].\n\n## References\n- [1] NVIDIA - https://developer.nvidia.com/cuda-toolkit"
+        omitted = json.loads(await audit(answer_markdown=answer))
+        empty = json.loads(await audit(answer_markdown=answer, source_urls_json="[]"))
+        assert omitted["passed"]
+        assert not empty["passed"]
+        assert any(
+            item["reason"] == "url_not_in_source_ledger"
+            for item in empty["invalid_citations"]
+        )
+
+    run(scenario())
+
+
+def test_malformed_json_ledger_never_certifies_embedded_urls():
+    async def scenario():
+        audit = await _audit_fn()
+        result = json.loads(
+            await audit(
+                answer_markdown="Claim [1].\n\n## References\n- [1] NVIDIA - https://developer.nvidia.com/cuda-toolkit",
+                source_urls_json='["https://developer.nvidia.com/cuda-toolkit"',
+            )
+        )
+        assert not result["passed"]
+        assert any(
+            item["reason"] == "invalid_source_ledger"
+            for item in result["invalid_citations"]
+        )
+
+    run(scenario())

@@ -20,7 +20,7 @@ services:
     restart: 'no'
 
   seaweedfs:
-    image: chrislusf/seaweedfs:4.39@sha256:c7d6c721b30ae711db766bbbfd40192776e263d4e51e22f57baef7bef93c12c6
+    image: chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
     command: mini -dir=/data -s3 -bucket=daedalus-e2e-documents
     environment:
       S3_BUCKET: daedalus-e2e-documents

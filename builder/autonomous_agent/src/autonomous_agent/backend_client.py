@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
 import re
 import threading
-import time
 from typing import Any
 from urllib.parse import quote
 
-import requests
+import httpx
 
 _AUTH_URL_RE = re.compile(r"https?://[^\s<>\")]+")
 MAX_RESPONSE_CHARS = 4 * 1024 * 1024
@@ -186,6 +186,40 @@ class BackendClient:
         execution_id: str = "",
         abort: threading.Event | None = None,
     ) -> str:
+        async def run():
+            async def check_abort():
+                while abort is None or not abort.is_set():
+                    await asyncio.sleep(0.05)
+                raise RunAbortedError("backend request aborted")
+
+            if abort is not None and abort.is_set():
+                raise RunAbortedError("backend request aborted")
+            reader = asyncio.create_task(
+                self._read_stream(messages, execution_id=execution_id)
+            )
+            cancellation = asyncio.create_task(check_abort())
+            try:
+                done, _ = await asyncio.wait(
+                    (reader, cancellation),
+                    timeout=self.request_timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    raise RunAbortedError(
+                        f"backend request exceeded {self.request_timeout}s"
+                    )
+                # A cancellation wins if both tasks finish in the same tick.
+                if cancellation in done:
+                    return cancellation.result()
+                return reader.result()
+            finally:
+                reader.cancel()
+                cancellation.cancel()
+                await asyncio.gather(reader, cancellation, return_exceptions=True)
+
+        return asyncio.run(run())
+
+    async def _read_stream(self, messages, *, execution_id):
         url = f"{self.base_url}{self.api_path}"
         payload = {
             "messages": messages,
@@ -194,59 +228,47 @@ class BackendClient:
         }
         full = ""
         current_sse_event: str | None = None
-        # request_timeout is a per-read inactivity bound, not a total budget: a
-        # backend that emits one frame every 59 minutes would keep iter_lines
-        # blocked forever. Track the wall clock separately.
-        deadline = time.monotonic() + self.request_timeout
-        with requests.post(
-            url,
-            json=payload,
-            headers=self._headers(execution_id=execution_id),
-            stream=True,
-            timeout=self.request_timeout,
-        ) as resp:
-            resp.raise_for_status()
-            # Without an explicit charset requests falls back to ISO-8859-1 for
-            # text/* responses, which mangles non-ASCII feed content.
-            resp.encoding = "utf-8"
-            for line in resp.iter_lines(decode_unicode=True):
-                if abort is not None and abort.is_set():
-                    raise RunAbortedError("backend request aborted")
-                if time.monotonic() > deadline:
-                    raise RunAbortedError(
-                        f"backend request exceeded {self.request_timeout}s"
+        async with httpx.AsyncClient(timeout=self.request_timeout) as client:
+            async with client.stream(
+                "POST",
+                url,
+                json=payload,
+                headers=self._headers(execution_id=execution_id),
+            ) as resp:
+                resp.raise_for_status()
+                resp.encoding = "utf-8"
+                async for line in resp.aiter_lines():
+                    if not line:
+                        current_sse_event = None
+                        continue
+                    if line.startswith("event: "):
+                        current_sse_event = line[len("event: ") :].strip()
+                        continue
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    oauth_payload = extract_oauth_required_payload(
+                        current_sse_event,
+                        chunk,
                     )
-                if len(full) > MAX_RESPONSE_CHARS:
-                    raise RunAbortedError(
-                        f"backend response exceeded {MAX_RESPONSE_CHARS} characters"
-                    )
-                if not line:
-                    current_sse_event = None
-                    continue
-                if line.startswith("event: "):
-                    current_sse_event = line[len("event: ") :].strip()
-                    continue
-                if not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                if data.strip() == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                oauth_payload = extract_oauth_required_payload(
-                    current_sse_event,
-                    chunk,
-                )
-                if oauth_payload:
-                    raise OAuthRequiredError(
-                        "OAuth authorization is required.",
-                        auth_url=oauth_payload.get("auth_url", ""),
-                        oauth_state=oauth_payload.get("oauth_state", ""),
-                    )
-                for choice in chunk.get("choices", []):
-                    content = choice.get("delta", {}).get("content", "")
-                    if content:
-                        full += content
+                    if oauth_payload:
+                        raise OAuthRequiredError(
+                            "OAuth authorization is required.",
+                            auth_url=oauth_payload.get("auth_url", ""),
+                            oauth_state=oauth_payload.get("oauth_state", ""),
+                        )
+                    for choice in chunk.get("choices", []):
+                        content = choice.get("delta", {}).get("content", "")
+                        if content:
+                            full += content
+                    if len(full) > MAX_RESPONSE_CHARS:
+                        raise RunAbortedError(
+                            f"backend response exceeded {MAX_RESPONSE_CHARS} characters"
+                        )
         return full

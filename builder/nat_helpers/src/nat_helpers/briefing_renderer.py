@@ -3,6 +3,10 @@
 import asyncio
 import json
 import logging
+import os
+import signal
+import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -75,6 +79,72 @@ def _execution_result(text: str) -> dict:
     }
 
 
+async def _render_locally(config, edition):
+    """Recover transport failures using only the operator-owned canonical scripts.
+
+    Model data is JSON in a temporary directory, never executable code. The same
+    schema, HTML and source-policy gates run before any artifact is delivered.
+    """
+    root = Path(config.skill_directory)
+    with tempfile.TemporaryDirectory(prefix="daedalus-briefing-") as temporary:
+        directory = Path(temporary)
+        for name, relative in _RESOURCES.items():
+            (directory / name).write_bytes((root / relative).read_bytes())
+        (directory / "edition.json").write_text(
+            json.dumps(edition, ensure_ascii=False, allow_nan=False), encoding="utf-8"
+        )
+        async with asyncio.timeout(config.timeout_seconds):
+            for argv in (
+                [
+                    "render_daybook.py",
+                    "edition.json",
+                    "edition-policy.json",
+                    "daybook-v4.html",
+                    "daily-daedalus.html",
+                    "coverage.json",
+                ],
+                [
+                    "validate_daybook.py",
+                    "daily-daedalus.html",
+                    "coverage.json",
+                    "edition-policy.json",
+                ],
+            ):
+                # Capture only bounded JSON diagnostics. No shell, inherited
+                # provider credentials, or model-selected executable arguments.
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable,
+                    "-I",
+                    *argv,
+                    cwd=directory,
+                    env={"PATH": os.defpath},
+                    start_new_session=True,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                try:
+                    output = await process.stdout.read(65_537)
+                    if len(output) > 65_536:
+                        raise ValueError(
+                            "canonical renderer diagnostic budget exceeded"
+                        )
+                    await process.wait()
+                finally:
+                    if process.returncode is None:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        await asyncio.shield(process.communicate())
+                report = json.loads(output)
+                if process.returncode != 0 or report.get("passed") is not True:
+                    return None, report
+            path = directory / "daily-daedalus.html"
+            if path.stat().st_size > config.max_edition_bytes * 10:
+                raise ValueError("canonical HTML exceeds output budget")
+            return path.read_text(encoding="utf-8"), report
+
+
 def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
     async def render(input_data: BriefingRendererInput) -> str:
         run = current_agent_run()
@@ -109,6 +179,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
 
             if attempt > 2:
                 return fail(["Briefing repair budget exhausted."])
+            stage = "edition_serialization"
             try:
                 serialized = json.dumps(
                     input_data.edition, ensure_ascii=False, allow_nan=False
@@ -124,6 +195,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                 }
                 files["edition.json"] = serialized
                 directory = f"briefing-{uuid.uuid4().hex}"
+                stage = "sandbox_staging"
                 async with asyncio.timeout(config.timeout_seconds):
                     for name, content in files.items():
                         result = _execution_result(
@@ -134,9 +206,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                             )
                         )
                         if result["exit_code"] != 0:
-                            return fail(
-                                ["Unable to stage briefing resources."], retryable=False
-                            )
+                            raise ValueError("unable to stage briefing resources")
                     for argv in (
                         [
                             "python3",
@@ -155,6 +225,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                             "edition-policy.json",
                         ],
                     ):
+                        stage = argv[1]
                         result = _execution_result(
                             await sandbox(
                                 operation="execute",
@@ -172,6 +243,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                                 if isinstance(errors, list) and errors
                                 else ["Briefing validation failed."]
                             )
+                    stage = "validated_html_collection"
                     result = _execution_result(
                         await sandbox(
                             operation="read_file",
@@ -191,20 +263,49 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                 return _result(
                     passed=True, terminal=True, metrics=report.get("metrics", {})
                 )
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, OSError, TimeoutError, KeyError) as exc:
                 logger.warning(
-                    "Briefing rendering rejected: error_class=%s", type(exc).__name__
+                    "Briefing transport recovery: stage=%s error_class=%s",
+                    stage,
+                    type(exc).__name__,
                 )
-                return fail(
-                    ["Invalid edition data or incomplete sandbox validation result."]
-                )
-            except (OSError, TimeoutError, KeyError) as exc:
-                logger.warning(
-                    "Briefing rendering unavailable: error_class=%s", type(exc).__name__
-                )
-                return fail(
-                    ["Briefing validation service unavailable."], retryable=False
-                )
+                try:
+                    html, report = await _render_locally(config, input_data.edition)
+                    if html is None:
+                        return fail(
+                            report.get("errors") or ["Canonical validation failed."]
+                        )
+                    run.terminal_reason = "validated_artifact"
+                    run.terminal_content = f"```html\n{html}\n```"
+                    logger.info(
+                        "Briefing recovered using canonical local validation: stage=%s",
+                        stage,
+                    )
+                    return _result(
+                        passed=True,
+                        terminal=True,
+                        rendering="local_recovery",
+                        metrics=report.get("metrics", {}),
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                    OSError,
+                    TimeoutError,
+                    KeyError,
+                ) as recovery:
+                    logger.warning(
+                        "Briefing recovery unavailable: stage=%s error_class=%s",
+                        stage,
+                        type(recovery).__name__,
+                    )
+                    return fail(
+                        [
+                            f"Briefing rendering failed at {stage}; canonical recovery "
+                            f"is unavailable ({type(recovery).__name__})."
+                        ],
+                        retryable=False,
+                    )
 
     return render
 

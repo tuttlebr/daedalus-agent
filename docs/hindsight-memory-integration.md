@@ -65,11 +65,22 @@ provider and no `nat:memory:*` records are read or written. Redis remains an
 application-state store for sessions, history, attachments, OAuth, autonomy,
 approvals, rate limits, and idempotency.
 
-Bulk profile imports submit one durable asynchronous Hindsight batch and return
-HTTP 202 after Hindsight accepts it. Profile document IDs are deterministic per
-authenticated user and entry label, so retrying an import converges on the same
-sources even though each submitted batch has a fresh operation ID. Memory Center
-sources and extracted facts appear as Hindsight processes the accepted batch.
+Append profile imports submit one durable asynchronous Hindsight batch and return
+HTTP 202 after acceptance. Their document IDs remain deterministic per user and
+entry label. Replace imports first snapshot existing profile document IDs, retain
+a fresh generation synchronously (up to 120 seconds), and delete only the captured
+old IDs after Hindsight confirms completion. A failed or merely queued replacement
+keeps the previous profile. Successful replacements return HTTP 200 with `queued: 0`.
+An ambiguous retention failure can leave additional staged documents; cleanup
+failure can leave both generations. Neither case justifies deleting old data or
+blindly retrying a destructive operation. Review Memory Center before retrying.
+Concurrent replacements can retain multiple generations; no old generation is
+removed before a completed replacement exists. No stored-ID migration is required.
+
+Both Memory Center clear and the approved chat deletion tool remove durable
+memories, derived knowledge pages, and the authenticated user's cached memory
+context. A cleanup failure is reported as incomplete deletion. Other users' caches
+are outside that operation's scope.
 
 ## Runtime flow
 

@@ -15,6 +15,21 @@ const mockSadd = vi.fn().mockResolvedValue(1);
 vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     sismember: mockSismember,
+    eval: async (script: string, _count: number, ...args: any[]) => {
+      if (script.includes('READ_OWNED_CONVERSATION')) {
+        const value = await jsonGet(args[0]);
+        return [
+          value ? JSON.stringify(value) : '',
+          await mockSismember(args[1], args[2]),
+        ];
+      }
+      if (script.includes('SAVE_OWNED_CONVERSATION')) {
+        await jsonSetWithExpiry(args[0], JSON.parse(args[3]), Number(args[6]));
+        await mockSadd(args[1], args[4]);
+        return 1;
+      }
+      throw new Error('Unexpected Redis script in route fixture');
+    },
     sadd: mockSadd,
   })),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
@@ -135,7 +150,7 @@ describe('conversations/[id] API handler', () => {
       expect(res.json).toHaveBeenCalledWith(conversationData);
     });
 
-    it('sanitizes replayed assistant prefixes when conversation data is found', async () => {
+    it('preserves legitimate repeated assistant text on read', async () => {
       const prior = 'Daily summary for May 13, 2026.';
       const next = 'The namespace is healthy.';
       const conversationData = {
@@ -154,22 +169,9 @@ describe('conversations/[id] API handler', () => {
 
       await handler(req, res);
 
-      const sanitized = {
-        ...conversationData,
-        messages: [
-          conversationData.messages[0],
-          conversationData.messages[1],
-          conversationData.messages[2],
-          { role: 'assistant', content: next },
-        ],
-      };
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith(sanitized);
-      expect(jsonSetWithExpiry).toHaveBeenCalledWith(
-        'daedalus:conversation:conv-1',
-        sanitized,
-        60 * 60 * 24 * 7,
-      );
+      expect(res.json).toHaveBeenCalledWith(conversationData);
+      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
     });
 
     it('returns 404 when conversation not found', async () => {

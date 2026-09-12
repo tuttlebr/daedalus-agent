@@ -590,8 +590,14 @@ def _clone_collection(
         }
         if config["metric_type"]:
             add_kwargs["metric_type"] = config["metric_type"]
-        if config["params"]:
-            add_kwargs["params"] = config["params"]
+        params = dict(config["params"])
+        # describe_index reports the schema-derived dimension as a string.
+        # PyMilvus rejects that value in create_index; it supplies the correct
+        # integer from the cloned field schema when dim is omitted. Keep dim in
+        # fingerprints so previously written audit markers remain compatible.
+        params.pop("dim", None)
+        if params:
+            add_kwargs["params"] = params
         index_params.add_index(**add_kwargs)
 
     create_kwargs: dict[str, Any] = {
@@ -656,6 +662,7 @@ def _copy_batches(
     target_name: str,
     primary_field: str,
     batch_size: int,
+    auto_id: bool,
 ) -> int:
     iterator = client.query_iterator(
         collection_name=source_name,
@@ -675,7 +682,50 @@ def _copy_batches(
                 raise MigrationVerificationError(
                     f"source batch omitted primary field '{primary_field}'"
                 )
-            client.upsert(collection_name=target_name, data=entities)
+            expected = {entity[primary_field]: entity for entity in entities}
+            if len(expected) != len(entities):
+                raise MigrationVerificationError(
+                    "source batch has duplicate primary IDs"
+                )
+            if auto_id:
+                # Milvus 2.6.9 upsert generates new primary IDs even when
+                # allow_insert_auto_id=true. Insert preserves supplied IDs.
+                # Strong reads make an interrupted, committed batch resumable
+                # without reinserting it. Writers must remain quiesced under
+                # the operator migration's shared audit lock.
+                existing = {
+                    entity[primary_field]: entity
+                    for item in client.get(
+                        collection_name=target_name,
+                        ids=list(expected),
+                        output_fields=["*"],
+                        consistency_level="Strong",
+                    )
+                    for entity in [_as_plain_dict(item)]
+                }
+                if any(expected.get(key) != row for key, row in existing.items()):
+                    raise MigrationVerificationError(
+                        "target primary ID already contains different source data"
+                    )
+                missing = [row for key, row in expected.items() if key not in existing]
+                if missing:
+                    client.insert(collection_name=target_name, data=missing)
+            else:
+                client.upsert(collection_name=target_name, data=entities)
+            actual = {
+                entity[primary_field]: entity
+                for item in client.get(
+                    collection_name=target_name,
+                    ids=list(expected),
+                    output_fields=["*"],
+                    consistency_level="Strong",
+                )
+                for entity in [_as_plain_dict(item)]
+            }
+            if actual != expected:
+                raise MigrationVerificationError(
+                    "copied batch failed primary-ID and content verification"
+                )
             copied += len(entities)
     finally:
         close = getattr(iterator, "close", None)
@@ -784,6 +834,14 @@ class UserCollectionMigrationExecutor:
         if latest and latest["event"] == "migration_verified":
             source = inspect_collection(self.client, legacy)
             target = inspect_collection(self.client, current)
+            if (
+                source.auto_id
+                and latest.get("copied_with") != "primary-key-insert-missing"
+            ):
+                raise MigrationStateError(
+                    "legacy AutoID upsert verification requires operator review of "
+                    "the copied primary IDs before reuse"
+                )
             if not _snapshot_matches_marker(source, latest, "source"):
                 raise MigrationVerificationError(
                     "verified legacy source changed after migration"
@@ -870,6 +928,11 @@ class UserCollectionMigrationExecutor:
                     "source_index_fingerprint": source.index_fingerprint,
                     "source_allow_insert_auto_id": source.allow_insert_auto_id,
                     "target_allow_insert_auto_id": target_allow_insert_auto_id,
+                    "copied_with": (
+                        "primary-key-insert-missing"
+                        if source.auto_id
+                        else "primary-key-upsert"
+                    ),
                     "subject_inventory_fingerprint": inventory_fingerprint,
                 }
             )
@@ -894,6 +957,27 @@ class UserCollectionMigrationExecutor:
                 raise MigrationVerificationError(
                     "hashed target contains more rows than the recorded legacy source"
                 )
+            if (
+                source.auto_id
+                and started.get("copied_with") != "primary-key-insert-missing"
+            ):
+                if target_before_copy.count:
+                    raise MigrationStateError(
+                        "nonempty legacy AutoID partial target requires operator review "
+                        "of its primary IDs before resuming"
+                    )
+                # An old empty target is safe to restart. Record the new
+                # strategy before any write so a later interruption can resume.
+                started = self.audit.append(
+                    {
+                        **{
+                            key: value
+                            for key, value in started.items()
+                            if key != "event_hash"
+                        },
+                        "copied_with": "primary-key-insert-missing",
+                    }
+                )
             with _preserve_auto_ids(
                 self.client,
                 current,
@@ -906,6 +990,7 @@ class UserCollectionMigrationExecutor:
                     target_name=current,
                     primary_field=source.primary_field,
                     batch_size=batch_size,
+                    auto_id=source.auto_id,
                 )
             source_after, target_after = _wait_for_post_copy_verification(
                 self.client,
@@ -949,7 +1034,11 @@ class UserCollectionMigrationExecutor:
                 "target_schema_fingerprint": target_after.schema_fingerprint,
                 "target_index_fingerprint": target_after.index_fingerprint,
                 "target_allow_insert_auto_id": target_after.allow_insert_auto_id,
-                "copied_with": "primary-key-upsert",
+                "copied_with": (
+                    "primary-key-insert-missing"
+                    if source.auto_id
+                    else "primary-key-upsert"
+                ),
                 "rows_processed": rows_processed,
                 "source_auto_id": source.auto_id,
             }

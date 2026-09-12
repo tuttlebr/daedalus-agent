@@ -2,6 +2,15 @@
 {{- $documentObjectInCluster := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "inCluster") -}}
 {{- $documentObjectExternalEnabled := and .Values.documentObjectStorage.enabled (eq $documentObjectMode "external") -}}
 {{- $documentObjectExternal := .Values.documentObjectStorage.networkPolicy.external -}}
+{{- $push := .Values.frontend.streamWorker.pushNotifications -}}
+{{- if and $push.enabled .Values.backend.networkPolicy.enabled (not .Values.backend.networkPolicy.cilium.enabled) (not $push.cidrs) -}}
+{{- fail "frontend.streamWorker.pushNotifications.cidrs requires explicit provider CIDRs when push is enabled with standard NetworkPolicy" -}}
+{{- end -}}
+{{- range $push.cidrs -}}
+{{- if or (eq . "0.0.0.0/0") (eq . "::/0") -}}
+{{- fail "pushNotifications.cidrs must contain provider ranges, not unrestricted internet egress" -}}
+{{- end -}}
+{{- end -}}
 {{- if .Values.backend.networkPolicy.enabled }}
 # Network Policy for Frontend — restricts egress to backend services, Redis, and DNS only
 apiVersion: networking.k8s.io/v1
@@ -100,6 +109,17 @@ spec:
   policyTypes:
     - Egress
   egress:
+    {{- if and $push.enabled (not .Values.backend.networkPolicy.cilium.enabled) }}
+    # Approved provider ranges only; the sender also validates endpoint hosts.
+    - to:
+        {{- range $push.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
     - to:
         - namespaceSelector: {}
           podSelector:

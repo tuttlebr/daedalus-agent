@@ -88,7 +88,7 @@ def _terminate_process_group(proc) -> None:
     group leader, so we can signal the whole group.
     """
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        os.killpg(proc.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError, OSError):
         try:
             proc.kill()
@@ -220,6 +220,27 @@ async def _run_skill_script(
     if args:
         cmd.extend(args.split())
 
+    proc = None
+    readers = []
+    stdout, stderr = bytearray(), bytearray()
+    remaining = _MAX_SCRIPT_OUTPUT_BYTES
+    failure = ""
+
+    class OutputLimitExceeded(Exception):
+        pass
+
+    async def capture(stream, output):
+        nonlocal remaining
+        while True:
+            chunk = await stream.read(min(65536, remaining + 1))
+            if not chunk:
+                return
+            kept = min(len(chunk), remaining)
+            output.extend(chunk[:kept])
+            remaining -= kept
+            if len(chunk) > kept:
+                raise OutputLimitExceeded
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -229,34 +250,38 @@ async def _run_skill_script(
             env=_sanitized_env(),
             start_new_session=True,
         )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(),
-            timeout=script_timeout,
-        )
-    except TimeoutError:
-        _terminate_process_group(proc)
-        try:
+        readers = [
+            asyncio.create_task(capture(proc.stdout, stdout)),
+            asyncio.create_task(capture(proc.stderr, stderr)),
+        ]
+        async with asyncio.timeout(script_timeout):
+            await asyncio.gather(*readers)
             await proc.wait()
-        except Exception:  # noqa: BLE001  # nosec B110 - best-effort reap of killed child
-            pass
-        return f"Error: Script timed out after {script_timeout}s"
+    except OutputLimitExceeded:
+        failure = f"Error: Script output limit exceeded ({_MAX_SCRIPT_OUTPUT_BYTES} bytes combined); process group terminated."
+    except TimeoutError:
+        failure = f"Error: Script timed out after {script_timeout}s"
     except OSError as exc:
-        return f"Error executing script: {exc}"
+        failure = f"Error executing script: {exc}"
+    finally:
+        # This also runs on task cancellation. The group ID is the original
+        # child's PID even if the group leader has already exited.
+        if proc is not None:
+            _terminate_process_group(proc)
+            for reader in readers:
+                reader.cancel()
+            await asyncio.gather(*readers, return_exceptions=True)
+            await asyncio.shield(proc.communicate())
 
     output_parts: list[str] = []
     if stdout:
-        decoded = stdout[:_MAX_SCRIPT_OUTPUT_BYTES].decode(errors="replace")
-        if len(stdout) > _MAX_SCRIPT_OUTPUT_BYTES:
-            decoded += f"\n[stdout truncated: {len(stdout)} bytes total, showing first {_MAX_SCRIPT_OUTPUT_BYTES}]"
-        output_parts.append(decoded)
+        output_parts.append(stdout.decode(errors="replace"))
     if stderr:
-        decoded = stderr[:_MAX_SCRIPT_OUTPUT_BYTES].decode(errors="replace")
-        if len(stderr) > _MAX_SCRIPT_OUTPUT_BYTES:
-            decoded += f"\n[stderr truncated: {len(stderr)} bytes total, showing first {_MAX_SCRIPT_OUTPUT_BYTES}]"
-        output_parts.append(f"[stderr]\n{decoded}")
-    if proc.returncode != 0:
+        output_parts.append(f"[stderr]\n{stderr.decode(errors='replace')}")
+    if failure:
+        output_parts.append(failure)
+    elif proc is not None and proc.returncode != 0:
         output_parts.append(f"[exit code: {proc.returncode}]")
-
     return "\n".join(output_parts) if output_parts else "(no output)"
 
 
@@ -345,7 +370,11 @@ async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
     parser = SkillParser(skills_directory=config.skills_directory)
     parser.discover_skills()
 
-    enabled = set(config.enabled_operations or _ALL_OPERATIONS)
+    enabled = set(
+        _ALL_OPERATIONS
+        if config.enabled_operations is None
+        else config.enabled_operations
+    )
 
     async def agent_skills(
         operation: AgentSkillsOperation = "list_skills",

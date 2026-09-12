@@ -681,6 +681,7 @@ def _create_mcp_approval_marker(
 ) -> str:
     """Persist the gate-owned exact call and return an opaque UI marker."""
 
+    from nat_helpers.approval_context import register_approval_marker
     from user_interaction.approval_tokens import (
         create_pending_mcp_approval,
         make_redis_client,
@@ -704,7 +705,7 @@ def _create_mcp_approval_marker(
         tool_name=tool_name,
         arguments_json=canonical_arguments,
     )
-    return _encode_mcp_approval_marker(
+    marker = _encode_mcp_approval_marker(
         {
             "version": 1,
             "requestId": pending["request_id"],
@@ -715,6 +716,7 @@ def _create_mcp_approval_marker(
             "argumentsSha256": arguments_sha256,
         }
     )
+    return register_approval_marker(marker)
 
 
 def _validate_mcp_approval(
@@ -837,11 +839,25 @@ def _mcp_result_is_error(result) -> bool:
 
     if getattr(result, "isError", None) is True:
         return True
-    if isinstance(result, dict) and result.get("isError") is True:
-        return True
-    return isinstance(result, str) and result.lstrip().startswith(
-        "MCPToolClient tool call failed:"
-    )
+    if isinstance(result, str):
+        if result.lstrip().startswith("MCPToolClient tool call failed:"):
+            return True
+        # The per-user wrapper converts exceptions to a sanitized JSON envelope.
+        # That conversion must not turn a rejected mutation into a success.
+        if _MCP_APPROVAL_MARKER_PREFIX in result:
+            return True  # A pending approval is not an execution result.
+        try:
+            result = json.loads(result)
+        except (TypeError, ValueError):
+            return False
+    if isinstance(result, dict):
+        return result.get("isError") is True or (
+            bool(result.get("error"))
+            and isinstance(result.get("server"), str)
+            and isinstance(result.get("tool"), str)
+            and isinstance(result.get("retryable"), bool)
+        )
+    return False
 
 
 def _record_approved_mcp_receipt(

@@ -52,6 +52,7 @@ class ImageBlobCache {
   private cleanupTimer: { stop: () => void } | null = null;
   private memoryTimer: { stop: () => void } | null = null;
   private referenceCount = new Map<string, number>();
+  private inFlight = new Map<string, Promise<Blob>>();
   private memoryPressureThreshold = 70.0;
 
   constructor() {
@@ -96,12 +97,34 @@ class ImageBlobCache {
       return cached.url;
     }
 
-    const response = await fetch(getImageUrl(imageRef, useThumbnail));
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    let pending = this.inFlight.get(cacheKey);
+    if (!pending) {
+      pending = (async () => {
+        const response = await fetch(getImageUrl(imageRef, useThumbnail));
+        if (!response.ok)
+          throw new Error(`Failed to fetch image: ${response.statusText}`);
+        return response.blob();
+      })();
+      this.inFlight.set(cacheKey, pending);
     }
-
-    const blob = await response.blob();
+    let blob: Blob;
+    try {
+      blob = await pending;
+    } finally {
+      if (this.inFlight.get(cacheKey) === pending)
+        this.inFlight.delete(cacheKey);
+    }
+    // Each waiter acquires its own reference after the shared fetch settles.
+    // Oversized/uncached blobs retain separate, independently releasable URLs.
+    const shared = this.cache.get(cacheKey);
+    if (shared) {
+      shared.lastAccessed = Date.now();
+      this.referenceCount.set(
+        cacheKey,
+        (this.referenceCount.get(cacheKey) || 0) + 1,
+      );
+      return shared.url;
+    }
     const blobUrl = URL.createObjectURL(blob);
 
     const cachedBlob = this.addToCache(cacheKey, blobUrl, blob.size);

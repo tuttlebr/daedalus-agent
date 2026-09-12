@@ -1210,6 +1210,17 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
         invalid: list[dict] = []
         warnings: list[str] = []
         valid: list[dict] = []
+        if source_urls_json.lstrip().startswith(("[", "{")):
+            try:
+                json.loads(source_urls_json)
+            except json.JSONDecodeError:
+                allowed_norms = {}
+                invalid.append(
+                    {
+                        "reason": "invalid_source_ledger",
+                        "detail": "Source ledger JSON is malformed.",
+                    }
+                )
 
         match = _REFERENCE_SECTION_RE.search(answer_markdown)
         if not match:
@@ -1270,7 +1281,7 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
                     }
                 )
                 continue
-            if allowed_norms and normalized not in allowed_norms:
+            if source_urls_json.strip() and normalized not in allowed_norms:
                 invalid.append(
                     {
                         "number": number,

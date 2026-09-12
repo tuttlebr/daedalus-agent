@@ -20,6 +20,7 @@ from nat_helpers.hindsight_memory_context import (
     ensure_bank_initialized,
 )
 from nat_helpers.identity import authenticated_user_id_from_headers
+from nat_helpers.memory_lifecycle import clear_user_memory
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 logger = logging.getLogger("daedalus.memory_api")
@@ -533,24 +534,17 @@ async def _clear_memories_for_user(
             status_code=400, detail="confirmation phrase does not match"
         )
     client = client_from_env()
-    tree = await _call(client.knowledge_tree(user_id=user_id))
-    result = await _call(client.clear_memories(user_id=user_id))
-    for root in tree:
-        if not isinstance(root, dict) or not str(root.get("id") or "").strip():
-            continue
-        await _call(
-            client.delete_knowledge_node(
-                user_id=user_id,
-                node_id=str(root["id"]),
-            )
-        )
     try:
-        await clear_user_memory_caches(user_id)
+        result = await _call(
+            clear_user_memory(client, user_id, clear_caches=clear_user_memory_caches)
+        )
     except Exception as exc:
-        logger.error("Cleared Hindsight but could not clear session memory cache")
+        logger.error(
+            "Memory deletion lifecycle incomplete: error_class=%s", type(exc).__name__
+        )
         raise HTTPException(
             status_code=503,
-            detail="durable memory was cleared but session cache cleanup must be retried",
+            detail="memory deletion did not finish; cleanup must be retried",
         ) from exc
     await ensure_bank_initialized(client, user_id)
     return {"status": "cleared", "result": result}

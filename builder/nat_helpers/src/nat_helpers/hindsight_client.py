@@ -240,8 +240,9 @@ class HindsightClient:
         user_id: str,
         items: list[dict[str, Any]],
         operation_id: str,
+        asynchronous: bool = True,
     ) -> dict[str, Any]:
-        """Durably enqueue one idempotent batch for background extraction."""
+        """Retain one idempotent batch, optionally waiting for extraction."""
 
         if not items:
             raise ValueError("at least one memory item is required")
@@ -280,10 +281,10 @@ class HindsightClient:
             user_id=user_id,
             body={
                 "items": normalized_items,
-                "async": True,
+                "async": asynchronous,
                 "operation_id": operation_id,
             },
-            asynchronous=True,
+            asynchronous=asynchronous,
         )
 
     async def _submit_retain(

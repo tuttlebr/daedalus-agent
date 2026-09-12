@@ -158,11 +158,30 @@ async def import_profile_memories(
 
     client = client_from_env()
     replaced = 0
+    previous_documents = set()
     if req.mode == "replace":
-        replaced = await client.delete_documents_with_tag(
-            user_id=user_id,
-            tag="source:profile-import",
-        )
+        offset = 0
+        while True:
+            page = await client.list_documents(
+                user_id=user_id,
+                limit=100,
+                offset=offset,
+                tags=["source:profile-import"],
+            )
+            items = page.get("items", [])
+            if not isinstance(items, list):
+                raise RuntimeError("Hindsight returned an invalid profile inventory")
+            for item in items:
+                if not isinstance(item, dict) or not str(item.get("id") or "").strip():
+                    raise RuntimeError("Hindsight returned an invalid profile document")
+                previous_documents.add(str(item["id"]))
+            if len(items) < 100:
+                break
+            offset += len(items)
+
+    # Stage a fresh generation so matching labels cannot overwrite the old
+    # profile before extraction succeeds. Append retains its stable IDs.
+    requested_operation_id = str(uuid.uuid4())
 
     imported_at = _now_iso()
     hindsight_items: list[dict[str, Any]] = []
@@ -171,7 +190,9 @@ async def import_profile_memories(
         document_id = deterministic_document_id(
             user_id=user_id,
             source="profile",
-            request_id=label_hash,
+            request_id=f"{requested_operation_id}:{label_hash}"
+            if req.mode == "replace"
+            else label_hash,
             content=label_hash,
         )
         hindsight_items.append(
@@ -192,12 +213,29 @@ async def import_profile_memories(
     # Each request gets a fresh durable operation. This is required for replace
     # mode: replaying a completed operation after deleting its old documents
     # would acknowledge the replay without restoring them.
-    requested_operation_id = str(uuid.uuid4())
     accepted = await client.retain_batch(
         user_id=user_id,
         items=hindsight_items,
         operation_id=requested_operation_id,
+        asynchronous=req.mode != "replace",
     )
+    if req.mode == "replace":
+        # An accepted asynchronous job is insufficient evidence for deletion.
+        if (
+            accepted.get("success") is not True
+            or accepted.get("status") in {"pending", "running", "failed", "error"}
+            or accepted.get("error")
+            or accepted.get("async") is True
+        ):
+            raise RuntimeError(
+                "Hindsight did not confirm replacement profile retention"
+            )
+        for document_id in sorted(previous_documents):
+            await client.delete_document(user_id=user_id, document_id=document_id)
+            replaced += 1
+        return ProfileImportResult(
+            imported=len(req.entries), replaced=replaced, queued=0, operation_id=None
+        )
     operation_id = str(accepted.get("operation_id") or "").strip()
     if not operation_id:
         raise RuntimeError("Hindsight did not accept the profile import operation")

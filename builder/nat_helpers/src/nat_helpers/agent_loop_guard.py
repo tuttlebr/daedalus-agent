@@ -13,6 +13,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
+from nat_helpers.approval_context import approval_marker_scope
 from pydantic import BaseModel, Field
 
 
@@ -238,7 +239,8 @@ def agent_run_scope(settings: LoopGuardSettings | None = None):
     run = AgentRun(settings=settings or LoopGuardSettings())
     token = _CURRENT_RUN.set(run)
     try:
-        yield run
+        with approval_marker_scope():
+            yield run
     finally:
         _CURRENT_RUN.reset(token)
 

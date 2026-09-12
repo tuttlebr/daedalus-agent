@@ -45,7 +45,7 @@ export default async function handler(
     // Filter out any null conversations and add the id to the conversation object
     const validConversations = conversations
       .map((conv, index) => {
-        if (conv) {
+        if (conv && (!conv.ownerId || conv.ownerId === session.username)) {
           return {
             ...conv,
             id: conversationIds[index],

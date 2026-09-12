@@ -9,6 +9,7 @@ import {
   IconRobot,
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 
 import { useAsyncChat } from '@/hooks/useAsyncChat';
 
@@ -1092,7 +1093,17 @@ export const ChatView = memo(() => {
   const handleStop = useCallback(async () => {
     if (selectedConversationId) {
       flushPendingStreamingUpdates(selectedConversationId);
-      await cancelJob(selectedConversationId);
+      try {
+        await cancelJob(selectedConversationId);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Could not stop the response. Please try again.';
+        toast.error(message);
+        setStreamAnnouncement(message);
+        return;
+      }
       setStreaming(selectedConversationId, false);
       setActivityText('');
       setStepCategories([]);

@@ -256,8 +256,8 @@ MCP exposure and approval follow one configuration rule:
   ```
 
   `backend/tool-calling-config.yaml` is the only repository configuration
-  surface for this decision. The Responses overlay inherits these declarations
-  and never duplicates them. The pinned runtime adapter loads the effective
+  surface for this decision, including the Responses workflow. The removed
+  Responses overlay is no longer required. The pinned runtime adapter loads the effective
   declarations before installing the approval gate. NAT ignores this
   Daedalus-owned extension itself.
 

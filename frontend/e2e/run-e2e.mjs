@@ -1,3 +1,5 @@
+import { createTestCertificate } from './https-proxy.mjs';
+
 import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import path from 'node:path';
@@ -10,7 +12,9 @@ const frontendDir = path.resolve(
 const composeFile = path.join(frontendDir, 'e2e', 'docker-compose.yml');
 const publicBuildEnv = {
   ...process.env,
-  NEXT_PUBLIC_WEBSOCKET_URL: 'ws://127.0.0.1:15001',
+  NEXT_PUBLIC_WEBSOCKET_URL: `wss://127.0.0.1:${
+    process.env.E2E_WEB_PORT || '15000'
+  }`,
   NEXT_PUBLIC_WS_FALLBACK_POLL_INTERVAL_MS: '1000',
   NEXT_TELEMETRY_DISABLED: '1',
   SESSION_SECRET: 'e2e-session-secret-with-more-than-thirty-two-bytes',
@@ -29,7 +33,14 @@ function run(command, args, env = process.env) {
 }
 
 let servicesStarted = false;
+let certificate;
 try {
+  certificate = createTestCertificate();
+  Object.assign(publicBuildEnv, {
+    E2E_TLS_KEY: certificate.key,
+    E2E_TLS_CERT: certificate.cert,
+    E2E_TLS_SPKI: certificate.spki,
+  });
   servicesStarted = true;
   run('docker', [
     'compose',
@@ -55,6 +66,7 @@ try {
     publicBuildEnv,
   );
 } finally {
+  certificate?.close();
   if (servicesStarted && process.env.E2E_KEEP_SERVICES !== '1') {
     spawnSync(
       'docker',

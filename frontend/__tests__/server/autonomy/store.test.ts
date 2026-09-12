@@ -48,6 +48,18 @@ vi.mock('@/utils/sync/publish', () => ({
   publishSyncEvent: mocks.publishSyncEvent,
 }));
 
+// Unit assertions below cover goal normalization and publication. Atomic
+// snapshot conflicts and both Redis types are exercised in goals.integration.
+vi.mock('@/server/atomicJson', () => ({
+  updateJsonAtomically: vi.fn(
+    async (key: string, update: (value: any) => any) => {
+      const next = update(await mocks.jsonGet(key));
+      if (next !== null) await mocks.jsonSet(key, '$', next);
+      return next;
+    },
+  ),
+}));
+
 describe('autonomy store config sanitization', () => {
   beforeEach(() => {
     vi.clearAllMocks();

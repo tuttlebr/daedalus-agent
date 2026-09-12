@@ -5,6 +5,8 @@ FROM redis/redis-stack-server:7.4.0-v8@sha256:798ab84d9f266936b034ab11c4d04a2b8e
 
 USER root
 
+COPY --chmod=755 compose-entrypoint.sh /usr/local/bin/redis-compose-entrypoint
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
         gpgv \

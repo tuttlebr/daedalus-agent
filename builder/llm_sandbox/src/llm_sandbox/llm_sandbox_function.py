@@ -674,7 +674,10 @@ async def _request_with_retry(
 ) -> httpx.Response:
     if payload is not None and content is not None:
         raise ValueError("request cannot contain both JSON and raw content")
-    for attempt in range(2):
+    # A failed POST may already have executed (including appended file writes).
+    # The service offers no idempotency contract: only discovery GETs can retry.
+    attempts = 2 if method == "GET" else 1
+    for attempt in range(attempts):
         try:
             request_kwargs: dict[str, Any] = {"timeout": timeout}
             if headers is not None:
@@ -689,10 +692,13 @@ async def _request_with_retry(
                 **request_kwargs,
             )
         except httpx.HTTPError:
-            if attempt:
+            if attempt + 1 == attempts:
                 raise
         else:
-            if response.status_code not in RETRYABLE_STATUS_CODES or attempt:
+            if (
+                response.status_code not in RETRYABLE_STATUS_CODES
+                or attempt + 1 == attempts
+            ):
                 return response
         if backoff_seconds:
             await asyncio.sleep(backoff_seconds)

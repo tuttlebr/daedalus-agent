@@ -34,7 +34,13 @@ export const MessageBubble = memo(
     const hasAttachments =
       message.attachments && message.attachments.length > 0;
 
-    if (!hasContent && !hasSteps && !hasAttachments && !isStreaming) {
+    if (
+      !hasContent &&
+      !hasSteps &&
+      !hasAttachments &&
+      !message.errorMessages?.message &&
+      !isStreaming
+    ) {
       return null;
     }
 

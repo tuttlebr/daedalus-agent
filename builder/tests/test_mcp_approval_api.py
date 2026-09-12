@@ -2,9 +2,11 @@
 
 import asyncio
 import hashlib
+import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
+import pytest
 from mcp_approval_api import ExecuteMcpApprovalRequest, _run_exact_mcp_call
 
 
@@ -50,14 +52,43 @@ class _FlowHandler:
         self.cleared = True
 
 
-def test_direct_executor_invokes_exact_cached_mcp_function(monkeypatch):
+@pytest.mark.parametrize(
+    "result, expected_status",
+    [
+        ("updated", "completed"),
+        ({"isError": True}, "failed"),
+        ('{"isError":true}', "failed"),
+        ("MCPToolClient tool call failed: rejected", "failed"),
+        *[
+            (
+                json.dumps(
+                    {
+                        "error": error,
+                        "server": "docs_mcp_server",
+                        "tool": "update_doc",
+                        "retryable": False,
+                    }
+                ),
+                "failed",
+            )
+            for error in (
+                "mcp_tool_failed",
+                "google_workspace_refresh_unavailable",
+                "mcp_user_authentication_required",
+            )
+        ],
+    ],
+)
+def test_direct_executor_invokes_exact_cached_mcp_function(
+    monkeypatch, result, expected_status
+):
     monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "internal-token")
     observed = {}
 
     class _Function:
         async def ainvoke(self, arguments):
             observed.update(arguments)
-            return "updated"
+            return result
 
     class _Group:
         async def get_accessible_functions(self):
@@ -103,6 +134,9 @@ def test_direct_executor_invokes_exact_cached_mcp_function(monkeypatch):
         )
     )
 
-    assert record.status == "completed"
+    assert record.status == expected_status
+    if expected_status == "failed":
+        assert record.result is None
+        assert record.error == "The approved MCP operation failed"
     assert observed == {"documentId": "doc-1", "requests": []}
     assert flow_handler.cleared is True

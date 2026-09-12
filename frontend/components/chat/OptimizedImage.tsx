@@ -120,6 +120,8 @@ export const OptimizedImage = memo(
 
           if (!cancelled) {
             setBlobUrl(url);
+          } else {
+            revokeImageBlob(getBlobCacheKey(imageRef, useThumbnail), url);
           }
         } catch (err) {
           logger.error('Failed to load image as blob:', err);
@@ -231,6 +233,8 @@ export const OptimizedImage = memo(
           const url = await fetchImageAsBlob(imageRef, false); // false = full resolution
           if (!cancelled) {
             setFullBlobUrl(url);
+          } else {
+            revokeImageBlob(getBlobCacheKey(imageRef, false), url);
           }
         } catch (err) {
           logger.error('Failed to load full resolution image:', err);

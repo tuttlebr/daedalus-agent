@@ -1,0 +1,73 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/tuttlebr/daedalus-agent/security/image-vex/2026-09-11",
+  "author": "Daedalus maintainers",
+  "timestamp": "2026-09-11T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2026-84445"
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62?arch=amd64&repository_url=docker.io/chrislusf/seaweedfs",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/google.golang.org/grpc@v1.85.0-dev"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The advisory requires xds.NewGRPCServer. The pinned SeaweedFS executable contains ordinary grpc.NewServer but not the xDS server constructor or xds/internal/server code. Its master/filer/volume use pb.NewGrpcServer, which constructs grpc.NewServer. The grpc dependency remains in the advisory's version range; this statement is limited to the linked executable in this image.",
+      "action_statement": "Upgrade to a stable SeaweedFS image with a patched gRPC version when available. Any digest/component/advisory change or expiry requires fresh assessment; native symbol controls are rechecked on every adjudication.",
+      "x-expires": "2026-10-11",
+      "x-image": "chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62",
+      "x-package": "google.golang.org/grpc",
+      "x-version": "v1.85.0-dev",
+      "x-target": "usr/bin/weed",
+      "x-architecture": "amd64",
+      "x-evidence": [
+        "https://github.com/grpc/grpc-go/security/advisories/GHSA-2v4p-qf9q-27wj",
+        "https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/pb/grpc_client_server.go#L183-L207",
+        "https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/command/master.go#L267",
+        "https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/command/filer.go#L465",
+        "https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/command/volume.go#L579"
+      ]
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-84445"
+      },
+      "products": [
+        {
+          "@id": "pkg:oci/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62?arch=arm64&repository_url=docker.io/chrislusf/seaweedfs",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/google.golang.org/grpc@v1.85.0-dev"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The advisory requires xds.NewGRPCServer. The pinned SeaweedFS executable contains ordinary grpc.NewServer but not the xDS server constructor or xds/internal/server code. Its master/filer/volume use pb.NewGrpcServer, which constructs grpc.NewServer. The grpc dependency remains in the advisory's version range; this statement is limited to the linked executable in this image.",
+      "action_statement": "Upgrade to a stable SeaweedFS image with a patched gRPC version when available. Any digest/component/advisory change or expiry requires fresh assessment; native symbol controls are rechecked on every adjudication.",
+      "x-expires": "2026-10-11",
+      "x-image": "chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62",
+      "x-package": "google.golang.org/grpc",
+      "x-version": "v1.85.0-dev",
+      "x-target": "usr/bin/weed",
+      "x-architecture": "arm64",
+      "x-evidence": [
+        "https://github.com/grpc/grpc-go/security/advisories/GHSA-2v4p-qf9q-27wj",
+        "https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/pb/grpc_client_server.go#L183-L207",
+        "https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/command/master.go#L267",
+        "https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/command/filer.go#L465",
+        "https://github.com/seaweedfs/seaweedfs/blob/4.46/weed/command/volume.go#L579"
+      ]
+    }
+  ]
+}

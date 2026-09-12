@@ -14,18 +14,31 @@ end
 const READ_DELETION_SNAPSHOT_LUA = `
 -- READ_CONVERSATION_DELETION_SNAPSHOT
 ${READ_JSON_SNAPSHOT_LUA}
+local owned = redis.call('SISMEMBER', KEYS[1], ARGV[1])
+local conversation = read_json(KEYS[4])
+if conversation ~= '' then
+  local owner = cjson.decode(conversation)['ownerId']
+  if owner and owner ~= ARGV[2] then owned = 0 end
+end
 return {
-  redis.call('SISMEMBER', KEYS[1], ARGV[1]),
+  owned,
   read_json(KEYS[2]),
-  read_json(KEYS[3])
+  read_json(KEYS[3]),
+  conversation
 }
 `;
 
 const APPLY_DELETION_LUA = `
 -- APPLY_CONVERSATION_DELETION
 ${READ_JSON_SNAPSHOT_LUA}
-if redis.call('SISMEMBER', KEYS[1], ARGV[1]) ~= tonumber(ARGV[2])
-  or read_json(KEYS[2]) ~= ARGV[3]
+local owned = redis.call('SISMEMBER', KEYS[1], ARGV[1])
+local conversation = read_json(KEYS[4])
+if conversation ~= ARGV[7] then return 0 end
+if conversation ~= '' then
+  local owner = cjson.decode(conversation)['ownerId']
+  if owner and owner ~= ARGV[8] then owned = 0 end
+end
+if owned ~= tonumber(ARGV[2]) or read_json(KEYS[2]) ~= ARGV[3]
   or read_json(KEYS[3]) ~= ARGV[4] then
   return 0
 end
@@ -64,12 +77,14 @@ export async function deleteConversationForUser(
 
   const retryDeadline = Date.now() + 5_000;
   do {
-    const [owned, historyRaw, selectedRaw] = (await client.eval(
-      READ_DELETION_SNAPSHOT_LUA,
-      3,
-      ...keys.slice(0, 3),
-      id,
-    )) as [number, string, string];
+    const [owned, historyRaw, selectedRaw, conversationRaw] =
+      (await client.eval(
+        READ_DELETION_SNAPSHOT_LUA,
+        keys.length,
+        ...keys,
+        id,
+        username,
+      )) as [number, string, string, string];
     const history = historyRaw ? JSON.parse(historyRaw) : [];
     if (!Array.isArray(history)) {
       throw new Error('Invalid conversation history');
@@ -90,6 +105,8 @@ export async function deleteConversationForUser(
       selectedRaw,
       removeFromHistory ? JSON.stringify(remaining) : '',
       removeSelected ? '1' : '0',
+      conversationRaw,
+      username,
     );
     if (applied === 1) return true;
     // A concurrent save/delete changed the snapshot. Recompute the removal

@@ -41,6 +41,15 @@ import {
 import type { AsyncJobRequest, AsyncJobStatus } from './types';
 
 import {
+  MAX_PUSH_SUBSCRIPTIONS,
+  parsePushSubscription,
+} from '@/server/pushSubscriptions';
+import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
+import {
+  ConversationWriteError,
+  saveConversationForUser,
+} from '@/server/session/conversationStore';
+import {
   channels,
   clearStreamingState,
   jsonGet,
@@ -98,14 +107,23 @@ function conversationFromJournal(
 async function applyConversationState(
   journal: JobFinalizationJournal,
   conversation: Conversation | null,
-): Promise<void> {
-  if (!journal.conversation || !conversation) return;
-
-  await jsonSetWithExpiry(
-    sessionKey(['conversation', journal.conversation.id]),
-    conversation,
-    CONVERSATION_EXPIRY_SECONDS,
-  );
+): Promise<boolean> {
+  if (!journal.conversation || !conversation) return true;
+  try {
+    await saveConversationForUser(
+      journal.userId,
+      journal.conversation.id,
+      () => conversation,
+    );
+  } catch (error) {
+    if (!(error instanceof ConversationWriteError)) throw error;
+    // The user deleted the conversation, or this is a legacy queued job that
+    // never owned it. Do not recreate it or publish/retain a saved copy.
+    logger.warn(
+      `Job ${journal.jobId}: Conversation write suppressed after ownership loss`,
+    );
+    return false;
+  }
 
   const selectedConversationKey = sessionKey([
     'user',
@@ -127,6 +145,7 @@ async function applyConversationState(
       CONVERSATION_EXPIRY_SECONDS,
     );
   }
+  return true;
 }
 
 function buildFinalizationEvents(
@@ -195,6 +214,7 @@ async function requirePhase(
   journal: JobFinalizationJournal,
   phase:
     | 'conversationAppliedAt'
+    | 'conversationSuppressedAt'
     | 'memoryRetentionAttemptedAt'
     | 'streamingStateClearedAt'
     | 'streamStateClearedAt'
@@ -306,9 +326,14 @@ export async function resumePendingFinalization(
       return 'completed' as const;
     }
 
-    const conversation = conversationFromJournal(journal);
+    let conversation = journal.conversationSuppressedAt
+      ? null
+      : conversationFromJournal(journal);
     if (!journal.conversationAppliedAt) {
-      await applyConversationState(journal, conversation);
+      if (!(await applyConversationState(journal, conversation))) {
+        journal = await requirePhase(journal, 'conversationSuppressedAt');
+        conversation = null;
+      }
       journal = await requirePhase(journal, 'conversationAppliedAt');
     }
 
@@ -360,7 +385,7 @@ export async function resumePendingFinalization(
           | { operationId: string; acceptedAt: number }
           | null
           | undefined = journal.memoryRetention;
-        if (!receipt) {
+        if (!receipt && !journal.conversationSuppressedAt) {
           receipt = await retainSuccessfulUserTurn(journal);
           if (receipt) {
             const updated = await setMemoryRetentionReceipt(
@@ -408,10 +433,19 @@ async function sendSuccessPushNotification(
   journal: NewJobFinalizationJournal,
 ): Promise<void> {
   try {
+    if (process.env.PUSH_NOTIFICATIONS_ENABLED === 'false') return;
     const webpush = await import('web-push');
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
     if (!vapidPublicKey || !vapidPrivateKey || !journal.userId) return;
+    if (
+      journal.conversation &&
+      !(await verifyConversationOwnership(
+        journal.userId,
+        journal.conversation.id,
+      ))
+    )
+      return;
 
     webpush.setVapidDetails(
       'mailto:noreply@daedalus.app',
@@ -428,10 +462,15 @@ async function sendSuccessPushNotification(
       body: 'Your conversation has a new response',
       data: { conversationId: journal.conversation?.id },
     });
-    for (const subscription of subscriptions) {
-      webpush.sendNotification(subscription, payload).catch((error: any) => {
-        logger.warn(`Push notification failed: ${error.statusCode}`);
-      });
+    for (const stored of subscriptions.slice(0, MAX_PUSH_SUBSCRIPTIONS)) {
+      // Recheck legacy persisted inputs at execution, not only on registration.
+      const subscription = parsePushSubscription(stored);
+      if (!subscription) continue;
+      webpush
+        .sendNotification(subscription, payload, { timeout: 10000 })
+        .catch((error: any) => {
+          logger.warn(`Push notification failed: ${error.statusCode}`);
+        });
     }
   } catch (error) {
     logger.debug('Push notification skipped', error);

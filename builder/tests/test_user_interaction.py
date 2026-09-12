@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -741,6 +741,9 @@ class TestDeleteMemoryGuarded:
             calls = []
 
             class FakeHindsight:
+                async def knowledge_tree(self, **kwargs):
+                    return []
+
                 async def clear_memories(self, **kwargs):
                     calls.append(kwargs)
                     return {"deleted": 1}
@@ -770,6 +773,10 @@ class TestDeleteMemoryGuarded:
                     "client_from_env",
                     return_value=FakeHindsight(),
                 ),
+                patch(
+                    "nat_helpers.memory_lifecycle.clear_user_memory_caches",
+                    new_callable=AsyncMock,
+                ) as clear_caches,
             ):
                 items = await _get_tools()
                 delete_fn = _operation(items, "delete_memory_guarded")
@@ -777,6 +784,7 @@ class TestDeleteMemoryGuarded:
                 second = await delete_fn(user_id="brandon", approval_token=token)
 
             assert result == "Durable memory cleared."
+            clear_caches.assert_awaited_once_with(calls[0]["user_id"])
             assert calls == [{"user_id": "brandon"}]
             assert "nat:memory:deadbeef" in fake_redis.store
             assert "nat:memory:brandon12" in fake_redis.store
@@ -795,6 +803,9 @@ class TestDeleteMemoryGuarded:
             calls = []
 
             class FakeHindsight:
+                async def knowledge_tree(self, **kwargs):
+                    return []
+
                 async def clear_memories(self, **kwargs):
                     calls.append(kwargs)
                     return {"deleted": 1}
@@ -829,6 +840,10 @@ class TestDeleteMemoryGuarded:
                     "client_from_env",
                     return_value=FakeHindsight(),
                 ),
+                patch(
+                    "nat_helpers.memory_lifecycle.clear_user_memory_caches",
+                    new_callable=AsyncMock,
+                ) as clear_caches,
             ):
                 items = await _get_tools()
                 delete_fn = _operation(items, "delete_memory_guarded")
@@ -838,6 +853,7 @@ class TestDeleteMemoryGuarded:
                 )
 
             assert result == "Durable memory cleared."
+            clear_caches.assert_awaited_once_with(calls[0]["user_id"])
             assert calls == [{"user_id": "tuttlebr"}]
             assert "nat:memory:1234abcd" in fake_redis.store
             assert "nat:memory:tuttlebr" in fake_redis.store
@@ -861,3 +877,17 @@ class TestDeleteMemoryGuarded:
                 )
 
         assert "must match the authenticated user" in run(_run())
+
+
+def test_explicit_empty_enabled_operations_denies_confirmation():
+    async def scenario():
+        items = await _get_tools({"enabled_operations": []})
+        result = await _operation(items, "confirm_action")(
+            action="Delete memory",
+            action_type="delete_memory",
+            target="alice",
+            user_id="alice",
+        )
+        assert "disabled" in result
+
+    run(scenario())

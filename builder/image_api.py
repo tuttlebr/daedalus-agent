@@ -18,7 +18,6 @@ Env var contract (same as the agent tools):
 from __future__ import annotations
 
 import asyncio
-import base64
 import binascii
 import io
 import json
@@ -31,6 +30,11 @@ import redis
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from nat_helpers.image_brief import ImageBrief, ImageContext, prepare_image_request
+from nat_helpers.image_input_budget import (
+    MAX_IMAGE_INPUTS,
+    ImageInputBudget,
+    image_reference_key,
+)
 from nat_helpers.image_utils import (
     fetch_image_context,
     fetch_image_from_redis,
@@ -248,7 +252,7 @@ class EditRequest(BaseModel):
     brief: ImageBrief | None = None
     preserve: str = ""
     prompt: str = Field(..., min_length=1)
-    imageRefs: list[ImageRef] = Field(..., min_length=1)
+    imageRefs: list[ImageRef] = Field(..., min_length=1, max_length=MAX_IMAGE_INPUTS)
     maskRef: ImageRef | None = None
     n: int | None = Field(None, ge=1, le=8)
     quality: Literal["auto", "low", "medium", "high", "xhigh", "max"] | None = None
@@ -559,7 +563,20 @@ async def edit(
     # MIME-labelled MPO/animated/decoder-sensitive containers from reaching
     # OpenAI as opaque multipart bytes.
     source_files: list[tuple[str, bytes, str]] = []
+    budget = ImageInputBudget()
+    source_cache: dict[str, tuple[bytes, str, str]] = {}
     for idx, ref in enumerate(req.imageRefs):
+        cache_key = image_reference_key(ref.model_dump())
+        if cache_key in source_cache:
+            normalized_bytes, normalized_mime, ext = source_cache[cache_key]
+            try:
+                budget.add_part(normalized_bytes)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            source_files.append(
+                (f"image_{idx}.{ext}", normalized_bytes, normalized_mime)
+            )
+            continue
         result = await fetch_image_from_redis(
             redis_client,
             ref.model_dump(),
@@ -571,7 +588,7 @@ async def edit(
             raise HTTPException(status_code=400, detail=f"image {idx + 1}: {result[1]}")
         image_b64, _mime = result
         try:
-            image_bytes = base64.b64decode(image_b64, validate=True)
+            image_bytes = budget.decode(image_b64)
         except (ValueError, TypeError, binascii.Error) as e:
             raise HTTPException(
                 status_code=400, detail=f"image {idx + 1}: decode failed: {e}"
@@ -580,11 +597,13 @@ async def edit(
             normalized_bytes, normalized_mime, ext = await asyncio.to_thread(
                 _normalize_edit_source, image_bytes
             )
+            budget.add_part(normalized_bytes)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400,
                 detail=f"image {idx + 1}: {exc}",
             ) from exc
+        source_cache[cache_key] = (normalized_bytes, normalized_mime, ext)
         source_files.append((f"image_{idx}.{ext}", normalized_bytes, normalized_mime))
 
     mask_file: tuple[str, bytes, str] | None = None
@@ -599,7 +618,8 @@ async def edit(
             raise HTTPException(status_code=400, detail=f"mask: {mask_result[1]}")
         mask_b64, _mask_mime = mask_result
         try:
-            mask_bytes = base64.b64decode(mask_b64, validate=True)
+            mask_bytes = budget.decode(mask_b64)
+            budget.add_part(mask_bytes)
         except (ValueError, TypeError, binascii.Error) as e:
             raise HTTPException(
                 status_code=400, detail=f"mask: decode failed: {e}"

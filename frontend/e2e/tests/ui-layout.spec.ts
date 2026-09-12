@@ -1,3 +1,5 @@
+import { assertAuthenticatedSession } from '../helpers/auth';
+
 import { expect, test, type Page } from '@playwright/test';
 
 const IPHONE_17_PRO = { width: 402, height: 874 } as const;
@@ -13,6 +15,7 @@ async function login(page: Page) {
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page).toHaveURL('/');
   await expect(page.getByPlaceholder('Send a message...')).toBeVisible();
+  await assertAuthenticatedSession(page);
 }
 
 async function sendMessage(page: Page, message: string) {
@@ -22,6 +25,19 @@ async function sendMessage(page: Page, message: string) {
     page.getByRole('button', { name: 'Stop generating' }),
   ).toBeHidden({ timeout: 15_000 });
 }
+
+test('real login retains its HTTPS session and service-worker control', async ({
+  page,
+}) => {
+  await login(page);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => navigator.serviceWorker.controller?.scriptURL ?? null,
+      ),
+    )
+    .toBe(`${new URL(page.url()).origin}/sw.js`);
+});
 
 test('mobile Create controls stay separated and the keyboard collapses navigation', async ({
   page,

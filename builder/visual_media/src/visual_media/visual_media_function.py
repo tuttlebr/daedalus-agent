@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import os
@@ -12,6 +11,11 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.identity import resolve_authenticated_user_id
 from nat_helpers.image_brief import ImageBrief, ImageOptions, prepare_image_request
+from nat_helpers.image_input_budget import (
+    MAX_IMAGE_INPUTS,
+    ImageInputBudget,
+    image_reference_key,
+)
 from nat_helpers.image_utils import (
     fetch_image_context,
     fetch_image_from_redis,
@@ -365,13 +369,28 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             return "Error: imageRef is required for operation='edit'."
         if not image_refs:
             return "Error: imageRef is required for operation='edit'."
+        if len(image_refs) > MAX_IMAGE_INPUTS:
+            return f"Error: at most {MAX_IMAGE_INPUTS} input images are supported."
 
         expected_user_id, user_error = _validated_user_id(image_refs, user_id)
         if user_error:
             return user_error
 
         source_files: list[tuple[str, bytes, str]] = []
+        budget = ImageInputBudget()
+        source_cache: dict[str, tuple[bytes, str, str]] = {}
         for idx, ref in enumerate(image_refs):
+            cache_key = image_reference_key(ref)
+            if cache_key in source_cache:
+                image_bytes, mime_type, extension = source_cache[cache_key]
+                try:
+                    budget.add_part(image_bytes)
+                except ValueError as exc:
+                    return f"Error: {exc}"
+                source_files.append(
+                    (f"image_{idx}.{extension}", image_bytes, mime_type)
+                )
+                continue
             image_base64, mime_type_or_error = await fetch_image_from_redis(
                 redis_client,
                 ref,
@@ -382,12 +401,14 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             if image_base64 is None:
                 return f"Error fetching image {idx + 1}: {mime_type_or_error}"
             try:
-                image_bytes = base64.b64decode(image_base64)
+                image_bytes = budget.decode(image_base64)
+                budget.add_part(image_bytes)
             except (ValueError, TypeError) as exc:
                 logger.warning("Failed to decode image %d: %s", idx + 1, exc)
-                return f"Error: image {idx + 1} could not be decoded."
+                return f"Error: image {idx + 1}: {exc}"
             mime_type = mime_type_or_error
             extension = "jpg" if "jpeg" in mime_type else mime_type.split("/")[-1]
+            source_cache[cache_key] = (image_bytes, mime_type, extension)
             source_files.append((f"image_{idx}.{extension}", image_bytes, mime_type))
 
         parent = await fetch_image_context(

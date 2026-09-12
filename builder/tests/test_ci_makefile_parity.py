@@ -130,6 +130,21 @@ def test_trivy_image_secret_exception_is_limited_to_oci_sdk_example_files():
         trivy_steps["Scan backend image"]["with"]["skip-files"].split(",")
     )
     assert backend_skip_files == expected
+    release = yaml.safe_load(_RELEASE.read_text())
+    release_steps = {
+        step["name"]: step
+        for step in release["jobs"]["release-images"]["steps"]
+        if str(step.get("uses", "")).startswith("aquasecurity/trivy-action@")
+    }
+    assert (
+        set(release_steps["Scan backend image"]["with"]["skip-files"].split(","))
+        == expected
+    )
+    for name in ("Scan backend image", "Scan frontend image", "Scan Redis image"):
+        assert release_steps[name]["with"]["severity"] == "CRITICAL,HIGH"
+        assert str(release_steps[name]["with"]["exit-code"]) == "1"
+    for name in ("Scan frontend image", "Scan Redis image"):
+        assert "skip-files" not in release_steps[name]["with"]
     assert "skip-files" not in trivy_steps["Scan frontend image"]["with"]
     assert "skip-files" not in trivy_steps["Scan Redis image"]["with"]
 

@@ -211,6 +211,12 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Set up Helm for deployment image inventory
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+
+      - name: Validate deployment image inventory
+        run: python3 scripts/check_image_inventory.py
+
       - name: Seed Compose env
         run: cp .env.template .env
 
@@ -264,6 +270,12 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           exit-code: '1'
+
+      - name: Scan every shipped upstream image
+        run: python3 scripts/check_image_inventory.py --scan-upstream
+
+      - name: Test shipped Compose Redis ACL and persistence
+        run: python3 scripts/test_compose_redis.py --image docker.io/your-user/daedalus:redis-0.1.0
 
   docker-attest:
     name: Attest CI Images

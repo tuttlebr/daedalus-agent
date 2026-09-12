@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+from nat_helpers.source_policy_types import SOURCE_POLICY_IDS
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from .dedupe import summarize_recent_feed, window_ms_for_days
@@ -113,20 +114,7 @@ _APPROVAL_MARKER_RE = re.compile(
     r"\*\*(?:Action requiring confirmation|Deep research plan approval):\*\*",
     re.IGNORECASE,
 )
-_SOURCE_POLICY_IDS = {
-    "curated_domains",
-    "curated_feeds",
-    "perplexity_search",
-    "known_url_scrape",
-    "nvidia_docs",
-    "uploaded_documents",
-    "workspace_data",
-    "x_mcp",
-    "cluster_state",
-    "network_state",
-    "repository_data",
-    "fantasy_data",
-}
+_SOURCE_POLICY_IDS = frozenset(SOURCE_POLICY_IDS)
 
 # Workspace notes are model-authored and persisted between runs, so a bad or
 # repetitive update can otherwise grow every subsequent prompt without bound.

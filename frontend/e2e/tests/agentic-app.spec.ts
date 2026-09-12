@@ -1,3 +1,5 @@
+import { assertAuthenticatedSession } from '../helpers/auth';
+
 import { expect, test, type Page, type Response } from '@playwright/test';
 import Redis from 'ioredis';
 import { createHash } from 'node:crypto';
@@ -26,6 +28,7 @@ async function login(page: Page) {
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page).toHaveURL('/');
   await expect(page.getByPlaceholder('Send a message...')).toBeVisible();
+  await assertAuthenticatedSession(page);
 }
 
 async function sendMessage(
@@ -206,7 +209,9 @@ test('streams a chat completion over the WebSocket path', async ({ page }) => {
   let websocketConnected = false;
   let chatTokenReceived = false;
   page.on('websocket', (socket) => {
-    if (!socket.url().includes(':15001')) return;
+    const url = new URL(socket.url());
+    if (url.protocol !== 'wss:' || url.host !== new URL(page.url()).host)
+      return;
     socket.on('framereceived', ({ payload }) => {
       const text = typeof payload === 'string' ? payload : payload.toString();
       if (text.includes('"type":"connected"')) websocketConnected = true;

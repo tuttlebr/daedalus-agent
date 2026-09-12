@@ -45,7 +45,10 @@ import { getMilvusMetadata } from '@/server/milvusMetadata';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { getOrSetSessionId } from '@/server/session/_utils';
 import {
-  getRedis,
+  ConversationWriteError,
+  reserveConversationForUser,
+} from '@/server/session/conversationStore';
+import {
   sessionKey,
   jsonGet,
   jsonSetWithExpiry,
@@ -127,28 +130,10 @@ async function loadStoredConversationMessages(
   conversationId: unknown,
 ): Promise<any[]> {
   if (typeof conversationId !== 'string' || !conversationId) return [];
-
-  try {
-    const ownsConversation =
-      (await getRedis().sismember(
-        sessionKey(['user', username, 'conversations']),
-        conversationId,
-      )) === 1;
-
-    if (!ownsConversation) return [];
-
-    const storedConversation = await jsonGet(
-      sessionKey(['conversation', conversationId]),
-    );
-    const storedMessages = (storedConversation as any)?.messages;
-    return Array.isArray(storedMessages) ? storedMessages : [];
-  } catch (error) {
-    logger.warn('Failed to load stored conversation history for chat submit', {
-      conversationId,
-      error,
-    });
-    return [];
-  }
+  // Reserve new IDs and authorize existing ones before any model/tool work.
+  // A foreign or unreadable record must never become an empty new history.
+  const stored = await reserveConversationForUser(username, conversationId);
+  return Array.isArray(stored.messages) ? stored.messages : [];
 }
 
 async function claimConversationForJob(
@@ -331,6 +316,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Invalid messages' });
+    }
+    if (
+      conversationId != null &&
+      (typeof conversationId !== 'string' ||
+        !conversationId ||
+        conversationId.length > 200)
+    ) {
+      return res.status(400).json({ error: 'Invalid conversation ID' });
     }
 
     const jobId = uuidv4();
@@ -590,6 +583,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
             ]
           : []),
       ]).catch(() => {});
+    }
+    if (error instanceof ConversationWriteError) {
+      return res.status(403).json({
+        error: 'Forbidden: You do not have access to this conversation',
+      });
     }
     if (error instanceof ApiRouteError) {
       logger.warn(`Rejected async job request: ${error.message}`, {

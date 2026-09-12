@@ -17,6 +17,15 @@ import {
 
 import type { ImageContext } from '@/types/imageBrief';
 
+import { updateJsonAtomically } from '@/server/atomicJson';
+import {
+  createRecoverableImageJob,
+  heartbeatImageJob,
+  imageJobKey,
+  loadRecoverableImageJob,
+  updateOwnedImageJob,
+  type RecoverableImageJob,
+} from '@/server/images/jobRecovery';
 import {
   imageHistoryKey,
   removeUnsafeBrowserKeys,
@@ -26,7 +35,12 @@ import {
   getOrSetSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
-import { jsonGet, jsonSetWithExpiry, sessionKey } from '@/server/session/redis';
+import {
+  jsonDel,
+  jsonGet,
+  jsonSetWithExpiry,
+  sessionKey,
+} from '@/server/session/redis';
 import { randomUUID } from 'crypto';
 
 export const config = {
@@ -55,7 +69,7 @@ const IMAGE_JOB_RATE_LIMIT = ruleFromEnv(
   60,
 );
 
-type ImageJobState = {
+type ImageJobState = RecoverableImageJob & {
   imageContext?: ImageContext;
   jobId: string;
   userId: string;
@@ -113,15 +127,22 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function jobKey(jobId: string): string {
-  return sessionKey(['image-job', jobId]);
+  return imageJobKey(jobId);
 }
 
 function userJobsKey(userId: string): string {
   return sessionKey(['user', userId, 'imageJobs']);
 }
 
-function publicJobState(status: ImageJobState): Omit<ImageJobState, 'userId'> {
-  const { userId: _userId, ...publicStatus } = status;
+function publicJobState(
+  status: ImageJobState,
+): Omit<ImageJobState, 'userId' | 'executionOwner' | 'leaseExpiresAt'> {
+  const {
+    userId: _userId,
+    executionOwner: _owner,
+    leaseExpiresAt: _lease,
+    ...publicStatus
+  } = status;
   return publicStatus;
 }
 
@@ -144,33 +165,49 @@ function statusCodeForError(error: unknown): number {
 }
 
 async function saveJobStatus(status: ImageJobState): Promise<void> {
-  await jsonSetWithExpiry(jobKey(status.jobId), status, IMAGE_JOB_TTL_SECONDS);
+  await createRecoverableImageJob(status);
 }
 
 async function updateJobStatus(
   jobId: string,
   updates: Partial<ImageJobState>,
 ): Promise<ImageJobState | null> {
-  const current = (await jsonGet(jobKey(jobId))) as ImageJobState | null;
-  if (!current) return null;
-  const next = {
-    ...current,
-    ...updates,
-    updatedAt: Date.now(),
-  };
-  await saveJobStatus(next);
-  return next;
+  return updateOwnedImageJob<ImageJobState>(jobId, updates);
 }
 
 async function rememberUserJob(userId: string, jobId: string): Promise<void> {
   const key = userJobsKey(userId);
-  const existing = await jsonGet(key);
-  const ids = Array.isArray(existing)
-    ? existing.filter((id): id is string => typeof id === 'string')
-    : [];
-  await jsonSetWithExpiry(
+  await updateJsonAtomically<string[]>(
     key,
-    [jobId, ...ids.filter((id) => id !== jobId)].slice(0, MAX_USER_JOBS),
+    async (existing) => {
+      const ids = Array.isArray(existing)
+        ? existing.filter((id) => typeof id === 'string' && id !== jobId)
+        : [];
+      const jobs = await Promise.all(ids.map((id) => loadOwnedJob(id, userId)));
+      if (
+        jobs.filter(
+          (job) => job && (job.status === 'queued' || job.status === 'running'),
+        ).length >= MAX_ACTIVE_JOBS_PER_USER
+      ) {
+        throw new ImageBackendError(
+          429,
+          'You already have two image jobs in progress. Wait for one to finish before starting another.',
+        );
+      }
+      // Keep live jobs in the bounded index even if another slot completes many
+      // short requests while an older provider call is still running.
+      const activeIds = ids.filter(
+        (_, index) =>
+          jobs[index] &&
+          (jobs[index]?.status === 'queued' ||
+            jobs[index]?.status === 'running'),
+      );
+      return [
+        jobId,
+        ...activeIds,
+        ...ids.filter((id) => !activeIds.includes(id)),
+      ].slice(0, MAX_USER_JOBS);
+    },
     IMAGE_JOB_TTL_SECONDS,
   );
 }
@@ -179,9 +216,7 @@ async function loadOwnedJob(
   jobId: string,
   userId: string,
 ): Promise<ImageJobState | null> {
-  const status = (await jsonGet(jobKey(jobId))) as ImageJobState | null;
-  if (!status || status.userId !== userId) return null;
-  return status;
+  return loadRecoverableImageJob<ImageJobState>(jobId, userId);
 }
 
 async function loadActiveJobs(userId: string): Promise<ImageJobState[]> {
@@ -374,8 +409,12 @@ async function callImageBackend(
   payload: Record<string, unknown>,
   headers: Record<string, string>,
   onPartial: (imageIds: string[]) => Promise<void>,
+  signal: AbortSignal,
 ): Promise<ImageGenerationResponse> {
   const controller = new AbortController();
+  const onAbort = () => controller.abort(signal.reason);
+  if (signal.aborted) onAbort();
+  else signal.addEventListener('abort', onAbort, { once: true });
   const timeout = setTimeout(() => controller.abort(), IMAGE_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
@@ -395,6 +434,7 @@ async function callImageBackend(
     throw error;
   } finally {
     clearTimeout(timeout);
+    signal.removeEventListener('abort', onAbort);
   }
 }
 
@@ -404,9 +444,14 @@ async function runImageJob(
   payload: Record<string, unknown>,
   headers: Record<string, string>,
 ): Promise<void> {
+  const controller = new AbortController();
+  let stopHeartbeat = () => {};
   try {
     const started = await updateJobStatus(jobId, { status: 'running' });
     if (!started) return;
+    stopHeartbeat = heartbeatImageJob(jobId, (error) =>
+      controller.abort(error),
+    );
 
     const data = await callImageBackend(
       backendUrl,
@@ -417,6 +462,7 @@ async function runImageJob(
           console.warn('images/jobs partial status save failed:', error);
         });
       },
+      controller.signal,
     );
 
     if (!Array.isArray(data.imageIds) || data.imageIds.length === 0) {
@@ -470,6 +516,8 @@ async function runImageJob(
         statusError,
       );
     }
+  } finally {
+    stopHeartbeat();
   }
 }
 
@@ -590,7 +638,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     };
 
     await saveJobStatus(status);
-    await rememberUserJob(userId, jobId);
+    try {
+      await rememberUserJob(userId, jobId);
+    } catch (error) {
+      await jsonDel(jobKey(jobId)).catch(() => {});
+      throw error;
+    }
 
     const headers = withInternalBackendAuth(
       withTimezoneHeader(

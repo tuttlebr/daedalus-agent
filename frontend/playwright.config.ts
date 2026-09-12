@@ -1,6 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const iphone17ProViewport = { width: 402, height: 874 };
+const baseURL = `https://127.0.0.1:${process.env.E2E_WEB_PORT || '15000'}`;
+// Pin this run's certificate for Chromium service-worker fetches, which do not
+// inherit ignoreHTTPSErrors. Page/readiness handling stays in the test context.
+const chromiumLaunchOptions = {
+  args: process.env.E2E_TLS_SPKI
+    ? [`--ignore-certificate-errors-spki-list=${process.env.E2E_TLS_SPKI}`]
+    : [],
+};
 
 export default defineConfig({
   testDir: './e2e/tests',
@@ -13,14 +21,17 @@ export default defineConfig({
     ? [['github'], ['html', { open: 'never' }]]
     : [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:15000',
+    baseURL,
+    // Only the disposable loopback proxy uses a self-signed certificate.
+    ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
   webServer: {
     command: 'node e2e/start-e2e-app.mjs',
-    url: 'http://127.0.0.1:15000/login',
+    url: `${baseURL}/login`,
+    ignoreHTTPSErrors: true,
     reuseExistingServer: false,
     timeout: 120_000,
     gracefulShutdown: {
@@ -33,13 +44,17 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: chromiumLaunchOptions,
+      },
     },
     {
       name: 'mobile-chromium',
       testMatch: /(?:ui-layout|hig-design|ux-review)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
+        launchOptions: chromiumLaunchOptions,
         viewport: iphone17ProViewport,
         deviceScaleFactor: 3,
         hasTouch: true,
@@ -64,6 +79,7 @@ export default defineConfig({
       testMatch: /(?:hig-design|ux-review)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
+        launchOptions: chromiumLaunchOptions,
         viewport: { width: 320, height: 740 },
         hasTouch: true,
         isMobile: true,

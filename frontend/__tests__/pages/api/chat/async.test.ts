@@ -30,12 +30,14 @@ import {
   buildNatSessionId,
 } from '@/server/chat/natMessages';
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
+import { reserveConversationForUser } from '@/server/session/conversationStore';
 import {
   clearStreamingState,
   jsonDel,
   jsonGet,
   jsonSetWithExpiry,
 } from '@/server/session/redis';
+import { createECDH, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -187,7 +189,24 @@ describe('chat/async backend pinning helpers', () => {
     delete process.env.DEPLOYMENT_MODE;
     delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
     mocks.redisDel.mockResolvedValue(0);
-    mocks.redisEval.mockResolvedValue(1);
+    mocks.redisEval.mockImplementation(
+      async (script: string, _count: number, ...args: any[]) => {
+        if (script.includes('READ_OWNED_CONVERSATION')) {
+          const value = await jsonGet(args[0]);
+          return [value ? JSON.stringify(value) : '', 1];
+        }
+        if (script.includes('SAVE_OWNED_CONVERSATION')) {
+          await jsonSetWithExpiry(
+            args[0],
+            JSON.parse(args[3]),
+            Number(args[6]),
+          );
+          return 1;
+        }
+        if (script.includes('INCREMENT_EXPIRING_COUNTER')) return [1, 60];
+        return 1;
+      },
+    );
     mocks.redisGet.mockResolvedValue(null);
     mocks.redisSet.mockResolvedValue('OK');
     mocks.redisLrange.mockResolvedValue([]);
@@ -1424,7 +1443,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(queuedPayload.user_id).toBeUndefined();
   });
 
-  it('sanitizes a completed job fullResponse before returning cached status', async () => {
+  it('preserves repeated text in a completed cached response', async () => {
     const prior = 'Daily summary for May 13, 2026.';
     const next = 'The namespace is healthy.';
     const jobStatus = {
@@ -1464,13 +1483,13 @@ describe('chat/async backend pinning helpers', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       ...jobStatus,
-      fullResponse: next,
+      fullResponse: jobStatus.fullResponse,
       updatedAt: expect.any(Number),
     });
     expect(jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 
-  it('sanitizes a completed job fullResponse when the prior answer is appended', async () => {
+  it('preserves a repeated closing answer in completed cached status', async () => {
     const prior = 'Daily summary for May 13, 2026.';
     const next = 'The namespace is healthy.';
     const jobStatus = {
@@ -1510,12 +1529,12 @@ describe('chat/async backend pinning helpers', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       ...jobStatus,
-      fullResponse: next,
+      fullResponse: jobStatus.fullResponse,
       updatedAt: expect.any(Number),
     });
   });
 
-  it('sanitizes a streaming job partialResponse before returning cached status', async () => {
+  it('preserves repeated text in a cached streaming response', async () => {
     const prior = 'Daily summary for May 13, 2026.';
     const next = 'The namespace is still healthy.';
     const jobStatus = {
@@ -1556,7 +1575,7 @@ describe('chat/async backend pinning helpers', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
       ...jobStatus,
-      partialResponse: next,
+      partialResponse: jobStatus.partialResponse,
       updatedAt: expect.any(Number),
     });
     expect(jsonSetWithExpiry).not.toHaveBeenCalled();
@@ -1707,7 +1726,7 @@ describe('chat/async response boundary helpers', () => {
     ).toBe('');
   });
 
-  it('strips an exact prior assistant replay from the final output', () => {
+  it('preserves a final answer that repeats an earlier answer before adding content', () => {
     const prior =
       'Daily summary for May 13, 2026.\n\n' +
       '## 1. Date\nCurrent timestamp: 2026-05-13 15:26 UTC.';
@@ -1719,10 +1738,10 @@ describe('chat/async response boundary helpers', () => {
         { role: 'assistant', content: prior },
         { role: 'user', content: 'check nemotron omni' },
       ]),
-    ).toBe(next);
+    ).toBe(`${prior}\n\n${next}`);
   });
 
-  it('strips an exact prior assistant replay appended to the final output', () => {
+  it('preserves a final answer with a deliberately repeated closing answer', () => {
     const prior =
       'Daily summary for May 13, 2026.\n\n' +
       '## 1. Date\nCurrent timestamp: 2026-05-13 15:26 UTC.';
@@ -1734,7 +1753,7 @@ describe('chat/async response boundary helpers', () => {
         { role: 'assistant', content: prior },
         { role: 'user', content: 'check nemotron omni' },
       ]),
-    ).toBe(next);
+    ).toBe(`${next}\n\n${prior}`);
   });
 
   it('preserves responses that reference prior content without exact-prefix replay', () => {
@@ -1829,6 +1848,19 @@ function wireRedisStore(initial: Record<string, any> = {}) {
   });
   mocks.redisEval.mockImplementation(async (...args: any[]) => {
     const script = args[0] as string;
+    if (script.includes('INCREMENT_EXPIRING_COUNTER')) return [1, 60];
+    if (script.includes('READ_OWNED_CONVERSATION')) {
+      const value = store.get(args[2]);
+      return [value ? JSON.stringify(value) : '', 1];
+    }
+    if (script.includes('SAVE_OWNED_CONVERSATION')) {
+      const value = store.get(args[2]);
+      if ((value ? JSON.stringify(value) : '') !== args[4]) return 0;
+      if (value?.ownerId && value.ownerId !== args[7]) return -1;
+      if (!value && args[9] !== '1') return -1;
+      store.set(args[2], JSON.parse(args[5]));
+      return 1;
+    }
     if (
       script.includes('READ_JOB_STATUS_SNAPSHOT') ||
       script.includes('UPDATE_LIVE_JOB_STATUS')
@@ -2495,7 +2527,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     ).toBe(true);
   });
 
-  it('sanitizes completion-event step output against prior replay but leaves TOOL_END raw', async () => {
+  it('preserves repeated text in both completion-event and TOOL_END output', async () => {
     const prior = 'Daily summary for May 13, 2026.';
     await runStreamTurn(
       [
@@ -2517,7 +2549,9 @@ describe('chat/async streaming + finalize (characterization)', () => {
       (s) => s.step.payload.event_type === 'WORKFLOW_END',
     );
     const toolEnd = steps.find((s) => s.step.payload.event_type === 'TOOL_END');
-    expect(workflowEnd.step.payload.data.output).toBe('Workflow result.');
+    expect(workflowEnd.step.payload.data.output).toBe(
+      `${prior}\n\nWorkflow result.`,
+    );
     expect(toolEnd.step.payload.data.output).toBe(`${prior}\n\nTool snippet.`);
   });
 
@@ -3040,6 +3074,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
         conversationId: 'conv-slow-memory',
       },
     });
+    await reserveConversationForUser('testuser', 'conv-slow-memory');
     let resolveRetention!: (response: any) => void;
     mocks.fetchWithTimeout.mockImplementationOnce(
       () =>
@@ -3112,6 +3147,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       },
     });
 
+    await reserveConversationForUser('testuser', 'conv-dedup');
     await finalizeSuccess(jobId, jobRequest, 'Answer.');
     await finalizeSuccess(jobId, jobRequest, 'Duplicate answer.');
 
@@ -3179,6 +3215,10 @@ describe('chat/async streaming + finalize (characterization)', () => {
   });
 
   it('sends a push notification per subscription when VAPID keys are configured', async () => {
+    const keys = {
+      p256dh: createECDH('prime256v1').generateKeys().toString('base64url'),
+      auth: randomBytes(16).toString('base64url'),
+    };
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'pub';
     process.env.VAPID_PRIVATE_KEY = 'priv';
     await runStreamTurn(
@@ -3187,8 +3227,12 @@ describe('chat/async streaming + finalize (characterization)', () => {
         conversationId: 'conv-1',
         seedStore: {
           'daedalus:user:testuser:push-subscriptions': [
-            { endpoint: 'e1' },
-            { endpoint: 'e2' },
+            { endpoint: 'https://fcm.googleapis.com/fcm/send/e1', keys },
+            {
+              endpoint: 'https://updates.push.services.mozilla.com/wpush/v2/e2',
+              keys,
+            },
+            { endpoint: 'https://127.0.0.1/private', keys },
           ],
         },
         drainPredicate: () =>
@@ -3241,7 +3285,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.error).toBe('boom');
   });
 
-  it('finalizeError sanitizes the partial response against prior assistant replay', async () => {
+  it('finalizeError preserves partial text shared with an earlier answer', async () => {
     const prior = 'Daily summary for May 13, 2026.';
     let n = 0;
     const { statusKey, store } = await runStreamTurn([], {
@@ -3275,7 +3319,9 @@ describe('chat/async streaming + finalize (characterization)', () => {
         },
       }),
     });
-    expect(store.get(statusKey)?.partialResponse).toBe('New partial.');
+    expect(store.get(statusKey)?.partialResponse).toBe(
+      `${prior}\n\nNew partial.`,
+    );
   });
 
   it('document ingest reports progress then finalizes success on the complete event', async () => {

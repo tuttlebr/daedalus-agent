@@ -35,11 +35,16 @@ class FakeHindsight:
 
     async def retain_batch(self, **kwargs):
         self.batch_calls.append(kwargs)
+        if kwargs.get("asynchronous") is False:
+            return {"success": True}
         return {"status": "pending", "operation_id": kwargs["operation_id"]}
 
-    async def delete_documents_with_tag(self, **kwargs):
+    async def list_documents(self, **kwargs):
+        return {"items": [{"id": f"old-{i}"} for i in range(self.deleted)]}
+
+    async def delete_document(self, **kwargs):
+        assert self.batch_calls and self.batch_calls[-1]["asynchronous"] is False
         self.delete_calls.append(kwargs)
-        return self.deleted
 
 
 def profile_request() -> ProfileImportRequest:
@@ -170,5 +175,31 @@ def test_replace_mode_deletes_only_hindsight_profile_sources(monkeypatch):
     assert result.imported == 1
     assert result.replaced == 2
     assert fake_hindsight.delete_calls == [
-        {"user_id": "tuttlebr", "tag": "source:profile-import"}
+        {"user_id": "tuttlebr", "document_id": "old-0"},
+        {"user_id": "tuttlebr", "document_id": "old-1"},
     ]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [RuntimeError("retention unavailable"), {"status": "pending", "success": True}],
+)
+def test_replace_preserves_old_documents_until_retention_completed(
+    monkeypatch, failure
+):
+    fake = FakeHindsight()
+    fake.deleted = 2
+
+    async def retain(**kwargs):
+        fake.batch_calls.append(kwargs)
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    fake.retain_batch = retain
+    monkeypatch.setattr(hindsight_client, "client_from_env", lambda: fake)
+    req = profile_request().model_copy(update={"mode": "replace"})
+    with pytest.raises(RuntimeError):
+        run(import_profile_memories(req, "tuttlebr"))
+    assert fake.delete_calls == []
+    assert fake.batch_calls[0]["items"][0]["document_id"] not in {"old-0", "old-1"}

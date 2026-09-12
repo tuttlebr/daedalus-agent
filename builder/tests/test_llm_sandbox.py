@@ -705,7 +705,7 @@ def test_execute_fails_closed_when_discovery_fails():
     assert all(path != "/v1/execute" for _, path, _ in FakeAsyncClient.calls)
 
 
-def test_execute_retries_one_gateway_failure_only():
+def test_execute_retries_discovery_but_never_an_ambiguous_execution():
     import llm_sandbox.llm_sandbox_function as mod
 
     async def _run():
@@ -722,9 +722,9 @@ def test_execute_retries_one_gateway_failure_only():
 
     output = run(_run())
 
-    assert 'Request ID: "req-after-retry"' in output
+    assert "HTTP 502" in output
     assert [path for _, path, _ in FakeAsyncClient.calls].count("/readyz") == 2
-    assert [path for _, path, _ in FakeAsyncClient.calls].count("/v1/execute") == 2
+    assert [path for _, path, _ in FakeAsyncClient.calls].count("/v1/execute") == 1
 
 
 def test_execute_does_not_retry_policy_error_and_reports_request_id():

@@ -29,7 +29,7 @@ images:
   nginx:
     repository: nginxinc/nginx-unprivileged
     tag: alpine
-    digest: 'sha256:a718212f9cf21e241f14067333000a3f0930292f5354fe0db269e9a2a2596b9e'
+    digest: 'sha256:2ddec616f1cb58bcac057aa388f28cb81e35137641ef4226d321714499329bd1'
     pullPolicy: Always
   redis:
     # This repository-owned image preserves Redis Stack 7.4.0-v8 data and
@@ -269,6 +269,13 @@ frontend:
     # Owns durable backend SSE execution outside the request-serving process.
     enabled: true
     replicas: 1
+    # Enable only with VAPID keys in the stream-worker Secret. The application
+    # accepts only FCM, Mozilla and Apple Web Push destinations.
+    pushNotifications:
+      enabled: false
+      # Standard NetworkPolicy cannot resolve provider names. Supply reviewed
+      # provider IP ranges; Cilium instead uses the fixed provider FQDN rules.
+      cidrs: []
     # Keep worker-only runtime secrets separate from the request-serving
     # frontend Secret. Backend model, Milvus, Phoenix, and MinIO credentials
     # must never be placed here.
@@ -362,6 +369,10 @@ nginx:
 
 redis:
   enabled: true
+  nodePlacement:
+    # Required architecture affinity, combined with global allowedNodes.
+    # Leave empty for any architecture; custom-values.yaml selects amd64.
+    allowedArchitectures: []
   auth:
     # Redis 6+ ACL user used by every application client. Helm creates and
     # preserves a strong password unless an existing Secret is supplied.

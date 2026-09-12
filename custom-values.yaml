@@ -29,7 +29,7 @@ images:
   nginx:
     repository: nginxinc/nginx-unprivileged
     tag: alpine
-    digest: 'sha256:a718212f9cf21e241f14067333000a3f0930292f5354fe0db269e9a2a2596b9e'
+    digest: 'sha256:2ddec616f1cb58bcac057aa388f28cb81e35137641ef4226d321714499329bd1'
     pullPolicy: Always
   redis:
     # Repository-owned, security-updated Redis Stack 7.4.0-v8 image. Keep
@@ -269,6 +269,9 @@ nginx:
 
 redis:
   enabled: true
+  nodePlacement:
+    # Select any eligible x86 node from global.nodePlacement.allowedNodes.
+    allowedArchitectures: [amd64]
   auth:
     enabled: true
     username: daedalus

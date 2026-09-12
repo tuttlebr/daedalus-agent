@@ -10,7 +10,9 @@ import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
 import { buildNatRequestHeaders } from '@/server/chat/natMessages';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 
-const PROFILE_IMPORT_TIMEOUT_MS = 60_000;
+// Replacement waits for durable retention before deleting the old profile.
+// The backend owns a 140s total budget; leave time to receive its outcome.
+const PROFILE_IMPORT_TIMEOUT_MS = 150_000;
 
 export const config = {
   api: {

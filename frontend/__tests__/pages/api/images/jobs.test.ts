@@ -35,6 +35,7 @@ vi.mock('@/server/session/_utils', () => ({
 }));
 
 vi.mock('@/server/session/redis', () => ({
+  jsonDel: vi.fn(async (key: string) => mocks.store.delete(key)),
   jsonGet: vi.fn(async (key: string) => mocks.store.get(key) ?? null),
   jsonSetWithExpiry: vi.fn(async (key: string, value: any) => {
     mocks.store.set(key, value);
@@ -47,6 +48,18 @@ vi.mock('@/server/session/redis', () => ({
 vi.mock('@/server/rateLimit', () => ({
   enforceRateLimit: mocks.enforceRateLimit,
   ruleFromEnv: mocks.ruleFromEnv,
+}));
+
+// Atomic persistence is covered against real Redis in jobRecovery.integration.
+// Keep this suite focused on the actual route/provider protocol and ownership.
+vi.mock('@/server/atomicJson', () => ({
+  updateJsonAtomically: vi.fn(
+    async (key: string, update: (value: any) => any) => {
+      const next = await update(mocks.store.get(key) ?? null);
+      if (next !== null) mocks.store.set(key, next);
+      return next;
+    },
+  ),
 }));
 
 function createMockReqRes(
@@ -104,6 +117,38 @@ describe('/api/images/jobs', () => {
     });
     mocks.enforceRateLimit.mockResolvedValue(true);
     vi.stubGlobal('fetch', mocks.fetch);
+  });
+
+  it('releases admission capacity when legacy jobs are interrupted', async () => {
+    for (const id of ['stale-one', 'stale-two']) {
+      mocks.store.set(`image-job:${id}`, {
+        jobId: id,
+        userId: 'alice',
+        status: 'running',
+        updatedAt: Date.now() - 400_000,
+      });
+    }
+    mocks.store.set('user:alice:imageJobs', ['stale-one', 'stale-two']);
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ imageIds: ['new-image'] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const { req, res } = createMockReqRes('POST', {
+      prompt: 'New request',
+      mode: 'generate',
+    });
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(202);
+    expect(mocks.store.get('image-job:stale-one').status).toBe('error');
+    expect(mocks.store.get('image-job:stale-two').status).toBe('error');
+    await drainUntil(() => mocks.fetch.mock.calls.length === 1);
+    const jobId = res.json.mock.calls[0][0].jobId;
+    await drainUntil(
+      () => mocks.store.get(`image-job:${jobId}`)?.status === 'completed',
+    );
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('persists the actual prepared prompt and options from an SSE completion', async () => {

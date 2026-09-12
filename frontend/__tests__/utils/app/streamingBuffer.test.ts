@@ -44,8 +44,8 @@ describe('streaming update buffering', () => {
   });
 
   it('still applies a shorter snapshot whose content diverges', () => {
-    // Server-side sanitization can legitimately shorten the response, e.g. when
-    // a replayed assistant prefix is stripped. That is not a stale prefix.
+    // A divergent authoritative replacement is distinct from a delayed prefix
+    // snapshot. Transport replacement does not infer duplication from prior turns.
     expect(
       reduceStreamingUpdates('Previous answer. Real answer.', [
         { content: 'Real answer.', replace: true },

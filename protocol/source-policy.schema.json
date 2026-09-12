@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SourcePolicy",
+  "description": "Optional source selection shared by interactive chat and autonomous work. Sanitizers retain authority over untrusted inputs.",
+  "type": "object",
+  "$defs": {
+    "SourcePolicyId": {
+      "type": "string",
+      "enum": [
+        "curated_domains",
+        "curated_feeds",
+        "perplexity_search",
+        "known_url_scrape",
+        "nvidia_docs",
+        "uploaded_documents",
+        "workspace_data",
+        "x_mcp",
+        "cluster_state",
+        "network_state",
+        "repository_data",
+        "fantasy_data"
+      ]
+    }
+  },
+  "properties": {
+    "enabledSources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SourcePolicyId"
+      }
+    },
+    "disabledSources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SourcePolicyId"
+      }
+    },
+    "requirePlanApproval": {
+      "type": "boolean"
+    },
+    "maxResearchToolCalls": {
+      "type": "integer"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

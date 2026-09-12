@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
-import { User } from './users';
+import { isConfiguredUsername } from './config';
+import type { User } from './users';
 
 import {
   clearSessionCookie,
@@ -100,6 +101,13 @@ export async function getSession(
 
   const session = (await jsonGet(key)) as SessionData | null;
   if (!session) return null;
+  if (!isConfiguredUsername(session.username)) {
+    // Revoke before the sliding TTL refresh. Persisted account/session records
+    // are historical data, not permission to outlive configuration removal.
+    await getRedis().del(key);
+    clearSessionCookie(req, res);
+    return null;
+  }
 
   // Refresh lastActivity + sliding TTL at most once per interval rather than on
   // every request. With a 60s interval and 24h TTL the session still slides for

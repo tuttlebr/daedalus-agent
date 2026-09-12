@@ -197,8 +197,49 @@ describe('useAsyncChat streaming callbacks', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.useRealTimers();
     document.body.innerHTML = '';
+  });
+
+  it('preserves tracking after failed cancellation and permits retry', async () => {
+    const onToken = vi.fn();
+    const { root, api } = renderProbe({ userId: 'user-1', onToken });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'user-1', 'conv-1', 'Test');
+    });
+    const stored = JSON.stringify(localStorage);
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          response({ error: 'Unavailable' }, { ok: false, status: 503 }),
+        ),
+    );
+    await act(async () => {
+      await expect(api.cancelJob('conv-1')).rejects.toThrow();
+    });
+    expect(JSON.stringify(localStorage)).toBe(stored);
+    expect(mocks.manager.unsubscribeFromJob).not.toHaveBeenCalled();
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'still working',
+        responseStart: 0,
+      });
+    });
+    expect(onToken).toHaveBeenCalled();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(response({ success: true, canceled: true })),
+    );
+    await act(async () => {
+      await api.cancelJob('conv-1');
+    });
+    expect(mocks.manager.unsubscribeFromJob).toHaveBeenCalledWith('job-1');
+    act(() => root.unmount());
   });
 
   it('subscribes to chat token streaming and forwards live events', async () => {

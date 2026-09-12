@@ -24,6 +24,31 @@ The top-level [`../../README.md`](../../README.md) contains the end-to-end deplo
 
 ## Secrets
 
+### Completion Web Push
+
+Kubernetes completion notifications require an explicit opt-in:
+`frontend.streamWorker.pushNotifications.enabled: true`, plus
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in the stream-worker
+Secret. The chart sets `PUSH_NOTIFICATIONS_ENABLED` consistently in the API and
+worker. With the default `false`, neither subscription admission nor sending
+is enabled; existing subscriptions are retained. Compose keeps its existing
+VAPID-based opt-in unless that environment flag explicitly disables it.
+
+Only HTTPS port 443 endpoints from FCM (`fcm.googleapis.com`), Mozilla
+(`updates.push.services.mozilla.com`) and Apple (`*.push.apple.com`) are
+supported. Other providers require a reviewed application/policy change.
+Cilium permits those provider names only. Standard NetworkPolicy cannot use
+DNS names: set `frontend.streamWorker.pushNotifications.cidrs` to the current,
+reviewed provider IP ranges. Enabling push without ranges in standard mode
+fails rendering; unrestricted `/0` ranges are rejected. Keep the ranges
+current as providers change them. No public egress is added to frontend pods.
+
+Enablement changes require a Helm rollout; disabling the value is reversible
+and preserves registrations. Native delivery and certificate validation must
+also succeed; a rendered rule alone does not prove network connectivity.
+
+### Workload credentials
+
 `deploy.sh` filters `.env` into three workload-specific Secrets. It doesn't
 copy the full file into any pod:
 
@@ -99,6 +124,14 @@ incremental authorization so Google can issue a refresh token for durable
 access.
 
 ### Redis ACL, TLS, And Rotation
+
+`redis.nodePlacement.allowedArchitectures` adds required node affinity for Redis.
+The supplied `custom-values.yaml` selects `amd64`; Kubernetes can choose any
+matching node within `global.nodePlacement.allowedNodes`. The architecture and
+hostname restrictions share one selector term, so both must match. Chart defaults
+leave architecture unrestricted, and other workloads keep their existing node
+placement. Existing node-bound Redis volumes must also be accessible from an
+eligible node; changing affinity does not migrate their data.
 
 Redis authentication is enabled by default. The chart disables the Redis
 `default` user, creates the named `redis.auth.username` ACL user, and injects

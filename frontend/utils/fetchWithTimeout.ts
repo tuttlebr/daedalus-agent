@@ -1,6 +1,7 @@
 /**
  * Wrapper around fetch that adds timeout support.
- * Prevents fetch operations from hanging indefinitely.
+ * The deadline covers headers and response-body consumption. Callers should
+ * consume or cancel response bodies to release their timer/listeners promptly.
  */
 
 export class FetchTimeoutError extends Error {
@@ -40,6 +41,7 @@ export async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let bodyOwnsCleanup = false;
 
   let signal: AbortSignal = controller.signal;
   let cleanupCombined: (() => void) | undefined;
@@ -49,9 +51,62 @@ export async function fetchWithTimeout(
     cleanupCombined = combined.cleanup;
   }
 
+  const cleanup = () => {
+    clearTimeout(timeoutId);
+    cleanupCombined?.();
+  };
+
   try {
     const response = await fetch(url, { ...options, signal });
-    return response;
+    if (!response.body) return response;
+    const reader = response.body.getReader();
+    const body = new ReadableStream<Uint8Array>({
+      async pull(stream) {
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            cleanup();
+            reader.releaseLock();
+            stream.close();
+          } else {
+            stream.enqueue(value);
+          }
+        } catch (error) {
+          cleanup();
+          reader.releaseLock();
+          stream.error(
+            controller.signal.aborted
+              ? new FetchTimeoutError(url, timeoutMs)
+              : error,
+          );
+        }
+      },
+      async cancel(reason) {
+        cleanup();
+        try {
+          await reader.cancel(reason);
+        } finally {
+          reader.releaseLock();
+        }
+      },
+    });
+    const wrapped = new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+    // Preserve fetch metadata lost by constructing a response around the body.
+    const preserveMetadata = (target: Response): Response => {
+      for (const key of ['url', 'redirected', 'type'] as const) {
+        Object.defineProperty(target, key, { value: response[key] });
+      }
+      Object.defineProperty(target, 'clone', {
+        value: () => preserveMetadata(Response.prototype.clone.call(target)),
+      });
+      return target;
+    };
+    bodyOwnsCleanup = true;
+    return preserveMetadata(wrapped);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       // Check if it was our timeout that caused the abort
@@ -61,10 +116,8 @@ export async function fetchWithTimeout(
     }
     throw error;
   } finally {
-    clearTimeout(timeoutId);
-    // Remove the abort listeners registered on the caller's signal so they
-    // don't accumulate when a long-lived signal is reused across calls (F-023).
-    cleanupCombined?.();
+    // Body completion/cancellation owns cleanup once response headers arrive.
+    if (!bodyOwnsCleanup) cleanup();
   }
 }
 

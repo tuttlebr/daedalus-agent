@@ -89,7 +89,7 @@ describe('profile import API handler', () => {
         },
         body: JSON.stringify(payload),
       },
-      60000,
+      150000,
     );
     expect(res.status).toHaveBeenCalledWith(202);
     expect(res.json).toHaveBeenCalledWith({

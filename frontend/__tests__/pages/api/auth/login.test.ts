@@ -1,5 +1,6 @@
 import handler from '@/pages/api/auth/login';
 
+import { incrementExpiringCounter } from '@/server/redisCounter';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +12,17 @@ const mocks = vi.hoisted(() => ({
   redisIncr: vi.fn(),
   redisExpire: vi.fn(),
   redisDel: vi.fn(),
+}));
+
+vi.mock('@/server/redisCounter', () => ({
+  readExpiringCounter: async (key: string) => [
+    Number((await mocks.redisGet(key)) || 0),
+    await mocks.redisTtl(key),
+  ],
+  incrementExpiringCounter: vi.fn(async (key: string) => [
+    await mocks.redisIncr(key),
+    60,
+  ]),
 }));
 
 vi.mock('@/utils/auth/users', () => ({
@@ -98,7 +110,12 @@ describe('/api/auth/login', () => {
     await handler(req, res);
 
     expect(mocks.redisIncr).toHaveBeenCalledTimes(1);
-    expect(mocks.redisExpire).toHaveBeenCalledWith(expect.any(String), 300);
+    expect(incrementExpiringCounter).toHaveBeenCalledWith(
+      expect.any(String),
+      300,
+      5,
+      900,
+    );
     expect(res.status).toHaveBeenCalledWith(401);
   });
 

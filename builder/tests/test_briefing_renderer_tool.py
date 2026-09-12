@@ -143,7 +143,7 @@ def test_parallel_invalid_submissions_exhaust_budget_and_cannot_restart(tmp_path
     asyncio.run(scenario())
 
 
-def test_truncated_collected_file_never_delivered(tmp_path):
+def test_truncated_collected_file_recovers_complete_canonical_html(tmp_path):
     sandbox = Sandbox(tmp_path)
     sandbox.truncate_html = True
 
@@ -152,8 +152,34 @@ def test_truncated_collected_file_never_delivered(tmp_path):
             result = json.loads(
                 await runner(sandbox)(BriefingRendererInput(edition=edition()))
             )
+            assert result["passed"]
+            assert result["rendering"] == "local_recovery"
+            complete = next(tmp_path.glob("briefing-*/daily-daedalus.html")).read_text()
+            assert run.terminal_content == f"```html\n{complete}\n```"
+
+    asyncio.run(scenario())
+
+
+def test_malformed_sandbox_envelope_recovers_content_without_weakening_schema():
+    async def malformed(**_args):
+        return "The sandbox response was unavailable."
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(
+                await runner(malformed)(BriefingRendererInput(edition=edition()))
+            )
+            assert result["passed"]
+            assert edition()["lead"]["headline"] in run.terminal_content
+        with agent_run_scope() as run:
+            invalid = edition()
+            invalid["lead"]["source"]["kind"] = "invented"
+            result = json.loads(
+                await runner(malformed)(BriefingRendererInput(edition=invalid))
+            )
             assert not result["passed"]
             assert run.terminal_content is None
+            assert any("source" in error for error in result["errors"])
 
     asyncio.run(scenario())
 

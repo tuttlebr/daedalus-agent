@@ -1,5 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import {
+  MAX_PUSH_SUBSCRIPTIONS,
+  parsePushSubscription,
+} from '@/server/pushSubscriptions';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 import {
   sessionKey,
@@ -21,20 +25,26 @@ export default async function handler(
   const key = sessionKey(['user', userId, 'push-subscriptions']);
 
   if (req.method === 'POST') {
-    const subscription = req.body;
-    if (!subscription?.endpoint) {
+    if (process.env.PUSH_NOTIFICATIONS_ENABLED === 'false')
+      return res.status(503).json({ error: 'Push notifications are disabled' });
+    const subscription = parsePushSubscription(req.body);
+    if (!subscription) {
       return res.status(400).json({ error: 'Invalid push subscription' });
     }
 
     try {
       // Store as a list of subscriptions (user may have multiple devices)
       const existing = (await jsonGet(key)) || [];
-      const subscriptions = Array.isArray(existing) ? existing : [];
+      const subscriptions = Array.isArray(existing)
+        ? existing.map(parsePushSubscription).filter((item) => item !== null)
+        : [];
 
       // Replace if same endpoint exists, otherwise add
       const filtered = subscriptions.filter(
         (s: any) => s.endpoint !== subscription.endpoint,
       );
+      if (filtered.length >= MAX_PUSH_SUBSCRIPTIONS)
+        return res.status(409).json({ error: 'Too many push subscriptions' });
       filtered.push(subscription);
 
       await jsonSetWithExpiry(key, filtered, PUSH_SUBSCRIPTION_EXPIRY);

@@ -24,6 +24,10 @@ vi.mock('@/server/session/redis', () => ({
 vi.mock('heic-decode', () => ({
   default: mocks.decodeHeic,
 }));
+vi.mock('@/server/session/_utils', () => ({
+  requireAuthenticatedUser: async () => ({ username: 'alice' }),
+  getOrSetSessionId: () => 'session-1',
+}));
 
 function heicHeader(): Buffer {
   return Buffer.from([
@@ -49,10 +53,68 @@ describe('/api/session/imageStorage', () => {
     });
   });
 
+  it('stores uploaded SVG as inert raster pixels rather than same-origin executable markup', async () => {
+    const { storeImage } = await import('@/pages/api/session/imageStorage');
+    const source =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><script>fetch("/api/auth/me")</script><rect width="8" height="8" fill="red"/></svg>';
+    await storeImage(
+      'session-1',
+      'alice',
+      Buffer.from(source).toString('base64'),
+      'image/svg+xml',
+    );
+    const saved = mocks.jsonSetWithExpiry.mock.calls[0][1];
+    expect(saved.mimeType).toMatch(/^image\/(png|jpeg)$/);
+    const bytes = Buffer.from(saved.data, 'base64');
+    expect((await sharp(bytes).metadata()).format).toMatch(/^(png|jpeg)$/);
+    expect(bytes.toString()).not.toContain('<script>');
+  });
+
   it('uses a 41 MiB parser ceiling for a 30 MiB base64 image request', async () => {
     const { config } = await import('@/pages/api/session/imageStorage');
 
     expect(config.api.bodyParser.sizeLimit).toBe('41mb');
+  });
+
+  it('rasterizes legacy SVG reads and applies a sandbox CSP without changing owner checks', async () => {
+    const handler = (await import('@/pages/api/session/imageStorage')).default;
+    const source =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><script>alert(1)</script><rect width="8" height="8"/></svg>';
+    mocks.jsonGet.mockResolvedValue({
+      id: 'legacy',
+      sessionId: 'session-1',
+      userId: 'alice',
+      mimeType: 'image/svg+xml',
+      data: Buffer.from(source).toString('base64'),
+    });
+    const req = { method: 'GET', query: { imageId: 'legacy' } } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+      send: vi.fn(),
+      json: vi.fn(),
+    } as any;
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Security-Policy',
+      "default-src 'none'; sandbox",
+    );
+    expect((await sharp(res.send.mock.calls[0][0]).metadata()).format).toBe(
+      'png',
+    );
+    mocks.jsonGet.mockResolvedValue({
+      userId: 'bob',
+      sessionId: 'another',
+      data: Buffer.from(source).toString('base64'),
+      mimeType: 'image/svg+xml',
+    });
+    res.status.mockClear();
+    res.send.mockClear();
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.send).not.toHaveBeenCalled();
   });
 
   it('accepts exactly 30 MiB and rejects the next raw byte', async () => {

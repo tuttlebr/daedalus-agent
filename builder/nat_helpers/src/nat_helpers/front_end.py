@@ -17,6 +17,10 @@ from fastapi.responses import JSONResponse
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
     FastApiFrontEndPluginWorker,
 )
+from nat_helpers.approval_context import (
+    approval_marker_scope,
+    is_trusted_approval_marker,
+)
 from nat_helpers.redis_url import close_redis_client, redis_url_from_env
 
 logger = logging.getLogger("daedalus.http_api")
@@ -69,7 +73,8 @@ def _decode_valid_mcp_approval_marker(value: object) -> str | None:
         arguments_sha, str
     ) or not _MCP_APPROVAL_ARGUMENTS_SHA_RE.fullmatch(arguments_sha):
         return None
-    return f"<!--daedalus-mcp-approval:{encoded}-->"
+    marker = f"<!--daedalus-mcp-approval:{encoded}-->"
+    return marker if is_trusted_approval_marker(marker) else None
 
 
 def _approval_marker_from_sse_line(line: bytes) -> str | None:
@@ -221,7 +226,8 @@ class McpApprovalTerminalMiddleware:
                     }
                 )
 
-        await self.app(scope, receive, terminal_send)
+        with approval_marker_scope(new_request=True):
+            await self.app(scope, receive, terminal_send)
         if terminated:
             logger.info("Terminated backend execution at MCP approval boundary")
 

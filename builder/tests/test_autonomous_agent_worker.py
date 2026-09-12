@@ -737,30 +737,36 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
     calls = []
 
     class FakeResponse:
-        def __enter__(self):
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, *_args):
+        async def __aexit__(self, *_args):
             return False
 
         def raise_for_status(self):
             return None
 
-        def iter_lines(self, *, decode_unicode):
-            assert decode_unicode is True
-            return iter(
-                [
-                    'data: {"choices":[{"delta":{"content":"done"}}]}',
-                    "data: [DONE]",
-                ]
-            )
+        async def aiter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"done"}}]}'
+            yield "data: [DONE]"
 
-    def fake_post(url, **kwargs):
-        calls.append((url, kwargs))
-        return FakeResponse()
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        def stream(self, method, url, **kwargs):
+            assert method == "POST"
+            calls.append((url, kwargs))
+            return FakeResponse()
 
     monkeypatch.delenv("BACKEND_API_PATH", raising=False)
-    monkeypatch.setattr("autonomous_agent.backend_client.requests.post", fake_post)
+    monkeypatch.setattr("autonomous_agent.backend_client.httpx.AsyncClient", FakeClient)
 
     backend = make_backend("test-user")
     assert (
@@ -773,7 +779,6 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
 
     url, kwargs = calls[0]
     assert url.endswith("/v1/chat/completions")
-    assert kwargs["stream"] is True
     assert kwargs["json"] == {
         "messages": [{"role": "user", "content": "go"}],
         "stream": True,

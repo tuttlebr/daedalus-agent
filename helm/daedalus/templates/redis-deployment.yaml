@@ -26,7 +26,7 @@ spec:
         checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
         checksum/redis-init: {{ include (print $.Template.BasePath "/redis-init-configmap.yaml") . | sha256sum }}
     spec:
-      {{- include "daedalus.nodePlacement" . | nindent 6 }}
+      {{- include "daedalus.nodePlacement" (dict "Values" .Values "allowedArchitectures" .Values.redis.nodePlacement.allowedArchitectures) | nindent 6 }}
       automountServiceAccountToken: false
       {{- with .Values.redis.securityContext }}
       securityContext:

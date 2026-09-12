@@ -1,4 +1,5 @@
 import { ensureS3Bucket, waitForS3 } from './ensure-s3-bucket.mjs';
+import { startHttpsProxy } from './https-proxy.mjs';
 
 import Redis from 'ioredis';
 import { spawn } from 'node:child_process';
@@ -16,6 +17,7 @@ const redisUrl =
   'redis://default:e2e-redis-password@127.0.0.1:16379';
 const backendPort = process.env.E2E_MOCK_BACKEND_PORT || '18000';
 const webPort = process.env.E2E_WEB_PORT || '15000';
+const nextPort = process.env.E2E_NEXT_PORT || '15002';
 const wsPort = process.env.E2E_WS_PORT || '15001';
 const controlPort = Number(process.env.E2E_CONTROL_PORT || 15099);
 const workerHealthFile = '/tmp/daedalus-e2e-stream-worker-health';
@@ -25,6 +27,7 @@ const children = new Map();
 let websocketChild = null;
 let stopping = false;
 let websocketStopExpected = false;
+let closeHttpsProxy;
 
 const runtimeEnv = {
   ...process.env,
@@ -205,6 +208,7 @@ async function shutdown(exitCode = 0) {
   if (stopping) return;
   stopping = true;
   controlServer.close();
+  closeHttpsProxy?.();
   for (const child of children.values()) child.kill('SIGTERM');
   await Promise.all([...children.values()].map((child) => waitForExit(child)));
   process.exit(exitCode);
@@ -242,7 +246,15 @@ async function main() {
 
   startChild('next', [process.execPath, '.next/standalone/server.js'], {
     HOSTNAME: '127.0.0.1',
-    PORT: webPort,
+    PORT: nextPort,
+  });
+  await waitForHttp(`http://127.0.0.1:${nextPort}/login`);
+  closeHttpsProxy = await startHttpsProxy({
+    port: webPort,
+    nextPort,
+    wsPort,
+    key: process.env.E2E_TLS_KEY,
+    cert: process.env.E2E_TLS_CERT,
   });
 }
 

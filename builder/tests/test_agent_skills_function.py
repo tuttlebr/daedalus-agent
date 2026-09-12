@@ -247,7 +247,7 @@ def test_run_skill_script_truncates_stdout(tmp_path, monkeypatch):
 
     out = run(_run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "loud.py"))
 
-    assert "stdout truncated: 100 bytes total, showing first 16" in out
+    assert "Script output limit exceeded (16 bytes combined)" in out
     # Only the first 16 bytes of payload survive (plus the truncation notice).
     assert out.count("A") == 16
 
@@ -265,7 +265,7 @@ def test_run_skill_script_truncates_stderr(tmp_path, monkeypatch):
     out = run(_run_skill_script(parser, [".py", ".sh"], 30, "runner-skill", "err.py"))
 
     assert "[stderr]" in out
-    assert "stderr truncated: 100 bytes total, showing first 16" in out
+    assert "Script output limit exceeded (16 bytes combined)" in out
 
 
 def test_run_skill_script_extension_not_allowed(tmp_path):
@@ -326,3 +326,90 @@ def test_load_skill_helper_not_found(tmp_path):
 
     out = run(_load_skill(parser, "missing-skill"))
     assert "not found" in out
+
+
+def test_explicit_empty_operation_list_disables_all_operations(tmp_path):
+    async def scenario():
+        from agent_skills.agent_skills_function import (
+            AgentSkillsConfig,
+            agent_skills_function,
+        )
+
+        _write_skill(tmp_path)
+        async for info in agent_skills_function(
+            AgentSkillsConfig(
+                skills_directory=str(tmp_path),
+                enabled_operations=[],
+                allow_script_execution=True,
+            ),
+            MagicMock(),
+        ):
+            for operation in ("list_skills", "load_skill", "run_skill_script"):
+                result = await info.fn(
+                    operation=operation, skill_name="safe-skill", script="script.py"
+                )
+                assert "disabled" in result
+
+    run(scenario())
+
+
+def test_cancelling_script_kills_parent_and_descendant(tmp_path):
+    import os
+    from pathlib import Path
+
+    import pytest
+    from agent_skills.agent_skills_function import _run_skill_script
+
+    marker = tmp_path / "pids"
+    body = (
+        "import os, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+        f"open({str(marker)!r}, 'w').write(str(os.getpid()) + ' ' + str(child.pid))\n"
+        "time.sleep(30)\n"
+    )
+    parser = _skill_with_script(tmp_path, "parent.py", body)
+
+    def live(pid):
+        path = Path(f"/proc/{pid}/stat")
+        return path.exists() and path.read_text().split()[2] != "Z"
+
+    async def scenario():
+        task = asyncio.create_task(
+            _run_skill_script(parser, [".py"], 30, "runner-skill", "parent.py")
+        )
+        try:
+            async with asyncio.timeout(3):
+                while not marker.exists():
+                    await asyncio.sleep(0.01)
+            pids = [int(value) for value in marker.read_text().split()]
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            async with asyncio.timeout(2):
+                while any(live(pid) for pid in pids):
+                    await asyncio.sleep(0.01)
+        finally:
+            if marker.exists():
+                for pid in map(int, marker.read_text().split()):
+                    try:
+                        os.kill(pid, 9)
+                    except ProcessLookupError:
+                        pass
+
+    run(scenario())
+
+
+def test_unbounded_output_is_stopped_before_script_finishes(tmp_path, monkeypatch):
+    import agent_skills.agent_skills_function as mod
+
+    monkeypatch.setattr(mod, "_MAX_SCRIPT_OUTPUT_BYTES", 1024)
+    completed = tmp_path / "completed"
+    body = (
+        "import sys, time\nwhile True:\n sys.stdout.write('x'*65536)\n sys.stdout.flush()\n"
+        f"open({str(completed)!r}, 'w').write('done')\n"
+    )
+    parser = _skill_with_script(tmp_path, "noisy.py", body)
+    out = run(mod._run_skill_script(parser, [".py"], 3, "runner-skill", "noisy.py"))
+    assert "output limit exceeded" in out
+    assert len(out) < 1400
+    assert not completed.exists()
