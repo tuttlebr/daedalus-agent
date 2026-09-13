@@ -1,6 +1,6 @@
 """Fail the image build on unexpected Python dependency conflicts.
 
-NAT 1.8, its LiteLLM adapter, and OCI cap cryptography below the required
+NAT 1.9, its LiteLLM adapter, and OCI cap cryptography below the required
 security release; NV-Ingest 26.3 similarly pins urllib3 below its fixes. The
 runtime uses narrow uv overrides until the publishers widen those constraints.
 This check permits only those documented package/version boundaries.
@@ -26,7 +26,7 @@ EXPECTED_CONFLICTS = {
     "nvidia-nat-core/cryptography": (
         re.compile(
             r"^The package `nvidia-nat-core` requires "
-            r"`cryptography>=46\.0\.6,<47`, but "
+            r"`cryptography>=48\.0,<49`, but "
             r"`(?P<installed>[^`]+)` is installed$"
         ),
         Version("50.0.0"),

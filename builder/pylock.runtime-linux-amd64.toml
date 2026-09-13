@@ -1884,9 +1884,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/be/2f/5108cb3ee4ba650
 
 [[packages]]
 name = "mcp"
-version = "1.28.1"
-sdist = { url = "https://files.pythonhosted.org/packages/6e/77/9450b8f251a13affb6281997d0523c4615f8a8b35d0b21ff30db3a5aac9d/mcp-1.28.1.tar.gz", upload-time = 2026-06-26T12:57:29Z, size = 638501, hashes = { sha256 = "d51e36a5f5644faea4f85ea649bfffa6bc6c26770d42798ad6a3de3d2ba69683" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/e2/5e/d118fce19f87a2e7d8101c35c8ae0ec289098a4df0ff244cec23e415aca0/mcp-1.28.1-py3-none-any.whl", upload-time = 2026-06-26T12:57:27Z, size = 222620, hashes = { sha256 = "2726bca5e7193f61c5dde8b12500a6de2d9acf6d1a1c0be9e8c2e706437991df" } }]
+version = "1.29.1"
+sdist = { url = "https://files.pythonhosted.org/packages/b5/48/0bb26fdfe7ac16875f534a101ce2405eae192bdef37e7451f2f4507c13ec/mcp-1.29.1.tar.gz", upload-time = 2026-08-24T18:30:41Z, size = 646823, hashes = { sha256 = "1967ba4c315f7a375146209949f45950d18b0efd2f913d7cf3400bc723ee5f04" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/0b/04/d6b4fb82eefe9e81807aabca1ac98f460ae0883974b83a997aaa20c52545/mcp-1.29.1-py3-none-any.whl", upload-time = 2026-08-24T18:30:39Z, size = 224653, hashes = { sha256 = "b6310eeb59153300c4ab8b9aec4c52f4819a2d6a8e429eb43d908bed7c783648" } }]
 
 [[packages]]
 name = "mdurl"
@@ -2199,48 +2199,43 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/4c/67/16b97fdc6179930
 
 [[packages]]
 name = "nvidia-nat"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69" }
+version = "1.9.0"
+vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", commit-id = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7" }
 
 [[packages]]
 name = "nvidia-nat-atif"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69", subdirectory = "packages/nvidia_nat_atif" }
+version = "1.9.0"
+vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", commit-id = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", subdirectory = "packages/nvidia_nat_atif" }
 
 [[packages]]
 name = "nvidia-nat-core"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69", subdirectory = "packages/nvidia_nat_core" }
+version = "1.9.0"
+vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", commit-id = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", subdirectory = "packages/nvidia_nat_core" }
 
 [[packages]]
 name = "nvidia-nat-eval"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69", subdirectory = "packages/nvidia_nat_eval" }
+version = "1.9.0"
+vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", commit-id = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", subdirectory = "packages/nvidia_nat_eval" }
 
 [[packages]]
 name = "nvidia-nat-langchain"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69", subdirectory = "packages/nvidia_nat_langchain" }
+version = "1.9.0"
+vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", commit-id = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", subdirectory = "packages/nvidia_nat_langchain" }
 
 [[packages]]
 name = "nvidia-nat-mcp"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69", subdirectory = "packages/nvidia_nat_mcp" }
+version = "1.9.0"
+vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", commit-id = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", subdirectory = "packages/nvidia_nat_mcp" }
 
 [[packages]]
 name = "nvidia-nat-opentelemetry"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69", subdirectory = "packages/nvidia_nat_opentelemetry" }
+version = "1.9.0"
+vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", commit-id = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", subdirectory = "packages/nvidia_nat_opentelemetry" }
 
 [[packages]]
 name = "nvidia-nat-phoenix"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69", subdirectory = "packages/nvidia_nat_phoenix" }
-
-[[packages]]
-name = "nvidia-nat-redis"
-version = "1.8.0"
-vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "3c44584ef5de2531e2ff548408f0e4658b755a69", commit-id = "3c44584ef5de2531e2ff548408f0e4658b755a69", subdirectory = "packages/nvidia_nat_redis" }
+version = "1.9.0"
+vcs = { type = "git", url = "https://github.com/NVIDIA/NeMo-Agent-Toolkit.git", requested-revision = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", commit-id = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7", subdirectory = "packages/nvidia_nat_phoenix" }
 
 [[packages]]
 name = "oci"
@@ -3340,9 +3335,9 @@ wheels = [
 
 [[packages]]
 name = "redis"
-version = "4.6.0"
-sdist = { url = "https://files.pythonhosted.org/packages/73/88/63d802c2b18dd9eaa5b846cbf18917c6b2882f20efda398cc16a7500b02c/redis-4.6.0.tar.gz", upload-time = 2023-06-25T13:13:57Z, size = 4561721, hashes = { sha256 = "585dc516b9eb042a619ef0a39c3d7d55fe81bdb4df09a52c9cdde0d07bf1aa7d" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/20/2e/409703d645363352a20c944f5d119bdae3eb3034051a53724a7c5fee12b8/redis-4.6.0-py3-none-any.whl", upload-time = 2023-06-25T13:13:54Z, size = 241149, hashes = { sha256 = "e2b03db868160ee4591de3cb90d40ebb50a90dd302138775937f6a42b7ed183c" } }]
+version = "5.3.1"
+sdist = { url = "https://files.pythonhosted.org/packages/6a/cf/128b1b6d7086200c9f387bd4be9b2572a30b90745ef078bd8b235042dc9f/redis-5.3.1.tar.gz", upload-time = 2025-07-25T08:06:27Z, size = 4626200, hashes = { sha256 = "ca49577a531ea64039b5a36db3d6cd1a0c7a60c34124d46924a45b956e8cf14c" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/7f/26/5c5fa0e83c3621db835cfc1f1d789b37e7fa99ed54423b5f519beb931aa7/redis-5.3.1-py3-none-any.whl", upload-time = 2025-07-25T08:06:26Z, size = 272833, hashes = { sha256 = "dc1909bd24669cc31b5f67a039700b16ec30571096c5f1f0d9d2324bff31af97" } }]
 
 [[packages]]
 name = "referencing"

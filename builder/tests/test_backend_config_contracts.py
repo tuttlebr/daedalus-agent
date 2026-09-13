@@ -44,7 +44,7 @@ RUNTIME_LOCKS = {
         DOCKERFILE.parent / "pylock.runtime-linux-arm64.toml"
     ),
 }
-NAT_COMMIT = "3c44584ef5de2531e2ff548408f0e4658b755a69"
+NAT_COMMIT = "baffefc68315b93e363cfd986c8f7e8dd45ce5e7"
 NGINX_TEMPLATE = (
     Path(__file__).resolve().parents[2]
     / "helm"
@@ -377,6 +377,10 @@ def test_runtime_locks_cover_local_sources_nat_commit_and_registry_hashes():
         assert by_name["urllib3"]["version"] == "2.7.0"
         assert by_name["nv-ingest-api"]["version"] == "26.3.0"
         assert by_name["nv-ingest-client"]["version"] == "26.3.0"
+        assert by_name["nvidia-nat"]["version"] == "1.9.0"
+        assert by_name["mcp"]["version"] == "1.29.1"
+        assert by_name["redis"]["version"] == "5.3.1"
+        assert "nemo-agent-toolkit-redis" not in by_name
         assert "moviepy" not in by_name
 
         locked_local_paths = {
@@ -445,7 +449,7 @@ def test_backend_config_env_placeholders_are_declared_in_template():
     config_text = CONFIG.read_text(encoding="utf-8")
 
     assert _env_placeholders(config_text) - _template_env_names() == set()
-    # NAT 1.8 intentionally stops expanding the ambiguous bare ``$VAR`` form.
+    # NAT intentionally leaves the ambiguous bare ``$VAR`` form unexpanded.
     # Keep every workflow reference on the supported ``${VAR}`` syntax.
     assert re.search(r"\$(?!\{)[A-Z][A-Z0-9_]*", config_text) is None
 
@@ -1510,6 +1514,9 @@ def test_runtime_omits_legacy_async_job_dependencies():
     runtime_requirements = RUNTIME_REQUIREMENTS.read_text(encoding="utf-8")
     assert "aiosqlite" not in dockerfile
     assert "sqlalchemy[asyncio]" not in dockerfile
+    # Daedalus supplies its own Redis object store and does not use NAT's Redis
+    # provider. Avoid pulling that provider's agent-memory stack into runtime.
+    assert "nvidia-nat[redis," not in runtime_requirements
     # NAT's supported FastAPI runner imports SQLAlchemy's asyncio module even
     # when async job endpoints are disabled, so its missing transitive runtime
     # requirement must remain explicit.

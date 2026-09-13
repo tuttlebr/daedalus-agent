@@ -13,7 +13,7 @@ import { getRedis } from '@/server/session/redis';
 import { createHash } from 'node:crypto';
 import { v5 as uuidv5 } from 'uuid';
 
-// NAT 1.8 derives Context.user_id from the nat-session cookie with UUID v5
+// NAT 1.9 derives Context.user_id from the nat-session cookie with UUID v5
 // before passing it to ObjectStoreTokenStorage. Keep this namespace derivation
 // aligned with nat.data_models.user_info.UserInfo.
 const NAT_USER_ID_NAMESPACE = uuidv5('nemo-agent-toolkit', uuidv5.DNS);

@@ -95,7 +95,7 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --python /workspace/.venv/bin/python \
       --require-hashes -r "${runtime_lock}"
 
-# NAT 1.8 and two of its provider dependencies cap cryptography below its fixed
+# NAT 1.9 and two of its provider dependencies cap cryptography below its fixed
 # upstream wheel; NV-Ingest 26.3 pins urllib3 below its fixed release. Permit
 # only those exact, tested metadata boundaries and fail every other conflict.
 RUN set +e; \

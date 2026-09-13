@@ -1,6 +1,6 @@
 """Per-user form of NAT's pinned Responses API agent workflow.
 
-NAT 1.8 ships a per-user MCP function group, but only registers a per-user
+NAT 1.9 ships a per-user MCP function group, but only registers a per-user
 ReAct workflow. Daedalus registers its Responses agent at the supported
 per-user workflow boundary so NAT builds OAuth-backed MCP groups with the
 authenticated request context and caches the complete user workflow for the

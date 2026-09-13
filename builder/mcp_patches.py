@@ -1,6 +1,6 @@
-"""Version-asserted policy and lifecycle adapters for pinned NAT 1.8 MCP.
+"""Version-asserted policy and lifecycle adapters for pinned NAT 1.9 MCP.
 
-The application owns six boundaries that NAT 1.8 doesn't expose as supported
+The application owns six boundaries that NAT 1.9 doesn't expose as supported
 hooks:
 
 * enforce exact-call approval and server-side success receipts for explicitly
@@ -65,7 +65,7 @@ _skipped_function_groups: set[str] = set()
 _known_mcp_function_groups: set[str] = set()
 
 # A failed MCP group gets one optional recovery attempt immediately before the
-# workflow resolves its tools. Recovery is construction-time only: NAT 1.8 has
+# workflow resolves its tools. Recovery is construction-time only: NAT 1.9 has
 # no supported way to mutate a running agent's tool set after it is built.
 _pending_mcp_recovery: dict[str, tuple[tuple, dict]] = {}
 _mcp_recovery_attempted: set[str] = set()
@@ -79,7 +79,7 @@ _mcp_server_group_names: dict[str, str] = {}
 _ambiguous_mcp_servers: set[str] = set()
 
 # Repository-owned tool authorization is loaded from the deployed NAT workflow
-# YAML before the approval gate is installed. NAT 1.8 accepts additional keys
+# YAML before the approval gate is installed. NAT 1.9 accepts additional keys
 # inside ``tool_overrides`` but does not retain them in its runtime model, so
 # this pinned adapter consumes the Daedalus-only ``approval_policy`` field from
 # the same source file. A non-empty ``include`` list opts the group into this
@@ -950,11 +950,9 @@ def _record_possible_mcp_group(name, args, kwargs) -> None:
 def _mcp_client_physical_identity(client) -> str:
     """Return the stable endpoint identity shared by base and per-user clients.
 
-    NAT 1.8's ``server_name`` property is only the transport name (for example,
-    ``streamable-http``), so it cannot distinguish two MCP servers using the
-    same transport.  The concrete clients retain their endpoint in ``_url``;
-    combining that with the transport gives the same identity for the shared
-    schema client and every per-user execution client.
+    Concrete NAT clients include their endpoint in ``server_name``. Build the
+    same identity from transport plus the private endpoint so shared schema
+    clients and per-user execution clients remain comparable across wrappers.
     """
 
     if client is None:
@@ -1318,7 +1316,7 @@ def _patch_mcp_http_auth_timeout():
         auth_timeout_seconds=300.0,
     ):
         # Preserve an explicit upstream/application value. Only replace the
-        # pinned NAT 1.8 default that is otherwise invisible in workflow YAML.
+        # pinned NAT 1.9 default that is otherwise invisible in workflow YAML.
         if auth_timeout_seconds == 300.0:
             auth_timeout_seconds = configured_timeout
         original_init(
@@ -1618,7 +1616,7 @@ def _patch_mcp_auth_context_propagation():
             with Context.scope(user_auth_callback=callback):
                 headers = await get_headers()
             if not headers:
-                # NAT 1.8 converts both absent OAuth bootstrap state and callback
+                # NAT 1.9 converts both absent OAuth bootstrap state and callback
                 # failures into an empty header mapping. Make the 401 retry fail
                 # explicitly instead of issuing another anonymous request that
                 # can remain open until auth_flow_timeout.
@@ -1708,7 +1706,7 @@ def _patch_google_workspace_oauth_authorization_parameters():
 async def _refresh_google_workspace_token(provider, user_id, auth_result):
     """Refresh offline without treating outages as revoked consent.
 
-    NAT 1.8 uses a synchronous client, passes a SecretStr as the secret, ignores
+    NAT 1.9 uses a synchronous client, passes a SecretStr as the secret, ignores
     token_endpoint_auth_method, and falls back to consent on every exception.
     Keep this replacement restricted to the Google resources we configure.
     """
@@ -2672,7 +2670,7 @@ def patch(config_path: str | os.PathLike[str] | None = None):
 
 
 def _patch_tool_client():
-    """Wrap NAT 1.8's exact ``MCPToolClient.acall(tool_args)`` contract."""
+    """Wrap NAT 1.9's exact ``MCPToolClient.acall(tool_args)`` contract."""
     global _approval_gate_installed
     try:
         from nat.plugins.mcp.client.client_base import MCPToolClient

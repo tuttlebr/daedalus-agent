@@ -21,7 +21,7 @@ from entrypoint import _patch_request_metadata_redaction
 from packaging.version import Version
 from pydantic import BaseModel
 
-EXPECTED_NAT_VERSION = "1.8.0"
+EXPECTED_NAT_VERSION = "1.9.0"
 EXPECTED_NV_INGEST_VERSION = "26.3.0"
 
 SECURITY_DEPENDENCY_RANGES = {
@@ -167,7 +167,7 @@ def main() -> None:
     if "runtime-" in serialized_attributes or "headers" in serialized_attributes:
         raise RuntimeError("Sensitive request headers remain in NAT trace metadata")
 
-    # NAT 1.8 exposes runner_class as its supported application-composition
+    # NAT 1.9 exposes runner_class as its supported application-composition
     # hook. Prove the configured Daedalus worker remains a valid subclass so
     # route ownership never falls back to a process-wide FastAPI patch.
     from mcp_approval_api import create_mcp_approval_router

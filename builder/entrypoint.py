@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NAT 1.8 entrypoint with Daedalus routes, authentication, and MCP policy.
+NAT 1.9 entrypoint with Daedalus routes, authentication, and MCP policy.
 Runs NAT in-process so that the scoped MCP adapters survive.
 
 Replaces: nat serve --config_file=/workspace/config.yaml --host 0.0.0.0 --port 8000
@@ -13,7 +13,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from packaging.version import Version
 
-EXPECTED_NAT_VERSION = "1.8.0"
+EXPECTED_NAT_VERSION = "1.9.0"
 
 
 def _patch_request_metadata_redaction() -> None:

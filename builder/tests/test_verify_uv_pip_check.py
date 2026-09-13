@@ -3,11 +3,11 @@
 import pytest
 import verify_uv_pip_check
 
-EXPECTED_OUTPUT = """Checked 240 packages in 60ms
+EXPECTED_OUTPUT = """Checked 241 packages in 60ms
 Found 4 incompatibilities
 The package `langchain-litellm` requires `cryptography>=46.0.5,<49.0.0`, but `50.0.0` is installed
 The package `nv-ingest-client` requires `urllib3==2.6.3`, but `2.7.0` is installed
-The package `nvidia-nat-core` requires `cryptography>=46.0.6,<47`, but `50.0.0` is installed
+The package `nvidia-nat-core` requires `cryptography>=48.0,<49`, but `50.0.0` is installed
 The package `oci` requires `cryptography>=3.2.1,<50.0.0`, but `50.0.0` is installed
 """
 

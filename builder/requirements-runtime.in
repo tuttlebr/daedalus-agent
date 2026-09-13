@@ -10,7 +10,7 @@
 #   --format pylock.toml --output-file pylock.runtime-linux-arm64.toml \
 #   requirements-runtime.in
 
-nvidia-nat[redis,mcp,langchain,phoenix] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@3c44584ef5de2531e2ff548408f0e4658b755a69
+nvidia-nat[mcp,langchain,phoenix] @ git+https://github.com/NVIDIA/NeMo-Agent-Toolkit.git@baffefc68315b93e363cfd986c8f7e8dd45ce5e7
 aiohttp>=3.14.3,<4
 cryptography>=50.0.0,<51
 fastfeedparser>=0.5.10,<0.6
