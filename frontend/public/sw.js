@@ -3,22 +3,22 @@
 // prettier-ignore
 const BRANDING = {
   "assets": {
-    "/favicon.png": "/favicon.png?v=5ff389b0a8cde462",
-    "/icons/icon-120x120.png": "/icons/icon-120x120.png?v=839f53aa3a3bacce",
-    "/icons/icon-144x144.png": "/icons/icon-144x144.png?v=4f096f5b5563a397",
-    "/icons/icon-152x152.png": "/icons/icon-152x152.png?v=b8860024c74d6cab",
-    "/icons/icon-16x16.png": "/icons/icon-16x16.png?v=55f611b971cbe2b3",
-    "/icons/icon-180x180.png": "/icons/icon-180x180.png?v=d3b2b4fb88017590",
-    "/icons/icon-192x192.png": "/icons/icon-192x192.png?v=d2d97e2a62d4f703",
-    "/icons/icon-32x32.png": "/icons/icon-32x32.png?v=79c43bb44b92cea9",
-    "/icons/icon-48x48.png": "/icons/icon-48x48.png?v=685f5ebc3a6262bb",
-    "/icons/icon-512x512-maskable.png": "/icons/icon-512x512-maskable.png?v=5ff389b0a8cde462",
-    "/icons/icon-512x512.png": "/icons/icon-512x512.png?v=5ff389b0a8cde462",
-    "/icons/icon-72x72.png": "/icons/icon-72x72.png?v=333f87c1450506ac",
-    "/icons/icon-96x96.png": "/icons/icon-96x96.png?v=7236c562be93b012"
+    "/favicon.png": "/favicon.png?v=43e6b4979f3e136e",
+    "/icons/icon-120x120.png": "/icons/icon-120x120.png?v=b215ac1a88dbbad1",
+    "/icons/icon-144x144.png": "/icons/icon-144x144.png?v=5ba7912d63634efb",
+    "/icons/icon-152x152.png": "/icons/icon-152x152.png?v=fa89e79bd958a483",
+    "/icons/icon-16x16.png": "/icons/icon-16x16.png?v=8f75db6fd86afafe",
+    "/icons/icon-180x180.png": "/icons/icon-180x180.png?v=f4c1f8efd93d4a45",
+    "/icons/icon-192x192.png": "/icons/icon-192x192.png?v=9a3a268af07e9748",
+    "/icons/icon-32x32.png": "/icons/icon-32x32.png?v=2ab74b9c1916776c",
+    "/icons/icon-48x48.png": "/icons/icon-48x48.png?v=987facfadb6dd6e6",
+    "/icons/icon-512x512-maskable.png": "/icons/icon-512x512-maskable.png?v=43e6b4979f3e136e",
+    "/icons/icon-512x512.png": "/icons/icon-512x512.png?v=43e6b4979f3e136e",
+    "/icons/icon-72x72.png": "/icons/icon-72x72.png?v=fe0003e4b0c55ce2",
+    "/icons/icon-96x96.png": "/icons/icon-96x96.png?v=70ff6d5181094bbf"
   },
-  "manifest": "/manifest.json?v=c2e4e7e2657e329e",
-  "version": "9c67638b40912dbe"
+  "manifest": "/manifest.json?v=8235cfcb12f36e6a",
+  "version": "199fe84b2b02b190"
 };
 // END GENERATED BRANDING
 const CACHE_NAME = `daedalus-v3-${BRANDING.version}`;
@@ -56,7 +56,7 @@ const BUILD_PRECACHE = [
   '/_next/static/chunks/framework-b9fd9bcc3ecde907.js',
   '/_next/static/chunks/main-5f8fac673b6d5748.js',
   '/_next/static/css/ae91274ddd19241b.css',
-  '/_next/static/chunks/pages/_app-ec4137e89b16da3a.js',
+  '/_next/static/chunks/pages/_app-10697d4b6f77f231.js',
   '/_next/static/chunks/2bd9703c-1a649cebe01df6da.js',
   '/_next/static/chunks/8942-c90b4cc746758b74.js',
   '/_next/static/chunks/pages/index-e3e01873361043fd.js',
