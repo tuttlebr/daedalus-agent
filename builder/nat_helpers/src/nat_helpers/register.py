@@ -6,6 +6,7 @@ from nat_helpers import (
     daedalus_memory_tools,
     nvidia_docs,
     per_user_tool_calling,
+    phoenix_telemetry,
     secure_redis_object_store,
     tool_output_retriever,
     vllm_embeddings,

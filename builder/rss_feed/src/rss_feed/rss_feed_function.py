@@ -132,6 +132,15 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
         le=128000,
         description="Maximum number of tokens in scraped content",
     )
+    scrape_timeout: float = Field(
+        default=20.0,
+        gt=0,
+        le=120,
+        description=(
+            "Overall timeout in seconds for fetching and converting the selected "
+            "article."
+        ),
+    )
 
 
 class RssSearchRequest(BaseModel):
@@ -427,6 +436,20 @@ def _scrape_content(
         raise
 
 
+async def _scrape_content_with_timeout(
+    url: str,
+    token_limit: int,
+    *,
+    timeout: float,
+) -> tuple[str, bool]:
+    """Bound the complete synchronous fetch and MarkItDown conversion."""
+
+    return await asyncio.wait_for(
+        asyncio.to_thread(_scrape_content, url, token_limit),
+        timeout=timeout,
+    )
+
+
 @register_function(config_type=RssFeedFunctionConfig)
 async def rss_feed_function(
     config: RssFeedFunctionConfig,
@@ -675,16 +698,41 @@ async def rss_feed_function(
                     error="No suitable entry found after reranking",
                 ).model_dump()
 
-            # Scrape the top-ranked URL (wrapped in to_thread since markitdown is synchronous)
+            # Bound the complete synchronous fetch and MarkItDown conversion. The
+            # inner HTTP timeout alone cannot constrain a slow document converter.
             logger.info("Scraping top-ranked result: %s", top_entry.link)
             try:
-                scraped_content, was_truncated = await asyncio.to_thread(
-                    _scrape_content,
+                scraped_content, was_truncated = await _scrape_content_with_timeout(
                     top_entry.link,
                     config.scrape_max_output_tokens,
+                    timeout=config.scrape_timeout,
                 )
                 if was_truncated:
                     logger.info("Content was truncated to fit token limit")
+            except TimeoutError:
+                logger.warning(
+                    "RSS content scrape exceeded the %.1f second overall timeout",
+                    config.scrape_timeout,
+                )
+                return RssSearchResponse(
+                    success=True,
+                    query=search_request.query,
+                    feed_url=feed_url_display,
+                    feed_scope=requested_scope,
+                    top_result={
+                        "title": top_entry.title,
+                        "link": top_entry.link,
+                        "published": top_entry.published,
+                        "author": top_entry.author,
+                        "description": top_entry.description,
+                        "feed_scope": top_entry.feed_scope,
+                        "feed_url": top_entry.feed_url,
+                    },
+                    scraped_content=None,
+                    entries_count=len(entries),
+                    cached=is_cached,
+                    error="Selected RSS content exceeded the scrape timeout.",
+                ).model_dump()
             except Exception as e:
                 logger.error("Failed to scrape content: %s", str(e))
                 # Return the RSS entry info without scraped content

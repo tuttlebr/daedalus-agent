@@ -35,3 +35,26 @@ configuration/dispatcher contracts. The pinned toolkit runtime loaded all 18
 skills and 102 bundled resources; the edited skill passed frontmatter validation
 and local link checks. These checks establish the runtime contract, not the
 quality of a live briefing from external sources.
+
+## 2026-09-12: daily-summary latency safeguards
+
+The interactive briefing reuses the bounded automatic Hindsight context when
+present instead of repeating a 24-result memory recall. A missing automatic
+context still permits one explicit recall. The runtime exposes a briefing-only
+tool catalog and ends research after five minutes, leaving the renderer and
+sourced text fallback as the only final-synthesis paths. Source, read-only,
+validation, and OAuth boundaries are unchanged.
+
+Validation: all changed files passed pre-commit; 1,470 builder tests passed with
+75.96% coverage (4 integration tests skipped, and the independent-audit test
+file could not be collected because its independently generated fixture is
+absent from this checkout). The pinned NAT runtime accepted the configuration, registered
+the custom telemetry and RSS components, and passed its agent-loop contract,
+including a synthetic stalled final stream followed by exactly one bounded
+synthesis-only retry. Helm lint/render passed, and backend image
+`sha256:6662c208199a6db9add9b68e71a2771041b0cdf73ad870dcd2be19c02a4beb73`
+was deployed in Helm revision 36. A live daily summary then completed in 224.0
+seconds without an explicit `get_memory` call. Both renderer attempts rejected
+invalid input, after which the workflow completed with the required text
+fallback. Live Phoenix OTLP requests returned HTTP 200 and the backend recorded
+no exporter errors.

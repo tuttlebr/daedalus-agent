@@ -491,6 +491,7 @@ def _bounded_context_payload(
     facts: list[dict[str, Any]],
 ) -> str:
     payload: dict[str, Any] = {
+        "source": "automatic_hindsight",
         "session_brief": brief[:2400] or None,
         "knowledge_pages": [dict(page) for page in pages],
         "precise_facts": [dict(fact) for fact in facts],
@@ -508,6 +509,7 @@ def _bounded_context_payload(
     if not _payload_fits(payload):
         logger.warning("Memory context metadata exceeded the configured size bound")
         payload = {
+            "source": "automatic_hindsight",
             "session_brief": None,
             "knowledge_pages": [],
             "precise_facts": [],

@@ -29,6 +29,10 @@ def _require(condition, detail):
         raise RuntimeError(str(detail))
 
 
+class StreamChunkTimeoutError(RuntimeError):
+    """Match the production stream timeout class for offline retry coverage."""
+
+
 class ContractLLM(BaseChatModel):
     model_name: str = "offline-contract"
     mode: str = "repeat_success"
@@ -55,13 +59,14 @@ class ContractLLM(BaseChatModel):
         if (
             self.mode == "complete"
             or (self.mode == "answer_commentary" and call > 1)
+            or (self.mode == "daily_retry" and call > 3)
             or (self.mode == "progress" and call > 30)
             or (self.mode == "sandbox_progress" and call > 31)
             or (self.mode in {"reset_success", "reset_changed"} and call > 7)
         ):
             yield ChatGenerationChunk(message=AIMessageChunk(content="Completed."))
             return
-        if self.mode in {"provider_error", "truncated"} and call == 3:
+        if self.mode in {"daily_retry", "provider_error", "truncated"} and call == 3:
             yield ChatGenerationChunk(
                 message=AIMessageChunk(
                     content=(
@@ -81,6 +86,8 @@ class ContractLLM(BaseChatModel):
                     ),
                 )
             )
+            if self.mode == "daily_retry":
+                raise StreamChunkTimeoutError("Synthetic final stream stall")
             if self.mode == "provider_error":
                 raise RuntimeError("Synthetic provider failure")
             return
@@ -91,7 +98,13 @@ class ContractLLM(BaseChatModel):
         value = (
             call
             if self.mode
-            in {"progress", "sandbox_progress", "provider_error", "truncated"}
+            in {
+                "daily_retry",
+                "progress",
+                "sandbox_progress",
+                "provider_error",
+                "truncated",
+            }
             else 2
             if self.mode in {"reset_success", "reset_changed"} and call == 4
             else 1
@@ -173,6 +186,7 @@ async def verify_agent_loop_contract():
                 "artifact",
                 "artifact_commentary",
                 "answer_commentary",
+                "daily_retry",
                 "provider_error",
                 "truncated",
                 "recursion",
@@ -192,6 +206,12 @@ async def verify_agent_loop_contract():
                 config = DaedalusPerUserResponsesAPIAgentWorkflowConfig(
                     llm_name="offline",
                     nat_tools=[tool_name],
+                    daily_summary_nat_tools=(
+                        [tool_name] if mode == "daily_retry" else []
+                    ),
+                    daily_summary_final_nat_tools=(
+                        [tool_name] if mode == "daily_retry" else []
+                    ),
                     tool_output_compaction_enabled=False,
                     max_iterations=(
                         2
@@ -219,7 +239,14 @@ async def verify_agent_loop_contract():
                         messages=[
                             {"role": "user", "content": "historical request"},
                             {"role": "assistant", "content": "OLD_TURN_NOT_RECOVERY"},
-                            {"role": "user", "content": "offline fixture"},
+                            {
+                                "role": "user",
+                                "content": (
+                                    "daily summary"
+                                    if mode == "daily_retry"
+                                    else "offline fixture"
+                                ),
+                            },
                         ]
                     )
                     for _ in range(2):
@@ -300,6 +327,11 @@ async def verify_agent_loop_contract():
                             expected = "Completed."
                             if streaming and mode == "answer_commentary":
                                 expected = "Preparing verified results. " + expected
+                            if streaming and mode == "daily_retry":
+                                expected = (
+                                    "Useful partial answer: retained evidence."
+                                    + expected
+                                )
                             _require(text == expected, (mode, text))
                             expected_calls = {
                                 "complete": 0,
@@ -308,6 +340,7 @@ async def verify_agent_loop_contract():
                                 "sandbox_progress": 31,
                                 "reset_success": 7,
                                 "reset_changed": 7,
+                                "daily_retry": 2,
                             }
                             _require(delta == expected_calls[mode], (mode, delta))
                     if mode == "repeat_failure":

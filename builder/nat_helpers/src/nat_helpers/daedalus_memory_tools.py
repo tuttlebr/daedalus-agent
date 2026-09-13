@@ -36,6 +36,9 @@ DAILY_BRIEFING_TRIGGERS = (
     "daily briefings",
     "daily brief",
     "daily summry",
+    "morning briefing",
+    "morning brief",
+    "catch me up on today",
 )
 
 

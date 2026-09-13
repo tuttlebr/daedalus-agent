@@ -709,6 +709,55 @@ def test_rss_tool_has_bounded_scraped_content_budget():
     tool = _config()["functions"]["curated_feed_search_tool"]
 
     assert tool["scrape_max_output_tokens"] == 8000
+    assert tool["scrape_timeout"] == 20
+
+
+def test_phoenix_telemetry_cannot_gate_workflow_completion():
+    phoenix = _config()["general"]["telemetry"]["tracing"]["phoenix"]
+
+    assert phoenix["_type"] == "daedalus_phoenix"
+    assert phoenix["timeout"] <= 3
+    assert phoenix["shutdown_timeout"] <= 2
+    assert phoenix["drop_on_overflow"] is True
+
+
+def test_daily_summary_uses_a_narrow_catalog_and_reserved_synthesis_phase():
+    config = _config()
+    workflow = config["workflow"]
+    all_tools = set(workflow["nat_tools"])
+    daily_tools = set(workflow["daily_summary_nat_tools"])
+
+    assert daily_tools < all_tools
+    assert {
+        "agent_skills_tool",
+        "briefing_renderer_tool",
+        "calendar_mcp_server",
+        "current_datetime_tool",
+        "get_memory",
+        "gmail_mcp_server",
+        "k8s_mcp_server",
+        "source_verifier_tool",
+    } <= daily_tools
+    assert {
+        "add_memory",
+        "docs_mcp_server",
+        "llm_sandbox_tool",
+        "user_document_tool",
+        "user_interaction_tool",
+        "x_mcp_server",
+    }.isdisjoint(daily_tools)
+    assert workflow["daily_summary_final_nat_tools"] == ["briefing_renderer_tool"]
+    assert (
+        workflow["daily_summary_research_budget_seconds"]
+        < config["general"]["per_user_workflow_timeout"]
+    )
+    assert workflow["daily_summary_synthesis_retry_timeout_seconds"] <= 75
+    assert (
+        workflow["daily_summary_research_budget_seconds"]
+        + workflow["daily_summary_synthesis_retry_timeout_seconds"]
+        < config["general"]["per_user_workflow_timeout"]
+    )
+    assert workflow["max_iterations"] == 128
 
 
 def test_domain_retriever_has_calibrated_relevance_floor():

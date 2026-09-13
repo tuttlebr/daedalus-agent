@@ -673,6 +673,7 @@ functions:
     reranker_max_passage_tokens: 192
     reranker_max_total_tokens: 7000
     scrape_max_output_tokens: 8000
+    scrape_timeout: 20
     verbose: false
   content_distiller_tool:
     _type: content_distiller
@@ -974,9 +975,12 @@ general:
   telemetry:
     tracing:
       phoenix:
-        _type: phoenix
+        _type: daedalus_phoenix
         endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
         project: ${PHOENIX_PROJECT_NAME}
+        timeout: 3
+        shutdown_timeout: 2
+        drop_on_overflow: true
 llms:
   tool_calling_llm:
     _type: openai
@@ -1007,6 +1011,30 @@ workflow:
   tool_output_compaction_max_ratio: 0.70
   tool_output_compaction_max_original_chars: 4000000
   tool_output_cache_ttl_seconds: 7200
+  # A daily briefing needs fewer schemas than general chat. After five minutes,
+  # expose only the renderer so collected evidence becomes an answer while the
+  # outer request still has time remaining.
+  daily_summary_research_budget_seconds: 300
+  daily_summary_synthesis_retry_timeout_seconds: 75
+  daily_summary_nat_tools:
+    - agent_skills_tool
+    - briefing_renderer_tool
+    - calendar_mcp_server
+    - content_distiller_tool
+    - curated_feed_search_tool
+    - current_datetime_tool
+    - get_memory
+    - github_mcp_server
+    - gmail_mcp_server
+    - k8s_mcp_server
+    - perplexity_search_tool
+    - source_verifier_tool
+    - tool_output_retriever_tool
+    - unifi_mcp_server
+    - visual_media_tool
+    - webscrape_tool
+  daily_summary_final_nat_tools:
+    - briefing_renderer_tool
   handle_tool_errors: true
   parallel_tool_calls: true
   instructions: |

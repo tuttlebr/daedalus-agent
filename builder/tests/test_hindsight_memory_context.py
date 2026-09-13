@@ -160,6 +160,7 @@ def test_large_context_stays_valid_and_preserves_precise_facts(monkeypatch):
     serialized = result.rsplit("\n", 1)[-1]
     payload = json.loads(serialized)
 
+    assert payload["source"] == "automatic_hindsight"
     assert len(serialized) <= context._MAX_CONTEXT_CHARS
     assert payload["truncated"] is True
     assert len(payload["precise_facts"]) == 6

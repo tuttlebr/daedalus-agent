@@ -33,6 +33,7 @@ from nat.data_models.api_server import (
     ChoiceDeltaToolCall,
     ChoiceDeltaToolCallFunction,
 )
+from nat.data_models.component_ref import FunctionRef
 from nat.plugins.langchain.agent.responses_api_agent.register import (
     ResponsesAPIAgentWorkflowConfig,
 )
@@ -41,6 +42,13 @@ from nat_helpers.agent_loop_guard import (
     LoopGuardSettings,
     agent_run_scope,
     current_agent_run,
+)
+from nat_helpers.daily_summary_runtime import (
+    DAILY_SUMMARY_PROFILE,
+    DAILY_SUMMARY_SYNTHESIS_INSTRUCTION,
+    request_profile,
+    should_retry_final_synthesis,
+    should_start_final_synthesis,
 )
 from nat_helpers.history_budget import _select_history_payloads
 from pydantic import Field
@@ -150,6 +158,35 @@ class DaedalusPerUserResponsesAPIAgentWorkflowConfig(
         le=86_400,
         description="Lifetime of an exact cached result used for recovery.",
     )
+    daily_summary_nat_tools: list[FunctionRef] = Field(
+        default_factory=list,
+        description=(
+            "Narrow tool catalog exposed during an interactive daily-summary request."
+        ),
+    )
+    daily_summary_final_nat_tools: list[FunctionRef] = Field(
+        default_factory=list,
+        description=(
+            "Tools retained after the daily-summary research budget is exhausted."
+        ),
+    )
+    daily_summary_research_budget_seconds: float = Field(
+        default=300.0,
+        ge=30.0,
+        le=900.0,
+        description=(
+            "Wall-clock budget for daily-summary research before final synthesis."
+        ),
+    )
+    daily_summary_synthesis_retry_timeout_seconds: float = Field(
+        default=75.0,
+        ge=15.0,
+        le=120.0,
+        description=(
+            "Timeout for one synthesis-only retry after a daily-summary model "
+            "stream ends before completion."
+        ),
+    )
 
 
 def _content_text(content: object) -> str:
@@ -242,10 +279,11 @@ async def _responses_api_agent_workflow(
     from langchain_core.messages import (
         AIMessageChunk,
         HumanMessage,
+        SystemMessage,
         convert_to_messages,
     )
     from langchain_core.messages.base import BaseMessage
-    from langchain_core.runnables import RunnableLambda
+    from langchain_core.runnables import RunnableBranch, RunnableLambda
     from langgraph.errors import GraphRecursionError
     from nat.plugins.langchain.agent.tool_calling_agent.agent import (
         AgentDecision,
@@ -265,6 +303,19 @@ async def _responses_api_agent_workflow(
     if not bound_tools:
         raise ValueError(
             f"No tools specified for Responses API Agent '{config.llm_name}'"
+        )
+
+    daily_summary_tools = []
+    if config.daily_summary_nat_tools:
+        daily_summary_tools = await builder.get_tools(
+            tool_names=config.daily_summary_nat_tools,
+            wrapper_type=LLMFrameworkEnum.LANGCHAIN,
+        )
+    daily_summary_final_tools = []
+    if config.daily_summary_final_nat_tools:
+        daily_summary_final_tools = await builder.get_tools(
+            tool_names=config.daily_summary_final_nat_tools,
+            wrapper_type=LLMFrameworkEnum.LANGCHAIN,
         )
 
     agent = ToolCallAgentGraph(
@@ -303,23 +354,40 @@ async def _responses_api_agent_workflow(
         if run is not None:
             run.model_calls += 1
             run.last_messages = messages
-        if not tool_output_settings.enabled:
-            return messages
-        try:
-            from nat_helpers.identity import authenticated_user_id_from_context
+            if should_start_final_synthesis(
+                run,
+                budget_seconds=config.daily_summary_research_budget_seconds,
+            ):
+                run.final_synthesis_requested = True
+                logger.info(
+                    "Daily-summary research budget ended; restricting the model to final synthesis"
+                )
 
-            user_id = authenticated_user_id_from_context()
-        except Exception:
-            # Exact recovery is user-scoped. Without trusted identity, keep the
-            # original result instead of creating an inaccessible preview.
-            return messages
-        return await optimize_tool_messages(
-            messages,
-            user_id=user_id,
-            store=tool_output_store,
-            settings=tool_output_settings,
-            cache=tool_output_cache,
-        )
+        model_messages = messages
+        if tool_output_settings.enabled:
+            user_id = None
+            try:
+                from nat_helpers.identity import authenticated_user_id_from_context
+
+                user_id = authenticated_user_id_from_context()
+            except Exception:
+                # Exact recovery is user-scoped. Without trusted identity, keep the
+                # original result instead of creating an inaccessible preview.
+                user_id = None
+            if user_id is not None:
+                model_messages = await optimize_tool_messages(
+                    messages,
+                    user_id=user_id,
+                    store=tool_output_store,
+                    settings=tool_output_settings,
+                    cache=tool_output_cache,
+                )
+        if run is not None and run.final_synthesis_requested:
+            model_messages = [
+                *model_messages,
+                SystemMessage(content=DAILY_SUMMARY_SYNTHESIS_INSTRUCTION),
+            ]
+        return model_messages
 
     # Binding the instructions after the tools retains both sets of invocation
     # kwargs and makes LangChain serialize them as the top-level Responses
@@ -331,13 +399,51 @@ async def _responses_api_agent_workflow(
         parallel_tool_calls=config.parallel_tool_calls,
         instructions=config.instructions,
     )
+    daily_summary_bound_llm = None
+    if daily_summary_tools:
+        daily_summary_bound_llm = _bind_responses_llm(
+            llm,
+            tools=daily_summary_tools,
+            parallel_tool_calls=config.parallel_tool_calls,
+            instructions=config.instructions,
+        )
+    daily_summary_final_bound_llm = None
+    if daily_summary_final_tools:
+        daily_summary_final_bound_llm = _bind_responses_llm(
+            llm,
+            tools=daily_summary_final_tools,
+            parallel_tool_calls=config.parallel_tool_calls,
+            instructions=config.instructions,
+        )
     agent.bound_llm = bound_llm
+    model_branch = bound_llm
+    if daily_summary_bound_llm is not None:
+        branches = []
+        if daily_summary_final_bound_llm is not None:
+            branches.append(
+                (
+                    lambda _: bool(
+                        (run := current_agent_run()) and run.final_synthesis_requested
+                    ),
+                    daily_summary_final_bound_llm,
+                )
+            )
+        branches.append(
+            (
+                lambda _: bool(
+                    (run := current_agent_run())
+                    and run.request_profile == DAILY_SUMMARY_PROFILE
+                ),
+                daily_summary_bound_llm,
+            )
+        )
+        model_branch = RunnableBranch(*branches, bound_llm)
     agent.agent = (
         RunnableLambda(
             _model_messages,
             name="ResponsesInput",
         )
-        | bound_llm
+        | model_branch
     )
 
     # A denied mutation is a deterministic terminal state, not content for a
@@ -407,6 +513,16 @@ async def _responses_api_agent_workflow(
                 len(selected_messages),
             )
         messages: list[BaseMessage] = convert_to_messages(selected_messages)
+        latest_user_text = ""
+        latest_user_index: int | None = None
+        for index in range(len(messages) - 1, -1, -1):
+            if getattr(messages[index], "type", "") == "human":
+                latest_user_text = _content_text(messages[index].content)
+                latest_user_index = index
+                break
+        run = current_agent_run()
+        if run is not None:
+            run.request_profile = request_profile(latest_user_text)
         try:
             from nat_helpers.hindsight_client import client_from_env, memory_mode
             from nat_helpers.hindsight_memory_context import (
@@ -422,13 +538,6 @@ async def _responses_api_agent_workflow(
             if mode == "hindsight" and (
                 execution_scope_from_context_or_none() != "autonomy"
             ):
-                latest_user_text = ""
-                latest_user_index: int | None = None
-                for index in range(len(messages) - 1, -1, -1):
-                    if getattr(messages[index], "type", "") == "human":
-                        latest_user_text = _content_text(messages[index].content)
-                        latest_user_index = index
-                        break
                 if latest_user_text.strip() and latest_user_index is not None:
                     user_id = authenticated_user_id_from_context()
                     # This runs before the first token. The chain behind it can
@@ -526,13 +635,13 @@ async def _responses_api_agent_workflow(
         except Exception:
             logger.debug("Agent outcome span unavailable", exc_info=True)
 
-    async def _stream_graph(
-        chat_request_or_message: ChatRequestOrMessage,
+    async def _stream_graph_from_state(
+        initial_state: ToolCallAgentGraphState,
     ) -> AsyncGenerator[ChatResponseChunk]:
         chunk_id = str(uuid.uuid4())
         try:
             async for msg, metadata in graph.astream(
-                await _initial_state(chat_request_or_message),
+                initial_state,
                 config={"recursion_limit": (config.max_iterations + 1) * 2},
                 stream_mode="messages",
             ):
@@ -587,6 +696,14 @@ async def _responses_api_agent_workflow(
         except GraphRecursionError:
             current_agent_run().stop_reason = "iteration_limit"
 
+    async def _stream_graph(
+        chat_request_or_message: ChatRequestOrMessage,
+    ) -> AsyncGenerator[ChatResponseChunk]:
+        async for chunk in _stream_graph_from_state(
+            await _initial_state(chat_request_or_message)
+        ):
+            yield chunk
+
     async def _run(
         chat_request_or_message: ChatRequestOrMessage,
         *,
@@ -615,10 +732,45 @@ async def _responses_api_agent_workflow(
                     # failures before work starts also retain their normal path.
                     if not run.tool_calls and not run.model_calls:
                         raise
-                    run.stop_reason = run.stop_reason or "execution_error"
-                    logger.warning(
-                        "Agent execution failed: error_class=%s", type(exc).__name__
-                    )
+                    if should_retry_final_synthesis(run, exc):
+                        run.synthesis_retry_attempted = True
+                        run.final_synthesis_requested = True
+                        run.stop_reason = None
+                        logger.warning(
+                            "Daily-summary model stream failed; starting one bounded "
+                            "synthesis-only retry: error_class=%s",
+                            type(exc).__name__,
+                        )
+                        try:
+                            retry_state = ToolCallAgentGraphState(
+                                messages=list(run.last_messages)
+                            )
+                            async with asyncio.timeout(
+                                config.daily_summary_synthesis_retry_timeout_seconds
+                            ):
+                                async for chunk in _stream_graph_from_state(
+                                    retry_state
+                                ):
+                                    chunk_id = chunk.id
+                                    if include_recovery_evidence:
+                                        buffered_text.extend(
+                                            choice.delta.content or ""
+                                            for choice in chunk.choices
+                                        )
+                                    else:
+                                        yield chunk
+                        except Exception as retry_exc:
+                            run.stop_reason = run.stop_reason or "execution_error"
+                            logger.warning(
+                                "Daily-summary synthesis retry failed: error_class=%s",
+                                type(retry_exc).__name__,
+                            )
+                    else:
+                        run.stop_reason = run.stop_reason or "execution_error"
+                        logger.warning(
+                            "Agent execution failed: error_class=%s",
+                            type(exc).__name__,
+                        )
                 if run.terminal_content is not None:
                     yield ChatResponseChunk.create_streaming_chunk(
                         run.terminal_content,

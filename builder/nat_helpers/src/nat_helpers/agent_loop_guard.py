@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 import uuid
 from collections import Counter
 from contextlib import contextmanager
@@ -92,6 +93,10 @@ def tool_outcome(content: Any, *, status: str | None = None) -> Outcome:
 class AgentRun:
     settings: LoopGuardSettings = field(default_factory=LoopGuardSettings)
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    started_at: float = field(default_factory=time.monotonic)
+    request_profile: str = "default"
+    final_synthesis_requested: bool = False
+    synthesis_retry_attempted: bool = False
     initial_messages: int = 0
     activity_stream_requested: bool = False
     processed: int = 0

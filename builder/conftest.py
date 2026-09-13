@@ -5,6 +5,7 @@ Sets up sys.path for all package src/ directories and mocks NAT framework
 and other heavy external dependencies before any test module is imported.
 """
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -109,6 +110,7 @@ _nat_register_mod.register_embedder_client = _fake_register_passthrough
 _nat_register_mod.register_embedder_provider = _fake_register_passthrough
 _nat_register_mod.register_function = _fake_register_function
 _nat_register_mod.register_object_store = _fake_register_passthrough
+_nat_register_mod.register_telemetry_exporter = _fake_register_passthrough
 
 
 class _FakeObjectStoreBaseConfig(_FakeFunctionBaseConfig):
@@ -142,6 +144,58 @@ _nat_data_models_common_mod.SerializableSecretStr = _SecretStr
 _nat_data_models_common_mod.get_secret_value = (
     lambda value: value.get_secret_value() if value is not None else None
 )
+
+
+class _FakeTelemetryExporterBaseConfig(_FakeFunctionBaseConfig):
+    """Drop-in telemetry config base for exporter unit tests."""
+
+
+class _FakeBatchConfigMixin(_BaseModel):
+    batch_size: int = 100
+    flush_interval: float = 5.0
+    max_queue_size: int = 1000
+    drop_on_overflow: bool = False
+    shutdown_timeout: float = 10.0
+
+
+class _FakeCollectorConfigMixin(_BaseModel):
+    project: str
+    endpoint: str
+
+
+class _FakePhoenixOtelExporter:
+    def __init__(self, *args, shutdown_timeout=10.0, **kwargs):
+        del args, kwargs
+        self._processors = []
+        self._shutdown_timeout = shutdown_timeout
+
+    async def export_otel_spans(self, spans):
+        self._exporter.export(spans)
+
+    async def _cleanup(self):
+        await asyncio.gather(
+            *(processor.shutdown() for processor in self._processors),
+            return_exceptions=True,
+        )
+
+
+_nat_telemetry_exporter_mod = MagicMock()
+_nat_telemetry_exporter_mod.TelemetryExporterBaseConfig = (
+    _FakeTelemetryExporterBaseConfig
+)
+
+_nat_batch_mixin_mod = MagicMock()
+_nat_batch_mixin_mod.BatchConfigMixin = _FakeBatchConfigMixin
+
+_nat_collector_mixin_mod = MagicMock()
+_nat_collector_mixin_mod.CollectorConfigMixin = _FakeCollectorConfigMixin
+
+_nat_otel_span_mod = MagicMock()
+_nat_otel_span_mod.OtelSpan = object
+
+_nat_phoenix_exporter_mod = MagicMock()
+_nat_phoenix_exporter_mod.PhoenixOtelExporter = _FakePhoenixOtelExporter
+
 
 _nat_data_models_object_store_mod = MagicMock()
 _nat_data_models_object_store_mod.ObjectStoreBaseConfig = _FakeObjectStoreBaseConfig
@@ -241,6 +295,7 @@ _NAT_MOCKS: dict[str, object] = {
     "nat.data_models.embedder": _nat_data_models_embedder_mod,
     "nat.data_models.function": _nat_data_models_function_mod,
     "nat.data_models.object_store": _nat_data_models_object_store_mod,
+    "nat.data_models.telemetry_exporter": _nat_telemetry_exporter_mod,
     "nat.front_ends": MagicMock(),
     "nat.front_ends.fastapi": MagicMock(),
     "nat.front_ends.fastapi.fastapi_front_end_plugin_worker": (_nat_fastapi_worker_mod),
@@ -249,6 +304,15 @@ _NAT_MOCKS: dict[str, object] = {
     "nat.object_store": MagicMock(),
     "nat.object_store.interfaces": _nat_object_store_interfaces_mod,
     "nat.object_store.models": _nat_object_store_models_mod,
+    "nat.observability": MagicMock(),
+    "nat.observability.mixin": MagicMock(),
+    "nat.observability.mixin.batch_config_mixin": _nat_batch_mixin_mod,
+    "nat.observability.mixin.collector_config_mixin": _nat_collector_mixin_mod,
+    "nat.plugins": MagicMock(),
+    "nat.plugins.opentelemetry": MagicMock(),
+    "nat.plugins.opentelemetry.otel_span": _nat_otel_span_mod,
+    "nat.plugins.phoenix": MagicMock(),
+    "nat.plugins.phoenix.phoenix_exporter": _nat_phoenix_exporter_mod,
     "nat.retriever": MagicMock(),
     "nat.retriever.interface": _nat_retriever_interface_mod,
     "nat.retriever.models": _nat_retriever_models_mod,

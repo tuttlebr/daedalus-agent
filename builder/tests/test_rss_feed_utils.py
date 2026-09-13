@@ -1,5 +1,6 @@
 """Unit tests for rss_feed utility functions and data models."""
 
+import asyncio
 import socket
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -19,6 +20,7 @@ from rss_feed.rss_feed_function import (
     _reranker_error_message,
     _reranker_passage_token_limit,
     _scrape_content,
+    _scrape_content_with_timeout,
     truncate_text,
 )
 
@@ -226,6 +228,26 @@ class TestRssSearchResponse:
         config = RssFeedFunctionConfig()
 
         assert config.scrape_max_output_tokens == 8000
+
+    def test_default_scrape_timeout_bounds_fetch_and_conversion(self):
+        config = RssFeedFunctionConfig()
+
+        assert config.scrape_timeout == 20.0
+
+    def test_complete_scrape_is_bounded_by_one_timeout(self):
+        async def slow_to_thread(*_args, **_kwargs):
+            await asyncio.sleep(10)
+
+        async def run_timeout():
+            with patch.object(rss_mod.asyncio, "to_thread", slow_to_thread):
+                with pytest.raises(TimeoutError):
+                    await _scrape_content_with_timeout(
+                        "https://example.com/article",
+                        100,
+                        timeout=0.01,
+                    )
+
+        asyncio.run(run_timeout())
 
     def test_success_response(self):
         resp = RssSearchResponse(
