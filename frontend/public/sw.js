@@ -3,22 +3,22 @@
 // prettier-ignore
 const BRANDING = {
   "assets": {
-    "/favicon.png": "/favicon.png?v=1580ac3eb1fba19d",
-    "/icons/icon-120x120.png": "/icons/icon-120x120.png?v=03c920807a216a9a",
-    "/icons/icon-144x144.png": "/icons/icon-144x144.png?v=1a2e3e99b703a88b",
-    "/icons/icon-152x152.png": "/icons/icon-152x152.png?v=a62dbd0e66eac8ec",
-    "/icons/icon-16x16.png": "/icons/icon-16x16.png?v=16e516e8e725f9c6",
-    "/icons/icon-180x180.png": "/icons/icon-180x180.png?v=c4dbe4e52bcd5af1",
-    "/icons/icon-192x192.png": "/icons/icon-192x192.png?v=d95f303a1f850834",
-    "/icons/icon-32x32.png": "/icons/icon-32x32.png?v=0d94b605bba63d41",
-    "/icons/icon-48x48.png": "/icons/icon-48x48.png?v=d8fb9c330dd5f401",
-    "/icons/icon-512x512-maskable.png": "/icons/icon-512x512-maskable.png?v=1580ac3eb1fba19d",
-    "/icons/icon-512x512.png": "/icons/icon-512x512.png?v=1580ac3eb1fba19d",
-    "/icons/icon-72x72.png": "/icons/icon-72x72.png?v=eaacb9bc31cf9941",
-    "/icons/icon-96x96.png": "/icons/icon-96x96.png?v=fc3a54d9e080579a"
+    "/favicon.png": "/favicon.png?v=5ff389b0a8cde462",
+    "/icons/icon-120x120.png": "/icons/icon-120x120.png?v=839f53aa3a3bacce",
+    "/icons/icon-144x144.png": "/icons/icon-144x144.png?v=4f096f5b5563a397",
+    "/icons/icon-152x152.png": "/icons/icon-152x152.png?v=b8860024c74d6cab",
+    "/icons/icon-16x16.png": "/icons/icon-16x16.png?v=55f611b971cbe2b3",
+    "/icons/icon-180x180.png": "/icons/icon-180x180.png?v=d3b2b4fb88017590",
+    "/icons/icon-192x192.png": "/icons/icon-192x192.png?v=d2d97e2a62d4f703",
+    "/icons/icon-32x32.png": "/icons/icon-32x32.png?v=79c43bb44b92cea9",
+    "/icons/icon-48x48.png": "/icons/icon-48x48.png?v=685f5ebc3a6262bb",
+    "/icons/icon-512x512-maskable.png": "/icons/icon-512x512-maskable.png?v=5ff389b0a8cde462",
+    "/icons/icon-512x512.png": "/icons/icon-512x512.png?v=5ff389b0a8cde462",
+    "/icons/icon-72x72.png": "/icons/icon-72x72.png?v=333f87c1450506ac",
+    "/icons/icon-96x96.png": "/icons/icon-96x96.png?v=7236c562be93b012"
   },
-  "manifest": "/manifest.json?v=6aa09a51d6647a54",
-  "version": "39a50e75fb5237e3"
+  "manifest": "/manifest.json?v=c2e4e7e2657e329e",
+  "version": "9c67638b40912dbe"
 };
 // END GENERATED BRANDING
 const CACHE_NAME = `daedalus-v3-${BRANDING.version}`;
@@ -56,10 +56,10 @@ const BUILD_PRECACHE = [
   '/_next/static/chunks/framework-b9fd9bcc3ecde907.js',
   '/_next/static/chunks/main-5f8fac673b6d5748.js',
   '/_next/static/css/ae91274ddd19241b.css',
-  '/_next/static/chunks/pages/_app-cca2ba377fac59b5.js',
+  '/_next/static/chunks/pages/_app-ec4137e89b16da3a.js',
   '/_next/static/chunks/2bd9703c-1a649cebe01df6da.js',
   '/_next/static/chunks/8942-c90b4cc746758b74.js',
-  '/_next/static/chunks/pages/index-226202b9f10bd06f.js',
+  '/_next/static/chunks/pages/index-e3e01873361043fd.js',
   '/_next/static/chunks/pages/login-c240302514405d5b.js',
 ];
 const ALL_PRECACHE = STATIC_ASSETS.concat(BUILD_PRECACHE);

@@ -35,7 +35,7 @@
       "url": "/?action=new-chat",
       "icons": [
         {
-          "src": "/icons/icon-192x192.png?v=d95f303a1f850834",
+          "src": "/icons/icon-192x192.png?v=d2d97e2a62d4f703",
           "sizes": "192x192"
         }
       ]
@@ -43,73 +43,73 @@
   ],
   "icons": [
     {
-      "src": "/icons/icon-512x512.png?v=1580ac3eb1fba19d",
+      "src": "/icons/icon-512x512.png?v=5ff389b0a8cde462",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512x512-maskable.png?v=1580ac3eb1fba19d",
+      "src": "/icons/icon-512x512-maskable.png?v=5ff389b0a8cde462",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/icons/icon-192x192.png?v=d95f303a1f850834",
+      "src": "/icons/icon-192x192.png?v=d2d97e2a62d4f703",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-180x180.png?v=c4dbe4e52bcd5af1",
+      "src": "/icons/icon-180x180.png?v=d3b2b4fb88017590",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-152x152.png?v=a62dbd0e66eac8ec",
+      "src": "/icons/icon-152x152.png?v=b8860024c74d6cab",
       "sizes": "152x152",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-144x144.png?v=1a2e3e99b703a88b",
+      "src": "/icons/icon-144x144.png?v=4f096f5b5563a397",
       "sizes": "144x144",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-120x120.png?v=03c920807a216a9a",
+      "src": "/icons/icon-120x120.png?v=839f53aa3a3bacce",
       "sizes": "120x120",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-96x96.png?v=fc3a54d9e080579a",
+      "src": "/icons/icon-96x96.png?v=7236c562be93b012",
       "sizes": "96x96",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-72x72.png?v=eaacb9bc31cf9941",
+      "src": "/icons/icon-72x72.png?v=333f87c1450506ac",
       "sizes": "72x72",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-48x48.png?v=d8fb9c330dd5f401",
+      "src": "/icons/icon-48x48.png?v=685f5ebc3a6262bb",
       "sizes": "48x48",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-32x32.png?v=0d94b605bba63d41",
+      "src": "/icons/icon-32x32.png?v=79c43bb44b92cea9",
       "sizes": "32x32",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-16x16.png?v=16e516e8e725f9c6",
+      "src": "/icons/icon-16x16.png?v=55f611b971cbe2b3",
       "sizes": "16x16",
       "type": "image/png",
       "purpose": "any"
