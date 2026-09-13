@@ -189,7 +189,7 @@ backend:
     enabled: true
     # Leave minAvailable empty so the chart emits maxUnavailable instead; with
     # replicas: 1 a minAvailable of 1 makes every node drain hang.
-    minAvailable: ''
+    minAvailable: 0
     maxUnavailable: 1
   networkPolicy:
     enabled: true # Set to true to restrict backend access to only frontend and nginx pods
