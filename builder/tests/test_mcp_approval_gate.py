@@ -192,9 +192,7 @@ def test_gate_records_receipt_only_for_successful_approved_result(
         assert "mcp_tool_failed" in wrapped_result
 
 
-def test_unrestricted_mutation_disables_automatic_replay_without_receipt(
-    monkeypatch,
-):
+def test_approved_mutation_disables_automatic_replay(monkeypatch):
     reconnect_values = []
 
     class FakeMCPToolClient:
@@ -231,12 +229,12 @@ def test_unrestricted_mutation_disables_automatic_replay_without_receipt(
     monkeypatch.setattr(
         mcp_patches,
         "_validate_mcp_approval",
-        lambda *_args, **_kwargs: (True, "unrestricted-mutation"),
+        lambda *_args, **_kwargs: (True, "approved"),
     )
     monkeypatch.setattr(
         mcp_patches,
         "_record_approved_mcp_receipt",
-        lambda **_kwargs: pytest.fail("unrestricted calls must not record receipts"),
+        lambda **_kwargs: True,
     )
     monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
     mcp_patches._patch_tool_client()
@@ -598,26 +596,26 @@ def test_exact_local_read_only_tools_are_not_over_gated(
         ("unifi_mcp_server", "getInfo", {}),
     ],
 )
-def test_unrestricted_infrastructure_tools_do_not_need_token(
+def test_allowlisted_infrastructure_reads_do_not_need_token(
     server_name, tool_name, payload
 ):
     ok, reason = mcp_patches._validate_mcp_approval(
         tool_name, payload, server_name=server_name
     )
     assert ok is True
-    assert reason == "unrestricted"
+    assert reason == "read-only"
 
 
 @pytest.mark.parametrize("server_name", ["k8s_mcp_server", "unifi_mcp_server"])
-def test_unrestricted_infrastructure_mutations_do_not_need_token(server_name):
+def test_infrastructure_mutations_require_exact_approval(server_name):
     ok, reason = mcp_patches._validate_mcp_approval(
         "delete_resource",
         {"name": "stale-resource"},
         annotations=_Annotations(destructiveHint=True),
         server_name=server_name,
     )
-    assert ok is True
-    assert reason == "unrestricted-mutation"
+    assert ok is False
+    assert "execution credential" in reason
 
 
 def test_api_key_environment_configuration_log_is_presence_only(monkeypatch, caplog):
@@ -702,15 +700,15 @@ def test_read_only_hint_cannot_override_local_mutating_verb():
     assert "execution credential" in reason
 
 
-def test_unrestricted_group_unknown_tool_is_allowed():
+def test_infrastructure_group_unknown_tool_fails_closed():
     ok, reason = mcp_patches._validate_mcp_approval(
         "reconcile",
         {},
         annotations=_Annotations(readOnlyHint=True),
         server_name="k8s_mcp_server",
     )
-    assert ok is True
-    assert reason == "unrestricted"
+    assert ok is False
+    assert "execution credential" in reason
 
 
 def test_unknown_read_like_tool_fails_closed_in_non_sensitive_group():
@@ -755,7 +753,6 @@ def test_espn_reads_never_request_an_execution_credential(tool_name, payload):
 
 
 def test_espn_unlisted_tools_still_require_approval():
-    assert "espn_mcp_server" not in mcp_patches._UNRESTRICTED_MCP_GROUPS
     ok, reason = mcp_patches._validate_mcp_approval(
         "set_lineup",
         {},
@@ -786,16 +783,11 @@ def test_local_read_only_registry_matches_configured_includes():
     assert mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS == configured_policy
 
 
-def test_unrestricted_registry_matches_groups_without_nonempty_include():
+def test_every_mcp_group_has_a_nonempty_allowlist():
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-    expected = frozenset(
-        group_name.casefold()
-        for group_name, group in config["function_groups"].items()
-        if group.get("_type") in {"mcp_client", "per_user_mcp_client"}
-        and not group.get("include")
-    )
-
-    assert mcp_patches._UNRESTRICTED_MCP_GROUPS == expected
+    for group_name, group in config["function_groups"].items():
+        if group.get("_type") in {"mcp_client", "per_user_mcp_client"}:
+            assert group.get("include"), group_name
 
 
 def test_per_user_mcp_endpoint_identity_is_loaded_from_config():
@@ -842,15 +834,13 @@ def test_approval_policy_follows_base_inheritance(tmp_path):
     mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
     canonical_state = (
         dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
-        mcp_patches._UNRESTRICTED_MCP_GROUPS,
         mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
     )
-    assert canonical_state[0] or canonical_state[1], "canonical policy is empty"
+    assert canonical_state[0], "canonical policy is empty"
 
     mcp_patches.configure_mcp_approval_policy(overlay_path)
     overlay_state = (
         dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
-        mcp_patches._UNRESTRICTED_MCP_GROUPS,
         mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
     )
 
@@ -931,6 +921,26 @@ function_groups:
     mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
 
+def test_approval_policy_rejects_an_empty_allowlist(tmp_path):
+    config_path = tmp_path / "bad-policy.yaml"
+    config_path.write_text(
+        """
+function_groups:
+  inventory_mcp_server:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: https://inventory.example.test/mcp
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="non-empty include allowlist"):
+        mcp_patches.configure_mcp_approval_policy(config_path)
+
+    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
 def test_approval_policy_rejects_unknown_value(tmp_path):
     config_path = tmp_path / "bad-policy.yaml"
     config_path.write_text(
@@ -979,14 +989,14 @@ function_groups:
     mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
 
-def test_unrestricted_group_read_prefixed_tool_is_allowed():
+def test_infrastructure_read_prefixed_unknown_tool_fails_closed():
     ok, reason = mcp_patches._validate_mcp_approval(
         "get_pod",
         {"namespace": "default", "name": "api"},
         server_name="k8s_mcp_server",
     )
-    assert ok is True
-    assert reason == "unrestricted"
+    assert ok is False
+    assert "execution credential" in reason
 
 
 def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
@@ -1015,8 +1025,8 @@ def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
         annotations=_Annotations(readOnlyHint=True),
         server_name=physical,
     )
-    assert ok is True
-    assert reason == "unrestricted"
+    assert ok is False
+    assert "execution credential" in reason
 
 
 def test_streamable_mcp_groups_with_distinct_urls_do_not_collide(monkeypatch):

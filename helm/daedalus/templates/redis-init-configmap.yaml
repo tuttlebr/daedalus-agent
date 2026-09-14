@@ -31,7 +31,35 @@ data:
         exit 1
       fi
       umask 077
-      CURRENT_HASH=$(printf '%s' "$REDIS_PASSWORD" | sha256sum | awk '{print $1}')
+      acl_hash() {
+        printf '%s' "$1" | sha256sum | awk '{print $1}'
+      }
+      write_acl_user() {
+        local username="$1" password="$2" previous_password="$3"
+        local key_patterns="$4" channel_patterns="$5"
+        if [[ ! "$username" =~ ^[A-Za-z0-9._-]+$ || -z "$password" ]]; then
+          echo "ERROR: Redis workload user configuration is invalid" >&2
+          exit 1
+        fi
+        printf 'user %s on #%s' "$username" "$(acl_hash "$password")"
+        if [[ -n "$previous_password" && "$previous_password" != "$password" ]]; then
+          printf ' #%s' "$(acl_hash "$previous_password")"
+        fi
+        printf ' %s' "$key_patterns"
+        if [[ -n "$channel_patterns" ]]; then
+          printf ' %s' "$channel_patterns"
+        fi
+        printf ' +@all -@dangerous +info\n'
+      }
+      if [[ "$REDIS_USERNAME" == "$REDIS_BACKEND_USERNAME" ||
+            "$REDIS_USERNAME" == "$REDIS_STREAM_WORKER_USERNAME" ||
+            "$REDIS_USERNAME" == "$REDIS_AUTONOMOUS_USERNAME" ||
+            "$REDIS_BACKEND_USERNAME" == "$REDIS_STREAM_WORKER_USERNAME" ||
+            "$REDIS_BACKEND_USERNAME" == "$REDIS_AUTONOMOUS_USERNAME" ||
+            "$REDIS_STREAM_WORKER_USERNAME" == "$REDIS_AUTONOMOUS_USERNAME" ]]; then
+        echo "ERROR: Redis workload usernames must be distinct" >&2
+        exit 1
+      fi
       # Redis replays AOF transactions as the default ACL user. An entirely
       # disabled default user makes EXEC reject replayed Stream PEL updates,
       # even though ordinary keys load successfully. Keep that internal user
@@ -40,14 +68,23 @@ data:
       AOF_REPLAY_HASH=$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | sha256sum | awk '{print $1}')
       {
         printf 'user default on #%s ~* &* +@all\n' "$AOF_REPLAY_HASH"
-        printf 'user %s on #%s' "$REDIS_USERNAME" "$CURRENT_HASH"
-        if [[ -n "${REDIS_PREVIOUS_PASSWORD:-}" && "$REDIS_PREVIOUS_PASSWORD" != "$REDIS_PASSWORD" ]]; then
-          PREVIOUS_HASH=$(printf '%s' "$REDIS_PREVIOUS_PASSWORD" | sha256sum | awk '{print $1}')
-          printf ' #%s' "$PREVIOUS_HASH"
-        fi
-        # Application clients need all data-structure and scripting commands,
-        # but not server shutdown, module loading, config, flush, or debug.
-        printf ' ~* &* +@all -@dangerous +info\n'
+        # The request-serving frontend owns authentication and user state.
+        write_acl_user "$REDIS_USERNAME" "$REDIS_PASSWORD" \
+          "${REDIS_PREVIOUS_PASSWORD:-}" '~*' '&*'
+        # The backend can access tool/runtime state but cannot read sessions,
+        # login counters, conversations, autonomy state, or general user keys.
+        write_acl_user "$REDIS_BACKEND_USERNAME" "$REDIS_BACKEND_PASSWORD" \
+          "${REDIS_BACKEND_PREVIOUS_PASSWORD:-}" \
+          '~nat:* ~nat/* ~approval:* ~approval-pending:* ~approval-receipt:* ~document:* ~generated:* ~image:* ~user:*:image:* ~rss_feed:* ~daedalus:*' ''
+        # The stream worker receives only async execution/finalization state and
+        # its exact realtime channels; authentication keyspaces stay excluded.
+        write_acl_user "$REDIS_STREAM_WORKER_USERNAME" "$REDIS_STREAM_WORKER_PASSWORD" \
+          "${REDIS_STREAM_WORKER_PREVIOUS_PASSWORD:-}" \
+          '~async-* ~conversation:* ~conversation-job:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~session-documents:* ~generated:* ~image:* ~image-job:*' \
+          '&job:*:status &user:*:chat:*:tokens &user:*:updates'
+        # The autonomous process owns only autonomy state and its update topic.
+        write_acl_user "$REDIS_AUTONOMOUS_USERNAME" "$REDIS_AUTONOMOUS_PASSWORD" \
+          "${REDIS_AUTONOMOUS_PREVIOUS_PASSWORD:-}" '~autonomy:*' '&user:*:updates'
       } >/tmp/users.acl
       AUTH_ARGS=(--aclfile /tmp/users.acl)
       # redis-cli reads these without exposing credentials in process args.

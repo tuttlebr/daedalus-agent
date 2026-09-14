@@ -1,6 +1,6 @@
 # My home deployment: registry, domains, nodes, and services are specific to me.
 # For your own deployment, start with helm/daedalus/values.yaml and adapt the
-# settings you need. See docs/operations.md before running deploy.sh.
+# settings you need. See docs/operations.md before running make deploy.
 global:
   nameOverride: ''
   fullnameOverride: ''
@@ -17,7 +17,7 @@ global:
       ]
 
 images:
-  # deploy.sh resolves these application tags to immutable registry digests
+  # make deploy resolves these application tags to immutable registry digests
   # before Helm runs.
   backend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
@@ -43,7 +43,7 @@ images:
     pullPolicy: Always
 
 # Give document upload/download code only the dedicated object-store
-# credential. deploy.sh creates this Secret only from explicit
+# credential. make deploy creates this Secret only from explicit
 # DOCUMENT_OBJECT_* values and never copies the broader MINIO credential or any
 # object-store credential into the general frontend Secret.
 documentObjectStorage:
@@ -63,7 +63,7 @@ documentObjectStorage:
     accessKeyKey: DOCUMENT_OBJECT_ACCESS_KEY
     secretKeyKey: DOCUMENT_OBJECT_SECRET_KEY
 
-# deploy.sh normalizes the authoritative credentials from the daedalus namespace
+# make deploy normalizes the authoritative credentials from the daedalus namespace
 # into these namespace-local Secrets. Secret payloads never enter Helm values.
 retrieval:
   enabled: true
@@ -121,6 +121,7 @@ backend:
         type: RuntimeDefault
     containerSecurityContext:
       allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
       capabilities:
         drop: [ALL]
     env:
@@ -199,6 +200,7 @@ frontend:
       type: RuntimeDefault
   containerSecurityContext:
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop: [ALL]
   env:
@@ -239,6 +241,10 @@ nginx:
     enabled: true
     tlsSecretName: 'daedalus-tls'
     containerPort: 8443
+    hsts:
+      enabled: true
+      maxAgeSeconds: '31536000'
+      includeSubDomains: false
   config:
     useTemplate: true
     restrictedMode: true # Set to true to block direct API access through nginx
@@ -267,6 +273,7 @@ nginx:
     existingClaimName: ''
   service:
     type: NodePort
+    exposeHttp: false
     nodePorts:
       https: 30443
 
@@ -301,6 +308,7 @@ redis:
       type: RuntimeDefault
   containerSecurityContext:
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop: [ALL]
   persistence:
@@ -347,7 +355,7 @@ autonomousAgent:
     overrides: {}
 
 ingress:
-  enabled: true
+  enabled: false
   className: ''
   annotations:
     nginx.ingress.kubernetes.io/proxy-connect-timeout: '900'

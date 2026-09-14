@@ -123,15 +123,20 @@ metadata:
   labels:
     {{- include "daedalus.labels" . | nindent 4 }}
 spec:
+  {{- if and (not .Values.nginx.service.exposeHttp) (not .Values.nginx.https.enabled) }}
+  {{- fail "nginx.service.exposeHttp=false requires nginx.https.enabled=true" }}
+  {{- end }}
   type: {{ .Values.nginx.service.type }}
   selector:
     app.kubernetes.io/name: {{ include "daedalus.name" . }}
     app.kubernetes.io/component: nginx
     app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
+    {{- if .Values.nginx.service.exposeHttp }}
     - port: {{ .Values.nginx.httpPort }}
       targetPort: http
       name: http
+    {{- end }}
     {{- if .Values.nginx.https.enabled }}
     - port: 443
       targetPort: https

@@ -175,6 +175,8 @@ def test_mcp_argument_preview_redacts_nested_and_embedded_credentials():
                 ),
                 "env": [f"{token_key}={environment_value}", "MODE=production"],
                 "url": "https://user:url-secret@example.test/path",
+                "content": "private document text",
+                "description": "x" * 300,
             }
         )
     )
@@ -185,6 +187,9 @@ def test_mcp_argument_preview_redacts_nested_and_embedded_credentials():
     assert command_value not in preview
     assert environment_value not in preview
     assert "url-secret" not in preview
+    assert "private document text" not in preview
+    assert "[REDACTED CONTENT: 21 chars]" in preview
+    assert "[REDACTED TEXT: 300 chars]" in preview
     assert preview.count("[REDACTED]") >= 4
 
 

@@ -125,7 +125,7 @@ Secrets. Browser-visible `NEXT_PUBLIC_*` limits are compiled into the bundle.
 | `BACKEND_HOST`, `BACKEND_NAMESPACE`, `BACKEND_API_PATH` | In-cluster backend routing                                                  |
 | `DAEDALUS_INTERNAL_API_TOKEN`                           | Trusted frontend and worker calls to the backend                            |
 | `SESSION_SECRET`                                        | Signed identity cookies, required in production                             |
-| `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_USER_*_*`       | Single-user or multi-user login entries                                     |
+| `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `AUTH_USER_*_*`  | Single-user or multi-user entries; bcrypt hashes require cost 12 or greater |
 | `NEXT_PUBLIC_UPLOAD_*`                                  | Build-time browser upload and batch limits                                  |
 | `DOCUMENT_UPLOAD_MAX_MB`                                | Raw multipart document limit, capped at 200 MiB                             |
 | `DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER`               | Atomic in-progress document upload slots, default `2`                       |

@@ -22,7 +22,10 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       if (!process.env.REDIS_URL)
         throw new Error('Disposable REDIS_URL required');
       vi.stubEnv('AUTH_USER_1_USERNAME', configured);
-      vi.stubEnv('AUTH_USER_1_PASSWORD', 'test-password-only');
+      vi.stubEnv(
+        'AUTH_USER_1_PASSWORD_HASH',
+        '$2a$12$7yi3/acb3vGBzFr8czKX5OZVF7mCiyyR567M9NEFEKN07KqJeKWQK',
+      );
       vi.stubEnv('AUTH_USER_2_USERNAME', '');
       redis = await import('@/server/session/redis');
       auth = await import('@/utils/auth/session');

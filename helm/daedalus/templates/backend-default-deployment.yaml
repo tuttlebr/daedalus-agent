@@ -138,12 +138,12 @@ spec:
               value: {{ (get (.Values.backend.default.env.overrides | default dict) "REDIS_PORT") | default (.Values.redis.service.port | default 6379) | quote }}
             {{- if .Values.redis.auth.enabled }}
             - name: REDIS_USERNAME
-              value: {{ .Values.redis.auth.username | quote }}
+              value: {{ .Values.redis.auth.backendUsername | quote }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "daedalus.redisSecretName" . }}
-                  key: {{ .Values.redis.auth.secretKey | default "REDIS_PASSWORD" }}
+                  key: {{ .Values.redis.auth.backendSecretKey | default "REDIS_BACKEND_PASSWORD" }}
             {{- end }}
             - name: REDIS_TLS_ENABLED
               value: {{ .Values.redis.tls.enabled | quote }}
@@ -244,6 +244,8 @@ spec:
             {{- end }}
             {{- end }}
           volumeMounts:
+            - name: backend-tmp
+              mountPath: /tmp
             {{- include "daedalus.contentCredentialsMount" . | nindent 12 }}
             {{- if .Values.backend.default.config.enabled }}
             - name: backend-config
@@ -264,8 +266,9 @@ spec:
               mountPath: {{ .Values.redis.tls.mountPath | default "/etc/redis-tls" }}
               readOnly: true
             {{- end }}
-      {{- if or .Values.backend.persistence.enabled .Values.backend.skills.enabled .Values.backend.default.config.enabled .Values.redis.tls.enabled (ne .Values.contentCredentials.mode "off") }}
       volumes:
+        - name: backend-tmp
+          emptyDir: {}
         {{- include "daedalus.contentCredentialsVolume" . | nindent 8 }}
         {{- if .Values.backend.persistence.enabled }}
         - name: backend-data
@@ -293,7 +296,6 @@ spec:
           secret:
             secretName: {{ include "daedalus.redisTlsSecretName" . }}
         {{- end }}
-      {{- end }}
 ---
 apiVersion: v1
 kind: Service

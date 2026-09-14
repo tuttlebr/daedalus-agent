@@ -109,14 +109,45 @@ describe('/api/auth/login', () => {
 
     await handler(req, res);
 
-    expect(mocks.redisIncr).toHaveBeenCalledTimes(1);
+    expect(mocks.redisIncr).toHaveBeenCalledTimes(3);
     expect(incrementExpiringCounter).toHaveBeenCalledWith(
       expect.any(String),
       300,
       5,
       900,
     );
+    expect(incrementExpiringCounter).toHaveBeenCalledWith(
+      expect.any(String),
+      300,
+      10,
+      900,
+    );
+    expect(incrementExpiringCounter).toHaveBeenCalledWith(
+      expect.any(String),
+      300,
+      30,
+      900,
+    );
     expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it('locks an account across source IPs', async () => {
+    mocks.redisGet.mockImplementation(async (key: string) =>
+      key.includes(':account:') ? '10' : '0',
+    );
+    mocks.redisTtl.mockResolvedValue(90);
+    const { req, res } = createMockReqRes({
+      username: 'admin',
+      password: 'correct',
+    });
+
+    await handler(req, res);
+
+    expect(mocks.verifyCredentials).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ retryAfterSeconds: 90 }),
+    );
   });
 
   it('rejects login while the username and IP are locked out', async () => {

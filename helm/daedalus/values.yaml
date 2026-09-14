@@ -10,7 +10,7 @@ global:
     allowedNodes: [] # e.g. ["daedalus-02", "daedalus-03"]
 
 # Change this value to restart workloads after externally managed Secret
-# content changes. deploy.sh supplies a fresh timestamp automatically.
+# content changes. make deploy supplies a fresh timestamp automatically.
 forceRedeploy: ''
 
 images:
@@ -74,11 +74,11 @@ documentObjectStorage:
     sessionTokenKey: DOCUMENT_OBJECT_SESSION_TOKEN
 
 # Shared RAG services. Credentials are always read from existing Secrets;
-# deploy.sh can copy the authoritative Milvus/MinIO Secrets into this release
+# make deploy can copy the authoritative Milvus/MinIO Secrets into this release
 # namespace without putting their values in Helm release metadata.
 retrieval:
   enabled: true
-  # deploy.sh fills these from Kubernetes Secret metadata after synchronization.
+  # make deploy fills these from Kubernetes Secret metadata after synchronization.
   # They are rollout signals only and never contain credential material.
   secretResourceVersions:
     milvus: ''
@@ -150,6 +150,7 @@ backend:
         type: RuntimeDefault
     containerSecurityContext:
       allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
       capabilities:
         drop: [ALL]
     env:
@@ -161,6 +162,8 @@ backend:
       # Explicit env overrides applied in the pod, useful to fix bad values from secrets
       overrides:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+        HOME: /tmp
+        XDG_CACHE_HOME: /tmp/.cache
         # Match Google MCP auth_flow_timeout in the deployed NAT workflow.
         DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS: '600'
         # Trust nginx proxy headers so OAuth callbacks reconstruct the public
@@ -246,6 +249,7 @@ frontend:
       type: RuntimeDefault
   containerSecurityContext:
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop: [ALL]
   resources:
@@ -345,6 +349,10 @@ nginx:
     enabled: false
     tlsSecretName: ''
     containerPort: 8443
+    hsts:
+      enabled: false
+      maxAgeSeconds: '31536000'
+      includeSubDomains: false
   config:
     useTemplate: true
     restrictedMode: true # Set to true to block direct API access through nginx
@@ -352,6 +360,24 @@ nginx:
     documentUploadMaxBodySize: '201M' # 200 MiB raw file plus bounded multipart framing
     videoUploadMaxBodySize: '150M' # Legacy base64 route parser ceiling
     imageUploadMaxBodySize: '41M' # 30 MiB raw image plus base64/JSON framing
+    resourceLimits:
+      clientBodyTimeout: 30s
+      clientHeaderTimeout: 15s
+      proxyConnectTimeout: 30s
+      connectionsPerIp: 30
+      connectionsTotal: 200
+      uploadsTotal: 6
+      executionsTotal: 24
+      loginRate: 5r/m
+      loginBurst: 5
+      uploadRate: 12r/m
+      uploadBurst: 6
+      chatStartRate: 10r/m
+      chatStartBurst: 5
+      websocketRate: 10r/m
+      websocketBurst: 5
+      apiRate: 120r/m
+      apiBurst: 30
     voiceStudioProxy:
       enabled: false
       path: /voice-studio
@@ -376,6 +402,7 @@ nginx:
     existingClaimName: ''
   service:
     type: ClusterIP
+    exposeHttp: true
 
 redis:
   enabled: true
@@ -395,6 +422,21 @@ redis:
     existingSecret: ''
     secretKey: REDIS_PASSWORD
     previousSecretKey: REDIS_PREVIOUS_PASSWORD
+    backendUsername: daedalus-backend
+    backendPassword: ''
+    backendPreviousPassword: ''
+    backendSecretKey: REDIS_BACKEND_PASSWORD
+    backendPreviousSecretKey: REDIS_BACKEND_PREVIOUS_PASSWORD
+    streamWorkerUsername: daedalus-stream-worker
+    streamWorkerPassword: ''
+    streamWorkerPreviousPassword: ''
+    streamWorkerSecretKey: REDIS_STREAM_WORKER_PASSWORD
+    streamWorkerPreviousSecretKey: REDIS_STREAM_WORKER_PREVIOUS_PASSWORD
+    autonomousUsername: daedalus-autonomous
+    autonomousPassword: ''
+    autonomousPreviousPassword: ''
+    autonomousSecretKey: REDIS_AUTONOMOUS_PASSWORD
+    autonomousPreviousSecretKey: REDIS_AUTONOMOUS_PREVIOUS_PASSWORD
   tls:
     # TLS requires an existing Secret with a server certificate, private key,
     # and issuing CA. The certificate must cover the Redis Service DNS names.
@@ -416,6 +458,7 @@ redis:
       type: RuntimeDefault
   containerSecurityContext:
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
     capabilities:
       drop: [ALL]
   resources:

@@ -56,6 +56,10 @@ spec:
             - containerPort: 3001
               name: ws
           env:
+            - name: HOME
+              value: /tmp
+            - name: XDG_CACHE_HOME
+              value: /tmp/.cache
             - name: PUSH_NOTIFICATIONS_ENABLED
               value: {{ .Values.frontend.streamWorker.pushNotifications.enabled | quote }}
             - name: SESSION_SECRET
@@ -127,7 +131,7 @@ spec:
             {{- end }}
             {{- with .Values.frontend.env.overrides }}
             {{- range $k, $v := . }}
-            {{- if not (regexMatch "^(DEPLOYMENT_MODE|BACKEND_(HOST|NAMESPACE|PORT|API_PATH)|DOCUMENT_INGEST_TIMEOUT_MS|NAT_(SUBMIT_MAX_RETRIES|RETRY_DELAY_MS|CONNECTIVITY_TIMEOUT_MS)|STREAM_READ_IDLE_TIMEOUT_MS|DAEDALUS_DEBUG_REPLAY|DOCUMENT_UPLOAD_(MAX_MB|MAX_CONCURRENT_PER_USER)|RATE_LIMIT_[A-Z0-9_]+|NEXT_PUBLIC_[A-Z0-9_]+|DEFAULT_MODEL|FORCE_SECURE_COOKIES|WS_[A-Z0-9_]+|FRONTEND_READY_TIMEOUT_MS|REDIS_(MAX_RETRIES_PER_REQUEST|COMMAND_TIMEOUT_MS)|VAPID_PRIVATE_KEY|GENERATED_IMAGE_LEGACY_PUBLIC|AUTH_(USERNAME|PASSWORD|NAME|LOGIN_WINDOW_SECONDS|LOGIN_LOCKOUT_SECONDS|LOGIN_MAX_ATTEMPTS|TRUSTED_PROXY_HOPS)|AUTH_USER_[0-9]+_(USERNAME|PASSWORD|NAME)|NODE_OPTIONS|LOG_LEVEL)$" $k) }}
+            {{- if not (regexMatch "^(DEPLOYMENT_MODE|BACKEND_(HOST|NAMESPACE|PORT|API_PATH)|DOCUMENT_INGEST_TIMEOUT_MS|NAT_(SUBMIT_MAX_RETRIES|RETRY_DELAY_MS|CONNECTIVITY_TIMEOUT_MS)|STREAM_READ_IDLE_TIMEOUT_MS|DAEDALUS_DEBUG_REPLAY|DOCUMENT_UPLOAD_(MAX_MB|MAX_CONCURRENT_PER_USER)|RATE_LIMIT_[A-Z0-9_]+|NEXT_PUBLIC_[A-Z0-9_]+|DEFAULT_MODEL|FORCE_SECURE_COOKIES|WS_[A-Z0-9_]+|FRONTEND_READY_TIMEOUT_MS|REDIS_(MAX_RETRIES_PER_REQUEST|COMMAND_TIMEOUT_MS)|VAPID_PRIVATE_KEY|GENERATED_IMAGE_LEGACY_PUBLIC|AUTH_(USERNAME|PASSWORD_HASH|NAME|LOGIN_WINDOW_SECONDS|LOGIN_LOCKOUT_SECONDS|LOGIN_MAX_ATTEMPTS|LOGIN_ACCOUNT_MAX_ATTEMPTS|LOGIN_IP_MAX_ATTEMPTS|TRUSTED_PROXY_HOPS)|AUTH_USER_[0-9]+_(USERNAME|PASSWORD_HASH|NAME)|NODE_OPTIONS|LOG_LEVEL)$" $k) }}
             {{- fail (printf "frontend.env.overrides key %s is not in the frontend workload allowlist" $k) }}
             {{- end }}
             {{- if and (ne $k "REDIS_URL") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "NODE_EXTRA_CA_CERTS") (ne $k "BACKEND_HOST") (ne $k "BACKEND_API_PATH") (ne $k "DAEDALUS_INTERNAL_API_TOKEN") }}
@@ -159,18 +163,26 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .Values.redis.tls.enabled }}
           volumeMounts:
+            - name: frontend-tmp
+              mountPath: /tmp
+            - name: frontend-cache
+              mountPath: /app/.next/cache
+            {{- if .Values.redis.tls.enabled }}
             - name: redis-tls
               mountPath: {{ .Values.redis.tls.mountPath | default "/etc/redis-tls" }}
               readOnly: true
-          {{- end }}
-      {{- if .Values.redis.tls.enabled }}
+            {{- end }}
       volumes:
+        - name: frontend-tmp
+          emptyDir: {}
+        - name: frontend-cache
+          emptyDir: {}
+        {{- if .Values.redis.tls.enabled }}
         - name: redis-tls
           secret:
             secretName: {{ include "daedalus.redisTlsSecretName" . }}
-      {{- end }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

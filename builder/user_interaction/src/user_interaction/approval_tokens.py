@@ -44,6 +44,11 @@ _SENSITIVE_STRING_VALUE = re.compile(
     r")",
     re.IGNORECASE,
 )
+_FREE_TEXT_ARGUMENT_KEY = re.compile(
+    r"(?:^|[_-])(?:body|content|html|markdown|message|prompt|text)(?:$|[_-])",
+    re.IGNORECASE,
+)
+_MAX_APPROVAL_PREVIEW_STRING_LENGTH = 256
 
 
 @dataclass(frozen=True)
@@ -186,20 +191,29 @@ def canonicalize_mcp_arguments(arguments_json: str) -> tuple[str, str]:
     return canonical, digest
 
 
-def _redact_argument_value(value: Any) -> Any:
+def _redacted_text_label(label: str, value: str) -> str:
+    return f"[REDACTED {label}: {len(value)} chars]"
+
+
+def _redact_argument_value(value: Any, *, key: str = "") -> Any:
     if isinstance(value, dict):
         return {
             str(key): (
                 "[REDACTED]"
                 if _SENSITIVE_ARGUMENT_KEY.search(str(key))
-                else _redact_argument_value(item)
+                else _redact_argument_value(item, key=str(key))
             )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [_redact_argument_value(item) for item in value]
-    if isinstance(value, str) and _SENSITIVE_STRING_VALUE.search(value):
-        return "[REDACTED]"
+        return [_redact_argument_value(item, key=key) for item in value]
+    if isinstance(value, str):
+        if _SENSITIVE_STRING_VALUE.search(value):
+            return "[REDACTED]"
+        if _FREE_TEXT_ARGUMENT_KEY.search(key):
+            return _redacted_text_label("CONTENT", value)
+        if len(value) > _MAX_APPROVAL_PREVIEW_STRING_LENGTH:
+            return _redacted_text_label("TEXT", value)
     return value
 
 

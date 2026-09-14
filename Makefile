@@ -25,6 +25,8 @@ TRIVY ?= trivy
 TRIVY_RESULTS ?= /tmp/daedalus-trivy-results.sarif
 TRIVY_INVENTORY ?= /tmp/daedalus-trivy-inventory.json
 TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES := /workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/create_azure_data_lake_storage_connection_details.py,/workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/update_azure_data_lake_storage_connection_details.py
+DEPLOY_ARGS ?=
+DEPLOY_IMAGE_ARGS ?= --allow-unsigned-images
 
 .DEFAULT_GOAL := help
 
@@ -33,8 +35,8 @@ TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES := /workspace/.venv/lib/python3.12/site-package
 help: ## show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-deploy: ## prepare image Content Credentials and deploy development images without MCP preflight
-	./deploy.sh --skip-mcp-preflight --allow-unsigned-images
+deploy: ## build, verify, and deploy through the canonical development path
+	./deploy.sh $(DEPLOY_IMAGE_ARGS) $(DEPLOY_ARGS)
 
 ci: tools-check builder test-integration frontend frontend-e2e helm redis-upgrade docker security ## run every CI job sequentially
 
@@ -74,6 +76,7 @@ helm: ## helm lint + template render  (CI job: helm)
 	helm lint helm/daedalus
 	helm template daedalus helm/daedalus >/tmp/daedalus-rendered.yaml
 	helm template daedalus helm/daedalus -f custom-values.yaml >/tmp/daedalus-rendered-custom.yaml
+	python3 scripts/check_rendered_pod_security.py /tmp/daedalus-rendered.yaml /tmp/daedalus-rendered-custom.yaml
 
 redis-upgrade: ## persisted Redis Helm upgrade, ACL, and TLS rotation  (CI job: redis-upgrade)
 	bash scripts/test_redis_helm_upgrade.sh
@@ -99,6 +102,7 @@ docker: ## validate all shipped image references, build and scan runtime images
 
 security: ## secret, production dependency, and filesystem vulnerability scans  (CI job: security)
 	gitleaks detect --source . --verbose --redact
+	git ls-files 'builder/*.py' 'builder/**/*.py' | rg -v '(^|/)tests/' | xargs -r uvx --from bandit==1.8.6 bandit -ll -c pyproject.toml
 	cd frontend && npm run audit:production
 	$(TRIVY) fs --scanners vuln --list-all-pkgs --format json frontend/package-lock.json >$(TRIVY_INVENTORY)
 	jq -e '[.Results[]? | select(.Target | endswith("package-lock.json"))] | length > 0' $(TRIVY_INVENTORY) >/dev/null || { echo "Trivy did not inventory frontend/package-lock.json" >&2; exit 1; }
@@ -121,4 +125,4 @@ tools-check: ## verify required binaries are present
 	fi
 
 clean: ## remove generated test/scan artifacts
-	rm -f builder/coverage.xml builder/.coverage trivy-results.sarif $(TRIVY_RESULTS) $(TRIVY_INVENTORY) /tmp/daedalus-rendered.yaml
+	rm -f builder/coverage.xml builder/.coverage trivy-results.sarif $(TRIVY_RESULTS) $(TRIVY_INVENTORY) /tmp/daedalus-rendered.yaml /tmp/daedalus-rendered-custom.yaml

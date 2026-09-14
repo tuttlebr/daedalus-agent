@@ -6,9 +6,10 @@ chat and the [code map](architecture.md) for adaptation points.
 
 Commands below run from the repository root. `custom-values.yaml` contains my
 registry, domains, node placement, storage, and service endpoints. Review and
-replace those settings for your environment. `deploy.sh` builds and pushes
-images and changes Kubernetes resources; `make deploy` also enables development
-image options. Neither command is part of the local quick start.
+replace those settings for your environment. `make deploy` is the canonical
+Kubernetes deployment entry point: it validates configuration, builds and
+pushes images, synchronizes Secrets, runs dependency preflights, and performs
+the guarded Helm upgrade. It is not part of the local quick start.
 
 Use `.env.template` as the full environment reference. For image Content
 Credentials, see the [setup guide](content-credentials.md). Durable memory uses
@@ -17,11 +18,17 @@ a separately deployed Hindsight service configured through `HINDSIGHT_API_URL`,
 
 ## Kubernetes Deployment
 
-My home deployment uses Kubernetes for the full Daedalus layout: backend, ingress, PVC-backed storage, the autonomous worker, and optional Cilium policies.
+My home deployment uses Kubernetes for the full Daedalus layout: backend,
+frontend, nginx public edge, PVC-backed storage, the autonomous worker, and
+optional Cilium policies. The unused Kubernetes ingress is disabled.
 
-### Preferred Path: `deploy.sh`
+### Canonical Path: `make deploy`
 
-The repository includes a deployment script that builds, pushes, creates or updates secrets, and runs Helm.
+The Make target invokes the repository deployment implementation with the
+development image policy used by this installation. Pass supported
+implementation options through `DEPLOY_ARGS`; do not run Helm separately because
+that bypasses the authentication, image, Secret, MCP, storage, and readiness
+gates.
 
 Before using it:
 
@@ -33,25 +40,22 @@ Before using it:
 Run:
 
 ```bash
-./deploy.sh
+make deploy
 ```
 
 Useful flags:
 
 ```bash
-./deploy.sh --dry-run
-./deploy.sh --skip-build
-./deploy.sh --skip-tls
-./deploy.sh --skip-mcp-preflight
-./deploy.sh --skip-rag-preflight
-./deploy.sh --skip-rag-secret-sync
-./deploy.sh --mcp-preflight-timeout 30
-./deploy.sh --mcp-preflight-kubectl-image curlimages/curl:8.8.0
-./deploy.sh --backend-config backend/tool-calling-config.yaml
-./deploy.sh -n daedalus -r daedalus
+make deploy DEPLOY_ARGS='--dry-run'
+make deploy DEPLOY_IMAGE_ARGS= DEPLOY_ARGS='--skip-build --release-metadata ./release-metadata.json'
+make deploy DEPLOY_ARGS='--skip-tls'
+make deploy DEPLOY_ARGS='--mcp-preflight-timeout 30'
+make deploy DEPLOY_ARGS='--mcp-preflight-kubectl-image curlimages/curl:8.8.0'
+make deploy DEPLOY_ARGS='--backend-config backend/tool-calling-config.yaml'
+make deploy DEPLOY_ARGS='--namespace daedalus --release daedalus'
 ```
 
-`deploy.sh` runs an MCP pre-flight before Helm. It checks every
+The deployment runs an MCP pre-flight before Helm. It checks every
 `streamable-http` MCP server in `backend/tool-calling-config.yaml`, verifies
 that configured `include` tools are advertised by `tools/list`, and runs
 cluster-local URLs such as `*.svc.cluster.local` from a short-lived Kubernetes
@@ -59,7 +63,7 @@ curl pod in the target namespace. Authenticated cluster-local probes read API
 keys from the same backend Secret through `envFrom`; key values are never
 placed in command arguments or printed.
 
-For Kubernetes RAG deployments, `deploy.sh` also mirrors the authoritative
+For Kubernetes RAG deployments, `make deploy` also mirrors the authoritative
 Milvus and MinIO credentials into namespace-local workload Secrets, then runs
 authenticated `list_collections` and `has_collection` probes with the exact
 rendered backend configuration. The second call exercises Milvus's
@@ -116,16 +120,12 @@ also needs `DescribeCollection`, exercised by `has_collection`.
 
 ### Adding or expanding an MCP server
 
-MCP exposure and approval follow one configuration rule:
+MCP exposure and approval follow one default-deny configuration rule:
 
-- Omitting `include` (or leaving it empty) exposes every tool advertised by the
-  server and authorizes those tools without a human approval credential. Use
-  this only for operator-trusted MCP groups whose full capability surface is
-  intentional, such as the unrestricted Kubernetes and UniFi integrations.
-  The runtime still disables automatic reconnect/replay around operations that
-  look mutating, so an ambiguous timeout cannot duplicate a side effect.
-- A non-empty `include` is an explicit allowlist. Only those tools are exposed,
-  and each exposed tool must be classified:
+- Every MCP group must define a non-empty `include` allowlist. An omitted or
+  empty allowlist fails backend startup. Only included tools are exposed, and
+  every included tool must be classified. Unknown server-advertised tools remain
+  unavailable until configuration review.
 
 - A verified read-only tool must be added to its function group's exact
   `include` list and marked beside the tool under `tool_overrides`:
@@ -190,26 +190,12 @@ must disclose the affected provider in its final response even if it can use a
 fallback. In particular, Perplexity `insufficient_quota` is an operator-managed
 usage limit; retrying or asking the user to authorize cannot repair it.
 
-### Manual Helm Path
+### Deployment Boundary
 
-If you prefer to deploy manually:
-
-```bash
-kubectl create namespace daedalus
-
-kubectl -n daedalus create secret generic daedalus-backend-env \
-  --from-env-file=.env
-
-kubectl -n daedalus create secret generic daedalus-frontend-env \
-  --from-env-file=.env
-
-helm upgrade --install daedalus ./helm/daedalus \
-  -n daedalus \
-  -f custom-values.yaml \
-  --set-file backend.default.config.data=backend/tool-calling-config.yaml \
-  --set-file backend.default.config.baseData=backend/tool-calling-config.yaml \
-  --timeout 10m
-```
+Use `make deploy` for installs and upgrades. Direct Helm invocation is a chart
+development operation, not a supported deployment path: it does not build or
+verify immutable images, filter workload Secrets, validate password hashes,
+check MCP catalogs, synchronize RAG credentials, or record release evidence.
 
 ### Full Helm Footprint
 
@@ -585,10 +571,45 @@ backend container after changing the selection.
 
 ### Login Page Loads But No User Can Sign In
 
-Make sure you defined either:
+Make sure you defined either (bcrypt cost 12 or greater):
 
-- `AUTH_USERNAME` and `AUTH_PASSWORD`, or
-- `AUTH_USER_1_USERNAME`, `AUTH_USER_1_PASSWORD`, and related numbered variables
+- `AUTH_USERNAME` and `AUTH_PASSWORD_HASH`, or
+- `AUTH_USER_1_USERNAME`, `AUTH_USER_1_PASSWORD_HASH`, and related numbered variables
+
+Generate a hash from `frontend/` without placing the password in shell history:
+
+```bash
+read -rsp 'Password: ' DAEDALUS_PASSWORD; echo
+AUTH_PASSWORD_INPUT="$DAEDALUS_PASSWORD" node -e 'console.log(require("bcryptjs").hashSync(process.env.AUTH_PASSWORD_INPUT, 12))'
+unset DAEDALUS_PASSWORD AUTH_PASSWORD_INPUT
+```
+
+Quote the resulting hash in dotenv and YAML sources so its dollar signs remain
+literal. Plaintext `AUTH_PASSWORD` variables and `auth-passwords.json` are no
+longer supported. The hash is the one-way verifier for the existing local login,
+not a second authentication factor. `make deploy` validates the account pairs,
+bcrypt format, and minimum cost before building images or changing cluster state.
+
+#### Existing-password migration
+
+Users do not need to select new passwords. For every configured account, run
+the command above with that account's current password, then make only the
+following `.env` representation change:
+
+```dotenv
+# Before
+AUTH_USER_1_PASSWORD=<the existing password>
+
+# After; generated from that same existing password
+AUTH_USER_1_PASSWORD_HASH='$2b$12$...'
+```
+
+Use `AUTH_PASSWORD_HASH` instead for the non-numbered single-user form. Keep the
+username, password, account ID, and `SESSION_SECRET` unchanged, and remove the
+plaintext variable after inserting its hash. Login behavior does not change,
+and existing server-side sessions remain valid. The first `make deploy` with
+this source format copies the configured hash into the isolated frontend Secret
+and reconciles it into the frontend-owned Redis authentication record.
 
 To associate autonomous-worker memory and dashboard activity with a specific
 account, set `autonomousAgent.userId` in your Helm values to that login name.
@@ -601,7 +622,7 @@ That is expected unless you provide those external services yourself. The local 
 
 If NvIngest document ingestion fails with `StatusCode.UNAUTHENTICATED` and
 `auth check failure`, verify the authoritative source Secret and rerun
-`deploy.sh`. The rollout preflight and `/health/ready` both call authenticated
+`make deploy`. The rollout preflight and `/health/ready` both call authenticated
 `list_collections` plus `has_collection` (the `DescribeCollection` path);
 readiness reports `reason=milvus_unavailable` without returning credentials.
 For an externally managed target, configure

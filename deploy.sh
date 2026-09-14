@@ -146,6 +146,14 @@ if [[ "$DRY_RUN" == false && "$ALLOW_DIRTY_SOURCE" != true ]]; then
   fi
 fi
 
+# Validate the same hash-only authentication contract enforced by the frontend
+# before building images or changing cluster state. The validator reports only
+# variable names and account counts; it never prints hashes or passwords.
+if [[ -f "$ENV_FILE" ]]; then
+  log "Validating password-hash authentication configuration"
+  python3 "$SCRIPT_DIR/scripts/validate_auth_env.py" "$ENV_FILE"
+fi
+
 # Verify image signing before building/pushing. These are Content Credentials
 # for generated images, separate from container release signatures.
 CONTENT_CREDENTIALS_HELM_ARGS=()
@@ -664,8 +672,9 @@ PY
     WS_MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION WS_MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION
     FRONTEND_READY_TIMEOUT_MS REDIS_MAX_RETRIES_PER_REQUEST REDIS_COMMAND_TIMEOUT_MS
     VAPID_PRIVATE_KEY GENERATED_IMAGE_LEGACY_PUBLIC
-    AUTH_USERNAME AUTH_PASSWORD AUTH_NAME
+    AUTH_USERNAME AUTH_PASSWORD_HASH AUTH_NAME
     AUTH_LOGIN_WINDOW_SECONDS AUTH_LOGIN_LOCKOUT_SECONDS AUTH_LOGIN_MAX_ATTEMPTS
+    AUTH_LOGIN_ACCOUNT_MAX_ATTEMPTS AUTH_LOGIN_IP_MAX_ATTEMPTS
     AUTH_TRUSTED_PROXY_HOPS AUTH_USER_* LOG_LEVEL
   )
   STREAM_WORKER_SECRET_KEYS=(

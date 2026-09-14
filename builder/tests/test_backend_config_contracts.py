@@ -15,6 +15,12 @@ CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.
 ENV_TEMPLATE = Path(__file__).resolve().parents[2] / ".env.template"
 DOCKER_COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yaml"
 DEPLOY_SCRIPT = Path(__file__).resolve().parents[2] / "deploy.sh"
+MAKEFILE = Path(__file__).resolve().parents[2] / "Makefile"
+DEPLOYMENT_GUIDES = (
+    Path(__file__).resolve().parents[2] / "docs" / "operations.md",
+    Path(__file__).resolve().parents[2] / "docs" / "content-credentials.md",
+    Path(__file__).resolve().parents[2] / "helm" / "daedalus" / "README.md",
+)
 SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
 FRONTEND_SOURCE_POLICY = (
     Path(__file__).resolve().parents[2]
@@ -51,6 +57,20 @@ NGINX_TEMPLATE = (
     / "daedalus"
     / "templates"
     / "config-nginx.yaml"
+)
+NGINX_DEPLOYMENT_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "nginx-deployment.yaml"
+)
+REDIS_INIT_TEMPLATE = (
+    Path(__file__).resolve().parents[2]
+    / "helm"
+    / "daedalus"
+    / "templates"
+    / "redis-init-configmap.yaml"
 )
 BACKEND_CONFIG_TEMPLATE = (
     Path(__file__).resolve().parents[2]
@@ -437,6 +457,8 @@ def test_backend_image_installs_only_from_frozen_runtime_locks():
     assert "FROM build AS base" in dockerfile
     assert "FROM build AS runtime_payload" in dockerfile
     assert "COPY --from=runtime_payload" in dockerfile
+    assert '"$runtime_site_packages/pip"' in dockerfile
+    assert '"$runtime_site_packages/setuptools"' in dockerfile
 
     assert "FROM runtime_base AS backend" in dockerfile
     assert "build-essential" not in final_stage
@@ -493,6 +515,27 @@ def test_backend_config_uses_canonical_env_names():
     assert "NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB=30" in template_text
     assert "PHOENIX_PROJECT_NAME=daedalus" in template_text
     assert 'value[0] == value[-1] and value[0] in "\\"\'"' in DEPLOY_SCRIPT.read_text()
+
+
+def test_make_deploy_is_the_guarded_canonical_path():
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    deploy_recipe = makefile[makefile.index("deploy:") : makefile.index("\nci:")]
+
+    assert "./deploy.sh $(DEPLOY_IMAGE_ARGS) $(DEPLOY_ARGS)" in deploy_recipe
+    assert "--skip-mcp-preflight" not in deploy_recipe
+    assert 'python3 "$SCRIPT_DIR/scripts/validate_auth_env.py" "$ENV_FILE"' in (
+        deploy_script
+    )
+    assert deploy_script.index("Validating password-hash authentication") < (
+        deploy_script.index("Building images with provenance")
+    )
+
+    for guide in DEPLOYMENT_GUIDES:
+        contents = guide.read_text(encoding="utf-8")
+        assert "make deploy" in contents, guide
+        assert "./deploy.sh" not in contents, guide
+        assert "helm upgrade --install" not in contents, guide
 
 
 def test_frontend_deployment_uses_canonical_service_urls():
@@ -568,12 +611,10 @@ def test_deployed_tool_surface_is_optimized():
         removed_router_tool = "mas" + "_optimizer_tool"
         assert removed_router_tool not in functions, path
         assert removed_router_tool not in workflow_tools, path
-        # The three first-party Workspace resources and official GitHub MCP
-        # resource add a deliberately bounded 23-operation surface. Each
-        # remains server-allowlisted and locally classified as read-only or
-        # approval-required. ESPN adds ten explicitly read-only operations.
-        # One typed briefing renderer replaces model-mediated file assembly.
-        assert _effective_operation_count(config, workflow_tools) <= 78, path
+        # Infrastructure MCPs now contribute nineteen explicitly reviewed
+        # reads instead of two uncounted full server catalogs. Keep the total
+        # bounded so later allowlist growth requires a deliberate review.
+        assert _effective_operation_count(config, workflow_tools) <= 95, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -998,6 +1039,29 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "respond_to_event",
         },
         "docs_mcp_server": {"read_doc", "update_doc"},
+        "k8s_mcp_server": {
+            "getAPIResources",
+            "listResources",
+            "getResource",
+            "getPodsLogs",
+            "getEvents",
+            "getResourceOwners",
+            "getClusterSummary",
+            "listContexts",
+        },
+        "unifi_mcp_server": {
+            "getInfo",
+            "listSites",
+            "listAdoptedDevices",
+            "getAdoptedDeviceDetails",
+            "getAdoptedDeviceLatestStatistics",
+            "listPendingDevices",
+            "listConnectedClients",
+            "getConnectedClientDetails",
+            "listNetworks",
+            "listWifiBroadcasts",
+            "listWanInterfaces",
+        },
     }
     approval_required = {
         "calendar_mcp_server": {
@@ -1008,8 +1072,6 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
         },
         "docs_mcp_server": {"update_doc"},
     }
-    unrestricted = {"k8s_mcp_server", "unifi_mcp_server"}
-
     for path in DEPLOYED_CONFIGS:
         groups = _config(path)["function_groups"]
         for group_name, expected_tools in allowlisted.items():
@@ -1030,14 +1092,9 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
                 for tool, policy in policies.items()
                 if policy == "approval_required"
             } == approval_required.get(group_name, set()), path
-
-        for group_name in unrestricted:
-            group = groups[group_name]
-            assert "include" not in group, path
-            assert not any(
-                "approval_policy" in override
-                for override in group.get("tool_overrides", {}).values()
-            ), path
+        for group_name, group in groups.items():
+            if group.get("_type") in {"mcp_client", "per_user_mcp_client"}:
+                assert group.get("include"), (path, group_name)
 
 
 def test_espn_mcp_uses_the_deployment_token_without_user_oauth():
@@ -1200,8 +1257,73 @@ def test_nginx_v1_streaming_timeout_covers_google_oauth_wait():
     generate_start = template.index("location /generate/", v1_start)
     v1_block = template[v1_start:generate_start]
 
-    assert "proxy_send_timeout 600s;" in v1_block
+    assert (
+        "proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};"
+        in v1_block
+    )
+    assert "proxy_send_timeout 120s;" in v1_block
     assert "proxy_read_timeout 600s;" in v1_block
+
+
+def test_public_nginx_has_bounded_clients_and_https_only_deployed_service():
+    template = NGINX_TEMPLATE.read_text(encoding="utf-8")
+    service = NGINX_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+    custom = yaml.safe_load(CUSTOM_VALUES.read_text(encoding="utf-8"))
+
+    assert "limit_conn_zone $binary_remote_addr" in template
+    assert "zone=connections_total" in template
+    assert "zone=uploads_total" in template
+    assert "zone=executions_total" in template
+    assert "zone=login_per_ip" in template
+    assert "zone=uploads_per_ip" in template
+    assert "zone=chat_starts_per_ip" in template
+    assert "zone=websockets_per_ip" in template
+    assert (
+        "client_body_timeout {{ .Values.nginx.config.resourceLimits.clientBodyTimeout }};"
+        in template
+    )
+    assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for" not in template
+    assert "proxy_set_header X-Forwarded-For $remote_addr" in template
+    assert "if .Values.nginx.service.exposeHttp" in service
+    assert custom["nginx"]["service"]["exposeHttp"] is False
+    assert custom["nginx"]["https"]["hsts"]["enabled"] is True
+    assert custom["ingress"]["enabled"] is False
+    defaults = yaml.safe_load(HELM_VALUES.read_text(encoding="utf-8"))
+    limits = defaults["nginx"]["config"]["resourceLimits"]
+    assert limits["connectionsTotal"] > limits["connectionsPerIp"]
+    assert limits["uploadsTotal"] > 0
+    assert limits["executionsTotal"] > 0
+
+
+def test_redis_workloads_use_distinct_scoped_principals():
+    values = yaml.safe_load(HELM_VALUES.read_text(encoding="utf-8"))
+    auth = values["redis"]["auth"]
+    usernames = {
+        auth["username"],
+        auth["backendUsername"],
+        auth["streamWorkerUsername"],
+        auth["autonomousUsername"],
+    }
+    assert len(usernames) == 4
+
+    assert (
+        ".Values.redis.auth.backendUsername"
+        in BACKEND_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+    )
+    assert ".Values.redis.auth.streamWorkerUsername" in (
+        FRONTEND_STREAM_WORKER_TEMPLATE.read_text(encoding="utf-8")
+    )
+    assert ".Values.redis.auth.autonomousUsername" in (
+        AUTONOMOUS_AGENT_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
+    )
+
+    acl = REDIS_INIT_TEMPLATE.read_text(encoding="utf-8")
+    assert "~auth-session:*" not in acl
+    assert "~auth-user:*" not in acl
+    assert "~auth-login-attempts:*" not in acl
+    assert "~nat:* ~nat/*" in acl
+    assert "~async-*" in acl
+    assert "~autonomy:*" in acl
 
 
 def test_backend_trusts_nginx_forwarded_proto_for_oauth_callback():

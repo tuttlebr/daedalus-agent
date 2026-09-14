@@ -1,10 +1,7 @@
-import fs from 'fs';
-import path from 'path';
-
 interface AuthConfigUser {
   id: string;
   username: string;
-  password: string;
+  passwordHash: string;
   name: string;
 }
 
@@ -12,9 +9,23 @@ interface AuthConfig {
   users: AuthConfigUser[];
 }
 
-// Load authentication configuration from external file or environment variables
+const BCRYPT_HASH_PATTERN = /^\$2[aby]\$(\d{2})\$[./A-Za-z0-9]{53}$/;
+const MINIMUM_BCRYPT_ROUNDS = 12;
+
+function validatePasswordHash(username: string, passwordHash: string): string {
+  const match = passwordHash.match(BCRYPT_HASH_PATTERN);
+  const rounds = match ? Number(match[1]) : 0;
+  if (rounds < MINIMUM_BCRYPT_ROUNDS) {
+    throw new Error(
+      `Authentication hash for ${username} must be a bcrypt hash with cost ${MINIMUM_BCRYPT_ROUNDS} or greater`,
+    );
+  }
+  return passwordHash;
+}
+
+// Load authentication configuration from precomputed password hashes. Plaintext
+// passwords are intentionally not accepted into the long-lived process.
 function loadAuthConfig(): AuthConfig {
-  // First, check if we have environment variable configuration
   const envUsers: AuthConfigUser[] = [];
 
   // Support multiple users via environment variables
@@ -23,7 +34,10 @@ function loadAuthConfig(): AuthConfig {
     envUsers.push({
       id: String(i),
       username: process.env[`AUTH_USER_${i}_USERNAME`] || '',
-      password: process.env[`AUTH_USER_${i}_PASSWORD`] || '',
+      passwordHash: validatePasswordHash(
+        process.env[`AUTH_USER_${i}_USERNAME`] || `user ${i}`,
+        process.env[`AUTH_USER_${i}_PASSWORD_HASH`] || '',
+      ),
       name: process.env[`AUTH_USER_${i}_NAME`] || `User ${i}`,
     });
     i++;
@@ -33,54 +47,35 @@ function loadAuthConfig(): AuthConfig {
   if (
     envUsers.length === 0 &&
     process.env.AUTH_USERNAME &&
-    process.env.AUTH_PASSWORD
+    process.env.AUTH_PASSWORD_HASH
   ) {
     envUsers.push({
       id: '1',
       username: process.env.AUTH_USERNAME,
-      password: process.env.AUTH_PASSWORD,
+      passwordHash: validatePasswordHash(
+        process.env.AUTH_USERNAME,
+        process.env.AUTH_PASSWORD_HASH,
+      ),
       name: process.env.AUTH_NAME || 'Admin User',
     });
   }
 
-  // If we have environment users, use them
   if (envUsers.length > 0) {
     console.log(`Loaded ${envUsers.length} users from environment variables`);
     return { users: envUsers };
   }
 
-  // Otherwise, try to load from file (DEPRECATED: Use environment variables instead)
-  try {
-    const configPath = path.join(
-      process.cwd(),
-      'frontend',
-      'auth-passwords.json',
+  if (process.env.AUTH_PASSWORD || process.env.AUTH_USER_1_PASSWORD) {
+    throw new Error(
+      'Plaintext AUTH_PASSWORD variables are not supported; configure AUTH_PASSWORD_HASH values instead',
     );
-    const configData = fs.readFileSync(configPath, 'utf-8');
-    console.warn(
-      'WARNING: Loading authentication from auth-passwords.json is deprecated.',
-    );
-    console.warn(
-      'WARNING: This file contains plaintext passwords and should not be committed to source control.',
-    );
-    console.warn(
-      'WARNING: Please migrate to environment variables (AUTH_USERNAME, AUTH_PASSWORD, etc.)',
-    );
-    console.log('Loaded authentication configuration from auth-passwords.json');
-    return JSON.parse(configData) as AuthConfig;
-  } catch (error) {
-    console.error('No authentication configuration found.');
-    console.error(
-      'Please configure authentication using environment variables:',
-    );
-    console.error('  - Single user: AUTH_USERNAME, AUTH_PASSWORD, AUTH_NAME');
-    console.error(
-      '  - Multiple users: AUTH_USER_1_USERNAME, AUTH_USER_1_PASSWORD, etc.',
-    );
-    console.error('See env.example for configuration examples.');
-    // Return empty configuration if no auth is configured
-    return { users: [] };
   }
+
+  console.error('No authentication configuration found.');
+  console.error(
+    'Configure AUTH_USERNAME with AUTH_PASSWORD_HASH, or numbered AUTH_USER_* entries.',
+  );
+  return { users: [] };
 }
 
 // Authentication configuration is a process snapshot. Restart every frontend

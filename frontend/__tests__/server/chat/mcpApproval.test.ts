@@ -1,6 +1,10 @@
-import { parseMcpApprovalMarker } from '@/utils/app/mcpApproval';
+import {
+  parseMcpApprovalMarker,
+  requiresAdditionalMcpConfirmation,
+} from '@/utils/app/mcpApproval';
 
 import {
+  getMcpApprovalPreview,
   McpApprovalDecisionError,
   resolveMcpApprovalDecision,
 } from '@/server/chat/mcpApproval';
@@ -138,6 +142,68 @@ describe('button-based MCP approval handoff', () => {
       arguments_sha256: argumentsSha256,
       canonical_arguments: canonicalArguments,
     });
+  });
+
+  it('returns authenticated decision fields with credentials and free text redacted', async () => {
+    const sensitiveArguments = JSON.stringify({
+      document_id: 'doc-1',
+      content: 'private document text',
+      headers: { Authorization: ['Bear', 'er ', 'test-only-value'].join('') },
+      description: 'x'.repeat(300),
+    });
+    const payload = JSON.parse(pendingPayload());
+    payload.canonical_arguments = sensitiveArguments;
+    payload.arguments_sha256 = createHash('sha256')
+      .update(sensitiveArguments)
+      .digest('hex');
+    redis.store.set(pendingKey, JSON.stringify(payload));
+
+    const preview = await getMcpApprovalPreview(
+      requestId,
+      userId,
+      redis as any,
+    );
+
+    expect(preview).toMatchObject({
+      target: 'doc-1',
+      serverName: 'docs_mcp_server',
+      toolName: 'update_doc',
+      arguments: {
+        document_id: 'doc-1',
+        content: '[REDACTED CONTENT: 21 chars]',
+        headers: { Authorization: '[REDACTED]' },
+        description: '[REDACTED TEXT: 300 chars]',
+      },
+    });
+    expect(JSON.stringify(preview)).not.toContain('private document text');
+    expect(JSON.stringify(preview)).not.toContain('test-only-value');
+  });
+
+  it("does not return another user's pending approval", async () => {
+    await expect(
+      getMcpApprovalPreview(requestId, 'mallory', redis as any),
+    ).rejects.toBeInstanceOf(McpApprovalDecisionError);
+  });
+
+  it('requires a second confirmation for administrative operations', () => {
+    expect(
+      requiresAdditionalMcpConfirmation({
+        serverName: 'github_mcp_server',
+        toolName: 'delete_file',
+      }),
+    ).toBe(true);
+    expect(
+      requiresAdditionalMcpConfirmation({
+        serverName: 'k8s_mcp_server',
+        toolName: 'futureMutation',
+      }),
+    ).toBe(true);
+    expect(
+      requiresAdditionalMcpConfirmation({
+        serverName: 'docs_mcp_server',
+        toolName: 'update_doc',
+      }),
+    ).toBe(false);
   });
 
   it('deletes a denied intent without issuing a credential', async () => {

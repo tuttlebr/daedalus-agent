@@ -213,7 +213,8 @@ def check_configuration(config):
     for name, group in groups.items():
         included = set(group.get("include", []))
         overrides = set(group.get("tool_overrides", {}))
-        require(not included or overrides <= included, f"Stale MCP override: {name}")
+        require(included, f"MCP group has no include allowlist: {name}")
+        require(overrides <= included, f"Stale MCP override: {name}")
 
 
 def check_mcp_catalog(config, catalog, skills_directory=None):

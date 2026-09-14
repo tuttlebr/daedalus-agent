@@ -61,6 +61,45 @@ spec:
                 secretKeyRef:
                   name: {{ include "daedalus.redisSecretName" . }}
                   key: {{ .Values.redis.auth.secretKey | default "REDIS_PASSWORD" }}
+            - name: REDIS_BACKEND_USERNAME
+              value: {{ .Values.redis.auth.backendUsername | quote }}
+            - name: REDIS_BACKEND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.backendSecretKey | default "REDIS_BACKEND_PASSWORD" }}
+            - name: REDIS_BACKEND_PREVIOUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.backendPreviousSecretKey | default "REDIS_BACKEND_PREVIOUS_PASSWORD" }}
+                  optional: true
+            - name: REDIS_STREAM_WORKER_USERNAME
+              value: {{ .Values.redis.auth.streamWorkerUsername | quote }}
+            - name: REDIS_STREAM_WORKER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.streamWorkerSecretKey | default "REDIS_STREAM_WORKER_PASSWORD" }}
+            - name: REDIS_STREAM_WORKER_PREVIOUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.streamWorkerPreviousSecretKey | default "REDIS_STREAM_WORKER_PREVIOUS_PASSWORD" }}
+                  optional: true
+            - name: REDIS_AUTONOMOUS_USERNAME
+              value: {{ .Values.redis.auth.autonomousUsername | quote }}
+            - name: REDIS_AUTONOMOUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.autonomousSecretKey | default "REDIS_AUTONOMOUS_PASSWORD" }}
+            - name: REDIS_AUTONOMOUS_PREVIOUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "daedalus.redisSecretName" . }}
+                  key: {{ .Values.redis.auth.autonomousPreviousSecretKey | default "REDIS_AUTONOMOUS_PREVIOUS_PASSWORD" }}
+                  optional: true
           {{- end }}
             - name: REDIS_TLS_ENABLED
               value: {{ .Values.redis.tls.enabled | quote }}
@@ -120,10 +159,11 @@ spec:
           volumeMounts:
             - name: init-script
               mountPath: /scripts
-            {{- if .Values.redis.persistence.enabled }}
+              readOnly: true
             - name: redis-data
               mountPath: /data
-            {{- end }}
+            - name: redis-tmp
+              mountPath: /tmp
             {{- if .Values.redis.tls.enabled }}
             - name: redis-tls
               mountPath: {{ .Values.redis.tls.mountPath | default "/etc/redis-tls" }}
@@ -134,8 +174,8 @@ spec:
           configMap:
             name: {{ include "daedalus.fullname" . }}-redis-init
             defaultMode: 0755
-        {{- if .Values.redis.persistence.enabled }}
         - name: redis-data
+          {{- if .Values.redis.persistence.enabled }}
           {{- if and .Values.redis.persistence.create (not .Values.redis.persistence.existingClaimName) }}
           persistentVolumeClaim:
             claimName: {{ include "daedalus.fullname" . }}-redis
@@ -143,7 +183,11 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.redis.persistence.existingClaimName }}
           {{- end }}
-        {{- end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: redis-tmp
+          emptyDir: {}
         {{- if .Values.redis.tls.enabled }}
         - name: redis-tls
           secret:

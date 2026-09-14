@@ -151,14 +151,25 @@ FROM build AS base
 # Strip build-only inputs from the snapshot copied into the runtime image. The
 # development target above keeps them for diagnostics and lock maintenance.
 FROM build AS runtime_payload
-RUN rm -f \
+RUN runtime_site_packages=/workspace/.venv/lib/python3.12/site-packages && \
+    rm -rf \
+    "$runtime_site_packages/pip" \
+    "$runtime_site_packages"/pip-*.dist-info \
+    "$runtime_site_packages/setuptools" \
+    "$runtime_site_packages"/setuptools-*.dist-info \
+    /workspace/.venv/bin/pip \
+    /workspace/.venv/bin/pip3 \
+    /workspace/.venv/bin/pip3.12 && \
+    rm -f \
     /workspace/requirements-runtime.in \
     /workspace/verify_uv_pip_check.py \
     /workspace/pylock.runtime-linux-amd64.toml \
     /workspace/pylock.runtime-linux-arm64.toml \
     /workspace/runtime_contract_check.py \
     /workspace/mcp_lifecycle_contract_check.py \
-    /workspace/google_workspace_oauth_contract_check.py
+    /workspace/google_workspace_oauth_contract_check.py && \
+    test ! -e "$runtime_site_packages/pip" && \
+    test ! -e "$runtime_site_packages/setuptools"
 
 FROM runtime_base AS backend
 WORKDIR /workspace

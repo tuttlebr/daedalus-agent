@@ -98,12 +98,12 @@ spec:
                   key: DAEDALUS_INTERNAL_API_TOKEN
             {{- if .Values.redis.auth.enabled }}
             - name: REDIS_USERNAME
-              value: {{ .Values.redis.auth.username | quote }}
+              value: {{ .Values.redis.auth.autonomousUsername | quote }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "daedalus.redisSecretName" . }}
-                  key: {{ .Values.redis.auth.secretKey | default "REDIS_PASSWORD" }}
+                  key: {{ .Values.redis.auth.autonomousSecretKey | default "REDIS_AUTONOMOUS_PASSWORD" }}
             {{- end }}
             - name: REDIS_TLS_ENABLED
               value: {{ .Values.redis.tls.enabled | quote }}

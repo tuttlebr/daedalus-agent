@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const records = vi.hoisted(() => new Map<string, unknown>());
 vi.mock('@/server/session/redis', () => ({
   sessionKey: (parts: string[]) => parts.join(':'),
+  getRedis: () => ({
+    del: async (key: string) => (records.delete(key) ? 1 : 0),
+  }),
   jsonGet: async (key: string) => records.get(key) ?? null,
   jsonSet: async (key: string, _path: string, value: unknown) => {
     records.set(key, value);
@@ -16,7 +19,7 @@ describe('configured login eligibility across process restarts', () => {
     vi.resetModules();
     vi.stubEnv('AUTH_USER_1_USERNAME', '');
     vi.stubEnv('AUTH_USERNAME', 'current');
-    vi.stubEnv('AUTH_PASSWORD', 'current-password');
+    vi.stubEnv('AUTH_PASSWORD_HASH', bcrypt.hashSync('current-password', 12));
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -34,6 +37,19 @@ describe('configured login eligibility across process restarts', () => {
     expect(restarted.isConfiguredUsername('current')).toBe(false);
     expect(restarted.isConfiguredUsername('replacement')).toBe(true);
     expect(records.size).toBe(0);
+  });
+
+  it('rejects plaintext and weak configured password material', async () => {
+    vi.stubEnv('AUTH_PASSWORD_HASH', '');
+    vi.stubEnv('AUTH_PASSWORD', 'plaintext-is-not-accepted');
+    let config = await import('@/utils/auth/config');
+    expect(() => config.getAuthConfig()).toThrow(/Plaintext AUTH_PASSWORD/);
+
+    vi.resetModules();
+    vi.stubEnv('AUTH_PASSWORD', '');
+    vi.stubEnv('AUTH_PASSWORD_HASH', bcrypt.hashSync('too-weak', 10));
+    config = await import('@/utils/auth/config');
+    expect(() => config.getAuthConfig()).toThrow(/cost 12 or greater/);
   });
 
   it('rejects removed persisted credentials and preserves their historical record', async () => {
@@ -54,13 +70,25 @@ describe('configured login eligibility across process restarts', () => {
   });
 
   it('reconciles changed configuration after restart rather than treating persisted users as enabled', async () => {
+    records.set('user:current', {
+      id: 'legacy',
+      username: 'current',
+      name: 'Legacy auth record',
+      createdAt: 1,
+      passwordHash: await bcrypt.hash('legacy-password', 4),
+    });
     let users = await import('@/utils/auth/users');
     await users.initializeUsers();
+    expect(records.has('user:current')).toBe(false);
+    expect(records.has('auth-user:current')).toBe(true);
     expect(
       await users.verifyCredentials('current', 'current-password'),
     ).not.toBeNull();
     vi.stubEnv('AUTH_USERNAME', 'replacement');
-    vi.stubEnv('AUTH_PASSWORD', 'replacement-password');
+    vi.stubEnv(
+      'AUTH_PASSWORD_HASH',
+      bcrypt.hashSync('replacement-password', 12),
+    );
     vi.resetModules();
     users = await import('@/utils/auth/users');
     await users.initializeUsers();

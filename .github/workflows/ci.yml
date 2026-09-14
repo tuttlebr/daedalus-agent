@@ -21,7 +21,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install uv
-        run: pip install uv
+        run: pip install uv==0.9.15
 
       - name: Install dependencies
         working-directory: builder
@@ -62,7 +62,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install uv
-        run: pip install uv
+        run: pip install uv==0.9.15
 
       - name: Install dependencies
         working-directory: builder
@@ -175,12 +175,20 @@ jobs:
         run: helm lint helm/daedalus
 
       - name: Render chart
-        run: helm template daedalus helm/daedalus >/tmp/daedalus-rendered.yaml
+        run: |
+          mkdir -p rendered-security
+          helm template daedalus helm/daedalus >rendered-security/default.yaml
 
       # The chart's allowlist `fail` guards only trigger on real values, so
       # rendering defaults alone cannot catch an override key that Helm rejects.
       - name: Render chart with deployed values
-        run: helm template daedalus helm/daedalus -f custom-values.yaml >/tmp/daedalus-rendered-custom.yaml
+        run: helm template daedalus helm/daedalus -f custom-values.yaml >rendered-security/custom.yaml
+
+      - name: Install rendered-manifest checker
+        run: pip install PyYAML==6.0.3
+
+      - name: Enforce the pod security baseline
+        run: python scripts/check_rendered_pod_security.py rendered-security/default.yaml rendered-security/custom.yaml
 
   redis-upgrade:
     name: Persisted Redis Helm Upgrade
@@ -316,8 +324,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Initialize semantic source analysis
+        uses: github/codeql-action/init@eec0bff2f6c15bf3f1e8a0152f94d17664a06a06 # v4
+        with:
+          languages: javascript-typescript,python
+
       - name: Secret scan
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+
+      - name: Python security analysis
+        run: |
+          pip install bandit==1.8.6
+          git ls-files 'builder/*.py' 'builder/**/*.py' | rg -v '(^|/)tests/' | xargs -r bandit -ll -c pyproject.toml
 
       - name: Set up Node for dependency audit
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -350,3 +368,6 @@ jobs:
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         with:
           sarif_file: trivy-results.sarif
+
+      - name: Run semantic source analysis
+        uses: github/codeql-action/analyze@eec0bff2f6c15bf3f1e8a0152f94d17664a06a06 # v4

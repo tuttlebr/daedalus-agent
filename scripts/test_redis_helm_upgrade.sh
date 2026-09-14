@@ -115,6 +115,12 @@ apply_auth_secret() {
   kubectl -n "$NAMESPACE" create secret generic "$AUTH_SECRET" \
     --from-literal=REDIS_PASSWORD="$current_password" \
     --from-literal=REDIS_PREVIOUS_PASSWORD="$previous_password" \
+    --from-literal=REDIS_BACKEND_PASSWORD="backend-$current_password" \
+    --from-literal=REDIS_BACKEND_PREVIOUS_PASSWORD="${previous_password:+backend-$previous_password}" \
+    --from-literal=REDIS_STREAM_WORKER_PASSWORD="stream-$current_password" \
+    --from-literal=REDIS_STREAM_WORKER_PREVIOUS_PASSWORD="${previous_password:+stream-$previous_password}" \
+    --from-literal=REDIS_AUTONOMOUS_PASSWORD="autonomous-$current_password" \
+    --from-literal=REDIS_AUTONOMOUS_PREVIOUS_PASSWORD="${previous_password:+autonomous-$previous_password}" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 }
 
@@ -239,6 +245,18 @@ redis_cli() {
     --user "$REDIS_USER" "$@"
 }
 
+redis_cli_as() {
+  local username="$1" password="$2"
+  shift 2
+  kubectl -n "$NAMESPACE" exec "deployment/$FULLNAME-redis" -- \
+    env REDISCLI_AUTH="$password" \
+    redis-cli --no-auth-warning --raw \
+    --tls --cacert "$TLS_MOUNT_PATH/ca.crt" \
+    --sni "$REDIS_SERVICE_FQDN" \
+    -h "$REDIS_SERVICE_FQDN" -p 6379 \
+    --user "$username" "$@"
+}
+
 assert_value() {
   local password="$1" expected="$2"
   shift 2
@@ -281,6 +299,49 @@ assert_stream_group() {
     echo "Redis Stream consumer group '$STREAM_GROUP' is missing" >&2
     exit 1
   fi
+}
+
+assert_acl_denied() {
+  local username="$1" password="$2"
+  shift 2
+  local output
+  output="$(redis_cli_as "$username" "$password" "$@" 2>&1 || true)"
+  if [[ "$output" != *NOPERM* ]]; then
+    echo "Redis ACL unexpectedly allowed $username to run $*: $output" >&2
+    exit 1
+  fi
+}
+
+assert_acl_value() {
+  local username="$1" password="$2" expected="$3"
+  shift 3
+  local output
+  output="$(redis_cli_as "$username" "$password" "$@" | tr -d '\r')"
+  if [[ "$output" != "$expected" ]]; then
+    echo "Redis ACL result for $username was '$output', expected '$expected'" >&2
+    exit 1
+  fi
+}
+
+assert_workload_acls() {
+  local application_password="$1"
+  local backend_password="backend-$application_password"
+  local stream_password="stream-$application_password"
+  local autonomous_password="autonomous-$application_password"
+
+  redis_cli_as daedalus-backend "$backend_password" SET nat:acl-fixture ok >/dev/null
+  assert_acl_denied daedalus-backend "$backend_password" GET session:fixture
+  assert_acl_denied daedalus-backend "$backend_password" GET auth-session:fixture
+
+  assert_acl_value daedalus-stream-worker "$stream_password" \
+    '{"messagesForNat":[{"role":"user","content":"fixture"}],"verifiedUsername":"fixture-user"}' \
+    JSON.GET "$STREAM_PAYLOAD_KEY"
+  assert_acl_denied daedalus-stream-worker "$stream_password" GET auth-session:fixture
+
+  assert_acl_value daedalus-autonomous "$autonomous_password" 1 \
+    LLEN "$AUTONOMY_QUEUE_KEY"
+  assert_acl_denied daedalus-autonomous "$autonomous_password" GET session:fixture
+  redis_cli "$application_password" DEL nat:acl-fixture >/dev/null
 }
 
 assert_fixture() {
@@ -461,6 +522,7 @@ redis_cli "$OLD_PASSWORD" XREADGROUP GROUP \
 # without granting the application ACL user administrative SAVE access.
 sleep 2
 assert_fixture "$OLD_PASSWORD"
+assert_workload_acls "$OLD_PASSWORD"
 
 # Upgrade the exact persisted fixture to the production Redis Stack build.
 upgrade_redis "$NEW_REPOSITORY" "$NEW_TAG" "$NEW_DIGEST" IfNotPresent

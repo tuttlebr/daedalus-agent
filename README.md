@@ -57,13 +57,13 @@ cp .env.example .env
 
 Edit `.env` and fill in:
 
-| Variable                                      | Value                                             |
-| --------------------------------------------- | ------------------------------------------------- |
-| `TOOL_CALLING_LLM_MODEL_BASE_URL`             | Your provider's API root, usually ending in `/v1` |
-| `TOOL_CALLING_LLM_MODEL_MODEL`                | A model available at that endpoint                |
-| `TOOL_CALLING_LLM_MODEL_API_KEY`              | Its API credential                                |
-| `SESSION_SECRET`                              | A fresh value from `openssl rand -base64 32`      |
-| `AUTH_USERNAME`, `AUTH_PASSWORD`, `AUTH_NAME` | Your login and display name                       |
+| Variable                                           | Value                                                       |
+| -------------------------------------------------- | ----------------------------------------------------------- |
+| `TOOL_CALLING_LLM_MODEL_BASE_URL`                  | Your provider's API root, usually ending in `/v1`           |
+| `TOOL_CALLING_LLM_MODEL_MODEL`                     | A model available at that endpoint                          |
+| `TOOL_CALLING_LLM_MODEL_API_KEY`                   | Its API credential                                          |
+| `SESSION_SECRET`                                   | A fresh value from `openssl rand -base64 32`                |
+| `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `AUTH_NAME` | Your login, bcrypt cost-12-or-higher hash, and display name |
 
 The example selects [`backend/local-chat-config.yaml`](backend/local-chat-config.yaml),
 which contains text chat and a clock tool. It has no MCP servers, retrieval,
@@ -71,6 +71,27 @@ Hindsight memory, or tracing configured. A Chat Completions-only model endpoint
 will not work with this agent; the backend uses `/responses` for model requests.
 Inside a container, `localhost` refers to that container, so use a URL reachable
 from Docker for a model you host yourself.
+
+Generate the login hash without putting the password in shell history:
+
+```bash
+cd frontend
+read -rsp 'Password: ' DAEDALUS_PASSWORD; echo
+AUTH_PASSWORD_INPUT="$DAEDALUS_PASSWORD" node -e 'console.log(require("bcryptjs").hashSync(process.env.AUTH_PASSWORD_INPUT, 12))'
+unset DAEDALUS_PASSWORD AUTH_PASSWORD_INPUT
+```
+
+Copy the result into `AUTH_PASSWORD_HASH` in single quotes. This is the
+one-way verifier for the existing local login: the frontend compares submitted
+passwords to it with bcrypt, but the deploy Secret and long-lived process no
+longer need the original password. It does not enable MFA or change sessions.
+Daedalus no longer accepts plaintext login passwords in its environment.
+
+For an existing installation, enter each user's current password into the same
+command and replace `AUTH_PASSWORD` with `AUTH_PASSWORD_HASH`, or
+`AUTH_USER_N_PASSWORD` with `AUTH_USER_N_PASSWORD_HASH`. Keep the username and
+password themselves unchanged. This is a configuration-format migration, not a
+password reset; existing server-side sessions remain valid across the rollout.
 
 Build the application images, then start the services:
 
@@ -104,6 +125,8 @@ and document objects remain in a Docker volume. Local Compose uses plaintext
 HTTP and development storage credentials; its frontend ports are published on
 host interfaces. Use it on a trusted development machine. See the
 [deployment reference](docs/operations.md) before exposing an installation.
+Compose runs a short root-only volume initialization step, then Redis itself
+runs as UID 977 and GID 988 with a read-only root filesystem.
 
 ### Two accounts
 
@@ -112,10 +135,10 @@ numbered entries. Give each account its own password:
 
 ```dotenv
 AUTH_USER_1_USERNAME=alex
-AUTH_USER_1_PASSWORD=replace-with-a-unique-password
+AUTH_USER_1_PASSWORD_HASH='$2b$12$...'
 AUTH_USER_1_NAME=Alex
 AUTH_USER_2_USERNAME=sam
-AUTH_USER_2_PASSWORD=replace-with-another-unique-password
+AUTH_USER_2_PASSWORD_HASH='$2b$12$...'
 AUTH_USER_2_NAME=Sam
 ```
 

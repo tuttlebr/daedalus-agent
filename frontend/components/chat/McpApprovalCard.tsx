@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  IconAlertTriangle,
   IconCheck,
   IconExternalLink,
   IconLoader2,
@@ -9,7 +10,12 @@ import {
 } from '@tabler/icons-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { McpApprovalMarker } from '@/utils/app/mcpApproval';
+import {
+  requiresAdditionalMcpConfirmation,
+  type McpApprovalMarker,
+} from '@/utils/app/mcpApproval';
+
+import type { McpApprovalPreview } from '@/server/chat/mcpApproval';
 
 type ApprovalState =
   | 'checking'
@@ -30,7 +36,11 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
   const [state, setState] = useState<ApprovalState>('checking');
   const [authUrl, setAuthUrl] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [details, setDetails] = useState<McpApprovalPreview | undefined>();
+  const [confirmingHighImpact, setConfirmingHighImpact] = useState(false);
   const decisionStarted = useRef(false);
+  const requiresAdditionalConfirmation =
+    requiresAdditionalMcpConfirmation(approval);
 
   const readStatus = useCallback(async () => {
     const response = await fetch(
@@ -38,7 +48,8 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
       { credentials: 'include', cache: 'no-store' },
     );
     if (response.status === 404) {
-      setState('pending');
+      setState('failed');
+      setError('This approval request is missing or has expired.');
       return;
     }
     const payload = await response.json();
@@ -48,6 +59,9 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
       typeof payload.authUrl === 'string' ? payload.authUrl : undefined,
     );
     setError(typeof payload.error === 'string' ? payload.error : undefined);
+    if (payload.approval && typeof payload.approval === 'object') {
+      setDetails(payload.approval as McpApprovalPreview);
+    }
   }, [approval.requestId]);
 
   useEffect(() => {
@@ -69,6 +83,14 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
   }, [readStatus, state]);
 
   const decide = async (decision: 'approved' | 'denied') => {
+    if (
+      decision === 'approved' &&
+      requiresAdditionalConfirmation &&
+      !confirmingHighImpact
+    ) {
+      setConfirmingHighImpact(true);
+      return;
+    }
     if (decisionStarted.current) return;
     decisionStarted.current = true;
     setState('submitting');
@@ -119,9 +141,30 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
             {approval.summary}
           </div>
           <div className="mt-1 text-xs text-dark-text-muted">
-            The exact action is locked to this request. Document content is not
-            sent back through the model.
+            The exact action and argument hash are locked to this request.
+            Credentials and sensitive free text are redacted below.
           </div>
+
+          {details && (
+            <div className="mt-3 rounded-lg border border-separator/70 bg-fill/[0.04] p-3 text-xs text-dark-text-secondary">
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                <dt className="text-dark-text-muted">Server</dt>
+                <dd className="break-all font-mono">{details.serverName}</dd>
+                <dt className="text-dark-text-muted">Tool</dt>
+                <dd className="break-all font-mono">{details.toolName}</dd>
+                <dt className="text-dark-text-muted">Target</dt>
+                <dd className="break-all">{details.target}</dd>
+                <dt className="text-dark-text-muted">Argument hash</dt>
+                <dd className="break-all font-mono">
+                  {details.argumentsSha256}
+                </dd>
+              </dl>
+              <div className="mt-3 text-dark-text-muted">Arguments</div>
+              <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-dark-bg-primary/50 p-2 font-mono text-dark-text-primary">
+                {JSON.stringify(details.arguments, null, 2)}
+              </pre>
+            </div>
+          )}
 
           {error && (
             <div role="alert" className="mt-3 text-xs text-nvidia-red">
@@ -164,21 +207,36 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
           )}
 
           {state === 'pending' && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void decide('approved')}
-                className="rounded-lg bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-nvidia-green-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/50"
-              >
-                Approve
-              </button>
-              <button
-                type="button"
-                onClick={() => void decide('denied')}
-                className="rounded-lg border border-separator/70 px-4 py-2 text-sm font-medium text-dark-text-primary hover:bg-fill/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
-              >
-                Deny
-              </button>
+            <div className="mt-4">
+              {confirmingHighImpact && (
+                <div
+                  role="alert"
+                  className="mb-3 flex items-start gap-2 rounded-lg border border-nvidia-yellow/40 bg-nvidia-yellow/10 p-3 text-xs text-dark-text-primary"
+                >
+                  <IconAlertTriangle
+                    size={16}
+                    className="mt-0.5 flex-shrink-0 text-nvidia-yellow"
+                  />
+                  This is a high-impact operation. Review the server, target,
+                  and redacted arguments, then confirm once more.
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void decide('approved')}
+                  className="rounded-lg bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-nvidia-green-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/50"
+                >
+                  {confirmingHighImpact ? 'Confirm approval' : 'Approve'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void decide('denied')}
+                  className="rounded-lg border border-separator/70 px-4 py-2 text-sm font-medium text-dark-text-primary hover:bg-fill/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
+                >
+                  Deny
+                </button>
+              </div>
             </div>
           )}
         </div>

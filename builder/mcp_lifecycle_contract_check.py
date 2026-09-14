@@ -131,7 +131,7 @@ async def check_clients(url, calls):
             patch.object(
                 mcp_patches,
                 "_validate_mcp_approval",
-                return_value=(True, mcp_patches._UNRESTRICTED_MUTATION_APPROVAL_REASON),
+                return_value=(True, "approved"),
             ),
         ):
             outcome = await tool.acall({"value": "mutation"})

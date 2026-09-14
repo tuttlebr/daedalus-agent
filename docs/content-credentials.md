@@ -81,7 +81,7 @@ The standard deployment path handles certificate configuration automatically:
 make deploy
 ```
 
-Before building or pushing images, `deploy.sh` runs the generator with `--ensure`.
+Before building or pushing images, `make deploy` runs the generator with `--ensure`.
 After creating the namespace, it installs **only** `chain.pem` and `key.pem` in
 the certificate fingerprint Secret. It then applies the generated Helm settings
 after your normal values, enabling local signing for the backend. The same
@@ -95,14 +95,15 @@ dependencies automatically. To use another local bundle directory:
 CONTENT_CREDENTIALS_DIR="$HOME/.config/daedalus/my-image-credentials" make deploy
 ```
 
-Direct `deploy.sh` invocations also support `--content-credentials-dir PATH`.
-`./deploy.sh --dry-run` prints the planned setup with a placeholder Secret name
-and does not generate, rotate, or install credentials.
+The equivalent explicit option is
+`make deploy DEPLOY_ARGS='--content-credentials-dir PATH'`.
+`make deploy DEPLOY_ARGS='--dry-run'` prints the planned setup with a placeholder
+Secret name and does not generate, rotate, or install credentials.
 
 Helm mounts `chain.pem` and `key.pem` read-only at `/etc/c2pa` in the backend.
 The root private key is never installed. The frontend and autonomous worker do
 not receive keys; their image requests go through the backend. The chart alone
-defaults to `mode: 'off'`; `deploy.sh` enables signing through its generated
+defaults to `mode: 'off'`; `make deploy` enables signing through its generated
 values overlay. This overrides `contentCredentials` in your normal values file.
 No manual Secret installation or values-file merge is needed for `make deploy`.
 

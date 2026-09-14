@@ -55,4 +55,19 @@ describe('Next.js security headers', () => {
         ?.split(/\s+/),
     ).toEqual(['font-src', "'self'", 'data:', 'https://g1.nyt.com']);
   });
+
+  it('disables eval and declares sensitive resource directives in production', async () => {
+    const routes = await nextConfig.headers();
+    const applicationRoute = routes.find((route) => route.source === '/:path*');
+    const policy = applicationRoute?.headers.find(
+      (header) => header.key === 'Content-Security-Policy',
+    )?.value;
+
+    expect(policy).not.toContain("'unsafe-eval'");
+    expect(policy).toContain("object-src 'none'");
+    expect(policy).toContain("frame-src 'none'");
+    expect(policy).toContain("worker-src 'self' blob:");
+    expect(policy).toContain("manifest-src 'self'");
+    expect(policy).not.toContain(' ws:');
+  });
 });

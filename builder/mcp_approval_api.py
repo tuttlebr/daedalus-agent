@@ -170,11 +170,7 @@ def create_mcp_approval_router(
         # The HTTP route is not an alternate authorization mechanism. Prove
         # the server-side credential is bound to this exact call before
         # entering the MCP runtime; the normal MCP gate consumes it atomically.
-        if mcp_patches._is_unrestricted_mcp_group(
-            body.server_name
-        ) or mcp_patches._has_local_read_only_evidence(
-            body.server_name, body.tool_name
-        ):
+        if mcp_patches._has_local_read_only_evidence(body.server_name, body.tool_name):
             raise HTTPException(
                 status_code=409,
                 detail="Direct execution is limited to approval-gated MCP operations",

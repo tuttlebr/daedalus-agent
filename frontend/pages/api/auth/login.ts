@@ -17,6 +17,12 @@ const LOGIN_LOCKOUT_SECONDS = Number(
   process.env.AUTH_LOGIN_LOCKOUT_SECONDS || 900,
 );
 const LOGIN_MAX_ATTEMPTS = Number(process.env.AUTH_LOGIN_MAX_ATTEMPTS || 5);
+const LOGIN_ACCOUNT_MAX_ATTEMPTS = Number(
+  process.env.AUTH_LOGIN_ACCOUNT_MAX_ATTEMPTS || 10,
+);
+const LOGIN_IP_MAX_ATTEMPTS = Number(
+  process.env.AUTH_LOGIN_IP_MAX_ATTEMPTS || 30,
+);
 // Number of trusted reverse proxies in front of the app (default: nginx only).
 const TRUSTED_PROXY_HOPS = Number(process.env.AUTH_TRUSTED_PROXY_HOPS || 1);
 
@@ -42,36 +48,64 @@ function clientIp(req: NextApiRequest): string {
   return req.socket.remoteAddress || 'unknown';
 }
 
-function loginAttemptKey(username: string, ip: string): string {
-  const digest = createHash('sha256')
-    .update(`${username.trim().toLowerCase()}|${ip}`)
-    .digest('hex')
-    .slice(0, 32);
-  return sessionKey(['auth-login-attempts', digest]);
+function loginAttemptKey(
+  scope: 'pair' | 'account' | 'ip',
+  value: string,
+): string {
+  const digest = createHash('sha256').update(value).digest('hex').slice(0, 32);
+  return sessionKey(['auth-login-attempts', scope, digest]);
+}
+
+function loginAttemptScopes(username: string, ip: string) {
+  const normalizedUsername = username.trim().toLowerCase();
+  return [
+    {
+      key: loginAttemptKey('pair', `${normalizedUsername}|${ip}`),
+      limit: LOGIN_MAX_ATTEMPTS,
+    },
+    {
+      key: loginAttemptKey('account', normalizedUsername),
+      limit: LOGIN_ACCOUNT_MAX_ATTEMPTS,
+    },
+    {
+      key: loginAttemptKey('ip', ip),
+      limit: LOGIN_IP_MAX_ATTEMPTS,
+    },
+  ];
 }
 
 async function getLockoutSeconds(
   username: string,
   ip: string,
 ): Promise<number> {
-  const key = loginAttemptKey(username, ip);
-  const [attempts, ttl] = await readExpiringCounter(key, LOGIN_LOCKOUT_SECONDS);
-  if (attempts < LOGIN_MAX_ATTEMPTS) return 0;
-  return ttl > 0 ? ttl : LOGIN_LOCKOUT_SECONDS;
+  const counters = await Promise.all(
+    loginAttemptScopes(username, ip).map(async ({ key, limit }) => {
+      const [attempts, ttl] = await readExpiringCounter(
+        key,
+        LOGIN_LOCKOUT_SECONDS,
+      );
+      return attempts >= limit ? (ttl > 0 ? ttl : LOGIN_LOCKOUT_SECONDS) : 0;
+    }),
+  );
+  return Math.max(...counters);
 }
 
 async function recordFailedLogin(username: string, ip: string): Promise<void> {
-  const key = loginAttemptKey(username, ip);
-  await incrementExpiringCounter(
-    key,
-    LOGIN_WINDOW_SECONDS,
-    LOGIN_MAX_ATTEMPTS,
-    LOGIN_LOCKOUT_SECONDS,
+  await Promise.all(
+    loginAttemptScopes(username, ip).map(({ key, limit }) =>
+      incrementExpiringCounter(
+        key,
+        LOGIN_WINDOW_SECONDS,
+        limit,
+        LOGIN_LOCKOUT_SECONDS,
+      ),
+    ),
   );
 }
 
 async function clearFailedLogins(username: string, ip: string): Promise<void> {
-  await getRedis().del(loginAttemptKey(username, ip));
+  const normalizedUsername = username.trim().toLowerCase();
+  await getRedis().del(loginAttemptKey('pair', `${normalizedUsername}|${ip}`));
 }
 
 export default async function handler(

@@ -198,6 +198,15 @@ services:
       retries: 3
       start_period: 10s
 
+  redis-volume-init:
+    image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:redis-${DAEDALUS_VERSION:-0.1.0}
+    user: '0:0'
+    entrypoint: ['/bin/sh', '-c']
+    command: ['chown -R 977:988 /data']
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/redis/data:/data
+    restart: 'no'
+
   redis:
     # Preserve Redis Stack 7.4.0-v8 data and module compatibility while
     # applying current Ubuntu security updates in a repository-owned image.
@@ -211,6 +220,7 @@ services:
     # Generate one password-protected ACL per user. A named app user keeps a
     # separate random default credential for AOF replay; neither is nopass.
     entrypoint: ['/usr/local/bin/redis-compose-entrypoint']
+    read_only: true
     command:
       [
         '--dir',
@@ -236,10 +246,15 @@ services:
     restart: unless-stopped
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/redis/data:/data
+    tmpfs:
+      - /tmp
     ports:
       - '127.0.0.1:6379:6379'
     networks:
       - ${NETWORK_NAME:-daedalus-network}
+    depends_on:
+      redis-volume-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [

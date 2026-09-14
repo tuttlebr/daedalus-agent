@@ -25,6 +25,16 @@ export interface ResolvedMcpApprovalDecision {
   approvalToken?: string;
 }
 
+export interface McpApprovalPreview {
+  action: string;
+  reason: string;
+  target: string;
+  serverName: string;
+  toolName: string;
+  argumentsSha256: string;
+  arguments: Record<string, unknown>;
+}
+
 export class McpApprovalDecisionError extends Error {
   constructor(message: string) {
     super(message);
@@ -104,6 +114,75 @@ function parsePendingApproval(
     );
   }
   return pending;
+}
+
+const SENSITIVE_ARGUMENT_KEY =
+  /(?:authorization|cookie|credential|password|secret|token|api[_-]?key)/i;
+const SENSITIVE_STRING_VALUE =
+  /(?:\bauthorization\s*[:=]|\b(?:bearer|basic)\s+\S+|\b(?:(?:[a-z0-9]+[_-])*(?:token|secret|password|credential|key)(?:[_-][a-z0-9]+)*|api[_-]?key)\s*[:=]\s*\S+|https?:\/\/[^\s/:@]+:[^\s/@]+@)/i;
+const FREE_TEXT_ARGUMENT_KEY =
+  /(?:^|[_-])(?:body|content|html|markdown|message|prompt|text)(?:$|[_-])/i;
+const MAX_APPROVAL_PREVIEW_STRING_LENGTH = 256;
+
+function redactArgumentValue(value: unknown, key = ''): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactArgumentValue(item, key));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([childKey, item]) => [
+        childKey,
+        SENSITIVE_ARGUMENT_KEY.test(childKey)
+          ? '[REDACTED]'
+          : redactArgumentValue(item, childKey),
+      ]),
+    );
+  }
+  if (typeof value === 'string') {
+    if (SENSITIVE_STRING_VALUE.test(value)) return '[REDACTED]';
+    if (FREE_TEXT_ARGUMENT_KEY.test(key)) {
+      return `[REDACTED CONTENT: ${value.length} chars]`;
+    }
+    if (value.length > MAX_APPROVAL_PREVIEW_STRING_LENGTH) {
+      return `[REDACTED TEXT: ${value.length} chars]`;
+    }
+  }
+  return value;
+}
+
+export function buildMcpApprovalPreview(
+  pending: PendingMcpApproval,
+): McpApprovalPreview {
+  const argumentsValue = JSON.parse(pending.canonical_arguments) as Record<
+    string,
+    unknown
+  >;
+  return {
+    action: pending.action,
+    reason: pending.reason,
+    target: pending.target,
+    serverName: pending.server_name,
+    toolName: pending.tool_name,
+    argumentsSha256: pending.arguments_sha256,
+    arguments: redactArgumentValue(argumentsValue) as Record<string, unknown>,
+  };
+}
+
+export async function getMcpApprovalPreview(
+  requestId: string,
+  userId: string,
+  redis: Redis = getRedis(),
+): Promise<McpApprovalPreview> {
+  if (!/^[A-Za-z0-9_-]{12,128}$/.test(requestId)) {
+    throw new McpApprovalDecisionError('The approval request ID is invalid.');
+  }
+  const raw = await redis.get(pendingApprovalKey(userId, requestId));
+  if (!raw) {
+    throw new McpApprovalDecisionError(
+      'That approval request is missing, expired, or already resolved.',
+    );
+  }
+  return buildMcpApprovalPreview(parsePendingApproval(raw, userId, requestId));
 }
 
 const DENY_PENDING_LUA = `

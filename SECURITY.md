@@ -134,8 +134,9 @@ ordered by expected impact and likelihood.
    vulnerability, or unsafe handling of generated SVG could enable script
    execution in an authenticated browser session.
 
-7. **Deployment or Software Supply-Chain Compromise:** `deploy.sh`, Helm
-   templates, CI workflows, container builds, secret synchronization scripts,
+7. **Deployment or Software Supply-Chain Compromise:** `make deploy`, its
+   deployment implementation, Helm templates, CI workflows, container builds,
+   secret synchronization scripts,
    and registry artifacts can change live workloads or handle privileged
    credentials. The project uses dependency locks, secret scanning, static
    analysis, container and filesystem scanning, signed images, and release

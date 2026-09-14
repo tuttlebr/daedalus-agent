@@ -13,6 +13,18 @@ export interface McpApprovalMarker {
   argumentsSha256: string;
 }
 
+const HIGH_IMPACT_TOOL_PATTERN =
+  /delete|remove|revoke|permission|role|identity|impersonat|admin|execute|restart|scale|shutdown/i;
+
+export function requiresAdditionalMcpConfirmation(
+  approval: Pick<McpApprovalMarker, 'serverName' | 'toolName'>,
+): boolean {
+  return (
+    ['k8s_mcp_server', 'unifi_mcp_server'].includes(approval.serverName) ||
+    HIGH_IMPACT_TOOL_PATTERN.test(approval.toolName)
+  );
+}
+
 const LEGACY_APPROVAL_PATTERN =
   /Approval scope: action_type=`mcp_mutation`,\s*target=`([^`]+)`,\s*server_name=`([^`]+)`,\s*tool_name=`([^`]+)`,\s*approval_request_id=`([A-Za-z0-9_-]{12,128})`,\s*arguments_sha256=`([0-9a-f]{64})`\./;
 

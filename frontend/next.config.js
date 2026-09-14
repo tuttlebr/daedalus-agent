@@ -67,9 +67,11 @@ const nextConfig = {
           },
         ],
       },
-      // SECURITY: Restrict outbound connections and prevent common web attacks
-      // NOTE: 'unsafe-eval' is required by mermaid.js (diagram rendering) even with securityLevel: 'strict'.
-      // 'unsafe-inline' is required by Next.js for inline scripts and styled-jsx.
+      // SECURITY: Restrict outbound connections and prevent common web attacks.
+      // Production Mermaid does not require eval. Next.js development source
+      // maps do, so unsafe-eval is limited to the development server.
+      // unsafe-inline remains temporarily for Pages Router bootstrap scripts;
+      // replace it with request-scoped nonces before removing this exception.
       {
         source: '/:path*',
         headers: [
@@ -80,7 +82,11 @@ const nextConfig = {
               // changing publishers. Daybook previews additionally load the
               // pinned Cheltenham stylesheet and font assets from g1.nyt.com;
               // keep active-resource access narrowed to that one origin.
-              "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://g1.nyt.com; img-src 'self' data: blob: https:; font-src 'self' data: https://g1.nyt.com; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
+              `default-src 'self'; script-src 'self'${
+                process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : ''
+              } 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://g1.nyt.com; img-src 'self' data: blob: https:; font-src 'self' data: https://g1.nyt.com; connect-src 'self'${
+                process.env.NODE_ENV === 'development' ? ' ws:' : ''
+              } wss:; object-src 'none'; frame-src 'none'; worker-src 'self' blob:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';`,
           },
           {
             key: 'Referrer-Policy',

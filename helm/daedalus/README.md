@@ -52,7 +52,7 @@ also succeed; a rendered rule alone does not prove network connectivity.
 
 ### Workload credentials
 
-`deploy.sh` filters `.env` into three workload-specific Secrets. It doesn't
+`make deploy` filters `.env` into three workload-specific Secrets. It doesn't
 copy the full file into any pod:
 
 ```sh
@@ -69,7 +69,7 @@ Phoenix credentials, and NV-Ingest MinIO credentials are backend-only. The
 Helm templates reject keys outside each workload allowlist when chart-managed
 Secret data or frontend overrides are used.
 
-The autonomous worker receives its internal backend token and Redis credential
+The autonomous worker receives its internal backend token and dedicated Redis credential
 through explicit `secretKeyRef` entries and doesn't inherit the backend Secret.
 Leave `autonomousAgent.env.fromSecret` empty unless a future worker feature has
 a documented, narrowly scoped credential requirement.
@@ -82,7 +82,7 @@ backend need that restricted credential to write and read document objects.
 The stream worker receives object references only and doesn't receive the
 object-store credential.
 
-For the normal `deploy.sh` path, the authoritative MinIO Secret is mirrored to
+For the canonical `make deploy` path, the authoritative MinIO Secret is mirrored to
 `<release>-document-objects`. When authoritative sync is enabled, legacy
 `DOCUMENT_OBJECT_*` values in `.env` are ignored so stale local credentials
 cannot replace the source-of-truth Secret. The deploy validates the required
@@ -136,12 +136,16 @@ leave architecture unrestricted, and other workloads keep their existing node
 placement. Existing node-bound Redis volumes must also be accessible from an
 eligible node; changing affinity does not migrate their data.
 
-Redis authentication is enabled by default. The chart disables the Redis
-`default` user, creates the named `redis.auth.username` ACL user, and injects
-the same credential into every in-chart client. For production, prefer an
-externally managed Secret through `redis.auth.existingSecret`. Avoid passing
-real passwords with `--set` because command history and Helm release metadata
-aren't secret stores.
+Redis authentication is enabled by default. The chart gives the frontend,
+stream worker, backend, and autonomous worker distinct users and passwords.
+Backend and worker ACLs are limited to their required key prefixes and channels;
+in particular, the backend cannot read authentication sessions, login counters,
+or configured-user hashes. Redis retains a random, undisclosed `default` user
+only so persisted AOF transactions can replay. For production, prefer an
+externally managed Secret through `redis.auth.existingSecret`. That Secret must
+contain the primary, backend, stream-worker, and autonomous current/previous
+password keys named in `redis.auth`. Avoid passing real passwords with `--set`
+because command history and Helm release metadata aren't secret stores.
 
 To enable transport encryption, provide an existing Secret containing the
 server certificate, private key, and CA certificate, then set
@@ -149,22 +153,20 @@ server certificate, private key, and CA certificate, then set
 must cover the chart's Redis Service DNS names. The chart never generates or
 stores production TLS material.
 
-Use this three-rollout sequence to rotate an externally managed ACL credential
-without a credential gap:
+Use this three-rollout sequence to rotate all four externally managed ACL
+credentials without a credential gap:
 
-1. Put the new password in the Secret's overlap key
-   (`REDIS_PREVIOUS_PASSWORD`) while keeping the current password unchanged,
-   then run Helm with a new `forceRedeploy` value.
-2. Swap the Secret so `REDIS_PASSWORD` is new and the overlap key contains the
-   old password, then force another rollout. Redis accepts both while clients
-   restart on the new credential.
-3. Remove the old overlap credential, force a final rollout, and verify the old
+1. Put each new password in its corresponding `*_PREVIOUS_PASSWORD` key while
+   keeping current passwords unchanged, then run `make deploy`.
+2. Swap every current/previous pair, then force another rollout. Redis accepts
+   both values while each workload restarts on its new credential.
+3. Empty all former-password keys, force a final rollout, and verify every old
    credential is rejected.
 
-For manual upgrades, add `--set forceRedeploy="$(date +%s)" --wait --atomic`.
-`deploy.sh` already sets this value. The same forced rollout is required after
-updating an externally managed Redis TLS Secret because Helm can't hash Secret
-content it doesn't own.
+Run each rotation stage with `make deploy`; it supplies a fresh `forceRedeploy`
+value together with `--wait --atomic`. The same forced rollout is required after
+updating an externally managed Redis TLS Secret because Helm cannot hash Secret
+content it does not own.
 
 Rotate a Redis issuing CA without a trust gap in three forced rollouts:
 
@@ -189,20 +191,19 @@ and keys must remain externally supplied.
 ## Install Or Upgrade
 
 ```sh
-helm upgrade --install <release> ./daedalus \
-  -n <namespace> \
-  -f values.yaml
+make deploy
 ```
 
-Provide the backend workflow config explicitly:
+To select a release, namespace, values file, or backend workflow config, pass
+the deployment implementation options through the Make target:
 
 ```sh
-helm upgrade --install <release> ./daedalus \
-  -n <namespace> \
-  -f values.yaml \
-  --set-file backend.default.config.data=backend/tool-calling-config.yaml \
-  --set-file backend.default.config.baseData=backend/tool-calling-config.yaml
+make deploy DEPLOY_ARGS='--release <release> --namespace <namespace> --values <values-file> --backend-config <config-file>'
 ```
+
+Run these commands from the repository root. Direct Helm commands are useful
+for chart linting and rendering, but are not a supported application deployment
+path because they bypass the repository preflight and Secret synchronization.
 
 The canonical config uses the OpenAI-compatible Responses API. Overlay configs
 that inherit it through NAT `base:` support are also honored by the backend's
@@ -219,12 +220,12 @@ digest, publishes SLSA build provenance, records the exact commit-to-digest
 mapping, and signs `release-metadata.json`.
 
 For a prebuilt deployment, download all three metadata artifacts and provide
-the JSON file to `deploy.sh`:
+the JSON file through `make deploy`:
 
 ```sh
 COSIGN_CERTIFICATE_IDENTITY_REGEXP='https://github\.com/<owner>/<repo>/\.github/workflows/release\.yml@refs/(heads/main|tags/v.*)' \
 COSIGN_CERTIFICATE_OIDC_ISSUER='https://token.actions.githubusercontent.com' \
-./deploy.sh --skip-build --release-metadata ./release-metadata.json
+make deploy DEPLOY_IMAGE_ARGS= DEPLOY_ARGS='--skip-build --release-metadata ./release-metadata.json'
 ```
 
 Keep `release-metadata.json.sig` and `release-metadata.json.pem` beside the JSON
@@ -283,14 +284,15 @@ chat from service.
 For the repository's production values, the shared runtime contract is
 database `default`, object bucket `nv-ingest`, and the `milvus`, MinIO, and
 NV-Ingest Services in the shared `daedalus` namespace. The rendered
-NetworkPolicies include those namespace/port paths. A direct Helm
-install must preserve the same endpoint, database, bucket, credential, and
-embedding/schema contract used by the collection-population jobs.
+NetworkPolicies include those namespace/port paths. Keep the same endpoint,
+database, bucket, credential, and embedding/schema contract used by the
+collection-population jobs when configuring the canonical deployment.
 
-The repo-level `deploy.sh` normalizes the default authoritative Secrets from the
-`daedalus` namespace into release-local Secrets without placing credential
-values in Helm release metadata. If Helm is run directly, provision those
-namespace-local Secrets through an external Secret controller before rollout.
+The repo-level `make deploy` path normalizes the default authoritative Secrets
+from the `daedalus` namespace into release-local Secrets without placing
+credential values in Helm release metadata. Installations using an external
+Secret controller must provision those namespace-local Secrets before invoking
+the same canonical deployment path.
 After a deploy-managed copy, `retrieval.secretResourceVersions.*` contains only
 the target Secrets' Kubernetes `metadata.resourceVersion` values. These values
 are rendered as backend pod annotations (and as a frontend annotation for the

@@ -12,8 +12,9 @@ RUN apt-get update \
         gpgv \
         libssl-dev \
         libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -o 977 -g 988 /data
 
-# Kubernetes selects the non-root runtime UID to match its persistent volume.
-# Local Compose keeps the upstream development default because bind-mounted
-# data directories can have host-specific ownership.
+# Match the repository's local persistent-data ownership. Kubernetes can still
+# override this numeric identity through its pod security context.
+USER 977:988

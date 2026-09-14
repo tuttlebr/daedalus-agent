@@ -371,6 +371,27 @@ function_groups:
       url: https://docsmcp.googleapis.com/mcp/v1
   k8s_mcp_server:
     _type: mcp_client
+    # Reviewed read-only surface from daedalus-context. Write, exec, agent, and
+    # Helm mutation tools remain unavailable even if the upstream role drifts.
+    include:
+      - getAPIResources
+      - listResources
+      - getResource
+      - getPodsLogs
+      - getEvents
+      - getResourceOwners
+      - getClusterSummary
+      - listContexts
+    tool_overrides:
+      getAPIResources: &k8s_read_only
+        approval_policy: read_only
+      listResources: *k8s_read_only
+      getResource: *k8s_read_only
+      getPodsLogs: *k8s_read_only
+      getEvents: *k8s_read_only
+      getResourceOwners: *k8s_read_only
+      getClusterSummary: *k8s_read_only
+      listContexts: *k8s_read_only
     tool_call_timeout: 120
     auth_flow_timeout: 30
     reconnect_enabled: true
@@ -385,6 +406,31 @@ function_groups:
       auth_provider: k8s_mcp_server
   unifi_mcp_server:
     _type: mcp_client
+    include:
+      - getInfo
+      - listSites
+      - listAdoptedDevices
+      - getAdoptedDeviceDetails
+      - getAdoptedDeviceLatestStatistics
+      - listPendingDevices
+      - listConnectedClients
+      - getConnectedClientDetails
+      - listNetworks
+      - listWifiBroadcasts
+      - listWanInterfaces
+    tool_overrides:
+      getInfo: &unifi_read_only
+        approval_policy: read_only
+      listSites: *unifi_read_only
+      listAdoptedDevices: *unifi_read_only
+      getAdoptedDeviceDetails: *unifi_read_only
+      getAdoptedDeviceLatestStatistics: *unifi_read_only
+      listPendingDevices: *unifi_read_only
+      listConnectedClients: *unifi_read_only
+      getConnectedClientDetails: *unifi_read_only
+      listNetworks: *unifi_read_only
+      listWifiBroadcasts: *unifi_read_only
+      listWanInterfaces: *unifi_read_only
     tool_call_timeout: 120
     auth_flow_timeout: 30
     reconnect_enabled: true

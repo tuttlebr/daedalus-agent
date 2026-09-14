@@ -8,6 +8,9 @@ import {
   resolveAsyncBackendBaseUrls,
 } from '@/server/chat/backendSelection';
 import {
+  buildMcpApprovalPreview,
+  getMcpApprovalPreview,
+  type McpApprovalPreview,
   McpApprovalDecisionError,
   resolveMcpApprovalDecision,
   revokeMcpApprovalToken,
@@ -36,7 +39,27 @@ interface ApprovalExecutionState {
   authUrl?: string;
   oauthState?: string;
   error?: string;
+  approval?: McpApprovalPreview;
+  resultLogged?: boolean;
   updatedAt: number;
+}
+
+function logApprovalEvent(
+  event: 'decision' | 'result',
+  userId: string,
+  approval: McpApprovalPreview | undefined,
+  value: string,
+): void {
+  if (!approval) return;
+  console.info(`[SECURITY] MCP approval ${event}`, {
+    actor: userId,
+    value,
+    serverName: approval.serverName,
+    toolName: approval.toolName,
+    target: approval.target,
+    argumentsSha256: approval.argumentsSha256,
+    timestamp: new Date().toISOString(),
+  });
 }
 
 function statusKey(userId: string, requestId: string): string {
@@ -88,6 +111,8 @@ async function handlePost(
     }
     throw error;
   }
+  const approval = buildMcpApprovalPreview(resolved.pending);
+  logApprovalEvent('decision', userId, approval, decision);
 
   if (decision === 'denied') {
     const state: ApprovalExecutionState = {
@@ -95,8 +120,11 @@ async function handlePost(
       userId,
       decision,
       status: 'denied',
+      approval,
+      resultLogged: true,
       updatedAt: Date.now(),
     };
+    logApprovalEvent('result', userId, approval, 'denied');
     await persistState(state);
     return res.status(200).json({ status: state.status });
   }
@@ -143,6 +171,8 @@ async function handlePost(
       userId,
       decision,
       status: 'failed',
+      approval,
+      resultLogged: true,
       backendBaseUrl,
       natSessionId,
       timezone: job?.timezone,
@@ -150,6 +180,7 @@ async function handlePost(
       error: 'The approved operation could not reach the backend',
       updatedAt: Date.now(),
     }).catch(() => {});
+    logApprovalEvent('result', userId, approval, 'backend-unreachable');
     throw error;
   }
 
@@ -168,6 +199,8 @@ async function handlePost(
       userId,
       decision,
       status: 'failed',
+      approval,
+      resultLogged: true,
       backendBaseUrl,
       natSessionId,
       timezone: job?.timezone,
@@ -175,6 +208,7 @@ async function handlePost(
       error,
       updatedAt: Date.now(),
     });
+    logApprovalEvent('result', userId, approval, `failed:${response.status}`);
     return res.status(response.status).json({
       status: 'failed',
       error,
@@ -186,6 +220,7 @@ async function handlePost(
     userId,
     decision,
     status: typeof payload.status === 'string' ? payload.status : 'running',
+    approval,
     backendBaseUrl,
     natSessionId,
     timezone: job?.timezone,
@@ -204,6 +239,7 @@ async function handlePost(
   return res.status(response.status).json({
     status: state.status,
     authUrl: state.authUrl,
+    approval: state.approval,
   });
 }
 
@@ -216,7 +252,15 @@ async function handleGet(
     statusKey(userId, requestId),
   )) as ApprovalExecutionState | null;
   if (!state || state.userId !== userId) {
-    return res.status(404).json({ error: 'Approval state not found' });
+    try {
+      const approval = await getMcpApprovalPreview(requestId, userId);
+      return res.status(200).json({ status: 'pending', approval });
+    } catch (error) {
+      if (error instanceof McpApprovalDecisionError) {
+        return res.status(404).json({ error: error.message });
+      }
+      throw error;
+    }
   }
   if (
     !state.executionId ||
@@ -227,6 +271,7 @@ async function handleGet(
       status: state.status,
       authUrl: state.authUrl,
       error: state.error,
+      approval: state.approval,
     });
   }
 
@@ -268,6 +313,13 @@ async function handleGet(
       : state.oauthState;
   state.error = typeof payload.error === 'string' ? payload.error : undefined;
   state.updatedAt = Date.now();
+  if (
+    !state.resultLogged &&
+    ['completed', 'failed', 'denied'].includes(state.status)
+  ) {
+    logApprovalEvent('result', userId, state.approval, state.status);
+    state.resultLogged = true;
+  }
   if (state.oauthState && state.authUrl) {
     await saveOAuthCallbackTarget(
       state.oauthState,
@@ -280,6 +332,7 @@ async function handleGet(
     status: state.status,
     authUrl: state.authUrl,
     error: state.error,
+    approval: state.approval,
   });
 }
 

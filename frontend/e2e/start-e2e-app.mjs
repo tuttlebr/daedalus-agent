@@ -34,7 +34,8 @@ const runtimeEnv = {
   NODE_ENV: 'production',
   NEXT_TELEMETRY_DISABLED: '1',
   AUTH_USERNAME: 'e2e-user',
-  AUTH_PASSWORD: 'e2e-password',
+  AUTH_PASSWORD_HASH:
+    '$2a$12$dcSap9jLj.Qneh0w6TYJsuYXiZJe/CE3b6cA8cwmpv29YHigOrrAK',
   AUTH_NAME: 'E2E User',
   AUTH_LOGIN_MAX_ATTEMPTS: '20',
   SESSION_SECRET: 'e2e-session-secret-with-more-than-thirty-two-bytes',

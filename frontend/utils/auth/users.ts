@@ -1,6 +1,6 @@
 import { getAuthConfig, isConfiguredUsername } from './config';
 
-import { sessionKey, jsonGet, jsonSet } from '@/server/session/redis';
+import { getRedis, sessionKey, jsonGet, jsonSet } from '@/server/session/redis';
 import bcrypt from 'bcryptjs';
 
 export interface User {
@@ -13,10 +13,8 @@ export interface User {
 
 // Initialize users in Redis if they don't exist.
 //
-// Memoized so it runs at most once per process. Previously this ran on EVERY
-// login attempt, which re-ran a bcrypt.compare per configured user before the
-// real credential check (login-cost amplification / DoS surface — F-014). On
-// failure the cache is cleared so the next login can retry.
+// Memoized so it runs at most once per process. Configured hashes are copied
+// directly; plaintext credentials never enter this reconciliation path.
 let initializeUsersPromise: Promise<void> | null = null;
 
 export function initializeUsers(): Promise<void> {
@@ -34,30 +32,26 @@ async function runInitializeUsers(): Promise<void> {
 
   for (const configUser of config.users) {
     const userKey = sessionKey(['user', configUser.username]);
-    const existing = (await jsonGet(userKey)) as User | null;
+    const authUserKey = sessionKey(['auth-user', configUser.username]);
+    const existing = (await jsonGet(authUserKey)) as User | null;
 
     if (!existing) {
-      const passwordHash = await bcrypt.hash(configUser.password, 10);
-
       const fullUser: User = {
         id: configUser.id,
         username: configUser.username,
         name: configUser.name,
-        passwordHash,
+        passwordHash: configUser.passwordHash,
         createdAt: Date.now(),
       };
 
-      await jsonSet(userKey, '.', fullUser);
+      await jsonSet(authUserKey, '.', fullUser);
+      await getRedis().del(userKey);
       console.log(`Created default user: ${configUser.username}`);
       continue;
     }
 
-    const passwordMatches = await bcrypt.compare(
-      configUser.password,
-      existing.passwordHash,
-    );
     const needsUpdate =
-      !passwordMatches ||
+      existing.passwordHash !== configUser.passwordHash ||
       existing.name !== configUser.name ||
       existing.id !== configUser.id;
 
@@ -67,19 +61,18 @@ async function runInitializeUsers(): Promise<void> {
         id: configUser.id,
         username: configUser.username,
         name: configUser.name,
-        passwordHash: passwordMatches
-          ? existing.passwordHash
-          : await bcrypt.hash(configUser.password, 10),
+        passwordHash: configUser.passwordHash,
       };
-      await jsonSet(userKey, '.', updatedUser);
+      await jsonSet(authUserKey, '.', updatedUser);
       console.log(`Updated configured user: ${configUser.username}`);
     }
+    await getRedis().del(userKey);
   }
 }
 
 // Get user by username
 async function getUserByUsername(username: string): Promise<User | null> {
-  const userKey = sessionKey(['user', username]);
+  const userKey = sessionKey(['auth-user', username]);
   return (await jsonGet(userKey)) as User | null;
 }
 

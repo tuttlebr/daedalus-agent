@@ -33,6 +33,23 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# Empty limit keys are not accounted. This applies the execution-start rate to
+# POST requests without penalizing async status polling on the same route.
+map $request_method $chat_rate_limit_key {
+    default "";
+    POST    $binary_remote_addr;
+}
+
+limit_conn_zone $binary_remote_addr zone=connections_per_ip:10m;
+limit_conn_zone $server_addr zone=connections_total:1m;
+limit_conn_zone $server_addr zone=uploads_total:1m;
+limit_conn_zone $server_addr zone=executions_total:1m;
+limit_req_zone $binary_remote_addr zone=login_per_ip:10m rate={{ .Values.nginx.config.resourceLimits.loginRate }};
+limit_req_zone $binary_remote_addr zone=uploads_per_ip:10m rate={{ .Values.nginx.config.resourceLimits.uploadRate }};
+limit_req_zone $chat_rate_limit_key zone=chat_starts_per_ip:10m rate={{ .Values.nginx.config.resourceLimits.chatStartRate }};
+limit_req_zone $binary_remote_addr zone=websockets_per_ip:10m rate={{ .Values.nginx.config.resourceLimits.websocketRate }};
+limit_req_zone $binary_remote_addr zone=api_per_ip:10m rate={{ .Values.nginx.config.resourceLimits.apiRate }};
+
 # Main server block
 server {
     listen {{ .Values.nginx.containerPort | default 8080 }};
@@ -49,6 +66,9 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    {{- if and .Values.nginx.https.enabled .Values.nginx.https.hsts.enabled }}
+    add_header Strict-Transport-Security "max-age={{ .Values.nginx.https.hsts.maxAgeSeconds }}{{ if .Values.nginx.https.hsts.includeSubDomains }}; includeSubDomains{{ end }}" always;
+    {{- end }}
 
     # TLS (enabled when https.enabled)
     {{- if .Values.nginx.https.enabled }}
@@ -73,15 +93,32 @@ server {
 
     # Client settings
     client_max_body_size {{ .Values.nginx.config.clientMaxBodySize | default "32M" }};
-    client_body_timeout 900s;
-    client_header_timeout 900s;
+    client_body_timeout {{ .Values.nginx.config.resourceLimits.clientBodyTimeout }};
+    client_header_timeout {{ .Values.nginx.config.resourceLimits.clientHeaderTimeout }};
+
+    limit_conn_status 429;
+    limit_req_status 429;
+    limit_conn connections_per_ip {{ .Values.nginx.config.resourceLimits.connectionsPerIp }};
+    limit_conn connections_total {{ .Values.nginx.config.resourceLimits.connectionsTotal }};
 
     # Proxy settings
-    proxy_connect_timeout 900s;
-    proxy_send_timeout 900s;
-    proxy_read_timeout 900s;
+    proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+    proxy_send_timeout 120s;
+    proxy_read_timeout 120s;
     proxy_buffering off;
     proxy_request_buffering off;
+
+    # Authentication is cheap but security-sensitive. Keep this independent
+    # from the application's account-and-IP lockout layers.
+    location = /api/auth/login {
+        limit_req zone=login_per_ip burst={{ .Values.nginx.config.resourceLimits.loginBurst }} nodelay;
+        proxy_pass {{ ._frontendHTTPUpstream }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     {{- if .Values.nginx.config.voiceStudioProxy.enabled }}
     # Voice Studio requires a trustworthy HTTPS origin for browser microphone
@@ -105,6 +142,8 @@ server {
     # Keep private Voice Studio API calls under the origin-wide /api/ prefix.
     # Every released Daedalus service worker already bypasses this namespace.
     location ^~ {{ .Values.nginx.config.voiceStudioProxy.apiPath }}/ {
+        limit_req zone=uploads_per_ip burst={{ .Values.nginx.config.resourceLimits.uploadBurst }} nodelay;
+        limit_conn uploads_total {{ .Values.nginx.config.resourceLimits.uploadsTotal }};
         auth_request /_voice_studio_auth;
         error_page 401 = @voice_studio_login;
         client_max_body_size {{ .Values.nginx.config.voiceStudioProxy.maxBodySize }};
@@ -113,17 +152,19 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Prefix {{ .Values.nginx.config.voiceStudioProxy.path }};
         proxy_buffering off;
         proxy_request_buffering off;
-        proxy_connect_timeout 120s;
-        proxy_send_timeout 900s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
         proxy_read_timeout 900s;
     }
 
     location ^~ {{ .Values.nginx.config.voiceStudioProxy.path }}/ {
+        limit_req zone=uploads_per_ip burst={{ .Values.nginx.config.resourceLimits.uploadBurst }} nodelay;
+        limit_conn uploads_total {{ .Values.nginx.config.resourceLimits.uploadsTotal }};
         auth_request /_voice_studio_auth;
         error_page 401 = @voice_studio_login;
         client_max_body_size {{ .Values.nginx.config.voiceStudioProxy.maxBodySize }};
@@ -132,13 +173,13 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Prefix {{ .Values.nginx.config.voiceStudioProxy.path }};
         proxy_buffering off;
         proxy_request_buffering off;
-        proxy_connect_timeout 120s;
-        proxy_send_timeout 900s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
         proxy_read_timeout 900s;
     }
 
@@ -157,7 +198,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
@@ -170,12 +211,14 @@ server {
     # Document bytes are streamed through Next.js into object storage. Keep the
     # proxy ceiling just above the raw limit for bounded multipart framing.
     location = /api/session/documentStorage {
+        limit_req zone=uploads_per_ip burst={{ .Values.nginx.config.resourceLimits.uploadBurst }} nodelay;
+        limit_conn uploads_total {{ .Values.nginx.config.resourceLimits.uploadsTotal }};
         client_max_body_size {{ .Values.nginx.config.documentUploadMaxBodySize | default "201M" }};
         proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_request_buffering off;
     }
@@ -183,34 +226,40 @@ server {
     # Legacy media routes still use JSON/base64. Bound each route to its Next.js
     # parser ceiling instead of raising the default for the whole application.
     location = /api/session/videoStorage {
+        limit_req zone=uploads_per_ip burst={{ .Values.nginx.config.resourceLimits.uploadBurst }} nodelay;
+        limit_conn uploads_total {{ .Values.nginx.config.resourceLimits.uploadsTotal }};
         client_max_body_size {{ .Values.nginx.config.videoUploadMaxBodySize | default "150M" }};
         proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location = /api/session/imageStorage {
+        limit_req zone=uploads_per_ip burst={{ .Values.nginx.config.resourceLimits.uploadBurst }} nodelay;
+        limit_conn uploads_total {{ .Values.nginx.config.resourceLimits.uploadsTotal }};
         client_max_body_size {{ .Values.nginx.config.imageUploadMaxBodySize | default "41M" }};
         proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # Frontend API routes - Long-running AI requests
     location /api/chat {
+        limit_req zone=chat_starts_per_ip burst={{ .Values.nginx.config.resourceLimits.chatStartBurst }} nodelay;
+        limit_conn executions_total {{ .Values.nginx.config.resourceLimits.executionsTotal }};
         proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
@@ -223,8 +272,8 @@ server {
         # Must be a superset of every app-level chat budget, the largest being
         # MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS (660s). At 600s this hop expired
         # before the interactive-OAuth deadline it is meant to outlive.
-        proxy_connect_timeout 900s;
-        proxy_send_timeout 900s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
         proxy_read_timeout 900s;
 
         # Enable chunked responses
@@ -235,13 +284,15 @@ server {
     # limit. Keep the browser-to-frontend hop alive past that limit and retain
     # streaming semantics for the legacy image endpoints.
     location /api/images/ {
+        limit_req zone=api_per_ip burst={{ .Values.nginx.config.resourceLimits.apiBurst }} nodelay;
+        limit_conn executions_total {{ .Values.nginx.config.resourceLimits.executionsTotal }};
         proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
@@ -251,8 +302,8 @@ server {
         proxy_set_header X-Accel-Buffering no;
         proxy_max_temp_file_size 0;
 
-        proxy_connect_timeout 360s;
-        proxy_send_timeout 360s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
         proxy_read_timeout 360s;
         chunked_transfer_encoding on;
     }
@@ -262,18 +313,20 @@ server {
     # TIMEOUT_MS), so the generic /api/ block's 120s would 504 a large NV-Ingest
     # document while the handler kept running.
     location /api/document/ {
+        limit_req zone=api_per_ip burst={{ .Values.nginx.config.resourceLimits.apiBurst }} nodelay;
+        limit_conn executions_total {{ .Values.nginx.config.resourceLimits.executionsTotal }};
         proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
-        proxy_connect_timeout 900s;
-        proxy_send_timeout 900s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
         proxy_read_timeout 900s;
         proxy_buffering off;
         proxy_request_buffering off;
@@ -282,18 +335,19 @@ server {
 
     # Other frontend API routes
     location /api/ {
+        limit_req zone=api_per_ip burst={{ .Values.nginx.config.resourceLimits.apiBurst }} nodelay;
         proxy_pass {{ ._frontendHTTPUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
         # Standard timeout for other API routes
-        proxy_connect_timeout 120s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
         proxy_send_timeout 120s;
         proxy_read_timeout 120s;
         proxy_buffering off;
@@ -303,13 +357,14 @@ server {
 
     # WebSocket sidecar - real-time communication
     location /ws {
+        limit_req zone=websockets_per_ip burst={{ .Values.nginx.config.resourceLimits.websocketBurst }} nodelay;
         proxy_pass {{ ._frontendWSUpstream }};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
@@ -324,7 +379,7 @@ server {
         proxy_set_header Connection $connection_upgrade;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
@@ -341,7 +396,7 @@ server {
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
@@ -355,8 +410,8 @@ server {
         proxy_set_header X-Accel-Buffering no;
 
         # Increase timeouts for long-running requests and MCP OAuth consent.
-        proxy_connect_timeout 600s;
-        proxy_send_timeout 600s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
         proxy_read_timeout 600s;
 
         # Enable chunked responses
@@ -371,7 +426,7 @@ server {
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
@@ -385,8 +440,8 @@ server {
         proxy_set_header X-Accel-Buffering no;
 
         # Increase timeouts for long-running requests
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
         proxy_read_timeout 300s;
 
         # Enable chunked responses
@@ -401,7 +456,7 @@ server {
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
 
@@ -415,8 +470,8 @@ server {
         proxy_set_header X-Accel-Buffering no;
 
         # Increase timeouts for long-running requests
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
+        proxy_connect_timeout {{ .Values.nginx.config.resourceLimits.proxyConnectTimeout }};
+        proxy_send_timeout 120s;
         proxy_read_timeout 300s;
 
         # Enable chunked responses
@@ -446,7 +501,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Large file uploads
@@ -462,7 +517,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     {{- end }}
@@ -496,7 +551,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     {{- end }}
@@ -508,7 +563,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_hide_header Cache-Control;
         add_header Cache-Control "no-cache, no-store, must-revalidate" always;
@@ -520,7 +575,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Cache static assets
@@ -534,7 +589,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Cache Next.js assets

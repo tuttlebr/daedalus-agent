@@ -32,7 +32,10 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
       throw new Error('Disposable REDIS_URL required');
     // These synthetic sessions belong to an explicitly configured account.
     vi.stubEnv('AUTH_USER_1_USERNAME', 'alice');
-    vi.stubEnv('AUTH_USER_1_PASSWORD', 'integration-only-password');
+    vi.stubEnv(
+      'AUTH_USER_1_PASSWORD_HASH',
+      '$2a$12$1TENZrz5bx573vKr4MmBn.LslalXmQH6awlSkMqIcT7UOyRP1WTbW',
+    );
     vi.stubEnv('AUTH_USER_2_USERNAME', '');
     redis = await import('@/server/session/redis');
     auth = await import('@/utils/auth/session');
