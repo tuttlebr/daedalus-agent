@@ -8,10 +8,35 @@ import sys
 from pathlib import Path
 
 BCRYPT_HASH_PATTERN = re.compile(r"^\$2[aby]\$(\d{2})\$[./A-Za-z0-9]{53}$")
+PASSWORD_HASH_KEY_PATTERN = re.compile(
+    r"^(?:AUTH_PASSWORD_HASH|AUTH_USER_\d+_PASSWORD_HASH)$"
+)
 NUMBERED_AUTH_PATTERN = re.compile(
     r"^AUTH_USER_(\d+)_(USERNAME|PASSWORD_HASH|PASSWORD|NAME)$"
 )
 MINIMUM_BCRYPT_COST = 12
+
+
+def find_unquoted_password_hashes(path: Path) -> list[str]:
+    """Return configured hash keys that Compose would interpolate."""
+    unquoted: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if (
+            separator
+            and value
+            and PASSWORD_HASH_KEY_PATTERN.fullmatch(key)
+            and not (len(value) >= 2 and value[0] == value[-1] == "'")
+        ):
+            unquoted.append(key)
+    return sorted(unquoted)
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -121,7 +146,17 @@ def main() -> int:
         print(f"Usage: {Path(sys.argv[0]).name} ENV_FILE", file=sys.stderr)
         return 2
     try:
-        count = validate_auth(load_env(Path(sys.argv[1])))
+        env_path = Path(sys.argv[1])
+        unquoted_hashes = find_unquoted_password_hashes(env_path)
+        if unquoted_hashes:
+            raise ValueError(
+                "bcrypt password hashes must be enclosed in single quotes so "
+                "Docker Compose does not interpolate their dollar signs: "
+                + ", ".join(unquoted_hashes)
+                + "; add quotes around the existing hashes; no password change "
+                "is required"
+            )
+        count = validate_auth(load_env(env_path))
     except (OSError, ValueError) as exc:
         print(f"ERROR: Invalid authentication configuration: {exc}", file=sys.stderr)
         return 1

@@ -128,13 +128,15 @@ access.
 
 ### Redis ACL, TLS, And Rotation
 
-`redis.nodePlacement.allowedArchitectures` adds required node affinity for Redis.
-The supplied `custom-values.yaml` selects `amd64`; Kubernetes can choose any
-matching node within `global.nodePlacement.allowedNodes`. The architecture and
-hostname restrictions share one selector term, so both must match. Chart defaults
-leave architecture unrestricted, and other workloads keep their existing node
-placement. Existing node-bound Redis volumes must also be accessible from an
-eligible node; changing affinity does not migrate their data.
+`global.nodePlacement.allowedArchitectures` adds required architecture affinity
+to every workload. The supplied `custom-values.yaml` selects `amd64` because the
+repository application release currently publishes `linux/amd64` images; this
+keeps those images off incompatible ARM64 nodes. A workload-specific setting,
+such as `redis.nodePlacement.allowedArchitectures`, overrides the global list.
+Architecture and hostname restrictions share one selector term, so both must
+match. Chart defaults leave architecture unrestricted. Existing node-bound Redis
+volumes must also be accessible from an eligible node; changing affinity does
+not migrate their data.
 
 Redis authentication is enabled by default. The chart gives the frontend,
 stream worker, backend, and autonomous worker distinct users and passwords.

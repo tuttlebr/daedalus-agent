@@ -31,6 +31,14 @@ metadata:
 spec:
   template:
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: [amd64]
       containers:
         - name: backend
           envFrom:
@@ -88,7 +96,14 @@ def test_probe_uses_secret_refs_and_backend_policy_labels():
     )
     assert overrides["spec"]["automountServiceAccountToken"] is False
     assert overrides["spec"]["tolerations"] == check_rag.PREFLIGHT_TOLERATIONS
-    assert "affinity" not in overrides["spec"]
+    assert overrides["spec"]["affinity"] == config.affinity
+    assert overrides["spec"]["affinity"]["nodeAffinity"][
+        "requiredDuringSchedulingIgnoredDuringExecution"
+    ]["nodeSelectorTerms"][0]["matchExpressions"][0] == {
+        "key": "kubernetes.io/arch",
+        "operator": "In",
+        "values": ["amd64"],
+    }
     code = command[command.index("-c") + 1]
     assert '("EMBEDDING_BASE_URL", "RERANKER_BASE_URL")' in code
 

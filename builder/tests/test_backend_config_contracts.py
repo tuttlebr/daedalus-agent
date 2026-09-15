@@ -544,6 +544,18 @@ def test_frontend_deployment_uses_canonical_service_urls():
     assert LEGACY_CLUSTER_LOCAL_PORT not in template_text
 
 
+def test_home_deployment_matches_published_application_image_architecture():
+    defaults = yaml.safe_load(HELM_VALUES.read_text(encoding="utf-8"))
+    custom = yaml.safe_load(CUSTOM_VALUES.read_text(encoding="utf-8"))
+    helpers = (HELM_VALUES.parent / "templates" / "_helpers.tpl").read_text(
+        encoding="utf-8"
+    )
+
+    assert defaults["global"]["nodePlacement"]["allowedArchitectures"] == []
+    assert custom["global"]["nodePlacement"]["allowedArchitectures"] == ["amd64"]
+    assert ".Values.global.nodePlacement.allowedArchitectures" in helpers
+
+
 def test_compose_frontend_forces_local_service_discovery():
     compose = yaml.safe_load(DOCKER_COMPOSE.read_text(encoding="utf-8"))
     environment = compose["services"]["frontend"]["environment"]

@@ -25,7 +25,8 @@ app.kubernetes.io/managed-by: Helm
 
 {{- define "daedalus.nodePlacement" -}}
 {{- $allowedNodes := .Values.global.nodePlacement.allowedNodes -}}
-{{- $allowedArchitectures := .allowedArchitectures | default (list) -}}
+{{- $globalAllowedArchitectures := .Values.global.nodePlacement.allowedArchitectures | default (list) -}}
+{{- $allowedArchitectures := .allowedArchitectures | default $globalAllowedArchitectures -}}
 {{- if or $allowedNodes $allowedArchitectures }}
 affinity:
   nodeAffinity:

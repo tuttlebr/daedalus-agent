@@ -22,6 +22,13 @@ My home deployment uses Kubernetes for the full Daedalus layout: backend,
 frontend, nginx public edge, PVC-backed storage, the autonomous worker, and
 optional Cilium policies. The unused Kubernetes ingress is disabled.
 
+The current repository application images are published for `linux/amd64`.
+`custom-values.yaml` therefore sets
+`global.nodePlacement.allowedArchitectures: [amd64]`, preventing Kubernetes from
+scheduling backend, frontend, or worker pods on an incompatible ARM64 node.
+The RAG preflight inherits the rendered backend affinity so it tests the same
+eligible node pool as the deployed workload.
+
 ### Canonical Path: `make deploy`
 
 The Make target invokes the repository deployment implementation with the

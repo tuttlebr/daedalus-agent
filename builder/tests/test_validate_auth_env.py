@@ -38,6 +38,32 @@ def test_accepts_contiguous_numbered_users():
     assert count == 2
 
 
+def test_accepts_single_quoted_hash_source(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "AUTH_USER_1_PASSWORD_HASH='$2b$12$" + "a" * 53 + "'\n",
+        encoding="utf-8",
+    )
+
+    assert validate_auth_env.find_unquoted_password_hashes(env_path) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "AUTH_PASSWORD_HASH=$2b$12$" + "a" * 53,
+        'AUTH_USER_1_PASSWORD_HASH="$2b$12$' + "a" * 53 + '"',
+    ],
+)
+def test_reports_hash_source_that_compose_would_interpolate(tmp_path, source):
+    env_path = tmp_path / ".env"
+    env_path.write_text(source + "\n", encoding="utf-8")
+
+    assert validate_auth_env.find_unquoted_password_hashes(env_path) == [
+        source.split("=", 1)[0]
+    ]
+
+
 @pytest.mark.parametrize(
     ("entries", "message"),
     [

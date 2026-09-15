@@ -15,6 +15,9 @@ global:
         'daedalus-04',
         'daedalus-06',
       ]
+    # Repository application images are currently published for linux/amd64.
+    # Keep them off the ARM64 worker until release builds publish both platforms.
+    allowedArchitectures: [amd64]
 
 images:
   # make deploy resolves these application tags to immutable registry digests

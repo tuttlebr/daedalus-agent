@@ -13,6 +13,8 @@ import sys
 import uuid
 from dataclasses import dataclass
 
+import yaml
+
 PREFLIGHT_TOLERATIONS = [
     {
         "key": "nvidia.com/gpu",
@@ -42,6 +44,7 @@ class RagConfig:
     token: SecretReference | None
     env_from_secret: str | None
     labels: dict[str, str]
+    affinity: dict[str, object] | None
 
 
 def _scalar(raw: str) -> str:
@@ -162,6 +165,12 @@ def config_from_manifest(manifest: str) -> RagConfig | None:
         if not match:
             raise CheckError(f"backend deployment is missing label {label}")
         labels[label] = _scalar(match.group(1))
+    resource = yaml.safe_load(document)
+    affinity = (
+        resource.get("spec", {}).get("template", {}).get("spec", {}).get("affinity")
+    )
+    if affinity is not None and not isinstance(affinity, dict):
+        raise CheckError("backend deployment has an invalid affinity configuration")
     return RagConfig(
         uri=_value(blocks["MILVUS_URI"], "MILVUS_URI"),
         database=_value(blocks["MILVUS_DATABASE"], "MILVUS_DATABASE"),
@@ -170,6 +179,7 @@ def config_from_manifest(manifest: str) -> RagConfig | None:
         token=token,
         env_from_secret=_env_from_secret(document),
         labels=labels,
+        affinity=affinity,
     )
 
 
@@ -268,6 +278,8 @@ for dependency in ("EMBEDDING_BASE_URL", "RERANKER_BASE_URL"):
             "tolerations": PREFLIGHT_TOLERATIONS,
         },
     }
+    if config.affinity:
+        overrides["spec"]["affinity"] = config.affinity
     return [
         "kubectl",
         "-n",
