@@ -23,7 +23,7 @@ from image_vex import matching_statement, verify_native_evidence
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def output(*command):
+def output(*command, env=None):
     executable = shutil.which(command[0])
     if executable is None:
         raise FileNotFoundError(f"Required executable not found: {command[0]}")
@@ -32,10 +32,35 @@ def output(*command):
     return subprocess.check_output(  # nosec B603
         (str(Path(executable).resolve()), *command[1:]),
         cwd=ROOT,
+        env=env,
         text=True,
         timeout=60,
         shell=False,
     )
+
+
+def render_compose(source):
+    """Render Compose without requiring or reading the operator's .env file."""
+    with tempfile.TemporaryDirectory(prefix="daedalus-inventory-") as temp:
+        env_file = Path(temp) / ".env"
+        env_file.write_text("", encoding="utf-8")
+        env = os.environ.copy()
+        env["DAEDALUS_COMPOSE_ENV_FILE"] = str(env_file)
+        return json.loads(
+            output(
+                "docker",
+                "compose",
+                "--env-file",
+                ".env.template",
+                "-f",
+                source,
+                "config",
+                "--no-env-resolution",
+                "--format",
+                "json",
+                env=env,
+            )
+        )
 
 
 def check_refs(mode, actual, declared):
@@ -71,20 +96,7 @@ def validate(inventory):
         ("compose", "docker-compose.yaml"),
         ("e2e", "frontend/e2e/docker-compose.yml"),
     ):
-        config = json.loads(
-            output(
-                "docker",
-                "compose",
-                "--env-file",
-                ".env.template",
-                "-f",
-                source,
-                "config",
-                "--no-env-resolution",
-                "--format",
-                "json",
-            )
-        )
+        config = render_compose(source)
         services = config["services"]
         built_refs = {value["image"] for value in services.values() if "build" in value}
         if mode == "compose":

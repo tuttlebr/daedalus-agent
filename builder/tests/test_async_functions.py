@@ -707,9 +707,9 @@ class TestRssFeedInnerFunctions:
                         result = await search_fn("AI news")
 
             payload = mock_client.post.call_args.kwargs["json"]
-            return result, payload
+            return result, payload, rss_mod._count_tokens(payload["documents"][0])
 
-        result, reranker_payload = run(_run())
+        result, reranker_payload, passage_tokens = run(_run())
         tool_payload = json.loads(result)
 
         assert tool_payload["content"] == "# Relevant"
@@ -718,5 +718,5 @@ class TestRssFeedInnerFunctions:
         assert reranker_payload["top_n"] == 1
         assert len(reranker_payload["documents"]) == 2
         assert "<p>" not in reranker_payload["documents"][0]
-        assert len(reranker_payload["documents"][0]) <= 32 * 4
+        assert passage_tokens <= 32
         assert "passages" not in reranker_payload

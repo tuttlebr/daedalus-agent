@@ -56,7 +56,7 @@ const BUILD_PRECACHE = [
   '/_next/static/chunks/framework-b9fd9bcc3ecde907.js',
   '/_next/static/chunks/main-5f8fac673b6d5748.js',
   '/_next/static/css/c6876593da058672.css',
-  '/_next/static/chunks/pages/_app-10697d4b6f77f231.js',
+  '/_next/static/chunks/pages/_app-e2750e09b378db60.js',
   '/_next/static/chunks/2bd9703c-1a649cebe01df6da.js',
   '/_next/static/chunks/8942-c90b4cc746758b74.js',
   '/_next/static/chunks/pages/index-16c17f64fc07f045.js',

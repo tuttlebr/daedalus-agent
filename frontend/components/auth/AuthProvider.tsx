@@ -85,9 +85,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       queryClient.setQueryData(queryKeys.auth.me, data.user as AuthMeUser);
       setStorageUser(data.user.username);
       migrateLegacyStorage(data.user.username);
-      router.push('/');
+      // Cross the authentication boundary with a fresh document. Safari can
+      // deadlock a Next.js client transition here while the initial service
+      // worker is installing, after the login request has already succeeded.
+      // Replacement also keeps the stale login page out of browser history.
+      window.location.replace('/');
     },
-    [queryClient, router],
+    [queryClient],
   );
 
   const logout = useCallback(async () => {

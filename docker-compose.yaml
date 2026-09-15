@@ -24,7 +24,7 @@ services:
         skills: ./skills
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:backend-${DAEDALUS_VERSION:-0.1.0}
     env_file:
-      - .env
+      - ${DAEDALUS_COMPOSE_ENV_FILE:-.env}
     environment:
       - NAT_LOG_LEVEL=INFO
       - LOG_LEVEL=INFO
@@ -116,7 +116,7 @@ services:
         NEXT_PUBLIC_UPLOAD_MAX_EXTRACTED_TEXT_CHARS: ${NEXT_PUBLIC_UPLOAD_MAX_EXTRACTED_TEXT_CHARS:-128000}
         NEXT_PUBLIC_UPLOAD_LARGE_DOCUMENT_THRESHOLD_KB: ${NEXT_PUBLIC_UPLOAD_LARGE_DOCUMENT_THRESHOLD_KB:-640}
     env_file:
-      - .env
+      - ${DAEDALUS_COMPOSE_ENV_FILE:-.env}
     environment:
       # env_file may come from a Kubernetes deployment; Compose must always use
       # Docker service discovery instead of constructing cluster-local names.
@@ -162,7 +162,7 @@ services:
     # without VAPID keys and without the NAT retry/abort tuning, which is
     # exactly the code path least likely to be exercised before production.
     env_file:
-      - .env
+      - ${DAEDALUS_COMPOSE_ENV_FILE:-.env}
     environment:
       - DEPLOYMENT_MODE=local
       - BACKEND_HOST=${BACKEND_HOST:-backend}

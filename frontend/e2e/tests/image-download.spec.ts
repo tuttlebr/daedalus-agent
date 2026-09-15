@@ -12,11 +12,14 @@ test('Create saves original images while keeping its page and selection', async 
   page,
   context,
 }) => {
-  await page.goto('/login');
-  await page.getByLabel('Username').fill('e2e-user');
-  await page.getByLabel('Password').fill('e2e-password');
-  await page.getByRole('button', { name: 'Sign In' }).click();
-  await expect(page).toHaveURL('/');
+  // This test blocks service workers so page routes can observe the download
+  // boundary. Authenticate through the real HTTPS API and shared cookie jar;
+  // the dedicated layout test covers the interactive login transition.
+  const login = await context.request.post('/api/auth/login', {
+    data: { username: 'e2e-user', password: 'e2e-password' },
+  });
+  expect(login.status()).toBe(200);
+  await page.goto('/');
   await assertAuthenticatedSession(page);
   const imageId = randomUUID();
   const filename = `daedalus-${imageId}.png`;

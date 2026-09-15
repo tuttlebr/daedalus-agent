@@ -114,7 +114,9 @@ test('deletes a history-only conversation through the real API and keeps it dele
 }) => {
   await login(page);
   const target = {
-    id: `e2e-delete-history-${Date.now()}`,
+    // Fixed IDs make a retry replace an interrupted attempt's fixtures instead
+    // of merging duplicate rows into the durable per-user history.
+    id: 'e2e-delete-history-target',
     name: 'History-only deletion regression',
     messages: [],
     folderId: null,
@@ -122,7 +124,7 @@ test('deletes a history-only conversation through the real API and keeps it dele
   };
   const survivor = {
     ...target,
-    id: `${target.id}-keep`,
+    id: 'e2e-delete-history-survivor',
     name: 'Keep this conversation',
   };
   const saved = await page.evaluate(
@@ -153,6 +155,17 @@ test('deletes a history-only conversation through the real API and keeps it dele
     await page
       .getByRole('button', { name: 'Toggle sidebar', exact: true })
       .click();
+    await page
+      .getByRole('button', { name: 'Close sidebar', exact: true })
+      .evaluate(async (button) => {
+        const sidebar = button.closest('[aria-hidden="false"]');
+        if (!sidebar) throw new Error('Open desktop sidebar was not found');
+        // The row actions wrap while the sidebar animates from zero width. Wait
+        // for that actual transition so the delete control cannot move mid-click.
+        await Promise.allSettled(
+          sidebar.getAnimations().map((animation) => animation.finished),
+        );
+      });
     const targetButton = page.getByRole('button', {
       name: target.name,
       exact: true,
@@ -167,15 +180,15 @@ test('deletes a history-only conversation through the real API and keeps it dele
     await row
       .getByRole('button', { name: 'Delete conversation', exact: true })
       .click();
-    const deletion = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'DELETE' &&
-        response.url().endsWith(`/api/conversations/${target.id}`),
-    );
-    await page
-      .getByRole('button', { name: 'Confirm delete', exact: true })
-      .click();
-    expect((await deletion).status()).toBe(200);
+    const [deletion] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === 'DELETE' &&
+          response.url().endsWith(`/api/conversations/${target.id}`),
+      ),
+      page.getByRole('button', { name: 'Confirm delete', exact: true }).click(),
+    ]);
+    expect(deletion.status()).toBe(200);
     await expect(targetButton).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: survivor.name, exact: true }),

@@ -107,6 +107,37 @@ def test_render_command_resolves_executable_and_preserves_literal_arguments(
     assert seen == [("/fixture/bin/docker", "literal;$(not-a-command)")]
 
 
+def test_compose_render_uses_a_disposable_env_file(monkeypatch):
+    seen_env_file = None
+
+    def output(*command, env=None):
+        nonlocal seen_env_file
+        assert command[:2] == ("docker", "compose")
+        seen_env_file = Path(env["DAEDALUS_COMPOSE_ENV_FILE"])
+        assert seen_env_file.is_file()
+        assert seen_env_file.read_text() == ""
+        assert seen_env_file != ROOT / ".env"
+        return '{"services": {}}'
+
+    monkeypatch.setattr(inventory_module, "output", output)
+    assert inventory_module.render_compose("docker-compose.yaml") == {"services": {}}
+    assert seen_env_file is not None
+    assert not seen_env_file.exists()
+
+
+def test_compose_services_allow_the_inventory_env_override():
+    compose = yaml.safe_load((ROOT / "docker-compose.yaml").read_text())
+    services_with_env_files = {
+        name: service["env_file"]
+        for name, service in compose["services"].items()
+        if "env_file" in service
+    }
+    assert services_with_env_files
+    assert set(map(tuple, services_with_env_files.values())) == {
+        ("${DAEDALUS_COMPOSE_ENV_FILE:-.env}",)
+    }
+
+
 def test_missing_render_or_scanner_executable_fails_closed(monkeypatch):
     monkeypatch.setattr(inventory_module.shutil, "which", lambda _: None)
     with pytest.raises(FileNotFoundError, match="Required executable not found"):
