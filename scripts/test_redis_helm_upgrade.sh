@@ -38,6 +38,7 @@ STREAM_JOB_ID="stream-job-1"
 STREAM_PAYLOAD_KEY="async-stream-payload:$STREAM_JOB_ID"
 STREAM_LEASE_KEY="async-stream-lease:$STREAM_JOB_ID"
 STREAM_STARTED_KEY="async-stream-backend-started:$STREAM_JOB_ID"
+STREAMING_STATE_KEY="streaming:user:fixture-user:conversation:fixture-conversation"
 STREAM_ENTRY_ID=""
 AUTONOMY_CLAIM_KEY=""
 TLS_WORK_DIR=""
@@ -336,6 +337,10 @@ assert_workload_acls() {
   assert_acl_value daedalus-stream-worker "$stream_password" \
     '{"messagesForNat":[{"role":"user","content":"fixture"}],"verifiedUsername":"fixture-user"}' \
     JSON.GET "$STREAM_PAYLOAD_KEY"
+  redis_cli "$application_password" JSON.SET "$STREAMING_STATE_KEY" '$' \
+    '{"conversationId":"fixture-conversation"}' >/dev/null
+  assert_acl_value daedalus-stream-worker "$stream_password" 1 \
+    DEL "$STREAMING_STATE_KEY"
   assert_acl_denied daedalus-stream-worker "$stream_password" GET auth-session:fixture
 
   assert_acl_value daedalus-autonomous "$autonomous_password" 1 \
