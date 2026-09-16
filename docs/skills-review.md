@@ -1,5 +1,33 @@
 # Skill review records
 
+## 2026-09-16: fantasy-football-recap Fowling Dispatch design pattern
+
+Made the supplied Fowling Dispatch visual system the standard for every recap,
+live edition, preview, season review and matching PDF. The skill now loads a
+focused design reference and a standalone HTML template with the white,
+charcoal, burgundy and gray palette; Georgia-led typography; centered masthead
+and lead; ruled sections; story/sidebar columns; score tables and bars; matchup
+recaps; awards; watch box; and sources footer. League identity and verified
+reporting populate the template instead of reusing the reference edition's facts.
+Existing reporting gates and the required ESPN companion remain intact.
+
+The template includes semantic table headers, focusable table scrolling on narrow
+screens, wrapping for long names, and print rules for repeated headers and short
+components. Chart widths are generated from each edition's checked scores,
+including zero-width bars for zero; unsupported score scales need another chart
+or no chart.
+
+Validation: 103 focused recap, catalog, parser, dispatcher and tool-alignment
+tests passed, including resource loading across all 19 skills. Skill frontmatter,
+local links and pre-commit checks passed. A temporary synthetic nine-team edition
+was rendered in Chromium at 1280px, 390px and 320px and exported to a six-page
+Letter PDF. Layout checks covered white backgrounds, burgundy accents, responsive
+type, page overflow, score-bar proportions, print table visibility and headers,
+and absence of external requests. Desktop/mobile screenshots and rendered PDF
+pages were visually inspected; PDF text bounds remained inside the pages. This
+checks the template, not a live league edition or model adherence. No deployment
+was performed.
+
 ## 2026-09-16: fantasy-football-recap presentation and required companion
 
 Required a pure white (`#FFFFFF`) page and newspaper canvas across desktop,

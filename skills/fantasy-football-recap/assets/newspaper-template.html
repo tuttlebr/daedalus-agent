@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{PUBLICATION_NAME}} — {{EDITION_LABEL}}</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1a1a1a;
+        --rule: #c9c9c9;
+        --accent: #8b1a1a;
+        --muted: #5a5a5a;
+        --deck: #333333;
+        --bye: #b9b9b9;
+        --bye-row: #fafafa;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body,
+      .newspaper {
+        background: #ffffff;
+      }
+
+      body {
+        font-family: Georgia, 'Times New Roman', Times, serif;
+        color: var(--ink);
+        line-height: 1.55;
+        font-size: 17px;
+        overflow-wrap: anywhere;
+      }
+
+      .newspaper {
+        max-width: 1060px;
+        margin: 0 auto;
+        padding: 28px 24px 40px;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      a:hover,
+      a:focus-visible {
+        text-decoration: underline;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+
+      .masthead {
+        text-align: center;
+        border-bottom: 3px double var(--ink);
+        padding-bottom: 10px;
+      }
+
+      .masthead h1 {
+        font-size: 54px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        line-height: 1.05;
+      }
+
+      .masthead .tagline {
+        font-style: italic;
+        color: var(--muted);
+        font-size: 14px;
+        margin-top: 4px;
+      }
+
+      .issue-line {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 2px 16px;
+        font-size: 12.5px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-bottom: 1px solid var(--rule);
+        padding: 8px 0;
+        margin-bottom: 22px;
+        color: var(--muted);
+      }
+
+      .issue-line b {
+        color: var(--ink);
+      }
+
+      h2,
+      h3,
+      h4 {
+        font-weight: 700;
+        line-height: 1.2;
+      }
+
+      .lead-hed {
+        font-size: 40px;
+        text-align: center;
+        margin: 6px 0 8px;
+      }
+
+      .deck {
+        font-size: 19px;
+        font-style: italic;
+        text-align: center;
+        color: var(--deck);
+        max-width: 760px;
+        margin: 0 auto 18px;
+      }
+
+      .byline {
+        text-align: center;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--muted);
+        margin-bottom: 20px;
+      }
+
+      .section-hed {
+        font-size: 26px;
+        border-top: 2px solid var(--ink);
+        border-bottom: 1px solid var(--rule);
+        padding: 8px 0 6px;
+        margin: 34px 0 14px;
+        letter-spacing: 0.5px;
+      }
+
+      .story h3 {
+        font-size: 20px;
+        margin-bottom: 6px;
+      }
+
+      .story h3.sub-head {
+        margin-top: 14px;
+      }
+
+      .story p,
+      .sidebar p {
+        margin-bottom: 10px;
+      }
+
+      .kicker {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        color: var(--accent);
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+
+      .kicker-center {
+        text-align: center;
+      }
+
+      .cols {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        gap: 28px;
+      }
+
+      .cols > *,
+      .awards > * {
+        min-width: 0;
+      }
+
+      .sidebar {
+        border-left: 1px solid var(--rule);
+        padding-left: 22px;
+        font-size: 15px;
+      }
+
+      .sidebar h3 {
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        border-bottom: 1px solid var(--rule);
+        padding-bottom: 5px;
+        margin-bottom: 10px;
+      }
+
+      .sidebar h3.sidebar-gap {
+        margin-top: 16px;
+      }
+
+      .sidebar .stat {
+        margin-bottom: 12px;
+      }
+
+      .sidebar .stat b {
+        font-size: 24px;
+        display: block;
+        line-height: 1.1;
+      }
+
+      .sidebar .stat span {
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        min-width: 440px;
+        border-collapse: collapse;
+        font-size: 15.5px;
+        margin: 10px 0 6px;
+      }
+
+      thead th {
+        border-top: 2px solid var(--ink);
+        border-bottom: 1px solid var(--ink);
+        text-transform: uppercase;
+        font-size: 11.5px;
+        letter-spacing: 1px;
+        padding: 6px 8px;
+        text-align: left;
+      }
+
+      tbody td,
+      tbody th {
+        border-bottom: 1px solid var(--rule);
+        padding: 7px 8px;
+        vertical-align: top;
+      }
+
+      tbody th {
+        font-weight: 400;
+        text-align: left;
+      }
+
+      .num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .win {
+        font-weight: 700;
+      }
+
+      .status {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--muted);
+        overflow-wrap: normal;
+      }
+
+      .bye-row td,
+      .bye-row th {
+        color: var(--muted);
+        background: var(--bye-row);
+      }
+
+      .table-note {
+        font-size: 12.5px;
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      .chart {
+        margin: 14px 0 4px;
+      }
+
+      .chart .row {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr) 62px;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 5px;
+        font-size: 13.5px;
+      }
+
+      .chart .bar {
+        background: var(--accent);
+        height: 15px;
+        width: var(--bar-width, 0%);
+      }
+
+      .chart .row.bye .bar {
+        background: var(--bye);
+      }
+
+      .chart .row span:last-child {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .chart-caption {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+
+      .matchup {
+        border-left: 3px solid var(--accent);
+        padding-left: 14px;
+        margin-bottom: 14px;
+      }
+
+      .matchup.bye-matchup {
+        border-left-color: var(--bye);
+      }
+
+      .matchup h4 {
+        font-size: 17px;
+        margin-bottom: 3px;
+      }
+
+      .score-line {
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .matchup p {
+        font-size: 15.5px;
+      }
+
+      .game-by-game {
+        margin: 18px 0 10px;
+        font-size: 20px;
+      }
+
+      .awards {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+      }
+
+      .award {
+        border-top: 2px solid var(--ink);
+        padding-top: 8px;
+      }
+
+      .award h3 {
+        font-size: 17px;
+        margin-bottom: 4px;
+      }
+
+      .award p {
+        font-size: 15px;
+      }
+
+      .watch-box {
+        border: 2px solid var(--ink);
+        padding: 16px 18px;
+        margin-top: 14px;
+        background: #ffffff;
+      }
+
+      .watch-box h3 {
+        font-size: 17px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-bottom: 8px;
+      }
+
+      .watch-box ol {
+        margin-left: 20px;
+        font-size: 15.5px;
+      }
+
+      .watch-box li {
+        margin-bottom: 7px;
+      }
+
+      .sources {
+        border-top: 2px solid var(--ink);
+        margin-top: 36px;
+        padding-top: 12px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+
+      .sources p {
+        margin-bottom: 6px;
+      }
+
+      .dateline-note {
+        font-size: 12.5px;
+        color: var(--muted);
+        font-style: italic;
+        margin: 4px 0 14px;
+      }
+
+      .caveat {
+        font-size: 12px;
+        color: var(--muted);
+        border-left: 2px solid var(--rule);
+        padding-left: 10px;
+        margin: 8px 0 12px;
+      }
+
+      @media screen and (max-width: 760px) {
+        .newspaper {
+          padding: 18px 14px 30px;
+        }
+
+        .masthead h1 {
+          font-size: 36px;
+        }
+
+        .lead-hed {
+          font-size: 28px;
+        }
+
+        .cols,
+        .awards {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .sidebar {
+          border-left: none;
+          padding-left: 0;
+          border-top: 1px solid var(--rule);
+          padding-top: 14px;
+        }
+
+        .chart .row {
+          grid-template-columns: 110px minmax(0, 1fr) 56px;
+        }
+
+        .issue-line {
+          flex-direction: column;
+          text-align: center;
+        }
+      }
+
+      @media print {
+        html,
+        body,
+        .newspaper {
+          background: #ffffff;
+        }
+
+        .newspaper {
+          max-width: none;
+          padding: 0;
+        }
+
+        .table-wrap {
+          overflow: visible;
+        }
+
+        table {
+          min-width: 0;
+        }
+
+        .masthead h1 {
+          font-size: 40px;
+        }
+
+        .lead-hed {
+          font-size: 32px;
+        }
+
+        thead {
+          display: table-header-group;
+        }
+
+        tr,
+        .matchup,
+        .award,
+        .watch-box,
+        .chart .row,
+        .sidebar .stat {
+          break-inside: avoid;
+        }
+
+        p {
+          orphans: 3;
+          widows: 3;
+        }
+
+        a {
+          color: #000000;
+          text-decoration: underline;
+        }
+
+        .section-hed,
+        .game-by-game,
+        .story h3,
+        .sidebar h3,
+        .award h3,
+        .matchup h4,
+        .watch-box h3 {
+          break-after: avoid;
+        }
+
+        .chart .bar,
+        .bye-row {
+          print-color-adjust: exact;
+          -webkit-print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="newspaper">
+      <header class="masthead">
+        <h1>{{PUBLICATION_NAME}}</h1>
+        <div class="tagline">{{TAGLINE}}</div>
+      </header>
+      <div class="issue-line">
+        <span><b>{{EDITION_LABEL}}</b></span>
+        <span>{{PUBLICATION_DATE}}</span>
+        <span>{{CONFIRMED_CONTEXT}}</span>
+      </div>
+
+      <main>
+        <div class="kicker kicker-center">{{LEAD_KICKER}}</div>
+        <h2 class="lead-hed">{{LEAD_HEADLINE}}</h2>
+        <p class="deck">{{LEAD_DECK}}</p>
+        <div class="byline">{{STAFF_BYLINE}}</div>
+
+        <div class="cols">
+          <article class="story">
+            <p>{{LEAD_PARAGRAPH}}</p>
+          </article>
+          <aside class="sidebar" aria-label="By the Numbers">
+            <h3>By the Numbers</h3>
+            <div class="stat">
+              <b>{{STAT_VALUE}}</b><span>{{STAT_CONTEXT}}</span>
+            </div>
+            <h3 class="sidebar-gap">Scoring Note</h3>
+            <p>{{SCORING_NOTE}}</p>
+          </aside>
+        </div>
+        <p class="dateline-note">{{DATA_AS_OF}}</p>
+
+        <section aria-labelledby="scoreboard-heading">
+          <h2 class="section-hed" id="scoreboard-heading">
+            {{SCOREBOARD_HEADING}}
+          </h2>
+          <div
+            class="table-wrap"
+            role="region"
+            aria-labelledby="scoreboard-heading"
+            tabindex="0"
+          >
+            <table aria-labelledby="scoreboard-heading">
+              <thead>
+                <tr>
+                  <th scope="col">Matchup</th>
+                  <th scope="col" class="num">Score</th>
+                  <th scope="col" class="num">{{MARGIN_OR_LEAD_HEADING}}</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">{{TEAM_A}}</th>
+                  <td class="num">{{SCORE_A}}</td>
+                  <td class="num">{{MARGIN_OR_LEAD}}</td>
+                  <td class="status">{{MATCHUP_STATUS}}</td>
+                </tr>
+                <tr>
+                  <th scope="row">{{TEAM_B}}</th>
+                  <td class="num">{{SCORE_B}}</td>
+                  <td></td>
+                  <td class="status">{{MATCHUP_STATUS}}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="table-note">{{SCOREBOARD_NOTE}}</p>
+
+          <figure class="chart" aria-labelledby="chart-caption">
+            <div class="row">
+              <span>{{CHART_TEAM}}</span>
+              <div
+                class="bar"
+                style="--bar-width: {{BAR_PERCENT}}%"
+                aria-hidden="true"
+              ></div>
+              <span>{{CHART_SCORE}}</span>
+            </div>
+            <figcaption class="chart-caption" id="chart-caption">
+              {{CHART_CAPTION}}
+            </figcaption>
+          </figure>
+
+          <h3 class="game-by-game">Game by Game</h3>
+          <article class="matchup">
+            <h4>{{MATCHUP_HEADLINE}}</h4>
+            <div class="score-line">{{SCORE_STATUS_LINE}}</div>
+            <p>{{MATCHUP_RECAP}}</p>
+          </article>
+        </section>
+
+        <section aria-labelledby="standings-heading">
+          <h2 class="section-hed" id="standings-heading">Standings Desk</h2>
+          <div
+            class="table-wrap"
+            role="region"
+            aria-labelledby="standings-heading"
+            tabindex="0"
+          >
+            <table aria-labelledby="standings-heading">
+              <thead>
+                <tr>
+                  <th scope="col" class="num">{{RANK_OR_SEED_HEADING}}</th>
+                  <th scope="col">Team</th>
+                  <th scope="col" class="num">Record</th>
+                  <th scope="col" class="num">Points For</th>
+                  <th scope="col" class="num">Points Against</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="num">{{PUBLISHED_RANK_OR_SEED}}</td>
+                  <th scope="row">{{STANDINGS_TEAM}}</th>
+                  <td class="num">{{RECORD}}</td>
+                  <td class="num">{{POINTS_FOR}}</td>
+                  <td class="num">{{POINTS_AGAINST}}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="table-note">{{STANDINGS_CUTOFF_AND_CONTEXT}}</p>
+        </section>
+
+        <section aria-labelledby="nfl-heading">
+          <h2 class="section-hed" id="nfl-heading">Around the NFL</h2>
+          <div class="cols">
+            <div class="story">
+              <h3>{{NFL_HEADLINE}}</h3>
+              <p>
+                {{NFL_REPORTING}}
+                <a href="{{NFL_SOURCE_URL}}">{{NFL_SOURCE_LABEL}}</a>
+              </p>
+            </div>
+            <div class="story">
+              <h3>{{SECOND_NFL_HEADLINE}}</h3>
+              <p>
+                {{SECOND_NFL_REPORTING}}
+                <a href="{{SECOND_NFL_SOURCE_URL}}"
+                  >{{SECOND_NFL_SOURCE_LABEL}}</a
+                >
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="roster-heading">
+          <h2 class="section-hed" id="roster-heading">Roster Desk</h2>
+          <div class="cols">
+            <div class="story">
+              <h3>The Injury Ledger</h3>
+              <p>
+                {{INJURY_REPORTING}}
+                <a href="{{INJURY_SOURCE_URL}}">{{INJURY_SOURCE_LABEL}}</a>
+              </p>
+            </div>
+            <aside class="sidebar" aria-label="Waiver Watch">
+              <h3>Waiver Watch</h3>
+              <p>{{VERIFIED_WAIVER_REPORTING}}</p>
+            </aside>
+          </div>
+        </section>
+
+        <section aria-labelledby="honors-heading">
+          <h2 class="section-hed" id="honors-heading">{{BACK_PAGE_HEADING}}</h2>
+          <div class="awards">
+            <article class="award">
+              <h3>{{AWARD_TITLE}}</h3>
+              <p>{{AWARD_REPORTING}}</p>
+            </article>
+          </div>
+          <p class="caveat">{{RELEVANT_AWARD_CAVEAT}}</p>
+        </section>
+
+        <section aria-labelledby="preview-heading">
+          <h2 class="section-hed" id="preview-heading">Next Week’s Marquee</h2>
+          <div class="story">
+            <h3>{{PREVIEW_HEADLINE}}</h3>
+            <p>{{PREVIEW_REPORTING}}</p>
+          </div>
+          <aside class="watch-box" aria-label="What to Watch">
+            <h3>What to Watch</h3>
+            <ol>
+              <li><b>{{WATCH_ITEM}}</b> {{WATCH_CONTEXT}}</li>
+            </ol>
+          </aside>
+        </section>
+      </main>
+
+      <footer class="sources">
+        <p><b>Sources:</b> {{ESPN_SOURCE_CONTEXT_AND_RETRIEVAL_TIME}}</p>
+        <p>
+          Public NFL reporting:
+          <a href="{{PUBLIC_SOURCE_URL}}">{{PUBLIC_SOURCE_LABEL}}</a>
+        </p>
+        <p>{{EDITION_CUTOFF_NOTE}}</p>
+      </footer>
+    </div>
+  </body>
+</html>

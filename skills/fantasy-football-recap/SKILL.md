@@ -8,8 +8,8 @@ description: Create a verified weekly ESPN fantasy football newspaper with compl
 Act as editor, NFL reporter, fantasy analyst, and newspaper designer. The league
 is the main character; the NFL supplies the wider story. Produce an original,
 league-specific publication with authoritative reporting, sharp serif headlines,
-short paragraphs, concrete numbers, and dry humor. Draw on classic New York
-Times sports-section typography without copying its masthead or identity.
+short paragraphs, concrete numbers, and dry humor. Use the Fowling Dispatch
+design pattern below for every edition, with the selected league's own identity.
 
 Accuracy governs the story: establish a single evidence ledger, check it, then
 write from it. A confident sentence cannot resolve conflicting data.
@@ -185,23 +185,27 @@ website works.” Keep necessary data caveats beside the affected reporting.
 
 ## 5. Design, check, and deliver
 
-Create a complete standalone HTML document with an original league-specific
-masthead, issue metadata, pure white (`#FFFFFF`) background, near-black text, one
-restrained accent, bold serif headlines, readable body type, thin rules, and
-generous spacing.
-Explicitly set `html`, `body`, and the newspaper's main wrapper backgrounds to
-`#FFFFFF` and preserve that white canvas on desktop, mobile, and in print. Do not
-use warm white, cream, paper textures, or gradients for the page background.
-Keep creative freedom in the masthead, typography, accent color, and story layout.
+For every report, read [the design pattern](references/design-pattern.md) and
+load [the standalone newspaper template](assets/newspaper-template.html) through
+`agent_skills_tool` using their skill-relative resource paths. Copy the loaded
+HTML into the artifact workspace and populate it from the checked ledger; the
+template is text, not a renderer or evidence source.
+
+Follow the supplied Fowling Dispatch page's visual system: pure white (`#FFFFFF`)
+canvas, charcoal (`#1a1a1a`) ink, burgundy (`#8b1a1a`) accents, gray rules and muted
+text, Georgia-led serif type, a centered masthead and lead, ruled section headings,
+2:1 desktop columns, compact score tables, and restrained back-page modules.
+Keep this palette and component treatment across completed-week recaps, live
+editions, previews, season reviews, and matching PDFs unless the user explicitly
+requests a different design. Adapt identity, headlines, section selection and
+length to the league and available evidence, retaining the same visual family.
+
 Use embedded CSS and system fonts, with no external assets, fonts, scripts or
 tracking. Escape source text and allow only safe public source URLs in links.
-
-Build a dominant lead with supporting columns and compact sidebars. Use desktop
-grids and a single column on mobile. Give tables semantic headers, readable team
-names, and aligned tabular numerals. Charts must be original, directly derived
-from checked data, and add information. Include print CSS with repeated table
-headers, sensible breaks, visible overflow and no clipped content; do not mark
-an entire long section as unbreakable.
+Charts derive from checked data; generate their widths for this edition rather
+than copying sample proportions. Preserve the template's mobile stacking,
+semantic tables, tabular numerals, white canvas, and print rules. Keep long
+sections breakable and check that all table columns remain visible in print.
 
 Link important public claims next to the reporting to exact articles or official
 reports. Include a compact sources footer naming ESPN league data with its
@@ -216,7 +220,8 @@ prose, tables, awards, charts and previews. Check every numerical and directiona
 claim against the final ledger, including “beat,” “lost,” “ahead,” and record
 changes. Confirm all matchups are covered and headlines satisfy the story gates.
 Remove stale news, unsupported certainty, duplication, template placeholders, and
-website-explainer copy. Confirm the page and newspaper canvas remain `#FFFFFF`.
+website-explainer copy. Check the design pattern's release checklist, including
+the exact palette and `#FFFFFF` page and newspaper canvas.
 
 When tools allow, inspect the actual rendered HTML at desktop and mobile widths
 and inspect print layout. If PDF generation is available, export from the same
