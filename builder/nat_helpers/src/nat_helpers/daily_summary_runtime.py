@@ -15,8 +15,11 @@ DAILY_SUMMARY_SYNTHESIS_INSTRUCTION = (
 )
 
 
-def request_profile(user_text: str) -> str:
-    """Classify only the explicit daily-summary triggers used by its contract."""
+def request_profile(user_text: str, *, autonomous: bool = False) -> str:
+    """Classify interactive requests; background context is not a user command."""
+
+    if autonomous:
+        return "default"
 
     return DAILY_SUMMARY_PROFILE if _is_daily_briefing_query(user_text) else "default"
 

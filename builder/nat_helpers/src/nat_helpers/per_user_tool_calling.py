@@ -601,7 +601,10 @@ async def _responses_api_agent_workflow(
                 break
         run = current_agent_run()
         if run is not None:
-            run.request_profile = request_profile(latest_user_text)
+            run.request_profile = request_profile(
+                latest_user_text,
+                autonomous=is_authenticated_autonomy_request(),
+            )
             run.model_selection = (
                 ModelSelection()
                 if _uses_autonomy_model()

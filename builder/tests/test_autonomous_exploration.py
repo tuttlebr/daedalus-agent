@@ -8,7 +8,9 @@ from autonomous_agent.exploration import (
     scoped_completed_runs,
     stored_item_count,
 )
-from autonomous_agent.prompt import build_messages
+from autonomous_agent.prompt import build_messages, parse_structured_output
+from nat_helpers.daedalus_memory_tools import _expand_memory_search
+from nat_helpers.daily_summary_runtime import request_profile
 
 
 def _completed(run_id, *, goal_id=None, step=None, stored=1):
@@ -230,3 +232,94 @@ def test_prompt_separates_evergreen_discovery_from_time_sensitive_news_and_feed_
     assert "Return zero to four selective feed cards" in prompt
     assert "Never manufacture a card\nto fill a lane" in prompt
     assert "Feed bodies are plain text" in prompt
+
+
+def _displayed_output_contract(preferred_lane):
+    messages = build_messages(
+        user_id="test-user",
+        config={},
+        workspace={},
+        goals=[],
+        recent_runs=[],
+        request={"trigger": "scheduled"},
+        exploration={"preferred_lane": preferred_lane},
+    )
+    prompt = messages[-1]["content"]
+    example_section = prompt.split("fields outside this contract:\n", 1)[1].split(
+        "Runtime input:\n", 1
+    )[0]
+    # Validate the literal JSON shown to the model, excluding the following
+    # stop instruction. Reconstructing a fixture would miss invalid examples.
+    example, end = json.JSONDecoder().raw_decode(example_section)
+    return example, example_section[:end]
+
+
+@pytest.mark.parametrize("preferred_lane", ["known", "adjacent", "scout"])
+def test_displayed_output_example_satisfies_strict_parser_for_every_lane(
+    preferred_lane,
+):
+    example, literal_json = _displayed_output_contract(preferred_lane)
+
+    parsed = parse_structured_output(literal_json)
+
+    assert parsed == example
+    assert parsed["feed_items"][0]["lane"] == preferred_lane
+    assert parsed["feed_items"][0]["confidence"] == "medium"
+    assert parsed["feed_items"][0]["is_update"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("lane", "known | adjacent | scout"),
+        ("confidence", "high | medium | low"),
+        ("is_update", "false"),
+        ("is_update", "true only for a material change to an existing thread"),
+        ("source_url", None),
+    ],
+)
+def test_displayed_contract_does_not_require_loosening_output_validation(
+    field, invalid_value
+):
+    example, _literal_json = _displayed_output_contract("known")
+    example["feed_items"][0][field] = invalid_value
+
+    with pytest.raises(ValueError, match="invalid structured output"):
+        parse_structured_output(json.dumps(example))
+
+
+@pytest.mark.parametrize("selected_goal", [False, True])
+def test_autonomy_profile_recall_does_not_trigger_interactive_briefing(selected_goal):
+    request = {"trigger": "scheduled"}
+    goals = []
+    if selected_goal:
+        request["goalId"] = "release-monitoring"
+        goals = [
+            {
+                "id": "release-monitoring",
+                "title": "Monitor compiler releases",
+                "tags": ["cadence:1d", "toolchains"],
+            }
+        ]
+    messages = build_messages(
+        user_id="test-user",
+        config={},
+        workspace={},
+        goals=goals,
+        recent_runs=[],
+        request=request,
+    )
+    prompt = messages[-1]["content"]
+    runtime = json.loads(prompt.split("Runtime input:\n", 1)[1])
+    query = runtime["profile_memory_query"]
+
+    # Exercise the real memory expansion and interactive classifier. A briefing
+    # trigger in the profile query previously changed both retrieval and tools.
+    assert _expand_memory_search(query, 20) == (query, 20)
+    assert request_profile(query) == "default"
+    assert request_profile(prompt) == "default"
+    assert "personal profile priorities interests" in query
+    assert f"query={json.dumps(query)}, top_k=20" in prompt
+    if selected_goal:
+        assert "Monitor compiler releases" in query
+        assert "toolchains" in query

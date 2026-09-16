@@ -233,7 +233,7 @@ def _goal_digest(goal: dict[str, Any]) -> dict[str, Any]:
 
 def _profile_memory_query(selected_goal: dict[str, Any] | None) -> str:
     query = (
-        "daily summary personal profile priorities interests professional role "
+        "personal profile priorities interests professional role "
         "tracked projects local life sports hobbies preferences privacy boundaries "
         "and recent autonomous findings"
     )
@@ -336,14 +336,14 @@ def build_messages(
         "executive_summary": "concise implication for the user",
         "feed_items": [
             {
-                "lane": "known | adjacent | scout",
+                "lane": exploration["preferred_lane"],
                 "title": "short specific title",
                 "bluf": "one sentence takeaway",
                 "body": "concise explanation of why it matters",
                 "source_url": "primary source URL when available",
                 "thread_key": "required canonical event/topic key, independent of publisher",
-                "is_update": "true only for a material change to an existing thread",
-                "confidence": "high | medium | low",
+                "is_update": False,
+                "confidence": "medium",
                 "confidence_reason": "specific reason",
             }
         ],
@@ -513,7 +513,11 @@ even if it differs from the preferred research lane. Never manufacture a card
 to fill a lane, describe your research process as a finding, or split one story
 into several cards. Feed bodies are plain text; do not rely on Markdown rendering.
 Do not produce raw HTML. Do not return analysis, reasoning, a research plan, or
-other prose outside the output contract. Return JSON only, matching this shape:
+other prose outside the output contract. Return JSON only, matching this example's
+field types. Use lane known, adjacent, or scout; confidence high, medium, or low;
+and a JSON boolean for is_update. Use true for is_update only for a material change
+to an existing thread. Omit optional fields instead of using null. Never add
+fields outside this contract:
 {json.dumps(output_contract, indent=2)}
 
 Stop after one useful autonomous cycle or when credentials or missing context

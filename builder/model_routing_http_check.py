@@ -431,7 +431,7 @@ def run_suite(routed, upstream, directory, autonomy_upstream=None):
                         "fixture/deep"
                         if routed
                         and (
-                            daily
+                            (daily and not autonomy)
                             or (index > 0 and mode in {"promote", "parallel", "retry"})
                         )
                         else "fixture/default"
@@ -465,6 +465,12 @@ def run_suite(routed, upstream, directory, autonomy_upstream=None):
                     require(
                         payload.get("truncation") == "auto", "Lost transport option"
                     )
+                    if autonomy:
+                        require(
+                            {tool["name"] for tool in payload["tools"]}
+                            == {"skills", "clock"},
+                            "Autonomy inherited the interactive briefing tool restriction",
+                        )
                     if index == 1:
                         calls = [
                             item
@@ -494,8 +500,9 @@ def run_suite(routed, upstream, directory, autonomy_upstream=None):
                                 "input_image" in json.dumps(payload["input"]),
                                 "Lost image history",
                             )
-                    if (mode == "retry" and index == 2) or (
-                        mode == "budget" and index == 1
+                    if not autonomy and (
+                        (mode == "retry" and index == 2)
+                        or (mode == "budget" and index == 1)
                     ):
                         require(
                             [tool["name"] for tool in payload["tools"]] == ["clock"],
@@ -532,6 +539,10 @@ def run_suite(routed, upstream, directory, autonomy_upstream=None):
                         invoke(autonomy=True, streaming=streaming, profile="deep_max")
                     )
                     results.append(invoke(streaming=streaming, profile="deep"))
+                    results.append(
+                        invoke(autonomy=True, streaming=streaming, daily=True)
+                    )
+                results.append(invoke(autonomy=True, daily=True, mode="budget"))
                 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
                     futures = [
                         pool.submit(invoke, autonomy=scope, user="same-user")
@@ -549,6 +560,7 @@ def run_suite(routed, upstream, directory, autonomy_upstream=None):
             results.append(
                 invoke(autonomy=True)
             )  # Unconfigured autonomy uses existing routing.
+            results.append(invoke(autonomy=True, daily=True))
             for streaming in (False, True):
                 for profile in (
                     ["omitted", "default", "deep", "deep_max"]

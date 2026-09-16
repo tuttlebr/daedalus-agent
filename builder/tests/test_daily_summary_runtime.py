@@ -16,6 +16,24 @@ def test_only_explicit_daily_briefing_requests_select_the_narrow_profile():
     assert request_profile("Debug the summary endpoint") == "default"
 
 
+def test_autonomy_context_never_enables_interactive_briefing_policy(monkeypatch):
+    for text in (
+        "daily summary personal profile priorities interests",
+        "The previous run published a morning briefing.",
+        "Catch me up on today",
+    ):
+        profile = request_profile(text, autonomous=True)
+        assert profile == "default"
+        run = AgentRun(started_at=0.0, request_profile=profile)
+        run.tool_calls = 3
+        run.last_messages = [object()]
+        monkeypatch.setattr(
+            "nat_helpers.daily_summary_runtime.time.monotonic", lambda: 1000.0
+        )
+        assert not should_start_final_synthesis(run, budget_seconds=300.0)
+        assert not should_retry_final_synthesis(run, TimeoutError())
+
+
 def test_daily_summary_enters_final_synthesis_after_research_budget(monkeypatch):
     run = AgentRun(
         started_at=100.0,
