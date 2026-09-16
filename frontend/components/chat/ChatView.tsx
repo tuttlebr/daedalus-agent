@@ -1377,8 +1377,8 @@ ChatView.displayName = 'ChatView';
 
 const SUGGESTED_PROMPTS = [
   'Run my daily briefing.',
-  'Generate an image of a purple duck.',
-  'What will the weather be like today?',
+  "Run the last completed week's fantasy football recap for Fowling Friends.",
+  "Run the last completed week's fantasy football recap for Driveway Tailgaters.",
 ];
 
 const EmptyState = memo(
