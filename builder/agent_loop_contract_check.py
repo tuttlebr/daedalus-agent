@@ -39,6 +39,7 @@ class ContractLLM(BaseChatModel):
     finalizations: int = 0
     tool_name: str = "lookup"
     seen: list = Field(default_factory=list)
+    route_aliases: list = Field(default_factory=list)
 
     @property
     def _llm_type(self):
@@ -54,6 +55,7 @@ class ContractLLM(BaseChatModel):
     async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
         run_id = current_agent_run().run_id
         self.seen.append(run_id)
+        self.route_aliases.append(kwargs.get("model"))
         call = self.seen.count(run_id)
         _require(kwargs.get("tools"), "Recovery attempted a tools-free model call")
         if (
@@ -205,6 +207,8 @@ async def verify_agent_loop_contract():
                 llm = ContractLLM(mode=mode, tool_name=tool_name)
                 config = DaedalusPerUserResponsesAPIAgentWorkflowConfig(
                     llm_name="offline",
+                    model_routes={"deep": "offline-deep", "deep_max": "offline-max"},
+                    request_model_profiles={"daily_summary": "deep"},
                     nat_tools=[tool_name],
                     daily_summary_nat_tools=(
                         [tool_name] if mode == "daily_retry" else []
@@ -249,7 +253,15 @@ async def verify_agent_loop_contract():
                             },
                         ]
                     )
-                    for _ in range(2):
+                    for explicit in (False, True):
+                        request = request.model_copy(
+                            update={
+                                "additional_props": {"model_profile": "deep_max"}
+                                if explicit
+                                else {}
+                            }
+                        )
+                        before_models = len(llm.route_aliases)
                         before = len(executions)
                         if streaming:
                             chunks = []
@@ -272,6 +284,21 @@ async def verify_agent_loop_contract():
                             )
                         else:
                             text = await info.single_fn(request)
+                        expected_alias = (
+                            "offline-max"
+                            if explicit
+                            else "offline-deep"
+                            if mode == "daily_retry"
+                            else "offline-contract"
+                        )
+                        _require(
+                            set(llm.route_aliases[before_models:]) == {expected_alias},
+                            (mode, llm.route_aliases[before_models:]),
+                        )
+                        _require(
+                            llm.model_name == "offline-contract",
+                            "Routing changed the cached client",
+                        )
                         _require(
                             current_agent_run() is None, "Agent run context leaked"
                         )

@@ -1,0 +1,516 @@
+[
+  {
+    "id": "lookup-status",
+    "category": "routine",
+    "skill": null,
+    "prompt": "Return the status of alpha.",
+    "evidence": {
+      "inventory": {
+        "alpha": "ready",
+        "beta": "offline"
+      }
+    },
+    "expected": {
+      "status": "ready"
+    },
+    "image": false
+  },
+  {
+    "id": "lookup-version",
+    "category": "routine",
+    "skill": null,
+    "prompt": "Return the version with the latest release date.",
+    "evidence": {
+      "releases": [
+        {
+          "version": "2.1",
+          "date": "2026-09-01"
+        },
+        {
+          "version": "2.0",
+          "date": "2026-08-20"
+        }
+      ]
+    },
+    "expected": {
+      "version": "2.1"
+    },
+    "image": false
+  },
+  {
+    "id": "lookup-total",
+    "category": "routine",
+    "skill": null,
+    "prompt": "Return the total number of requests.",
+    "evidence": {
+      "counts": [17, 29, 4]
+    },
+    "expected": {
+      "total": 50
+    },
+    "image": false
+  },
+  {
+    "id": "lookup-time",
+    "category": "routine",
+    "skill": null,
+    "prompt": "Convert the appointment to UTC using the supplied offset.",
+    "evidence": {
+      "appointment": "2026-09-16T09:30:00-04:00"
+    },
+    "expected": {
+      "utc": "2026-09-16T13:30:00Z"
+    },
+    "image": false
+  },
+  {
+    "id": "briefing-priority",
+    "category": "daily_summary",
+    "skill": "daily-summary",
+    "prompt": "For my daily summary, return critical alerts sorted by name.",
+    "evidence": {
+      "alerts": [
+        {
+          "name": "disk",
+          "severity": "critical"
+        },
+        {
+          "name": "cpu",
+          "severity": "warning"
+        },
+        {
+          "name": "network",
+          "severity": "critical"
+        }
+      ]
+    },
+    "expected": {
+      "critical": ["disk", "network"]
+    },
+    "image": false
+  },
+  {
+    "id": "briefing-calendar",
+    "category": "daily_summary",
+    "skill": "daily-summary",
+    "prompt": "For my daily summary, return the next meeting strictly after now.",
+    "evidence": {
+      "calendar": {
+        "now": "2026-09-16T10:00:00Z",
+        "events": [
+          {
+            "name": "A",
+            "at": "2026-09-16T09:00:00Z"
+          },
+          {
+            "name": "B",
+            "at": "2026-09-16T10:30:00Z"
+          },
+          {
+            "name": "C",
+            "at": "2026-09-16T11:00:00Z"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "next": "B"
+    },
+    "image": false
+  },
+  {
+    "id": "briefing-source",
+    "category": "daily_summary",
+    "skill": "daily-summary",
+    "prompt": "For my daily summary, return only verified story IDs in input order.",
+    "evidence": {
+      "stories": [
+        {
+          "id": "s1",
+          "verified": true
+        },
+        {
+          "id": "s2",
+          "verified": false
+        },
+        {
+          "id": "s3",
+          "verified": true
+        }
+      ]
+    },
+    "expected": {
+      "stories": ["s1", "s3"]
+    },
+    "image": false
+  },
+  {
+    "id": "briefing-budget",
+    "category": "daily_summary",
+    "skill": "daily-summary",
+    "prompt": "For my daily summary, return the count of unfinished overdue tasks strictly before today.",
+    "evidence": {
+      "tasks": {
+        "today": "2026-09-16",
+        "items": [
+          {
+            "due": "2026-09-14",
+            "done": false
+          },
+          {
+            "due": "2026-09-15",
+            "done": true
+          },
+          {
+            "due": "2026-09-16",
+            "done": false
+          }
+        ]
+      }
+    },
+    "expected": {
+      "overdue": 1
+    },
+    "image": false
+  },
+  {
+    "id": "fantasy-week",
+    "category": "fantasy",
+    "skill": "fantasy-football-recap",
+    "prompt": "Use weekly scores, not aggregate totals. Return the weekly winner and margin as a two-decimal string.",
+    "evidence": {
+      "scoreboard": {
+        "final": true,
+        "A": {
+          "week": "101.20",
+          "aggregate": "210.00"
+        },
+        "B": {
+          "week": "99.15",
+          "aggregate": "240.00"
+        }
+      }
+    },
+    "expected": {
+      "winner": "A",
+      "margin": "2.05"
+    },
+    "image": false
+  },
+  {
+    "id": "fantasy-live",
+    "category": "fantasy",
+    "skill": "fantasy-football-recap",
+    "prompt": "Return finality and the winner; winner must be null until final.",
+    "evidence": {
+      "scoreboard": {
+        "final": false,
+        "A": "120.00",
+        "B": "91.00"
+      }
+    },
+    "expected": {
+      "final": false,
+      "winner": null
+    },
+    "image": false
+  },
+  {
+    "id": "fantasy-tie",
+    "category": "fantasy",
+    "skill": "fantasy-football-recap",
+    "prompt": "Return a winner only if the evidence resolves the tie; otherwise return null.",
+    "evidence": {
+      "scoreboard": {
+        "final": true,
+        "A": "100.00",
+        "B": "100.00",
+        "tiebreaker": null
+      }
+    },
+    "expected": {
+      "winner": null
+    },
+    "image": false
+  },
+  {
+    "id": "fantasy-actual",
+    "category": "fantasy",
+    "skill": "fantasy-football-recap",
+    "prompt": "Return the sum of actual points (statSourceId=0), as a two-decimal string.",
+    "evidence": {
+      "players": [
+        {
+          "points": "10.10",
+          "statSourceId": 0
+        },
+        {
+          "points": "14.20",
+          "statSourceId": 1
+        },
+        {
+          "points": "9.95",
+          "statSourceId": 0
+        }
+      ]
+    },
+    "expected": {
+      "actual": "20.05"
+    },
+    "image": false
+  },
+  {
+    "id": "infra-image",
+    "category": "infrastructure",
+    "skill": "kubernetes-specialist",
+    "prompt": "Return the direct failure reason using one of image_not_found, oom, scheduling.",
+    "evidence": {
+      "events": [
+        "Failed to pull image repo/app:missing: manifest unknown",
+        "Back-off pulling image"
+      ]
+    },
+    "expected": {
+      "reason": "image_not_found"
+    },
+    "image": false
+  },
+  {
+    "id": "infra-oom",
+    "category": "infrastructure",
+    "skill": "sre-engineer",
+    "prompt": "Return the direct termination reason and whether it proves a CPU shortage.",
+    "evidence": {
+      "container": {
+        "reason": "OOMKilled",
+        "exitCode": 137,
+        "memoryLimit": "512Mi"
+      }
+    },
+    "expected": {
+      "reason": "OOMKilled",
+      "cpu_shortage_proven": false
+    },
+    "image": false
+  },
+  {
+    "id": "infra-timeout",
+    "category": "infrastructure",
+    "skill": "sre-engineer",
+    "prompt": "Return whether the caller completed successfully; provider HTTP 200 alone is insufficient.",
+    "evidence": {
+      "provider": {
+        "http_status": 200
+      },
+      "caller": {
+        "status": "failed",
+        "error": "StreamChunkTimeoutError"
+      }
+    },
+    "expected": {
+      "caller_completed": false
+    },
+    "image": false
+  },
+  {
+    "id": "infra-cpu",
+    "category": "infrastructure",
+    "skill": "kubernetes-specialist",
+    "prompt": "Return total CPU requests in millicores.",
+    "evidence": {
+      "pods": [
+        {
+          "cpu": "500m"
+        },
+        {
+          "cpu": "1"
+        },
+        {
+          "cpu": "250m"
+        }
+      ]
+    },
+    "expected": {
+      "millicores": 1750
+    },
+    "image": false
+  },
+  {
+    "id": "synthesis-conflict",
+    "category": "synthesis",
+    "skill": "sre-engineer",
+    "prompt": "Return the deadline from the newest signed source and its source ID.",
+    "evidence": {
+      "sources": [
+        {
+          "id": "old",
+          "signed": true,
+          "updated": "2026-09-10",
+          "deadline": "2026-09-20"
+        },
+        {
+          "id": "rumor",
+          "signed": false,
+          "updated": "2026-09-16",
+          "deadline": "2026-09-30"
+        },
+        {
+          "id": "new",
+          "signed": true,
+          "updated": "2026-09-15",
+          "deadline": "2026-09-25"
+        }
+      ]
+    },
+    "expected": {
+      "deadline": "2026-09-25",
+      "source": "new"
+    },
+    "image": false
+  },
+  {
+    "id": "synthesis-cost",
+    "category": "synthesis",
+    "skill": null,
+    "prompt": "Return total amount as a two-decimal string.",
+    "evidence": {
+      "line_items": [
+        {
+          "quantity": 3,
+          "price": "1.25"
+        },
+        {
+          "quantity": 2,
+          "price": "2.10"
+        }
+      ]
+    },
+    "expected": {
+      "total": "7.95"
+    },
+    "image": false
+  },
+  {
+    "id": "synthesis-median",
+    "category": "synthesis",
+    "skill": null,
+    "prompt": "Return the median latency in milliseconds.",
+    "evidence": {
+      "latencies_ms": [5, 100, 7, 9, 11]
+    },
+    "expected": {
+      "median_ms": 9
+    },
+    "image": false
+  },
+  {
+    "id": "synthesis-window",
+    "category": "synthesis",
+    "skill": "sre-engineer",
+    "prompt": "Return the proposed picker, preserving the baseline threshold and recent-turn window.",
+    "evidence": {
+      "baseline": {
+        "picker": "capable_first",
+        "confidence_threshold": 0.5,
+        "recent_turn_window": 3
+      },
+      "change": {
+        "picker": "efficient_first"
+      }
+    },
+    "expected": {
+      "picker": "efficient_first",
+      "confidence_threshold": 0.5,
+      "recent_turn_window": 3
+    },
+    "image": false
+  },
+  {
+    "id": "reasoning-combinations",
+    "category": "reasoning",
+    "skill": null,
+    "prompt": "How many distinct unordered committees of five satisfy every constraint? Return count.",
+    "evidence": {
+      "problem": {
+        "people": [
+          "E1",
+          "E2",
+          "E3",
+          "E4",
+          "E5",
+          "D1",
+          "D2",
+          "D3",
+          "D4",
+          "P1",
+          "P2",
+          "P3"
+        ],
+        "minimum_engineers": 2,
+        "minimum_designers": 1,
+        "minimum_product": 1,
+        "incompatible_pairs": [
+          ["D1", "E1"],
+          ["E2", "P1"],
+          ["D2", "D3"]
+        ]
+      }
+    },
+    "expected": {
+      "count": 256
+    },
+    "image": false
+  },
+  {
+    "id": "reasoning-path",
+    "category": "reasoning",
+    "skill": "sre-engineer",
+    "prompt": "Return the shortest directed path distance from A to D.",
+    "evidence": {
+      "edges": [
+        ["A", "B", 2],
+        ["A", "C", 8],
+        ["B", "C", 1],
+        ["C", "D", 4],
+        ["B", "D", 9]
+      ]
+    },
+    "expected": {
+      "distance": 7
+    },
+    "image": false
+  },
+  {
+    "id": "reasoning-assignment",
+    "category": "reasoning",
+    "skill": null,
+    "prompt": "Assign distinct integers 1 through 7 to A through G satisfying all constraints. Return all seven assignments.",
+    "evidence": {
+      "constraints": ["A+B=9", "C=A-2", "D=B+1", "E=C+1", "F=D-5", "G=E+4"],
+      "values": [1, 2, 3, 4, 5, 6, 7]
+    },
+    "expected": {
+      "A": 4,
+      "B": 5,
+      "C": 2,
+      "D": 6,
+      "E": 3,
+      "F": 1,
+      "G": 7
+    },
+    "image": false
+  },
+  {
+    "id": "image-color",
+    "category": "image",
+    "skill": null,
+    "prompt": "Return the dominant color of the supplied image, as red, green, or blue.",
+    "evidence": {
+      "image_description": "The image is the authoritative source; do not guess from this text."
+    },
+    "expected": {
+      "color": "red"
+    },
+    "image": true
+  }
+]

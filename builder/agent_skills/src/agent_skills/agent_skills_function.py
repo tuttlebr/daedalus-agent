@@ -17,7 +17,7 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +167,9 @@ async def _load_skill(
             for r in resources:
                 result += f"- `{r}`\n"
 
+        from agent_skills.load_events import main_skill_loaded
+
+        main_skill_loaded(parser.get_skill_metadata(skill_name).name)
         return result
 
     except KeyError:
@@ -288,6 +291,15 @@ async def _run_skill_script(
 class AgentSkillsConfig(FunctionBaseConfig, name="agent_skills"):
     """Configuration for the agent_skills function."""
 
+    _parser: SkillParser | None = PrivateAttr(default=None)
+
+    def get_parser(self) -> SkillParser:
+        """Share the loaded catalog with workflow configuration validation."""
+        if self._parser is None:
+            self._parser = SkillParser(skills_directory=self.skills_directory)
+            self._parser.discover_skills()
+        return self._parser
+
     description: str = Field(
         default=_DEFAULT_DESCRIPTION,
         description="The description exposed to the tool-calling model.",
@@ -367,8 +379,7 @@ class AgentSkillsInput(BaseModel):
 
 @register_function(config_type=AgentSkillsConfig)
 async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
-    parser = SkillParser(skills_directory=config.skills_directory)
-    parser.discover_skills()
+    parser = config.get_parser()
 
     enabled = set(
         _ALL_OPERATIONS

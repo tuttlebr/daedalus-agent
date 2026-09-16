@@ -89,6 +89,52 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     expect(await client.exists(queue.streamBackendStartedKey(jobId))).toBe(0);
   });
 
+  it.each(['default', 'deep', 'deep_max', undefined])(
+    'retains requested profile %s in the durable job through queue claim',
+    async (modelProfile) => {
+      const { jsonSetWithExpiry, jsonGet, sessionKey } = await import(
+        '@/server/session/redis'
+      );
+      const selectedJob = `${jobId}-profile-${modelProfile ?? 'automatic'}`;
+      const requestKey = sessionKey(['async-job-request', selectedJob]);
+      const additionalProps = {
+        ...(modelProfile ? { model_profile: modelProfile } : {}),
+        unrelated: 'retained',
+      };
+      try {
+        await jsonSetWithExpiry(
+          requestKey,
+          { jobId: selectedJob, userId: 'testuser', additionalProps },
+          60,
+        );
+        await queue.enqueueStreamJob(selectedJob, {
+          messagesForNat: [{ role: 'user', content: 'fixture' }],
+          verifiedUsername: 'testuser',
+        });
+        const [entry] = await queue.readNewStreamJobs(
+          client,
+          'profile-worker',
+          1,
+          100,
+        );
+        expect(entry.jobId).toBe(selectedJob);
+        const restored = (await jsonGet(requestKey)) as any;
+        expect(restored.additionalProps).toEqual(additionalProps);
+        expect(await queue.loadStreamQueuePayload(selectedJob)).toMatchObject({
+          verifiedUsername: 'testuser',
+        });
+        await queue.acknowledgeStreamQueueEntry(entry, client);
+        // Acknowledging queue transport does not remove request metadata used
+        // by authorization/status handling.
+        expect(((await jsonGet(requestKey)) as any).additionalProps).toEqual(
+          additionalProps,
+        );
+      } finally {
+        await client.del(requestKey, queue.streamPayloadKey(selectedJob));
+      }
+    },
+  );
+
   it('keeps long-running job recovery state alive only for the lease owner', async () => {
     const { sessionKey } = await import('@/server/session/redis');
     const state = await import('@/server/chat/streamState');

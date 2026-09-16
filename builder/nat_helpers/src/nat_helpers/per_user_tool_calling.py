@@ -18,7 +18,7 @@ import logging
 import os
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import aclosing, asynccontextmanager
+from contextlib import aclosing, asynccontextmanager, nullcontext
 
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -51,6 +51,11 @@ from nat_helpers.daily_summary_runtime import (
     should_start_final_synthesis,
 )
 from nat_helpers.history_budget import _select_history_payloads
+from nat_helpers.model_routing import (
+    ModelRoutingConfig,
+    ModelSelection,
+    validate_skill_mappings,
+)
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
@@ -96,6 +101,7 @@ def _recovered_tool_results(run):
 
 class DaedalusPerUserResponsesAPIAgentWorkflowConfig(
     ResponsesAPIAgentWorkflowConfig,
+    ModelRoutingConfig,
     name="daedalus_per_user_responses_api_agent",
 ):
     """Responses API agent built and cached independently for each user."""
@@ -269,6 +275,22 @@ def _bind_responses_llm(
     return bound_llm
 
 
+def _full_history_responses_llm(llm):
+    """Copy NAT's configurable wrapper and its client without copying sockets."""
+    from langchain_core.runnables import RunnableBinding
+    from langchain_core.runnables.configurable import RunnableConfigurableFields
+
+    if isinstance(llm, RunnableConfigurableFields):
+        return llm.model_copy(
+            update={"default": _full_history_responses_llm(llm.default)}
+        )
+    if isinstance(llm, RunnableBinding):
+        return llm.model_copy(update={"bound": _full_history_responses_llm(llm.bound)})
+    if getattr(llm, "use_previous_response_id", False):
+        return llm.model_copy(update={"use_previous_response_id": False})
+    return llm
+
+
 @asynccontextmanager
 async def _responses_api_agent_workflow(
     config: DaedalusPerUserResponsesAPIAgentWorkflowConfig,
@@ -283,7 +305,7 @@ async def _responses_api_agent_workflow(
         convert_to_messages,
     )
     from langchain_core.messages.base import BaseMessage
-    from langchain_core.runnables import RunnableBranch, RunnableLambda
+    from langchain_core.runnables import RunnableLambda
     from langgraph.errors import GraphRecursionError
     from nat.plugins.langchain.agent.tool_calling_agent.agent import (
         AgentDecision,
@@ -291,6 +313,13 @@ async def _responses_api_agent_workflow(
         ToolCallAgentGraphState,
     )
 
+    validate_skill_mappings(config, builder)
+    # NAT's OpenAI bridge enables server-side continuation by default. A
+    # response ID belongs to its original route/provider, so each main-agent
+    # round must serialize its complete local history. Copy the wrapper only;
+    # helper tools keep the builder's cached client and transport unchanged.
+    llm = _full_history_responses_llm(llm)
+    default_alias = llm.model_name
     nat_tools = await builder.get_tools(
         tool_names=config.nat_tools,
         wrapper_type=LLMFrameworkEnum.LANGCHAIN,
@@ -416,35 +445,43 @@ async def _responses_api_agent_workflow(
             instructions=config.instructions,
         )
     agent.bound_llm = bound_llm
-    model_branch = bound_llm
-    if daily_summary_bound_llm is not None:
-        branches = []
-        if daily_summary_final_bound_llm is not None:
-            branches.append(
-                (
-                    lambda _: bool(
-                        (run := current_agent_run()) and run.final_synthesis_requested
-                    ),
-                    daily_summary_final_bound_llm,
-                )
-            )
-        branches.append(
-            (
-                lambda _: bool(
-                    (run := current_agent_run())
-                    and run.request_profile == DAILY_SUMMARY_PROFILE
-                ),
-                daily_summary_bound_llm,
-            )
+
+    def _selected_alias():
+        run = current_agent_run()
+        return (
+            run.model_selection.alias(config, default_alias) if run else default_alias
         )
-        model_branch = RunnableBranch(*branches, bound_llm)
-    agent.agent = (
-        RunnableLambda(
-            _model_messages,
-            name="ResponsesInput",
-        )
-        | model_branch
-    )
+
+    def _select_model(_):
+        run = current_agent_run()
+        binding = bound_llm
+        if run is not None:
+            if (
+                run.final_synthesis_requested
+                and daily_summary_final_bound_llm is not None
+            ):
+                binding = daily_summary_final_bound_llm
+            elif (
+                run.request_profile == DAILY_SUMMARY_PROFILE
+                and daily_summary_bound_llm is not None
+            ):
+                binding = daily_summary_bound_llm
+            metadata = {
+                "run_id": run.run_id,
+                "model_call": run.model_calls,
+                "requested_route_alias": _selected_alias(),
+                **run.model_selection.metadata(),
+            }
+            logger.info("Main-agent model selection: %s", json.dumps(metadata))
+            _record_trace("daedalus.agent.model_route", metadata)
+        # RunnableLambda delegates streaming to the returned runnable. Bind on
+        # every invocation, after tool restriction, without changing the client.
+        return binding.bind(model=_selected_alias())
+
+    agent.agent = RunnableLambda(
+        _model_messages,
+        name="ResponsesInput",
+    ) | RunnableLambda(_select_model, name="ModelRoute")
 
     # A denied mutation is a deterministic terminal state, not content for a
     # second model turn. Force NAT to build the tool conditional edge, then
@@ -479,6 +516,20 @@ async def _responses_api_agent_workflow(
         # Chat Completions' finish_reason=length. Check at the graph boundary
         # before partial tool calls can execute. The text has already streamed.
         metadata = response.response_metadata
+        run = current_agent_run()
+        # The response's model is provider-reported and may itself be an alias.
+        # Record it separately; only gateway telemetry proves a stage target.
+        reported_model = metadata.get("model_name") or metadata.get("model")
+        if run is not None and isinstance(reported_model, str):
+            _record_trace(
+                "daedalus.agent.model_response",
+                {
+                    "run_id": run.run_id,
+                    "model_call": run.model_calls,
+                    "requested_route_alias": _selected_alias(),
+                    "provider_reported_model": reported_model[:256],
+                },
+            )
         status = metadata.get("status")
         # LangChain 1.3 also ignores response.failed events. In that case only
         # response.created's id remains. A created response without a completed
@@ -523,6 +574,9 @@ async def _responses_api_agent_workflow(
         run = current_agent_run()
         if run is not None:
             run.request_profile = request_profile(latest_user_text)
+            run.model_selection = ModelSelection.resolve(
+                config, getattr(message, "additional_props", None), run.request_profile
+            )
         try:
             from nat_helpers.hindsight_client import client_from_env, memory_mode
             from nat_helpers.hindsight_memory_context import (
@@ -590,12 +644,26 @@ async def _responses_api_agent_workflow(
             else logger.info
         )
         log(
-            "Agent run ended: run_id=%s outcome=%s model_calls=%d tool_calls=%d",
+            "Agent run ended: run_id=%s outcome=%s model_calls=%d tool_calls=%d routing=%s",
             run.run_id,
             outcome,
             run.model_calls,
             run.tool_calls,
+            json.dumps(run.model_selection.metadata()),
         )
+        _record_trace(
+            "daedalus.agent.outcome",
+            {
+                "run_id": run.run_id,
+                "outcome": outcome,
+                "failed": outcome not in {"completed", "validated_artifact"},
+                "model_calls": run.model_calls,
+                "tool_calls": run.tool_calls,
+                **run.model_selection.metadata(),
+            },
+        )
+
+    def _record_trace(name, metadata):
         # NAT's Phoenix exporter consumes the toolkit event stream, not the
         # process-global OpenTelemetry tracer. Record the semantic outcome in
         # that stream even when the outer function succeeds by returning text.
@@ -608,17 +676,10 @@ async def _responses_api_agent_workflow(
             )
 
             context = Context.get()
-            metadata = {
-                "run_id": run.run_id,
-                "workflow_run_id": str(context.workflow_run_id),
-                "outcome": outcome,
-                "failed": outcome not in {"completed", "validated_artifact"},
-                "model_calls": run.model_calls,
-                "tool_calls": run.tool_calls,
-            }
+            metadata = {**metadata, "workflow_run_id": str(context.workflow_run_id)}
             start = IntermediateStepPayload(
                 event_type=IntermediateStepType.CUSTOM_START,
-                name="daedalus.agent.outcome",
+                name=name,
                 metadata=metadata,
             )
             manager = context.intermediate_step_manager
@@ -652,7 +713,9 @@ async def _responses_api_agent_workflow(
 
                 text = _content_text(msg.content)
                 if text:
-                    yield ChatResponseChunk.create_streaming_chunk(text, id_=chunk_id)
+                    chunk = ChatResponseChunk.create_streaming_chunk(text, id_=chunk_id)
+                    chunk.model = _selected_alias()
+                    yield chunk
 
                 tool_calls = getattr(msg, "tool_call_chunks", None) or getattr(
                     msg,
@@ -689,7 +752,7 @@ async def _responses_api_agent_workflow(
                             )
                         ],
                         created=datetime.datetime.now(datetime.UTC),
-                        model=getattr(llm, "model_name", "unknown-model"),
+                        model=_selected_alias(),
                         object="chat.completion.chunk",
                     )
 
@@ -709,7 +772,15 @@ async def _responses_api_agent_workflow(
         *,
         include_recovery_evidence: bool = False,
     ) -> AsyncGenerator[ChatResponseChunk]:
-        with agent_run_scope(config.loop_guard) as run:
+        def _skill_loaded(event):
+            current_agent_run().model_selection.skill_loaded(event, config)
+
+        skill_scope = nullcontext()
+        if config.skill_model_profiles:
+            from agent_skills.load_events import skill_load_scope
+
+            skill_scope = skill_load_scope(_skill_loaded)
+        with agent_run_scope(config.loop_guard) as run, skill_scope:
             outcome = "cancelled_or_error"
             chunk_id = str(uuid.uuid4())
             buffered_text: list[str] = []
@@ -802,9 +873,7 @@ async def _responses_api_agent_workflow(
                         _content_text(content) or str(content), id_=chunk_id
                     )
                 outcome = "completed"
-                yield _terminal_stream_chunk(
-                    chunk_id, getattr(llm, "model_name", "unknown-model")
-                )
+                yield _terminal_stream_chunk(chunk_id, _selected_alias())
             finally:
                 _record_outcome(run, outcome)
 
@@ -813,6 +882,7 @@ async def _responses_api_agent_workflow(
     ) -> AsyncGenerator[ChatResponseChunk]:
         async with aclosing(_run(chat_request_or_message)) as stream:
             async for chunk in stream:
+                chunk.model = _selected_alias()
                 yield chunk
 
     async def _response_fn(chat_request_or_message: ChatRequestOrMessage) -> str:

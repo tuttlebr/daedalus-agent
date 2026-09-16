@@ -29,6 +29,7 @@ import {
   getDocumentIngestJobRequest,
   processMessages,
 } from '@/server/chat/messagePreprocessing';
+import { validateModelProfile } from '@/server/chat/modelProfile';
 import {
   buildBoundedMessagesForNat,
   buildNatSessionId,
@@ -317,6 +318,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Invalid messages' });
+    }
+    const profileError = validateModelProfile(additionalProps);
+    if (profileError) {
+      return res.status(400).json({ error: profileError });
     }
     if (
       conversationId != null &&

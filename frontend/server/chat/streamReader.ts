@@ -29,6 +29,7 @@ import {
 } from './debugReplay';
 import { finalizeError, finalizeSuccess } from './finalization';
 import { clearOAuthStatusFields, updateJobStatus } from './jobState';
+import { validateModelProfile } from './modelProfile';
 import { buildNatRequestHeaders } from './natMessages';
 import { sanitizeSandboxArtifactStep } from './sandboxArtifacts';
 import {
@@ -189,6 +190,8 @@ export async function startBackgroundStreamReader(
   verifiedUsername: string,
   control: BackgroundExecutionControl = {},
 ): Promise<void> {
+  const profileError = validateModelProfile(jobRequest.additionalProps);
+  if (profileError) throw new Error(profileError);
   const streamUrl = buildBackendUrlFromBase(
     getNatBaseUrl(jobRequest),
     '/v1/chat/completions',

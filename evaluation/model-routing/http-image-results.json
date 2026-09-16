@@ -1,0 +1,354 @@
+{
+  "passed": true,
+  "cases": 56,
+  "results": [
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": false,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "default",
+      "streaming": false,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "invalid",
+      "profile": "deep",
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": "deep_max",
+      "calls": 0
+    },
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "default",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "invalid",
+      "profile": "deep",
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": "deep_max",
+      "calls": 0
+    },
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": false,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/deep"]
+    },
+    {
+      "case": "promote",
+      "profile": "default",
+      "streaming": false,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "deep",
+      "streaming": false,
+      "daily": false,
+      "aliases": ["fixture/deep", "fixture/deep"]
+    },
+    {
+      "case": "promote",
+      "profile": "deep_max",
+      "streaming": false,
+      "daily": false,
+      "aliases": ["fixture/max", "fixture/max"]
+    },
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": false,
+      "daily": true,
+      "aliases": ["fixture/deep", "fixture/deep"]
+    },
+    {
+      "case": "retry",
+      "profile": "omitted",
+      "streaming": false,
+      "daily": true,
+      "aliases": ["fixture/deep", "fixture/deep", "fixture/deep"]
+    },
+    {
+      "case": "invalid",
+      "profile": null,
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": "",
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": "invalid",
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": true,
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": 1,
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": {},
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": [],
+      "calls": 0
+    },
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/deep"]
+    },
+    {
+      "case": "promote",
+      "profile": "default",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "deep",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/deep", "fixture/deep"]
+    },
+    {
+      "case": "promote",
+      "profile": "deep_max",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/max", "fixture/max"]
+    },
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": true,
+      "aliases": ["fixture/deep", "fixture/deep"]
+    },
+    {
+      "case": "retry",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": true,
+      "aliases": ["fixture/deep", "fixture/deep", "fixture/deep"]
+    },
+    {
+      "case": "invalid",
+      "profile": null,
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": "",
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": "invalid",
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": true,
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": 1,
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": {},
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": [],
+      "calls": 0
+    },
+    {
+      "case": "budget",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": true,
+      "aliases": ["fixture/deep", "fixture/deep"]
+    },
+    {
+      "case": "list",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "resource",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "missing",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "error",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "unmapped",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "parallel",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/deep"]
+    },
+    {
+      "case": "provider_failure",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "default",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "deep_max",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/max", "fixture/max"]
+    },
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/deep"]
+    },
+    {
+      "case": "promote",
+      "profile": "deep",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/deep", "fixture/deep"]
+    },
+    {
+      "case": "answer",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default"]
+    },
+    {
+      "case": "answer",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": false,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "default",
+      "streaming": false,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "invalid",
+      "profile": "deep",
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": "deep_max",
+      "calls": 0
+    },
+    {
+      "case": "promote",
+      "profile": "omitted",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "promote",
+      "profile": "default",
+      "streaming": true,
+      "daily": false,
+      "aliases": ["fixture/default", "fixture/default"]
+    },
+    {
+      "case": "invalid",
+      "profile": "deep",
+      "calls": 0
+    },
+    {
+      "case": "invalid",
+      "profile": "deep_max",
+      "calls": 0
+    }
+  ]
+}

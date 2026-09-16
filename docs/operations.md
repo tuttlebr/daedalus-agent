@@ -635,3 +635,9 @@ readiness reports `reason=milvus_unavailable` without returning credentials.
 For an externally managed target, configure
 `retrieval.milvus.auth.existingSecret` with `MILVUS_USERNAME` and
 `MILVUS_PASSWORD`, or set `tokenKey` for token authentication.
+
+## Request-scoped model routing
+
+See [interactive model routing](model-routing.md) for the API, optional backend
+maps, Compose/Helm environment wiring, diagnostics, validation and rollout gates.
+Provider model IDs and reasoning defaults remain in Switchyard.

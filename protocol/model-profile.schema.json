@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ModelProfile",
+  "description": "Optional interactive main-agent profile. Omission enables automatic policy.",
+  "type": "string",
+  "enum": ["default", "deep", "deep_max"]
+}

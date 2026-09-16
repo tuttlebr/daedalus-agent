@@ -623,6 +623,7 @@ def main() -> None:
         DaedalusPerUserResponsesAPIAgentWorkflowConfig,
         _bind_responses_llm,
         _content_text,
+        _full_history_responses_llm,
         _terminal_stream_chunk,
     )
 
@@ -666,6 +667,9 @@ def main() -> None:
         "tool_output_compaction_min_chars",
         "tool_output_compaction_max_items",
         "tool_output_cache_ttl_seconds",
+        "model_routes",
+        "request_model_profiles",
+        "skill_model_profiles",
     }
     if not required_response_fields <= response_fields:
         raise RuntimeError("Daedalus Responses API workflow schema is incomplete")
@@ -807,6 +811,55 @@ def main() -> None:
         raise RuntimeError("Responses reasoning schema was not preserved")
     if request_payload.get("truncation") != "auto":
         raise RuntimeError("Responses truncation schema was not preserved")
+    for alias in ("runtime/default", "runtime/deep", "runtime/max"):
+        routed = bound_contract_llm.bind(model=alias)
+        routed_payload = routed.bound._get_request_payload(
+            [HumanMessage(content="Find a value")], **routed.kwargs
+        )
+        if routed_payload != {**request_payload, "model": alias}:
+            raise RuntimeError("Model routing changed another Responses field")
+    if contract_llm.model_name != "gpt-5" or "model" in bound_contract_llm.kwargs:
+        raise RuntimeError("Model routing mutated the cached default client")
+    from langchain_core.messages import AIMessage, ToolMessage
+    from langchain_core.runnables import ConfigurableField
+
+    cached_client = contract_llm.model_copy(update={"use_previous_response_id": True})
+    cached_wrapper = cached_client.configurable_fields(
+        model_name=ConfigurableField(id="model_name")
+    )
+    main_client = _full_history_responses_llm(cached_wrapper)
+    history = [
+        HumanMessage(content="Original user evidence"),
+        AIMessage(
+            content="",
+            response_metadata={"id": "resp_previous"},
+            tool_calls=[
+                {
+                    "name": "contract_lookup",
+                    "args": {"query": "value"},
+                    "id": "call_previous",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(content="Collected evidence", tool_call_id="call_previous"),
+    ]
+    binding = _bind_responses_llm(
+        main_client,
+        tools=[contract_tool],
+        parallel_tool_calls=True,
+        instructions="Preserve history",
+    ).bind(model="runtime/deep")
+    payload = binding.bound._get_request_payload(history, **binding.kwargs)
+    if "previous_response_id" in payload or "Original user evidence" not in json.dumps(
+        payload["input"]
+    ):
+        raise RuntimeError("Routed client did not send full local history")
+    if (
+        not cached_client.use_previous_response_id
+        or not cached_wrapper.default.use_previous_response_id
+    ):
+        raise RuntimeError("Main-agent history policy changed helper clients")
 
     from nat.authentication.oauth2.oauth2_auth_code_flow_provider import (
         OAuth2AuthCodeFlowProvider,

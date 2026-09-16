@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from nat_helpers.approval_context import approval_marker_scope
+from nat_helpers.model_routing import ModelSelection
 from pydantic import BaseModel, Field
 
 
@@ -95,6 +96,7 @@ class AgentRun:
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     started_at: float = field(default_factory=time.monotonic)
     request_profile: str = "default"
+    model_selection: ModelSelection = field(default_factory=ModelSelection)
     final_synthesis_requested: bool = False
     synthesis_retry_attempted: bool = False
     initial_messages: int = 0

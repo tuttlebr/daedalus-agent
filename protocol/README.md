@@ -1,5 +1,11 @@
 # Shared protocol contracts
 
+`model-profile.schema.json` defines the optional interactive chat `model_profile`
+enum. The same generator produces `frontend/types/modelProfile.ts` and
+`nat_helpers/model_profile_types.py`; API and backend policy code validate JSON
+at runtime. Omission means automatic policy, while explicit `default` pins the
+default route. This field does not select helper or autonomous-worker models.
+
 `source-policy.schema.json` is the canonical source selection shape for Chat
 and the autonomous worker. Generate its TypeScript interface and Python
 TypedDict/constants with `python3 scripts/generate_protocol_types.py`. Commit

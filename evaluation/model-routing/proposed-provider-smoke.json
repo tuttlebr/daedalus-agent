@@ -1,0 +1,341 @@
+{
+  "passed": true,
+  "cases": [
+    {
+      "image": false,
+      "calls": [
+        {
+          "requested_route_alias": "daedalus",
+          "streaming": false,
+          "http_status": 200,
+          "seconds": 1.585,
+          "provider_reported_model": "fireworks-weak",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 183,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 25,
+            "total_tokens": 208
+          },
+          "output_types": ["reasoning", "function_call"],
+          "completed": true
+        },
+        {
+          "requested_route_alias": "daedalus/deep",
+          "streaming": false,
+          "http_status": 200,
+          "seconds": 1.236,
+          "provider_reported_model": "fireworks-strong",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 117,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 30,
+            "total_tokens": 147
+          },
+          "output_types": ["reasoning", "message"],
+          "completed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": false,
+      "calls": [
+        {
+          "requested_route_alias": "daedalus/deep",
+          "streaming": false,
+          "http_status": 200,
+          "seconds": 1.127,
+          "provider_reported_model": "fireworks-strong",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 323,
+            "input_tokens_details": {
+              "cached_tokens": 194
+            },
+            "output_tokens": 62,
+            "total_tokens": 385
+          },
+          "output_types": ["reasoning", "function_call"],
+          "completed": true
+        },
+        {
+          "requested_route_alias": "daedalus/deep",
+          "streaming": false,
+          "http_status": 200,
+          "seconds": 1.29,
+          "provider_reported_model": "fireworks-strong",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 117,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 18,
+            "total_tokens": 135
+          },
+          "output_types": ["reasoning", "message"],
+          "completed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": false,
+      "calls": [
+        {
+          "requested_route_alias": "daedalus/max",
+          "streaming": false,
+          "http_status": 200,
+          "seconds": 1.566,
+          "provider_reported_model": "fireworks-deep-max",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 323,
+            "input_tokens_details": {
+              "cached_tokens": 194
+            },
+            "output_tokens": 77,
+            "total_tokens": 400
+          },
+          "output_types": ["reasoning", "function_call"],
+          "completed": true
+        },
+        {
+          "requested_route_alias": "daedalus/max",
+          "streaming": false,
+          "http_status": 200,
+          "seconds": 0.724,
+          "provider_reported_model": "fireworks-deep-max",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 117,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 30,
+            "total_tokens": 147
+          },
+          "output_types": ["reasoning", "message"],
+          "completed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": true,
+      "calls": [
+        {
+          "requested_route_alias": "daedalus",
+          "streaming": false,
+          "http_status": 200,
+          "seconds": 2.302,
+          "provider_reported_model": "fireworks-weak",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 201,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 14,
+            "total_tokens": 215
+          },
+          "output_types": ["function_call"],
+          "completed": true
+        },
+        {
+          "requested_route_alias": "daedalus/deep",
+          "streaming": false,
+          "http_status": 200,
+          "seconds": 0.993,
+          "provider_reported_model": "fireworks-strong",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 301,
+            "input_tokens_details": {
+              "cached_tokens": 50
+            },
+            "output_tokens": 44,
+            "total_tokens": 345
+          },
+          "output_types": ["reasoning", "message"],
+          "completed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": false,
+      "calls": [
+        {
+          "requested_route_alias": "daedalus",
+          "streaming": true,
+          "http_status": 200,
+          "seconds": 2.421,
+          "provider_reported_model": "fireworks-weak",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 183,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 14,
+            "total_tokens": 197
+          },
+          "output_types": ["function_call"],
+          "completed": true
+        },
+        {
+          "requested_route_alias": "daedalus/deep",
+          "streaming": true,
+          "http_status": 200,
+          "seconds": 1.977,
+          "provider_reported_model": "fireworks-strong",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 117,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 55,
+            "total_tokens": 172
+          },
+          "output_types": ["reasoning", "message"],
+          "completed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": false,
+      "calls": [
+        {
+          "requested_route_alias": "daedalus/deep",
+          "streaming": true,
+          "http_status": 200,
+          "seconds": 1.617,
+          "provider_reported_model": "fireworks-strong",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 323,
+            "input_tokens_details": {
+              "cached_tokens": 194
+            },
+            "output_tokens": 71,
+            "total_tokens": 394
+          },
+          "output_types": ["reasoning", "function_call"],
+          "completed": true
+        },
+        {
+          "requested_route_alias": "daedalus/deep",
+          "streaming": true,
+          "http_status": 200,
+          "seconds": 0.885,
+          "provider_reported_model": "fireworks-strong",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 117,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 21,
+            "total_tokens": 138
+          },
+          "output_types": ["reasoning", "message"],
+          "completed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": false,
+      "calls": [
+        {
+          "requested_route_alias": "daedalus/max",
+          "streaming": true,
+          "http_status": 200,
+          "seconds": 1.9,
+          "provider_reported_model": "fireworks-deep-max",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 323,
+            "input_tokens_details": {
+              "cached_tokens": 194
+            },
+            "output_tokens": 73,
+            "total_tokens": 396
+          },
+          "output_types": ["reasoning", "function_call"],
+          "completed": true
+        },
+        {
+          "requested_route_alias": "daedalus/max",
+          "streaming": true,
+          "http_status": 200,
+          "seconds": 1.643,
+          "provider_reported_model": "fireworks-deep-max",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 117,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 65,
+            "total_tokens": 182
+          },
+          "output_types": ["reasoning", "message"],
+          "completed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "image": true,
+      "calls": [
+        {
+          "requested_route_alias": "daedalus",
+          "streaming": true,
+          "http_status": 200,
+          "seconds": 1.153,
+          "provider_reported_model": "fireworks-weak",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 201,
+            "input_tokens_details": {
+              "cached_tokens": 0
+            },
+            "output_tokens": 22,
+            "total_tokens": 223
+          },
+          "output_types": ["reasoning", "function_call"],
+          "completed": true
+        },
+        {
+          "requested_route_alias": "daedalus/deep",
+          "streaming": true,
+          "http_status": 200,
+          "seconds": 0.879,
+          "provider_reported_model": "fireworks-strong",
+          "response_status": "completed",
+          "usage": {
+            "input_tokens": 301,
+            "input_tokens_details": {
+              "cached_tokens": 50
+            },
+            "output_tokens": 29,
+            "total_tokens": 330
+          },
+          "output_types": ["reasoning", "message"],
+          "completed": true
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

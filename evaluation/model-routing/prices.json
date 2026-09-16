@@ -1,0 +1,19 @@
+{
+  "as_of": "2026-09-16",
+  "currency": "USD",
+  "unit": "per_million_tokens",
+  "models": {
+    "glm": {
+      "input": 0.15,
+      "cached_input": 0.03,
+      "output": 0.5,
+      "source": "https://fireworks.ai/models/fireworks/glm-5p3-flash"
+    },
+    "deepseek": {
+      "input": 0.22,
+      "cached_input": 0.007,
+      "output": 0.66,
+      "source": "https://fireworks.ai/models/deepseek-ai/deepseek-v4p1-flash"
+    }
+  }
+}

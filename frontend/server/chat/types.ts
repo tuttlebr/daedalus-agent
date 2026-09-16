@@ -3,6 +3,14 @@ import type {
   MilvusCollectionScope,
 } from '@/utils/app/milvusCollections';
 
+import type { ModelProfile } from '@/types/modelProfile';
+
+export interface ChatAdditionalProps {
+  model_profile?: ModelProfile;
+  // Existing caller extensions retain their wire format.
+  [key: string]: any;
+}
+
 export interface AsyncJobRequest {
   jobId: string;
   natBaseUrl: string;
@@ -11,7 +19,7 @@ export interface AsyncJobRequest {
   executionMode: 'stream' | 'document_ingest';
   documentIngest?: DocumentIngestJobRequest;
   messages: any[];
-  additionalProps: any;
+  additionalProps?: ChatAdditionalProps | null;
   userId: string;
   conversationId?: string;
   conversationName?: string;

@@ -2015,6 +2015,7 @@ async function runStreamTurn(
   script: Array<string | Uint8Array>,
   opts: {
     messages?: any[];
+    additionalProps?: Record<string, unknown>;
     conversationId?: string | null;
     seedStore?: Record<string, any>;
     responseInit?: { ok?: boolean; status?: number };
@@ -2039,6 +2040,7 @@ async function runStreamTurn(
     body: {
       ...(conversationId ? { conversationId } : {}),
       messages: opts.messages ?? [{ role: 'user', content: 'hello?' }],
+      additionalProps: opts.additionalProps,
     },
   } as any;
   const res = makeRes();
@@ -2112,6 +2114,58 @@ async function startBlockedStreamTurn(chunks: string[] = []) {
 const TOKEN_CHANNEL = 'user:testuser:chat:conv-1:tokens';
 
 describe('chat/async streaming + finalize (characterization)', () => {
+  it.each(['default', 'deep', 'deep_max', undefined])(
+    'preserves profile %s through submission, stored job and backend forwarding',
+    async (profile) => {
+      const additionalProps = {
+        ...(profile === undefined ? {} : { model_profile: profile }),
+        unrelated: 'preserved',
+      };
+      const { store, jobId, fetchSpy } = await runStreamTurn(
+        [
+          'data: {"choices":[{"delta":{"content":"Done"}}]}\n',
+          'data: [DONE]\n',
+        ],
+        { additionalProps },
+      );
+      const stored = JSON.parse(
+        JSON.stringify(store.get(`daedalus:async-job-request:${jobId}`)),
+      );
+      expect(stored.additionalProps).toMatchObject(additionalProps);
+      const forwarded = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(forwarded.additional_props).toMatchObject(additionalProps);
+      expect(forwarded.additional_props.model_profile).toBe(profile);
+      expect(forwarded.model).toBeUndefined();
+    },
+  );
+
+  it.each([null, '', 'automatic', 'daedalus/max', 1, true, {}, []])(
+    'rejects invalid profile %j before storing or queuing a job',
+    async (profile) => {
+      const store = wireRedisStore();
+      const res = makeRes();
+      await handler(
+        {
+          method: 'POST',
+          headers: {},
+          body: {
+            messages: [{ role: 'user', content: 'hello' }],
+            additionalProps: { model_profile: profile },
+          },
+        } as any,
+        res,
+      );
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'model_profile must be default, deep, or deep_max',
+      });
+      expect(
+        [...store.keys()].filter((key) => key.includes('async-job')),
+      ).toEqual([]);
+      expect(mocks.redisXadd).not.toHaveBeenCalled();
+    },
+  );
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.validateDocumentRefsForUser.mockImplementation(
@@ -2820,12 +2874,24 @@ describe('chat/async streaming + finalize (characterization)', () => {
   });
 
   it('clears oauth_required status without publishing duplicate streaming snapshots', async () => {
-    const { jobId, statusKey } = await runStreamTurn([
-      'event: oauth_required\n',
-      'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
-      'data: {"choices":[{"delta":{"content":"Other work finished."}}]}\n',
-      'data: [DONE]\n',
-    ]);
+    const { jobId, statusKey, store, fetchSpy } = await runStreamTurn(
+      [
+        'event: oauth_required\n',
+        'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+        'data: {"choices":[{"delta":{"content":"Other work finished."}}]}\n',
+        'data: [DONE]\n',
+      ],
+      { additionalProps: { model_profile: 'deep_max' } },
+    );
+
+    expect(
+      store.get(`daedalus:async-job-request:${jobId}`).additionalProps
+        .model_profile,
+    ).toBe('deep_max');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(fetchSpy.mock.calls[0][1].body).additional_props.model_profile,
+    ).toBe('deep_max');
 
     const streamingStatusEvents = publishedEvents()
       .filter((e) => e.channel === `job:${jobId}:status`)

@@ -1,0 +1,275 @@
+{
+  "date": "2026-09-16",
+  "source_baseline_commit": "270d4cfebc24b6203ca1e5b99620d8c9a0d5874d",
+  "verification_backend_image_id": "sha256:5c8eaedc49aef360c6af272c34a73e3dc142957deb6bffd2205104d05faa696b",
+  "gateway_image_id": "sha256:83c68ad7583a7db991e1e8d8da5f0cf8e3dbdf130cb6a88b783832b3109ea392",
+  "deployed_backend_image_digest": "sha256:3f8019101bf2e50469fc49dd1ac7a8ce7a04bc8f8e68efe1369d69c7570787cc",
+  "deployed_backend_configuration": {
+    "sha256": "8441d7fba0d8d19c1eaa0870c2911ddfc6bd55bb4fb02a3e2aeb034c26d36265",
+    "workflow": {
+      "_type": "daedalus_per_user_responses_api_agent",
+      "max_iterations": 128,
+      "model_routes": null,
+      "request_model_profiles": null,
+      "skill_model_profiles": null,
+      "daily_summary_research_budget_seconds": 300,
+      "daily_summary_synthesis_retry_timeout_seconds": 75
+    },
+    "llm": {
+      "_type": "openai",
+      "api_type": "responses",
+      "model_name": "${TOOL_CALLING_LLM_MODEL_MODEL}",
+      "request_timeout": "${DAEDALUS_LLM_TIMEOUT:-60.0}",
+      "max_retries": "${DAEDALUS_LLM_MAX_RETRIES:-3}",
+      "truncation": "auto"
+    },
+    "resolved_environment": {
+      "DAEDALUS_LLM_TIMEOUT": "3600.0",
+      "TOOL_CALLING_LLM_MODEL_MODEL": "daedalus",
+      "DAEDALUS_LLM_MAX_RETRIES": "5"
+    }
+  },
+  "gateway_candidates": {
+    "baseline": {
+      "sha256": "fdf204e3cfe7bd54a061960111f6b66b033f0e2900df32c7104d01127c171abc",
+      "routes": {
+        "stage": {
+          "id": "daedalus",
+          "type": "stage_router",
+          "capable_target": "strong",
+          "efficient_target": "weak",
+          "picker": "capable_first",
+          "confidence_threshold": 0.5,
+          "recent_turn_window": 3,
+          "tool_calling": true,
+          "reasoning": false
+        },
+        "deep": {
+          "id": "daedalus/deep",
+          "type": "passthrough",
+          "target": "strong",
+          "tool_calling": true,
+          "reasoning": false
+        },
+        "deep_max": {
+          "id": "daedalus/max",
+          "type": "passthrough",
+          "target": "deep_max",
+          "tool_calling": true,
+          "reasoning": false
+        }
+      },
+      "targets": {
+        "strong": {
+          "id": "fireworks-strong",
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "high"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        },
+        "weak": {
+          "id": "fireworks-weak",
+          "model": "accounts/fireworks/models/glm-5p3-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "low"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        },
+        "deep_max": {
+          "id": "fireworks-deep-max",
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "max"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        }
+      }
+    },
+    "proposed": {
+      "sha256": "d57f483542ca020712461cb1bda658eaac7849b5eda7aa1cc5eae5fd64c4f9fc",
+      "routes": {
+        "stage": {
+          "id": "daedalus",
+          "type": "stage_router",
+          "capable_target": "strong",
+          "efficient_target": "weak",
+          "picker": "efficient_first",
+          "confidence_threshold": 0.5,
+          "recent_turn_window": 3,
+          "tool_calling": true,
+          "reasoning": false
+        },
+        "deep": {
+          "id": "daedalus/deep",
+          "type": "passthrough",
+          "target": "strong",
+          "tool_calling": true,
+          "reasoning": false
+        },
+        "deep_max": {
+          "id": "daedalus/max",
+          "type": "passthrough",
+          "target": "deep_max",
+          "tool_calling": true,
+          "reasoning": false
+        },
+        "fixture_weak": {
+          "id": "fixture/weak",
+          "type": "passthrough",
+          "target": "weak",
+          "tool_calling": true,
+          "reasoning": false
+        }
+      },
+      "targets": {
+        "strong": {
+          "id": "fireworks-strong",
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "high"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        },
+        "weak": {
+          "id": "fireworks-weak",
+          "model": "accounts/fireworks/models/glm-5p3-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "low"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        },
+        "deep_max": {
+          "id": "fireworks-deep-max",
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "max"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        }
+      }
+    },
+    "deepseek": {
+      "sha256": "e2655a954d473a69e3eff1283e6cd1d84b7b115a8469f9b8c858a07ba867f61a",
+      "routes": {
+        "stage": {
+          "id": "daedalus",
+          "type": "stage_router",
+          "capable_target": "strong",
+          "efficient_target": "weak",
+          "picker": "efficient_first",
+          "confidence_threshold": 0.5,
+          "recent_turn_window": 3,
+          "tool_calling": true,
+          "reasoning": false
+        },
+        "deep": {
+          "id": "daedalus/deep",
+          "type": "passthrough",
+          "target": "strong",
+          "tool_calling": true,
+          "reasoning": false
+        },
+        "deep_max": {
+          "id": "daedalus/max",
+          "type": "passthrough",
+          "target": "deep_max",
+          "tool_calling": true,
+          "reasoning": false
+        },
+        "fixture_weak": {
+          "id": "fixture/weak",
+          "type": "passthrough",
+          "target": "weak",
+          "tool_calling": true,
+          "reasoning": false
+        }
+      },
+      "targets": {
+        "strong": {
+          "id": "fireworks-strong",
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "high"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        },
+        "weak": {
+          "id": "fireworks-weak",
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "low"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        },
+        "deep_max": {
+          "id": "fireworks-deep-max",
+          "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "llm_client": "fireworks",
+          "extra_body": {
+            "reasoning": {
+              "effort": "max"
+            },
+            "truncation": "auto",
+            "reasoning_history": "interleaved"
+          }
+        }
+      }
+    }
+  },
+  "application_harness": {
+    "same_new_main_agent_for_all_candidates": true,
+    "max_iterations": 8,
+    "memory": "disabled",
+    "tool_output_compaction": false,
+    "fixture_tools": ["read_evidence", "load_skill"],
+    "synthetic_skill_instructions": true,
+    "production_api_queue_or_tools": false
+  },
+  "production_mutated": false,
+  "verified_backend_source_sha256": {
+    "builder/nat_helpers/src/nat_helpers/per_user_tool_calling.py": "7bd4abda575518b00b9e43056640dc82815e0cb9a3856057575f7ba64b771be6",
+    "builder/nat_helpers/src/nat_helpers/model_routing.py": "3cf8af1afe4efefdd90cb42df7ea9492d3e2e806e509b1e278d288010cf1047e",
+    "builder/nat_helpers/src/nat_helpers/model_profile_types.py": "e609fb35dea6abe4020f22607f0884fb54fcb7d27dbe4f87b9059c7dda48669e",
+    "builder/nat_helpers/src/nat_helpers/agent_loop_guard.py": "5852e10110607fc854aa36e9147c1c29e3829f66f4ab8f42a4e2221fac326eed",
+    "builder/agent_skills/src/agent_skills/agent_skills_function.py": "451af470d5a8e640cd690e9646b82c9472aa889b5f3c47af937f9de9dc95d6a5",
+    "builder/agent_skills/src/agent_skills/load_events.py": "20d4f24deac1f9abcf247f808ce8cd855e9aae75a442355300e439eb94683b20",
+    "builder/model_routing_http_check.py": "736c06cecbf0e2be63d965704fca75f32d7c8c72f17b6877fd4810cc341bcb12"
+  },
+  "collection_script_sha256_as_run": "40f784144a036526675bc5cd7ddcdf4dc90174ea489dbad4fecb9b3d2540edb5",
+  "published_collector_sha256": "931d6cd7de925dfa636ec9353efd650592e40be14e4910d9ac7999a85b9a866e",
+  "published_tasks_sha256": "39ea10999dc0cc799452bfc661db8f33f49069d69b28ac9a0a79c2c58ff54dd1",
+  "post_collection_changes": "Formatting, positive repeat-count validation, and canonical task-hash resume comparison. Collection, scoring and accounting are unchanged."
+}
