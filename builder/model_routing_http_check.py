@@ -107,11 +107,13 @@ def call(name, args):
 
 
 class RecordingUpstream(ThreadingHTTPServer):
-    def __init__(self):
+    def __init__(self, api_key="fixture"):
         super().__init__(("127.0.0.1", 0), RecordingHandler)
         self.cases = {}
         self.records = {}
         self.lock = threading.Lock()
+        self.api_key = api_key
+        self.transport_checks = {}
 
 
 class RecordingHandler(BaseHTTPRequestHandler):
@@ -129,6 +131,10 @@ class RecordingHandler(BaseHTTPRequestHandler):
         with self.server.lock:
             records = self.server.records.setdefault(case_id, [])
             records.append(payload)
+            self.server.transport_checks.setdefault(case_id, []).append(
+                self.path == "/v1/responses"
+                and self.headers.get("Authorization") == f"Bearer {self.server.api_key}"
+            )
             round_number = len(records)
         if mode == "budget" and round_number == 1:
             time.sleep(30.1)  # Exercise the real minimum research budget.
@@ -195,7 +201,7 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def run_suite(routed, upstream, directory):
+def run_suite(routed, upstream, directory, autonomy_upstream=None):
     port = free_port()
     configuration = {
         "functions": {
@@ -258,6 +264,18 @@ def run_suite(routed, upstream, directory):
         "DAEDALUS_INTERNAL_API_TOKEN": "routing-fixture-internal",
         "LOG_LEVEL": "INFO",
     }
+    for name in (
+        "AUTONOMOUS_LLM_MODEL_BASE_URL",
+        "AUTONOMOUS_LLM_MODEL_API_KEY",
+        "AUTONOMOUS_LLM_MODEL_MODEL",
+    ):
+        env.pop(name, None)
+    if autonomy_upstream is not None:
+        env.update(
+            AUTONOMOUS_LLM_MODEL_BASE_URL=f"http://127.0.0.1:{autonomy_upstream.server_port}/v1",
+            AUTONOMOUS_LLM_MODEL_API_KEY="fixture-autonomy",
+            AUTONOMOUS_LLM_MODEL_MODEL="fixture/autonomy",
+        )
     base_url = f"http://127.0.0.1:{port}"
     log_path = directory / f"backend-{routed}.log"
     results = []
@@ -295,9 +313,13 @@ def run_suite(routed, upstream, directory):
                 invalid=False,
                 image=False,
                 historical=False,
+                autonomy=False,
             ):
                 case_id = "routing-fixture-" + uuid.uuid4().hex
-                upstream.cases[case_id] = mode
+                selected_upstream = (
+                    autonomy_upstream if autonomy and autonomy_upstream else upstream
+                )
+                selected_upstream.cases[case_id] = mode
                 text = case_id + (" daily summary" if daily else " inspect fixture")
                 content = (
                     [
@@ -351,10 +373,25 @@ def run_suite(routed, upstream, directory):
                         "Cookie": f"nat-session={user}",
                         "x-user-id": user,
                         "x-daedalus-internal-token": "routing-fixture-internal",
+                        **(
+                            {"x-daedalus-execution-scope": "autonomy"}
+                            if autonomy
+                            else {}
+                        ),
                     },
                     timeout=45,
                 )
-                records = upstream.records.get(case_id, [])
+                records = selected_upstream.records.get(case_id, [])
+                require(
+                    all(selected_upstream.transport_checks.get(case_id, [])),
+                    "Wrong endpoint path or provider credential",
+                )
+                if autonomy_upstream is not None:
+                    unused_upstream = upstream if autonomy else autonomy_upstream
+                    require(
+                        not unused_upstream.records.get(case_id),
+                        "Request crossed provider boundary",
+                    )
                 if invalid:
                     require(not records, f"Invalid profile reached upstream: {profile}")
                     require(
@@ -387,6 +424,8 @@ def run_suite(routed, upstream, directory):
                     "deep": "fixture/deep",
                     "deep_max": "fixture/max",
                 }.get(profile)
+                if autonomy and autonomy_upstream is not None:
+                    expected = "fixture/autonomy"
                 for index, payload in enumerate(records):
                     automatic = (
                         "fixture/deep"
@@ -480,9 +519,36 @@ def run_suite(routed, upstream, directory):
                     "profile": profile,
                     "streaming": streaming,
                     "daily": daily,
+                    "autonomy": autonomy,
                     "aliases": [p["model"] for p in records],
                 }
 
+            if autonomy_upstream is not None:
+                for streaming in (False, True):
+                    results.append(
+                        invoke(autonomy=True, streaming=streaming, image=True)
+                    )
+                    results.append(
+                        invoke(autonomy=True, streaming=streaming, profile="deep_max")
+                    )
+                    results.append(invoke(streaming=streaming, profile="deep"))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                    futures = [
+                        pool.submit(invoke, autonomy=scope, user="same-user")
+                        for scope in (True, False, True, False)
+                    ]
+                    results.extend(future.result() for future in futures)
+                results.append(invoke(autonomy=True, mode="provider_failure"))
+                results.append(invoke(mode="answer"))
+                require(
+                    "autonomy_env" in log_path.read_text(),
+                    "Missing autonomy model diagnostics",
+                )
+                return results
+
+            results.append(
+                invoke(autonomy=True)
+            )  # Unconfigured autonomy uses existing routing.
             for streaming in (False, True):
                 for profile in (
                     ["omitted", "default", "deep", "deep_max"]
@@ -567,12 +633,15 @@ def main():
             )
             (skill / "reference.md").write_text("Fixture reference.")
         upstream = RecordingUpstream()
+        autonomy_upstream = RecordingUpstream(api_key="fixture-autonomy")
         thread = threading.Thread(target=upstream.serve_forever, daemon=True)
         thread.start()
+        threading.Thread(target=autonomy_upstream.serve_forever, daemon=True).start()
         try:
             results = (
                 run_suite(False, upstream, directory)
                 + run_suite(True, upstream, directory)
+                + run_suite(True, upstream, directory, autonomy_upstream)
                 + run_suite(False, upstream, directory)
             )
             print(
@@ -584,6 +653,8 @@ def main():
         finally:
             upstream.shutdown()
             upstream.server_close()
+            autonomy_upstream.shutdown()
+            autonomy_upstream.server_close()
 
 
 if __name__ == "__main__":

@@ -1156,6 +1156,9 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         "HINDSIGHT_API_KEY",
         "HINDSIGHT_API_TIMEOUT_SECONDS",
         "TOOL_CALLING_LLM_MODEL_API_KEY",
+        "AUTONOMOUS_LLM_MODEL_BASE_URL",
+        "AUTONOMOUS_LLM_MODEL_API_KEY",
+        "AUTONOMOUS_LLM_MODEL_MODEL",
     ):
         assert allowlist.fullmatch(active_name), active_name
 
@@ -1336,6 +1339,7 @@ def test_redis_workloads_use_distinct_scoped_principals():
     assert "~nat:* ~nat/*" in acl
     assert "~async-*" in acl
     assert "~autonomy:*" in acl
+    assert "~autonomy:* ~autonomous:*:workspace:*" in acl
 
 
 def test_backend_trusts_nginx_forwarded_proto_for_oauth_callback():

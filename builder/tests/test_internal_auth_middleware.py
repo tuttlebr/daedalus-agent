@@ -2,6 +2,9 @@
 
 import asyncio
 import json
+import sys
+from contextvars import ContextVar
+from types import SimpleNamespace
 
 import nat_helpers.internal_auth as internal_auth
 import pytest
@@ -119,6 +122,111 @@ def test_unknown_future_route_is_protected_by_default(monkeypatch):
 
     assert app_calls == []
     assert messages[0]["status"] == 401
+
+
+def test_request_headers_are_isolated_across_concurrent_calls_and_reset(monkeypatch):
+    from nat_helpers.identity import (
+        _http_request_headers,
+        execution_id_from_context_or_none,
+        execution_scope_from_context_or_none,
+        trusted_request_header_from_context,
+    )
+
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "trusted-secret")
+
+    async def app(scope, receive, send):
+        expected_scope = scope["expected_scope"]
+        for _ in range(3):
+            await asyncio.sleep(0)
+            assert trusted_request_header_from_context("x-user-id") == "same-user"
+            assert execution_scope_from_context_or_none() == expected_scope
+            assert execution_id_from_context_or_none() == (
+                "autonomy-run" if expected_scope == "autonomy" else None
+            )
+        if scope.get("cancel"):
+            raise asyncio.CancelledError
+
+    middleware = DaedalusInternalAuthMiddleware(app)
+
+    async def invoke(execution_scope, cancel=False):
+        assert _http_request_headers.get() is None
+        try:
+            await middleware(
+                {
+                    "type": "http",
+                    "path": "/v1/chat/completions",
+                    "expected_scope": execution_scope,
+                    "cancel": cancel,
+                    "headers": [
+                        (b"x-user-id", b"same-user"),
+                        (b"x-daedalus-internal-token", b"trusted-secret"),
+                        (b"x-daedalus-execution-scope", execution_scope.encode()),
+                        (b"x-daedalus-execution-id", b"autonomy-run"),
+                    ],
+                },
+                None,
+                None,
+            )
+        except asyncio.CancelledError:
+            assert cancel
+        assert _http_request_headers.get() is None
+
+    async def scenario():
+        await asyncio.gather(invoke("autonomy"), invoke(""), invoke("autonomy", True))
+        await invoke("")
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_cached_workflow_context_cannot_restore_previous_request_credentials(
+    monkeypatch,
+    fails,
+):
+    from nat_helpers.identity import (
+        _http_request_headers,
+        approval_token_from_context,
+        authenticated_request_headers_scope,
+        execution_scope_from_context_or_none,
+        preserve_request_headers_in_workflow_runner,
+    )
+
+    other_context = ContextVar("fixture_build_resource", default="request-value")
+
+    class FakeRunner:
+        async def __aenter__(self):
+            _http_request_headers.set(
+                {
+                    "x-daedalus-execution-scope": "autonomy",
+                    "x-daedalus-approval-token": "stale",
+                }
+            )
+            other_context.set("build-resource")
+            if fails:
+                raise RuntimeError("fixture entry failure")
+            return self
+
+    monkeypatch.setitem(
+        sys.modules, "nat.runtime.runner", SimpleNamespace(Runner=FakeRunner)
+    )
+    preserve_request_headers_in_workflow_runner()
+    wrapped = FakeRunner.__aenter__
+    preserve_request_headers_in_workflow_runner()
+    assert FakeRunner.__aenter__ is wrapped
+
+    async def scenario():
+        with authenticated_request_headers_scope({"x-user-id": "current-user"}):
+            if fails:
+                with pytest.raises(RuntimeError, match="fixture entry failure"):
+                    await FakeRunner().__aenter__()
+            else:
+                await FakeRunner().__aenter__()
+            assert execution_scope_from_context_or_none() == ""
+            assert approval_token_from_context() == ""
+            assert other_context.get() == "build-resource"
+        assert _http_request_headers.get() is None
+
+    asyncio.run(scenario())
 
 
 def test_websocket_routes_are_protected_by_default(monkeypatch):

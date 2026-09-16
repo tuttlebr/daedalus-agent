@@ -55,6 +55,34 @@ paths. `deep_max` maps to `daedalus/max`, not `daedalus/deep_max`.
 
 ## Lifetime and diagnostics
 
+### Autonomous main-agent model
+
+Optionally configure a separate OpenAI Responses endpoint, credential, and
+model for autonomous runs. Set all three in the backend environment (Compose's
+environment file, or Helm `backend.default.env.data` / its referenced Secret):
+
+```dotenv
+AUTONOMOUS_LLM_MODEL_BASE_URL=http://switchyard.daedalus.svc.cluster.local:4000/v1
+AUTONOMOUS_LLM_MODEL_API_KEY=not-used
+AUTONOMOUS_LLM_MODEL_MODEL=daedalus/cheap
+```
+
+Leave all three blank to preserve existing chat-model routing. Partial
+configuration fails with the missing variable names. Apply environment changes
+by restarting the backend. Keep the API key in the backend Secret; the autonomy
+worker does not need provider credentials.
+
+The authenticated autonomy scope selects a separate client inside the existing
+tool-capable workflow. Its model stays pinned throughout the run, including
+skill loads. Interactive profile routing, OAuth identity, approvals, action
+policy, timeouts, retries, and tool limits keep their existing behavior. Helper
+tools retain their own configured models. A failed autonomy provider is reported
+through the existing failure path; it does not silently switch to the chat
+provider. Each model-call diagnostic identifies `autonomy_env` as the selection
+source. Removing all three variables restores the existing routing behavior.
+
+### Request lifetime
+
 Selection belongs to an invocation, including its bounded daily-summary
 synthesis retry. Research budgets and allowed tools are independent of the
 selection. The next user request resolves anew. The durable job request stores

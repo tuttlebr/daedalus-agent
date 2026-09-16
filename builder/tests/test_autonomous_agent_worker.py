@@ -546,6 +546,242 @@ def test_scheduled_goal_selection_uses_cadence_over_priority_after_initial_run()
     assert selected["id"] == "goal_frequent"
 
 
+@pytest.mark.parametrize(("elapsed_hours", "due"), [(3, False), (4, True), (5, True)])
+def test_scheduled_goal_is_not_selected_before_cadence(elapsed_hours, due):
+    timestamp = 1_800_000_000_000
+    goal = {
+        "id": "goal-frequent",
+        "status": "active",
+        "tags": ["cadence:4h"],
+        "lastRunAt": timestamp - elapsed_hours * 3_600_000,
+    }
+
+    selected = select_scheduled_goal([goal], timestamp=timestamp)
+
+    assert selected == (goal if due else None)
+
+
+def test_scheduled_slot_with_no_due_goals_explores_without_marking_them(monkeypatch):
+    timestamp = 1_800_000_000_000
+    monkeypatch.setattr("autonomous_agent.worker.now_ms", lambda: timestamp)
+    store = FakeStore()
+    store.goals = [
+        {
+            "id": "daily-goal",
+            "title": "Daily releases",
+            "status": "active",
+            "lastRunAt": timestamp - 4 * 3_600_000,
+        },
+        {"id": "paused-goal", "title": "Paused", "status": "paused"},
+        {"id": "finished-goal", "title": "Finished", "status": "completed"},
+    ]
+    before = [dict(goal) for goal in store.goals]
+    backend = FakeBackend(json.dumps({"summary": "No publishable discovery."}))
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "scheduled"},
+    )
+    runtime = json.loads(
+        backend.messages[-1]["content"].split("Runtime input:\n", 1)[1]
+    )
+
+    assert run["status"] == "completed"
+    assert run["goalId"] is None
+    assert runtime["selected_goal"] is None
+    assert store.goals == before
+    assert run["metrics"]["explorationStep"] == runtime["exploration"]["step"]
+    assert run["metrics"]["explorationLane"] == runtime["exploration"]["preferred_lane"]
+    assert store.feed == []
+
+
+@pytest.mark.parametrize("explicit_null", [False, True])
+def test_due_scheduled_run_marks_only_selected_due_goal(monkeypatch, explicit_null):
+    timestamp = 1_800_000_000_000
+    monkeypatch.setattr("autonomous_agent.worker.now_ms", lambda: timestamp)
+    store = FakeStore()
+    recent_attempt = timestamp - 3_600_000
+    store.goals = [
+        {
+            "id": "recent",
+            "title": "Recently checked",
+            "lastRunAt": recent_attempt,
+        },
+        {
+            "id": "due",
+            "title": "Due for research",
+            "lastRunAt": timestamp - 24 * 3_600_000,
+        },
+    ]
+    backend = FakeBackend(json.dumps({"summary": "Nothing new."}))
+
+    request = {"trigger": "scheduled"}
+    if explicit_null:
+        request["goalId"] = None
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request=request,
+    )
+
+    assert run["goalId"] == "due"
+    assert store.goals[0]["lastRunAt"] == recent_attempt
+    assert store.goals[1]["lastRunAt"] == timestamp
+
+
+@pytest.mark.parametrize("goal_id", ["manual-goal", "  manual-goal \t"])
+@pytest.mark.parametrize("trigger", ["goal", "scheduled"])
+def test_explicit_goal_request_remains_scoped_when_goal_is_not_due(
+    monkeypatch, goal_id, trigger
+):
+    timestamp = 1_800_000_000_000
+    monkeypatch.setattr("autonomous_agent.worker.now_ms", lambda: timestamp)
+    store = FakeStore()
+    store.goals = [
+        {
+            "id": "manual-goal",
+            "title": "Selected",
+            "lastRunAt": timestamp - 3_600_000,
+        },
+        {"id": "other-goal", "title": "Unrelated", "lastRunAt": None},
+    ]
+    backend = FakeBackend(json.dumps({"summary": "Selected objective checked."}))
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": trigger, "goalId": goal_id, "prompt": "Check again"},
+    )
+    runtime = json.loads(
+        backend.messages[-1]["content"].split("Runtime input:\n", 1)[1]
+    )
+
+    assert run["goalId"] == "manual-goal"
+    assert runtime["goal_id"] == "manual-goal"
+    assert runtime["selected_goal"]["id"] == "manual-goal"
+    assert runtime["manual_prompt"] == "Check again"
+    assert store.goals[0]["lastRunAt"] == timestamp
+    assert store.goals[1]["lastRunAt"] is None
+
+
+@pytest.mark.parametrize("trigger", ["scheduled", "goal"])
+def test_goal_prompt_preserves_previous_attempt_time_before_marking_run(
+    monkeypatch, trigger
+):
+    timestamp = 1_800_000_000_000
+    previous_attempt = timestamp - 24 * 3_600_000
+    monkeypatch.setattr("autonomous_agent.worker.now_ms", lambda: timestamp)
+    store = FakeStore()
+    store.goals = [
+        {"id": "goal-a", "title": "Tracked goal", "lastRunAt": previous_attempt}
+    ]
+
+    class MarkedBeforeBackend(FakeBackend):
+        def call(self, messages, *, execution_id="", abort=None):
+            assert store.goals[0]["lastRunAt"] == timestamp
+            return super().call(messages, execution_id=execution_id, abort=abort)
+
+    backend = MarkedBeforeBackend(json.dumps({"summary": "No changes since last run."}))
+    request = {"trigger": trigger}
+    if trigger == "goal":
+        request["goalId"] = "goal-a"
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request=request,
+    )
+    runtime = json.loads(
+        backend.messages[-1]["content"].split("Runtime input:\n", 1)[1]
+    )
+
+    assert run["status"] == "completed"
+    assert runtime["selected_goal"]["lastRunAt"] == previous_attempt
+    assert runtime["active_goals"][0]["lastRunAt"] == previous_attempt
+    assert store.goals[0]["lastRunAt"] == run["startedAt"]
+
+
+@pytest.mark.parametrize("goal_id", ["deleted-goal", "", " \n\t ", 7, [], {}, False])
+@pytest.mark.parametrize("trigger", ["goal", "scheduled"])
+def test_invalid_explicit_goal_fails_before_backend_or_workspace_mutation(
+    goal_id, trigger
+):
+    store = FakeStore()
+    store.goals = [{"id": "other-goal", "title": "Do not substitute this goal"}]
+    store.text = {"autonomous:test-user:workspace:inner_state": "Existing follow-up."}
+    store.feed = [{"id": "old-feed-item", "title": "Existing feed item"}]
+    original_text = dict(store.text)
+    original_feed = list(store.feed)
+    original_goals = [dict(goal) for goal in store.goals]
+    backend = FakeBackend(
+        json.dumps(
+            {
+                "summary": "This must never run.",
+                "feed_items": [{"title": "Unscoped result", "bluf": "Not authorized."}],
+                "workspace_updates": {"inner_state": "Replacement notes."},
+            }
+        )
+    )
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": trigger, "goalId": goal_id},
+    )
+
+    assert run["status"] == "failed"
+    assert run["error"] == "The selected goal is no longer available."
+    assert backend.messages is None
+    assert store.text == original_text
+    assert store.feed == original_feed
+    assert store.goals == original_goals
+    assert not any(event["type"] == "backend_call" for event in store.events)
+
+
+def test_worker_uses_post_dedupe_yield_to_pivot_after_quiet_runs():
+    store = FakeStore()
+    backend = FakeBackend(
+        json.dumps(
+            {
+                "summary": "Found something useful.",
+                "feed_items": [
+                    {
+                        "title": "A stable primary finding",
+                        "bluf": "The original evidence is unchanged.",
+                        "thread_key": "one-stable-finding",
+                    }
+                ],
+            }
+        )
+    )
+    runs = [
+        run_once(
+            store=store,
+            backend=backend,
+            user_id="test-user",
+            request={"trigger": "scheduled"},
+        )
+        for _ in range(5)
+    ]
+    runtime = json.loads(
+        backend.messages[-1]["content"].split("Runtime input:\n", 1)[1]
+    )
+
+    assert len(store.feed) == 1
+    assert runs[0]["metrics"]["feedItemsStored"] == 1
+    assert all(run["metrics"]["feedItemsDeduped"] == 1 for run in runs[1:])
+    assert runtime["exploration"]["consecutive_quiet_runs"] == 3
+    assert runtime["exploration"]["change_topic"] is True
+    assert runs[-1]["metrics"]["explorationLane"] == "adjacent"
+    assert runtime["recent_objective_runs"][0]["feedItemsStored"] == 0
+
+
 def test_run_once_goal_request_passes_selected_goal_to_backend():
     response = json.dumps({"summary": "No new findings.", "feed_items": []})
     store = FakeStore()

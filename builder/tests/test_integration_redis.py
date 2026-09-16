@@ -145,6 +145,59 @@ def test_autonomous_lease_fences_live_reclaim_and_recovers_after_expiry():
             worker_a.redis.delete(redis_key)
 
 
+def test_autonomous_scoped_acl_reads_json_and_preserves_workspace():
+    redis = pytest.importorskip("redis")
+    from autonomous_agent.prompt import load_workspace, workspace_key
+
+    url = os.environ["REDIS_URL"]
+    admin = redis.from_url(url, decode_responses=True)
+    user_id = f"acl-itest-{uuid.uuid4().hex}"
+    acl_username = f"autonomy-itest-{uuid.uuid4().hex}"
+    password = uuid.uuid4().hex
+    config_key = autonomy_key(user_id, "config")
+    identity_key = workspace_key(user_id, "identity")
+    store = RedisStore(url)
+    options = dict(admin.connection_pool.connection_kwargs)
+    options.update(username=acl_username, password=password)
+    store.redis = redis.Redis(connection_pool=redis.ConnectionPool(**options))
+    try:
+        admin.acl_setuser(
+            acl_username,
+            enabled=True,
+            passwords=[f"+{password}"],
+            keys=[f"autonomy:{user_id}:*", f"autonomous:{user_id}:workspace:*"],
+            commands=["+@all", "-@dangerous", "+info"],
+        )
+        admin.execute_command("JSON.SET", config_key, ".", '{"enabled":false}')
+        admin.set(identity_key, "Preserved workspace identity")
+
+        with pytest.raises(redis.exceptions.NoPermissionError):
+            store.redis.execute_command("JSON.GET", "__autonomy_probe__")
+        assert store.get_config(user_id)["enabled"] is False
+        assert store._json_supported is True
+        workspace = load_workspace(store, user_id)
+        assert workspace["identity"] == "Preserved workspace identity"
+        assert workspace["interests"]
+        store.json_set(config_key, {"enabled": False, "intervalSeconds": 7200})
+        assert store.get_config(user_id)["intervalSeconds"] == 7200
+        store.atomic_update(
+            autonomy_key(user_id, "runs"),
+            lambda current: (current + [{"id": "verified"}], None),
+        )
+        assert store.list_runs(user_id) == [{"id": "verified"}]
+
+        for denied_key in ["session:fixture", f"autonomous:{user_id}:unrelated"]:
+            with pytest.raises(redis.exceptions.NoPermissionError):
+                store.redis.get(denied_key)
+    finally:
+        store.redis.close()
+        for pattern in [f"autonomy:{user_id}:*", f"autonomous:{user_id}:workspace:*"]:
+            for redis_key in admin.scan_iter(match=pattern):
+                admin.delete(redis_key)
+        admin.acl_deluser(acl_username)
+        admin.close()
+
+
 def test_autonomous_local_write_idempotency_is_atomic_in_real_redis(monkeypatch):
     redis = pytest.importorskip("redis")
     from nat_helpers.idempotency import complete_operation, reserve_operation

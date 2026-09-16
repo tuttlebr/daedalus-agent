@@ -5,7 +5,57 @@ from __future__ import annotations
 import hmac
 import os
 from collections.abc import Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
 from typing import Any
+
+_http_request_headers: ContextVar[Any] = ContextVar(
+    "daedalus_http_request_headers", default=None
+)
+
+
+@contextmanager
+def authenticated_request_headers_scope(headers):
+    """Snapshot the authenticated ASGI request independently of NAT's cache."""
+    token = _http_request_headers.set(dict(headers))
+    try:
+        yield
+    finally:
+        _http_request_headers.reset(token)
+
+
+def _request_headers():
+    current = _http_request_headers.get()
+    if current is not None:
+        return current
+    from nat.builder.context import Context
+
+    nat_context = Context.get()
+    return getattr(getattr(nat_context, "metadata", None), "headers", None)
+
+
+def preserve_request_headers_in_workflow_runner() -> None:
+    """Keep live HTTP identity when pinned NAT restores its build context."""
+    from nat.runtime.runner import Runner
+
+    original = Runner.__aenter__
+    if getattr(original, "_daedalus_request_headers", False):
+        return
+
+    @wraps(original)
+    async def enter_with_request_headers(self):
+        current_headers = _http_request_headers.get()
+        try:
+            return await original(self)
+        finally:
+            # NAT 1.9 restores the cached workflow's entire construction-time
+            # context. Its first request must never overwrite this caller's
+            # authenticated scope, identity, or approval credential.
+            _http_request_headers.set(current_headers)
+
+    enter_with_request_headers._daedalus_request_headers = True
+    Runner.__aenter__ = enter_with_request_headers
 
 
 def _configured_internal_token() -> str:
@@ -79,20 +129,13 @@ def authenticated_user_id_from_headers(headers: Any) -> str:
 def authenticated_user_id_from_context() -> str:
     """Resolve the authenticated end user from the current NAT request context."""
 
-    from nat.builder.context import Context
-
-    nat_context = Context.get()
-    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
-    return authenticated_user_id_from_headers(headers)
+    return authenticated_user_id_from_headers(_request_headers())
 
 
 def trusted_request_header_from_context(name: str) -> str:
     """Read a request header after validating the internal identity boundary."""
 
-    from nat.builder.context import Context
-
-    nat_context = Context.get()
-    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
+    headers = _request_headers()
     # Validate the same internal token and user header before trusting any
     # request-scoped metadata carried beside them.
     authenticated_user_id_from_headers(headers)
@@ -124,11 +167,7 @@ def approval_token_from_context() -> str:
     is deliberately not accepted from model/tool arguments.
     """
 
-    from nat.builder.context import Context
-
-    nat_context = Context.get()
-    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
-    return _header_value(headers, "x-daedalus-approval-token")
+    return _header_value(_request_headers(), "x-daedalus-approval-token")
 
 
 def execution_scope_from_context_or_none() -> str | None:
@@ -141,12 +180,10 @@ def execution_scope_from_context_or_none() -> str | None:
     """
 
     try:
-        from nat.builder.context import Context
+        headers = _request_headers()
     except Exception:
         return None
 
-    nat_context = Context.get()
-    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
     if headers is None:
         return None
     return _header_value(headers, "x-daedalus-execution-scope").lower()
@@ -161,12 +198,10 @@ def execution_id_from_context_or_none() -> str | None:
     """
 
     try:
-        from nat.builder.context import Context
+        headers = _request_headers()
     except Exception:
         return None
 
-    nat_context = Context.get()
-    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
     if headers is None:
         return None
     if _header_value(headers, "x-daedalus-execution-scope").lower() != "autonomy":
@@ -180,12 +215,9 @@ def authenticated_user_id_from_context_or_fallback(fallback_user_id: str = "") -
 
     fallback = (fallback_user_id or "").strip()
     try:
-        from nat.builder.context import Context
+        headers = _request_headers()
     except Exception:
         return fallback
-
-    nat_context = Context.get()
-    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
     if headers is None:
         return fallback
 

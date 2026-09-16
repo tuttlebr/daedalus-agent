@@ -43,6 +43,7 @@ from nat_helpers.agent_loop_guard import (
     agent_run_scope,
     current_agent_run,
 )
+from nat_helpers.autonomous_llm import autonomous_llm, is_authenticated_autonomy_request
 from nat_helpers.daily_summary_runtime import (
     DAILY_SUMMARY_PROFILE,
     DAILY_SUMMARY_SYNTHESIS_INSTRUCTION,
@@ -296,6 +297,7 @@ async def _responses_api_agent_workflow(
     config: DaedalusPerUserResponsesAPIAgentWorkflowConfig,
     builder: Builder,
     llm,
+    autonomy_llm=None,
 ):
     """Run NAT's Responses agent contract with Daedalus stream handling."""
     from langchain_core.messages import (
@@ -319,6 +321,8 @@ async def _responses_api_agent_workflow(
     # round must serialize its complete local history. Copy the wrapper only;
     # helper tools keep the builder's cached client and transport unchanged.
     llm = _full_history_responses_llm(llm)
+    if autonomy_llm is not None:
+        autonomy_llm = _full_history_responses_llm(autonomy_llm)
     default_alias = llm.model_name
     nat_tools = await builder.get_tools(
         tool_names=config.nat_tools,
@@ -446,7 +450,24 @@ async def _responses_api_agent_workflow(
         )
     agent.bound_llm = bound_llm
 
+    autonomy_bindings = None
+    if autonomy_llm is not None:
+        autonomy_bindings = [
+            _bind_responses_llm(
+                autonomy_llm,
+                tools=tools or bound_tools,
+                parallel_tool_calls=config.parallel_tool_calls,
+                instructions=config.instructions,
+            )
+            for tools in (bound_tools, daily_summary_tools, daily_summary_final_tools)
+        ]
+
+    def _uses_autonomy_model():
+        return autonomy_bindings is not None and is_authenticated_autonomy_request()
+
     def _selected_alias():
+        if _uses_autonomy_model():
+            return autonomy_llm.model_name
         run = current_agent_run()
         return (
             run.model_selection.alias(config, default_alias) if run else default_alias
@@ -454,23 +475,30 @@ async def _responses_api_agent_workflow(
 
     def _select_model(_):
         run = current_agent_run()
-        binding = bound_llm
+        autonomy = _uses_autonomy_model()
+        bindings = (
+            autonomy_bindings
+            if autonomy
+            else (bound_llm, daily_summary_bound_llm, daily_summary_final_bound_llm)
+        )
+        binding = bindings[0]
         if run is not None:
             if (
                 run.final_synthesis_requested
                 and daily_summary_final_bound_llm is not None
             ):
-                binding = daily_summary_final_bound_llm
+                binding = bindings[2]
             elif (
                 run.request_profile == DAILY_SUMMARY_PROFILE
                 and daily_summary_bound_llm is not None
             ):
-                binding = daily_summary_bound_llm
+                binding = bindings[1]
             metadata = {
                 "run_id": run.run_id,
                 "model_call": run.model_calls,
                 "requested_route_alias": _selected_alias(),
                 **run.model_selection.metadata(),
+                **({"model_selection_source": "autonomy_env"} if autonomy else {}),
             }
             logger.info("Main-agent model selection: %s", json.dumps(metadata))
             _record_trace("daedalus.agent.model_route", metadata)
@@ -574,8 +602,14 @@ async def _responses_api_agent_workflow(
         run = current_agent_run()
         if run is not None:
             run.request_profile = request_profile(latest_user_text)
-            run.model_selection = ModelSelection.resolve(
-                config, getattr(message, "additional_props", None), run.request_profile
+            run.model_selection = (
+                ModelSelection()
+                if _uses_autonomy_model()
+                else ModelSelection.resolve(
+                    config,
+                    getattr(message, "additional_props", None),
+                    run.request_profile,
+                )
             )
         try:
             from nat_helpers.hindsight_client import client_from_env, memory_mode
@@ -773,7 +807,8 @@ async def _responses_api_agent_workflow(
         include_recovery_evidence: bool = False,
     ) -> AsyncGenerator[ChatResponseChunk]:
         def _skill_loaded(event):
-            current_agent_run().model_selection.skill_loaded(event, config)
+            if not _uses_autonomy_model():
+                current_agent_run().model_selection.skill_loaded(event, config)
 
         skill_scope = nullcontext()
         if config.skill_model_profiles:
@@ -932,9 +967,13 @@ async def daedalus_per_user_responses_api_agent(
             "Daedalus Responses API Agent requires an LLM with api_type: responses"
         )
 
-    async with _responses_api_agent_workflow(
-        config,
-        builder,
-        llm,
-    ) as function_info:
+    async with (
+        autonomous_llm(builder, config.llm_name) as autonomy_client,
+        _responses_api_agent_workflow(
+            config,
+            builder,
+            llm,
+            autonomy_llm=autonomy_client,
+        ) as function_info,
+    ):
         yield function_info

@@ -66,23 +66,33 @@ class RedisStore:
     def ping(self) -> None:
         self.redis.ping()
 
-    def _supports_json(self) -> bool:
+    def _supports_json(self, redis_key: str) -> bool:
         if self._json_supported is not None:
             return self._json_supported
         try:
-            self.redis.execute_command("JSON.GET", "__autonomy_probe__")
+            # Probe the caller's authorized key. A global probe key is outside
+            # the worker ACL and can falsely disable RedisJSON for its lifetime.
+            self.redis.execute_command("JSON.GET", redis_key)
             self._json_supported = True
-        except Exception:
-            self._json_supported = False
+        except Exception as exc:
+            if self._is_wrong_type_error(exc):
+                # A legacy string key still proves that JSON.GET is available.
+                self._json_supported = True
+            elif "unknown command" in str(exc).lower():
+                self._json_supported = False
+            else:
+                # Permission and transport failures are not capability results.
+                # Keep them retryable and never turn valid JSON state into GETs.
+                raise
         return self._json_supported
 
     def json_get(self, redis_key: str, fallback: Any = None) -> Any:
-        if self._supports_json():
+        if self._supports_json(redis_key):
             try:
                 raw = self.redis.execute_command("JSON.GET", redis_key)
             except Exception as exc:
                 if not self._is_wrong_type_error(exc):
-                    return fallback
+                    raise
                 # Older worker versions wrote these projections with SET even
                 # when RedisJSON was installed. Read that legacy JSON string
                 # instead of treating the valid value as absent.
@@ -98,10 +108,13 @@ class RedisStore:
 
     def json_set(self, redis_key: str, value: Any) -> None:
         serialized = json.dumps(value)
-        if self._supports_json():
-            with contextlib.suppress(Exception):
+        if self._supports_json(redis_key):
+            try:
                 self.redis.execute_command("JSON.SET", redis_key, ".", serialized)
                 return
+            except Exception as exc:
+                if not self._is_wrong_type_error(exc):
+                    raise
         self.redis.set(redis_key, serialized)
 
     @staticmethod
@@ -151,7 +164,7 @@ class RedisStore:
             self.json_set(redis_key, new_value)
             return result
 
-        json_supported = self._supports_json()
+        json_supported = self._supports_json(redis_key)
         attempts = max(1, retries)
         last_watch_error: Exception | None = None
         for _ in range(attempts):

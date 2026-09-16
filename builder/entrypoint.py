@@ -89,6 +89,9 @@ def main():
     )
 
     _assert_runtime_versions()
+    from nat_helpers.identity import preserve_request_headers_in_workflow_runner
+
+    preserve_request_headers_in_workflow_runner()
     _patch_request_metadata_redaction()
     _configure_phoenix_auth_env(logging.getLogger("daedalus.phoenix"))
 

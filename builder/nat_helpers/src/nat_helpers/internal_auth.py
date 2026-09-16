@@ -131,4 +131,13 @@ class DaedalusInternalAuthMiddleware:
                 )
                 await send({"type": "http.response.body", "body": body})
                 return
-        await self.app(scope, receive, send)
+        if protected:
+            from nat_helpers.identity import authenticated_request_headers_scope
+
+            # Cached toolkit user workflows can retain earlier request metadata.
+            # Carry the live authenticated headers through this ASGI invocation,
+            # including its stream, and reset them on completion or cancellation.
+            with authenticated_request_headers_scope(headers):
+                await self.app(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)

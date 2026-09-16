@@ -467,11 +467,14 @@ The design follows the useful parts of Hermes-style autonomy: a persistent agent
 
 - The worker runs `python -m autonomous_agent.worker` from the builder image.
 - Scheduled runs are controlled by `autonomousAgent.worker.intervalSeconds` and can be changed in the Autonomy dashboard.
-- Each scheduled run selects the never-run or most-overdue active goal instead of repeatedly choosing the first broad goal. Add a `cadence:<n>h` or `cadence:<n>d` goal tag to set its target refresh interval; untagged goals default to daily.
+- Each scheduled run selects a never-run or due active goal. Add a `cadence:<n>h` or `cadence:<n>d` goal tag to set its target refresh interval; untagged goals default to daily. When no goal is due, the run explores established user interests instead of checking a fresh goal again. Explicit goal runs always keep their selected objective.
+- Research rotates between familiar updates, adjacent connections, deeper familiar research, and scouting. This aims for a balanced mix across runs, not a required number of cards in each lane. The worker records its position in run metrics, independently for each goal and for general discovery; failed or cancelled runs do not advance it. Existing histories start from an underrepresented lane.
+- Recent attempts include the number of cards actually stored after deduplication. Two consecutive completed attempts without a card steer the next familiar research slot toward a different angle. The agent keeps up to five compact follow-up notes, including exhausted questions and retry conditions, in its existing private workspace. It can pivot once within the same objective and research budget.
 - Manual runs are queued from the Autonomy dashboard, which writes to the Redis queue the worker consumes.
 - The worker streams from the already-loaded backend workflow at `autonomousAgent.backendApiPath` (defaults to `/v1/chat/completions`) and writes structured feed items plus workspace updates.
 - Autonomous research must stay non-interactive. Goal definitions should not use Gmail, Calendar, or other tools that can pause for per-user OAuth.
-- Feed items must represent a new fact or changed current state. A second publisher repeating the same underlying story is corroboration, not a new update.
+- Feed items must offer a verified first-time finding or a material change, with a concrete reason it matters. Older or undated reference material can support a discovery when its present applicability is checked; time-sensitive claims still require current evidence. A second publisher repeating the same underlying story is corroboration, not a new update. Canonical story keys remain stable across storage and subsequent runs.
+- The feed keeps its Known, Adjacent, and Scout lanes. Cards provide a specific title, one-sentence takeaway, short plain-text explanation, source, and confidence. Runs normally produce one or two cards, with a hard maximum of four; an empty feed result remains valid. Research progress and unsuccessful searches stay in run history and workspace notes.
 - The worker skips destructive, irreversible, credential-related, send/merge/delete/scale/uninstall, memory-delete, OAuth, and other approval-gated actions. Use interactive Chat for work that requires user confirmation or authorization.
 - A Redis lease with heartbeat prevents multiple worker replicas from running the same configured user concurrently.
 
@@ -502,7 +505,37 @@ Important settings:
 The worker seeds its first-run workspace from built-in defaults in
 [`builder/autonomous_agent/src/autonomous_agent/prompt.py`](../builder/autonomous_agent/src/autonomous_agent/prompt.py).
 After that, mutable workspace sections live in Redis and are updated by the
-worker itself.
+worker itself. Exploration guidance lives in the runtime overlay, so existing
+workspace notes receive the new behavior without being reset. The autonomy
+Redis role needs access to both `autonomy:*` control-plane keys and
+`autonomous:*:workspace:*` notes. RedisJSON capability checks use the requested
+authorized key and do not treat an ACL failure as missing RedisJSON support.
+
+### Separate Autonomy Model
+
+To use a different model for autonomous runs, set all three variables on the
+**backend** service:
+
+```dotenv
+AUTONOMOUS_LLM_MODEL_BASE_URL=http://switchyard.daedalus.svc.cluster.local:4000/v1
+AUTONOMOUS_LLM_MODEL_API_KEY=not-used
+AUTONOMOUS_LLM_MODEL_MODEL=daedalus/cheap
+```
+
+Compose reads these from its backend environment file. In Helm, place them in
+the backend Secret or `backend.default.env.data` with `createSecret: true`;
+the non-secret URL and model can also use `backend.default.env.overrides`. Keep provider credentials out of
+the autonomous worker environment. See [model routing](model-routing.md) for
+the configuration and fallback behavior.
+
+The worker still calls the existing backend workflow. The backend selects the
+separate model for trusted autonomy requests, retaining its tools, source
+policy, identity, and approval restrictions. Interactive Chat keeps its normal
+model. The endpoint must support the OpenAI Responses API. Leaving all three
+variables unset retains the shared model behavior; a partial configuration
+fails configuration validation rather than borrowing the chat provider's credential.
+These settings require a backend restart; code and Redis ACL changes require
+the corresponding application deployment.
 
 ## Observability
 

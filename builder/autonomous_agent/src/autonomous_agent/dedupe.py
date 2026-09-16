@@ -79,8 +79,11 @@ def normalize_url(raw: str | None) -> str:
     text = raw.strip()
     if not text:
         return ""
-    # Tolerate scheme-less URLs ("example.com/x") by assuming https.
-    if "://" not in text:
+    # Accept our own canonical output ("//example.com/x") on later runs as
+    # well as scheme-less URLs ("example.com/x").
+    if text.startswith("//"):
+        text = f"https:{text}"
+    elif "://" not in text:
         text = f"https://{text}"
     try:
         parts = urlsplit(text)
@@ -160,7 +163,7 @@ def _source_url(item: dict[str, Any]) -> str:
 
 
 def normalize_thread_key(raw: Any) -> str:
-    """Normalize an explicit model/store thread key for equality checks."""
+    """Normalize model and already-stamped store keys identically."""
 
     if not isinstance(raw, str):
         return ""
@@ -170,6 +173,11 @@ def normalize_thread_key(raw: Any) -> str:
     if text.startswith("url:"):
         normalized_url = normalize_url(text[4:])
         return f"url:{normalized_url}" if normalized_url else ""
+    # stamp_feed_item persists this namespace. Strip it before normalizing so
+    # reading or re-stamping an existing key cannot add another "thread" token.
+    # Only the explicit namespace is special: "thread safety" is a valid topic.
+    if text.startswith("thread:"):
+        text = text[len("thread:") :]
     normalized = normalize_text(text)
     return f"thread:{normalized}" if normalized else ""
 

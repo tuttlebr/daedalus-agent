@@ -158,6 +158,8 @@ backend:
         drop: [ALL]
     env:
       # Name of an existing Secret to load via envFrom (external secret)
+      # Optional AUTONOMOUS_LLM_MODEL_{BASE_URL,API_KEY,MODEL} belong here on
+      # the backend. Set the complete trio to isolate autonomous model calls.
       fromSecret: ''
       # If you prefer Helm to create the Secret, set createSecret=true and provide key/value pairs under data
       createSecret: false

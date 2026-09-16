@@ -345,8 +345,18 @@ assert_workload_acls() {
 
   assert_acl_value daedalus-autonomous "$autonomous_password" 1 \
     LLEN "$AUTONOMY_QUEUE_KEY"
+  assert_acl_value daedalus-autonomous "$autonomous_password" OK \
+    JSON.SET autonomy:acl-fixture:config '$' '{"enabled":false}'
+  assert_acl_value daedalus-autonomous "$autonomous_password" '{"enabled":false}' \
+    JSON.GET autonomy:acl-fixture:config
+  assert_acl_value daedalus-autonomous "$autonomous_password" OK \
+    SET autonomous:acl-fixture:workspace:identity fixture
+  assert_acl_value daedalus-autonomous "$autonomous_password" fixture \
+    GET autonomous:acl-fixture:workspace:identity
   assert_acl_denied daedalus-autonomous "$autonomous_password" GET session:fixture
-  redis_cli "$application_password" DEL nat:acl-fixture >/dev/null
+  assert_acl_denied daedalus-autonomous "$autonomous_password" GET autonomous:acl-fixture:unrelated
+  redis_cli "$application_password" DEL nat:acl-fixture \
+    autonomy:acl-fixture:config autonomous:acl-fixture:workspace:identity >/dev/null
 }
 
 assert_fixture() {

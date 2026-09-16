@@ -82,9 +82,11 @@ data:
           "${REDIS_STREAM_WORKER_PREVIOUS_PASSWORD:-}" \
           '~async-* ~conversation:* ~conversation-job:* ~streaming:user:*:conversation:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~session-documents:* ~generated:* ~image:* ~image-job:*' \
           '&job:*:status &user:*:chat:*:tokens &user:*:updates'
-        # The autonomous process owns only autonomy state and its update topic.
+        # The autonomous process owns only autonomy state, its persisted
+        # workspace notes, and its update topic.
         write_acl_user "$REDIS_AUTONOMOUS_USERNAME" "$REDIS_AUTONOMOUS_PASSWORD" \
-          "${REDIS_AUTONOMOUS_PREVIOUS_PASSWORD:-}" '~autonomy:*' '&user:*:updates'
+          "${REDIS_AUTONOMOUS_PREVIOUS_PASSWORD:-}" \
+          '~autonomy:* ~autonomous:*:workspace:*' '&user:*:updates'
       } >/tmp/users.acl
       AUTH_ARGS=(--aclfile /tmp/users.acl)
       # redis-cli reads these without exposing credentials in process args.

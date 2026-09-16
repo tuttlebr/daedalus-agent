@@ -13,6 +13,7 @@ import traceback
 from typing import Any
 
 from .backend_client import BackendClient, OAuthRequiredError, RunAbortedError
+from .exploration import build_exploration_context
 from .models import new_run, now_ms
 from .prompt import (
     build_messages,
@@ -131,7 +132,7 @@ def _goal_cadence_ms(goal: dict[str, Any]) -> int:
 def select_scheduled_goal(
     goals: list[dict[str, Any]], *, timestamp: int
 ) -> dict[str, Any] | None:
-    """Pick the never-run or most-overdue active goal, then use priority."""
+    """Pick a never-run or due active goal, leaving quiet slots for discovery."""
 
     active = [
         (index, goal)
@@ -153,7 +154,9 @@ def select_scheduled_goal(
         overdue = (timestamp - float(last_run)) / _goal_cadence_ms(goal)
         return (0.0, overdue, -priority, -index)
 
-    return max(active, key=rank)[1]
+    selected = max(active, key=rank)
+    never_run, overdue, _priority, _index = rank(selected)
+    return selected[1] if never_run or overdue >= 1 else None
 
 
 def run_once(
@@ -166,8 +169,18 @@ def run_once(
     run_id_holder: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     request = dict(request)
+    requested_goal_id = request.get("goalId")
+    invalid_goal_id = requested_goal_id is not None and (
+        not isinstance(requested_goal_id, str) or not requested_goal_id.strip()
+    )
+    if isinstance(requested_goal_id, str):
+        request["goalId"] = requested_goal_id.strip()
     goals_snapshot: list[dict[str, Any]] | None = None
-    if request.get("trigger", "scheduled") == "scheduled" and not request.get("goalId"):
+    if (
+        request.get("trigger", "scheduled") == "scheduled"
+        and not request.get("goalId")
+        and not invalid_goal_id
+    ):
         goals_snapshot = store.list_goals(user_id)
         selected_goal = select_scheduled_goal(goals_snapshot, timestamp=now_ms())
         if selected_goal:
@@ -190,21 +203,30 @@ def run_once(
     store.log_event(user_id, run["id"], "run_started", "Autonomous run started.")
     goal_id = str(run.get("goalId") or "").strip()
     mark_goal_run = getattr(store, "mark_goal_run", None)
-    if goal_id and callable(mark_goal_run):
-        mark_goal_run(user_id, goal_id, run["startedAt"])
 
     try:
         config = store.get_config(user_id)
-        workspace = load_workspace(store, user_id)
         goals = (
             goals_snapshot if goals_snapshot is not None else store.list_goals(user_id)
         )
+        if invalid_goal_id or (
+            goal_id and not any(goal.get("id") == goal_id for goal in goals)
+        ):
+            raise ValueError("The selected goal is no longer available.")
+        workspace = load_workspace(store, user_id)
         recent_runs = [
             existing
             for existing in store.list_runs(user_id)
             if existing.get("id") != run["id"]
         ]
         recent_feed = store.list_feed(user_id, limit=120)
+        exploration = build_exploration_context(
+            recent_runs=recent_runs,
+            recent_feed=recent_feed,
+            goal_id=request.get("goalId"),
+        )
+        run["metrics"]["explorationStep"] = exploration["step"]
+        run["metrics"]["explorationLane"] = exploration["preferred_lane"]
         messages = build_messages(
             user_id=user_id,
             config=config,
@@ -213,7 +235,12 @@ def run_once(
             recent_runs=recent_runs,
             recent_feed=recent_feed,
             request=request,
+            exploration=exploration,
         )
+        # Preserve the previous lastRunAt in the prompt's freshness context.
+        # A missing/deleted explicit goal must never become general exploration.
+        if goal_id and callable(mark_goal_run):
+            mark_goal_run(user_id, goal_id, run["startedAt"])
         store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
         execution_id = str(request.get("id") or run["id"])
         response = backend.call(messages, execution_id=execution_id, abort=abort)

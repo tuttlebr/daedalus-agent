@@ -1,5 +1,6 @@
 """Tests for autonomous feed de-duplication (redundant-feed guardrail)."""
 
+import pytest
 from autonomous_agent.dedupe import (
     DEFAULT_WINDOW_DAYS,
     MAX_WINDOW_DAYS,
@@ -8,7 +9,9 @@ from autonomous_agent.dedupe import (
     feed_fingerprint,
     feed_thread_key,
     is_duplicate,
+    normalize_thread_key,
     normalize_url,
+    stamp_feed_item,
     summarize_recent_feed,
     url_domain,
     window_ms_for_days,
@@ -51,6 +54,96 @@ def test_normalize_url_keeps_meaningful_query_and_handles_scheme_less():
 def test_url_domain_returns_bare_host():
     assert url_domain("https://www.nvidia.com/news/gpu") == "nvidia.com"
     assert url_domain("") == ""
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Dynamo-2.0-release", "thread:dynamo 2 0 release"),
+        ("thread:dynamo 2 0 release", "thread:dynamo 2 0 release"),
+        ("thread safety", "thread:thread safety"),
+        ("url:https://www.example.com/report/", "url://example.com/report"),
+        ("url://example.com/report", "url://example.com/report"),
+        ("", ""),
+    ],
+)
+def test_normalize_thread_key_is_stable_across_runs(raw, expected):
+    assert normalize_thread_key(raw) == expected
+    assert normalize_thread_key(expected) == expected
+
+
+def test_normalize_url_accepts_its_stored_canonical_form():
+    canonical = normalize_url("https://example.com:8443/report/?id=7&utm_source=x")
+    assert normalize_url(canonical) == canonical
+
+
+@pytest.mark.parametrize("reuse_digest_key", [False, True])
+def test_stored_event_thread_suppresses_cross_publisher_repeat(reuse_digest_key):
+    old = _item(
+        id="old",
+        title="Dynamo 2.0 released",
+        bluf="New routing policy.",
+        body="Official release notes.",
+        sourceUrl="https://github.com/nvidia/dynamo/releases/2.0",
+        threadKey="dynamo-2-0-release",
+    )
+    stored, _ = dedupe_feed_items([old], [], now=NOW)
+    digest = summarize_recent_feed(stored, now=NOW)
+    assert digest[0]["threadKey"] == stored[0]["threadKey"]
+    repeat = _item(
+        id="repeat",
+        title="A closer look at NVIDIA serving software",
+        bluf="Another outlet covers the announcement.",
+        body="This article summarizes the same release.",
+        sourceUrl="https://example.com/dynamo-review",
+        threadKey=(
+            digest[0]["threadKey"] if reuse_digest_key else "dynamo-2-0-release"
+        ),
+    )
+
+    kept, dropped = dedupe_feed_items([repeat], stored, now=NOW)
+
+    assert kept == []
+    assert [item["id"] for item in dropped] == ["repeat"]
+
+
+def test_stored_event_thread_keeps_material_update_and_stable_linkage():
+    old = stamp_feed_item(
+        _item(
+            id="old",
+            title="Dynamo 2.0 released",
+            bluf="A new routing policy is available.",
+            body="Official release notes document its operation.",
+            sourceUrl="https://github.com/nvidia/dynamo/releases/2.0",
+            threadKey="dynamo-2-0-release",
+        )
+    )
+    update = _item(
+        id="update",
+        title="Independent throughput measurements published",
+        bluf="Benchmark results show lower tail latency under heavy load.",
+        body="The evaluation includes reproducible scripts and hardware details.",
+        sourceUrl="https://example.com/benchmark",
+        threadKey="dynamo-2-0-release",
+        isUpdate=True,
+    )
+
+    kept, dropped = dedupe_feed_items([update], [old], now=NOW)
+
+    assert dropped == []
+    assert kept[0]["updateOfFeedItemId"] == "old"
+    assert kept[0]["threadKey"] == old["threadKey"]
+    assert stamp_feed_item(kept[0])["threadKey"] == old["threadKey"]
+
+
+def test_legacy_url_thread_without_source_or_fingerprint_stays_matchable():
+    old = _item(id="old", threadKey="url://example.com/report")
+    repeat = _item(id="repeat", sourceUrl="https://example.com/report")
+
+    kept, dropped = dedupe_feed_items([repeat], [old], now=NOW)
+
+    assert kept == []
+    assert [item["id"] for item in dropped] == ["repeat"]
 
 
 def test_is_duplicate_same_url_rereport_is_dropped():

@@ -17,7 +17,7 @@ class _FakeRedis:
 
     def execute_command(self, *_args, **_kwargs):
         # Force the store onto its plain GET/SET (non-RedisJSON) code path.
-        raise RuntimeError("JSON module unavailable")
+        raise RuntimeError("unknown command 'JSON.GET'")
 
     def get(self, k):
         return self.kv.get(k)
@@ -520,6 +520,78 @@ def _json_txn_store():
     store.redis = _JsonTxnRedis()
     store._watch_error_type = _WatchError
     return store
+
+
+def test_json_capability_probe_uses_authorized_key():
+    store = _json_txn_store()
+    config_key = key("u", "config")
+    store.redis.json_kv[config_key] = json.dumps({"enabled": False})
+    execute = store.redis.execute_command
+    accessed_keys = []
+
+    def scoped_execute(command, redis_key, *args):
+        accessed_keys.append(redis_key)
+        if not redis_key.startswith("autonomy:u:"):
+            raise RuntimeError("NOPERM No permissions to access a key")
+        return execute(command, redis_key, *args)
+
+    store.redis.execute_command = scoped_execute
+
+    assert store.get_config("u")["enabled"] is False
+    assert set(accessed_keys) == {config_key}
+    assert store._json_supported is True
+
+
+@pytest.mark.parametrize(
+    "error", ["NOPERM No permissions to access a key", "connection timed out"]
+)
+def test_json_capability_failure_remains_retryable(error):
+    store = _json_txn_store()
+    redis_key = key("u", "config")
+    store.redis.json_kv[redis_key] = json.dumps({"enabled": False})
+    execute = store.redis.execute_command
+
+    def fail(*_args):
+        raise RuntimeError(error)
+
+    store.redis.execute_command = fail
+    with pytest.raises(RuntimeError, match=error):
+        store.get_config("u")
+    assert store._json_supported is None
+
+    store.redis.execute_command = execute
+    assert store.get_config("u")["enabled"] is False
+    assert store._json_supported is True
+
+
+@pytest.mark.parametrize("operation", ["read", "write"])
+def test_json_permission_failure_does_not_fallback_to_string_state(operation):
+    store = _json_txn_store()
+    redis_key = key("u", "config")
+    original = json.dumps({"enabled": False})
+    store.redis.json_kv[redis_key] = original
+    store._json_supported = True
+
+    def denied(*_args):
+        raise RuntimeError("NOPERM No permissions to access a key")
+
+    store.redis.execute_command = denied
+    with pytest.raises(RuntimeError, match="NOPERM"):
+        if operation == "read":
+            store.get_config("u")
+        else:
+            store.json_set(redis_key, {"enabled": True})
+    assert store.redis.json_kv[redis_key] == original
+    assert redis_key not in store.redis.kv
+
+
+def test_json_capability_unknown_command_retains_plain_redis_support():
+    store = _store()
+    redis_key = key("u", "config")
+    store.json_set(redis_key, {"enabled": False})
+
+    assert store._json_supported is False
+    assert store.get_config("u")["enabled"] is False
 
 
 def test_atomic_update_uses_redisjson_for_a_missing_key():
