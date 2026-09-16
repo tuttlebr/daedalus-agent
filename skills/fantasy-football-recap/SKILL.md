@@ -36,11 +36,14 @@ by its skill name, then explicitly stage the helper and snapshot in the sandbox.
 The sandbox does not inherit `/skills` or ESPN credentials. Do not call
 `run_skill_script` or the daily-summary-specific renderer.
 
-Load [espn-fantasy-football](../espn-fantasy-football/SKILL.md) only when a roster
-decision needs its deeper lineup/waiver analysis; pass confirmed settings and
-reads and retain this skill's publication format. Creating a recap authorizes
-research and artifact creation, not lineup changes, transactions, or sending the
-publication to managers.
+For every edition, load and apply the required companion
+[espn-fantasy-football](../espn-fantasy-football/SKILL.md) before gathering league
+data: `agent_skills_tool(operation=load_skill, skill_name=espn-fantasy-football)`.
+Use its league-context, scoring, and roster-analysis guidance, reuse confirmed
+settings and reads, and retain this skill's reporting gates and newspaper format.
+Apply draft, waiver, or trade workflows only where the edition calls for them.
+Creating a recap authorizes research and artifact creation, not lineup changes,
+transactions, or sending the publication to managers.
 
 ## 1. Establish the edition
 
@@ -151,6 +154,10 @@ phrasing, forced puns, gambling filler, excessive exclamation marks, and repeate
 player summaries. Choose story order for this edition; combine or omit optional
 modules when reporting is thin.
 
+Keep visible content focused on the league and football reporting. Omit blocks
+that explain the website, its layout, or how to use it, such as “Here's how this
+website works.” Keep necessary data caveats beside the affected reporting.
+
 1. **Front-page lead:** a specific headline, one-sentence deck, and feature on
    the strongest supported league story: what happened, who drove it, and its
    verified significance. Expand the marquee matchup here without duplicating it
@@ -179,8 +186,13 @@ modules when reporting is thin.
 ## 5. Design, check, and deliver
 
 Create a complete standalone HTML document with an original league-specific
-masthead, issue metadata, warm off-white background, near-black text, one restrained
-accent, bold serif headlines, readable body type, thin rules, and generous spacing.
+masthead, issue metadata, pure white (`#FFFFFF`) background, near-black text, one
+restrained accent, bold serif headlines, readable body type, thin rules, and
+generous spacing.
+Explicitly set `html`, `body`, and the newspaper's main wrapper backgrounds to
+`#FFFFFF` and preserve that white canvas on desktop, mobile, and in print. Do not
+use warm white, cream, paper textures, or gradients for the page background.
+Keep creative freedom in the masthead, typography, accent color, and story layout.
 Use embedded CSS and system fonts, with no external assets, fonts, scripts or
 tracking. Escape source text and allow only safe public source URLs in links.
 
@@ -203,7 +215,8 @@ waiver availability. If facts changed, update the ledger and regenerate all affe
 prose, tables, awards, charts and previews. Check every numerical and directional
 claim against the final ledger, including “beat,” “lost,” “ahead,” and record
 changes. Confirm all matchups are covered and headlines satisfy the story gates.
-Remove stale news, unsupported certainty, duplication, and template placeholders.
+Remove stale news, unsupported certainty, duplication, template placeholders, and
+website-explainer copy. Confirm the page and newspaper canvas remain `#FFFFFF`.
 
 When tools allow, inspect the actual rendered HTML at desktop and mobile widths
 and inspect print layout. If PDF generation is available, export from the same

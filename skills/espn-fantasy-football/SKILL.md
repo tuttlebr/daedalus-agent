@@ -18,6 +18,11 @@ fantasy desk in `daily-summary`, return concise dated facts/recommendations to
 that skill and preserve its read-only, source-only HTML output contract.
 A briefing mention is not a request for a full draft/waiver campaign.
 
+For `fantasy-football-recap`, apply the league-context, scoring, and roster-analysis
+guidance to its league-wide reporting, reuse its confirmed reads, and preserve
+its reporting gates and newspaper format. Use only the decision workflows needed
+for the edition's stories and advice.
+
 If `_daedalus_compacted_tool_output` omits relevant roster/pool rows, recover
 them through `tool_output_retriever_tool` before exact counts, exhaustive
 availability, or absence claims. Do not infer legal lineups from a truncated

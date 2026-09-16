@@ -1,5 +1,19 @@
 # Skill review records
 
+## 2026-09-16: fantasy-football-recap presentation and required companion
+
+Required a pure white (`#FFFFFF`) page and newspaper canvas across desktop,
+mobile, and print while preserving creative typography, accents, and story layout.
+Excluded blocks explaining the website or its layout; necessary reporting caveats
+remain beside affected stories. Every edition now loads and applies
+`espn-fantasy-football`, with matching ownership and companion integration guidance
+that preserves the recap's reporting gates and newspaper format.
+
+Validation: both edited skills passed frontmatter validation. All three catalog
+tests passed, including parser/dispatcher discovery and resource loading across
+all 19 application skills. These are instruction and loading checks; no live
+edition, model behavior evaluation, rendered publication, or deployment was performed.
+
 ## 2026-09-15: fantasy-football-recap
 
 Added a weekly league newspaper skill with standalone HTML/file delivery and
