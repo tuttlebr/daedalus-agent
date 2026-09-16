@@ -1,5 +1,30 @@
 # Skill review records
 
+## 2026-09-15: fantasy-football-recap
+
+Added a weekly league newspaper skill with standalone HTML/file delivery and
+optional visually checked PDF. A reporting contract documents the ESPN
+connector's scoring-period versus matchup-period behavior, historical lineup
+and standings limits, actual versus projected stats, and availability checks.
+The editorial gates require evidence for win/loss stories, records, superlatives,
+upsets, comebacks, legal bench substitutions and transaction impact.
+
+The bundled decimal scoreboard checker consumes original ESPN response objects
+and reporter-supplied status evidence. It checks context, team/matchup coverage
+within supplied responses, score precision, official winners, ties, byes and
+multiweek totals.
+It separates final winners from live leaders and withholds full-league extrema
+when coverage or comparability is incomplete. Its status annotations are trusted
+inputs: the helper does not establish source completeness or finality, audit
+prose/standings, or validate historical lineup legality. Daedalus loads it as text
+for explicit sandbox staging; no new runtime tool or execution permission was added.
+
+Validation: 103 focused Python tests passed, including 26 synthetic recap cases
+and discovery/resource loading across all 19 application skills, parser/dispatcher
+checks, and tool-skill alignment. Skill frontmatter and local links passed.
+This validates the helper and source contracts; no live league edition, model
+behavior evaluation, rendered publication, or deployment was performed.
+
 ## 2026-09-12: daily-summary token efficiency
 
 Removed the Sources and desk ledger sections, their template CSS, and repeated

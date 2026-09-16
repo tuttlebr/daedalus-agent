@@ -16,7 +16,7 @@ def test_entire_catalog_and_resources_round_trip():
     expected = {p.parent.name for p in SKILLS.glob("*/SKILL.md")}
     listed = json.loads(asyncio.run(_list_skills(parser)))
     assert {item["name"] for item in listed["skills"]} == expected
-    assert len(discovered) == len(expected) == 18
+    assert len(discovered) == len(expected) == 19
     for meta in discovered:
         assert meta.name == meta.directory.name
         loaded = asyncio.run(_load_skill(parser, meta.name))
