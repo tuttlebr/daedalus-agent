@@ -5,11 +5,19 @@ from Chat and Create, including edits. The supported modes are `off` and `local`
 Certificate generation and image signing work offline after the Python dependencies
 are installed. No external signing or timestamp service is used.
 
-The public attribution is **Brandon Tuttle**, the application is **Daedalus**, and
-outputs are marked as AI-generated (`trainedAlgorithmicMedia`). Added metadata
+The public attribution is **Brandon Tuttle**, **Created with** is **Daedalus Agent**,
+and **AI model** is **Daedalus-Create**. Outputs are marked as AI-generated
+(`trainedAlgorithmicMedia`). Added metadata
 excludes prompts, account/session details, input references, and uploaded images.
 An existing embedded provider manifest is preserved, including its existing public
 metadata. Uploaded edit-input history is not embedded or reconstructed.
+
+The application name is stored in `claim_generator_info`; the public model name
+is stored in the AI action's `softwareAgent`. New credentials record `c2pa.created`;
+when preserving a provider manifest, the update records `c2pa.opened` instead.
+These fields follow the [C2PA actions specification](https://spec.c2pa.org/specifications/specifications/2.3/specs/C2PA_Specification.html#_actions)
+and the [CAI viewer's AI model extraction](https://github.com/contentauth/c2pa-js-legacy/blob/main/packages/c2pa/src/selectors/selectGenerativeInfo.ts).
+`Daedalus-Create` is the public model label, independent of the provider model ID.
 
 Final PNG, JPEG, and WebP images retain their pixels, dimensions, transparency,
 and format. Partials remain unsigned. An interrupted stream cannot promote its
@@ -17,6 +25,11 @@ last partial into a final. When signing is enabled, signing/validation failures
 prevent delivery of that final image. Full downloads preserve the signed bytes;
 re-encoded thumbnails and screenshots do not preserve credentials. Previously
 stored images are not retroactively signed.
+
+Known SDK limitation: with `c2pa-python==0.37.10`, updating a WebP that already
+contains credentials fails content-binding validation and prevents publication.
+This also occurs before the application/model metadata additions. Newly signed
+WebP files and provider-manifest updates in PNG/JPEG pass verification.
 
 ## Generate your certificate bundle
 
@@ -139,7 +152,8 @@ Keep old certificates for historical inspection and Helm rollback; renewal does
 not change images that were already signed. Old Secrets are retained.
 
 After enabling signing, download a final image from both Chat and Create and
-inspect the original file. Confirm creator attribution, AI source type, valid
+inspect the original file. Confirm creator attribution, **Created with: Daedalus
+Agent**, **AI model: Daedalus-Create**, AI source type, valid
 signature/content binding, and the expected unrecognized issuer. The generated
 `signed-example.png` can also be inspected before deployment.
 

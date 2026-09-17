@@ -54,6 +54,22 @@ def read_manifest(data, mime="image/png"):
             return json.loads(reader.json()), reader.get_validation_state()
 
 
+def assert_public_attribution(store, action="c2pa.created"):
+    manifest = store["manifests"][store["active_manifest"]]
+    assert manifest["claim_generator_info"][0]["name"] == "Daedalus Agent"
+    assertions = {a["label"]: a["data"] for a in manifest["assertions"]}
+    assert assertions["cawg.metadata"]["dc:creator"] == ["Brandon Tuttle"]
+    assert assertions["cawg.metadata"]["Iptc4xmpExt:DigitalSourceType"].endswith(
+        "/trainedAlgorithmicMedia"
+    )
+    actions = assertions["c2pa.actions.v2"]["actions"]
+    assert len(actions) == 1
+    assert actions[0]["action"] == action
+    assert actions[0]["digitalSourceType"].endswith("/trainedAlgorithmicMedia")
+    assert actions[0]["softwareAgent"] == {"name": "Daedalus-Create"}
+    return actions[0]
+
+
 @pytest.mark.parametrize("fmt", ["png", "jpeg", "webp"])
 def test_real_signing_preserves_pixels_and_embeds_public_attribution(credentials, fmt):
     original = image_bytes(fmt)
@@ -62,14 +78,7 @@ def test_real_signing_preserves_pixels_and_embeds_public_attribution(credentials
     )
     store, state = read_manifest(signed, f"image/{fmt}")
     assert state == "Valid"  # Integrity is valid; this test signer is not trusted.
-    manifest = store["manifests"][store["active_manifest"]]
-    assert manifest["claim_generator_info"][0]["name"] == "Daedalus"
-    assertions = {a["label"]: a["data"] for a in manifest["assertions"]}
-    assert assertions["cawg.metadata"]["dc:creator"] == ["Brandon Tuttle"]
-    assert assertions["cawg.metadata"]["Iptc4xmpExt:DigitalSourceType"].endswith(
-        "/trainedAlgorithmicMedia"
-    )
-    assert assertions["c2pa.actions.v2"]["actions"][0]["action"] == "c2pa.created"
+    assert_public_attribution(store)
     with Image.open(io.BytesIO(original)) as before, Image.open(
         io.BytesIO(signed)
     ) as after:
@@ -91,16 +100,56 @@ def test_tampered_pixels_invalidate_credentials(credentials):
     assert "assertion.dataHash.mismatch" in json.dumps(store)
 
 
-def test_preserves_embedded_provider_manifest(credentials):
-    original = sign_final_image(base64.b64encode(image_bytes()).decode(), "image/png")
-    provider, _ = read_manifest(base64.b64decode(original))
-    signed = sign_final_image(original, "image/png")
-    store, state = read_manifest(base64.b64decode(signed))
+@pytest.mark.parametrize(
+    "fmt",
+    [
+        "png",
+        "jpeg",
+        pytest.param(
+            "webp",
+            marks=pytest.mark.xfail(
+                strict=True,
+                raises=ContentCredentialsError,
+                reason="Existing c2pa-python 0.37.10 WebP update data-hash mismatch",
+            ),
+        ),
+    ],
+)
+def test_preserves_embedded_provider_manifest(credentials, monkeypatch, fmt):
+    from nat_helpers import content_credentials
+
+    build_manifest = content_credentials._manifest
+
+    def provider_manifest(config, *, has_manifest):
+        manifest = build_manifest(config, has_manifest=has_manifest)
+        manifest["claim_generator_info"] = [{"name": "Example Provider"}]
+        for assertion in manifest["assertions"]:
+            if assertion["label"] == "c2pa.actions.v2":
+                assertion["data"]["actions"][0]["softwareAgent"] = {
+                    "name": "Example Provider Model"
+                }
+        return manifest
+
+    mime = f"image/{fmt}"
+    with monkeypatch.context() as patch:
+        patch.setattr(content_credentials, "_manifest", provider_manifest)
+        original = sign_final_image(base64.b64encode(image_bytes(fmt)).decode(), mime)
+    provider, _ = read_manifest(base64.b64decode(original), mime)
+    signed = sign_final_image(original, mime)
+    store, state = read_manifest(base64.b64decode(signed), mime)
     assert state == "Valid"
     assert provider["active_manifest"] in store["manifests"]
     assert store["active_manifest"] != provider["active_manifest"]
     active = store["manifests"][store["active_manifest"]]
+    assert len(active["ingredients"]) == 1
     assert active["ingredients"][0]["relationship"] == "parentOf"
+    opened = assert_public_attribution(store, "c2pa.opened")
+    assert len(opened["parameters"]["ingredients"]) == 1
+    assert "c2pa.ingredient" in opened["parameters"]["ingredients"][0]["url"]
+    assert (
+        store["manifests"][provider["active_manifest"]]
+        == provider["manifests"][provider["active_manifest"]]
+    )
 
 
 def test_storage_signs_finals_but_leaves_partials_and_private_context_out(credentials):
@@ -249,6 +298,7 @@ def test_chat_generate_and_edit_deliver_signed_finals(
         record = json.loads(call.args[-1])
         manifest, state = read_manifest(base64.b64decode(record["data"]))
         assert state == "Valid"
+        assert_public_attribution(manifest)
         assert "private" not in json.dumps(manifest)
 
 
@@ -332,6 +382,7 @@ def test_create_routes_sign_finals_and_report_signing_failure(
     record = json.loads(redis.execute_command.call_args.args[-1])
     store, state = read_manifest(base64.b64decode(record["data"]))
     assert state == "Valid"
+    assert_public_attribution(store)
     assert "private" not in json.dumps(store)
 
 
@@ -376,8 +427,9 @@ def test_create_stream_only_publishes_signed_completed_images(
     if ending == "completed":
         assert "event: completed" in response
         assert len(records) == 2
-        _, state = read_manifest(base64.b64decode(records[1]["data"]))
+        store, state = read_manifest(base64.b64decode(records[1]["data"]))
         assert state == "Valid"
+        assert_public_attribution(store)
     else:
         assert "event: error" in response
         assert "event: completed" not in response

@@ -76,9 +76,17 @@ def _signer(config: SigningConfig):
         yield signer
 
 
-def _manifest(config: SigningConfig) -> dict:
+def _manifest(config: SigningConfig, *, has_manifest: bool) -> dict:
+    action = {
+        "action": "c2pa.opened" if has_manifest else "c2pa.created",
+        "digitalSourceType": _SOURCE_TYPE,
+        "softwareAgent": {"name": "Daedalus-Create"},
+    }
+    if has_manifest:
+        # Open the signed provider output without claiming a new creation.
+        action["parameters"] = {"ingredientIds": ["provider-output"]}
     return {
-        "claim_generator_info": [{"name": "Daedalus"}],
+        "claim_generator_info": [{"name": "Daedalus Agent"}],
         "title": "AI-generated image",
         "assertions": [
             {
@@ -91,7 +99,11 @@ def _manifest(config: SigningConfig) -> dict:
                     "dc:creator": [config.creator],
                     "Iptc4xmpExt:DigitalSourceType": _SOURCE_TYPE,
                 },
-            }
+            },
+            {
+                "label": "c2pa.actions.v2",
+                "data": {"actions": [action]},
+            },
         ],
     }
 
@@ -138,9 +150,18 @@ def sign_final_image(b64_data: str, mime_type: str) -> str:
             except c2pa.C2paError.ManifestNotFound:
                 has_manifest = False
 
-            with c2pa.Builder(_manifest(config), context=context) as builder:
+            with c2pa.Builder(
+                _manifest(config, has_manifest=has_manifest), context=context
+            ) as builder:
                 if has_manifest:
                     builder.set_intent(c2pa.C2paBuilderIntent.UPDATE)
+                    # An explicit opened action disables automatic parent
+                    # insertion, so bind it to the original provider output.
+                    builder.add_ingredient(
+                        {"label": "provider-output", "relationship": "parentOf"},
+                        mime_type,
+                        io.BytesIO(source),
+                    )
                 else:
                     builder.set_intent(
                         c2pa.C2paBuilderIntent.CREATE,
