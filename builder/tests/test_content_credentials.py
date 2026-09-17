@@ -54,8 +54,7 @@ def read_manifest(data, mime="image/png"):
             return json.loads(reader.json()), reader.get_validation_state()
 
 
-def assert_public_attribution(store, action="c2pa.created"):
-    manifest = store["manifests"][store["active_manifest"]]
+def assert_manifest_attribution(manifest, action):
     assert manifest["claim_generator_info"][0]["name"] == "Daedalus Agent"
     assertions = {a["label"]: a["data"] for a in manifest["assertions"]}
     assert assertions["cawg.metadata"]["dc:creator"] == ["Brandon Tuttle"]
@@ -68,6 +67,28 @@ def assert_public_attribution(store, action="c2pa.created"):
     assert actions[0]["digitalSourceType"].endswith("/trainedAlgorithmicMedia")
     assert actions[0]["softwareAgent"] == {"name": "Daedalus-Create"}
     return actions[0]
+
+
+def assert_public_attribution(store):
+    # Adobe Inspect reads "AI model" from the active claim and "AI model used"
+    # from its source history. Both must contain only the public model label.
+    manifests = store["manifests"]
+    assert len(manifests) == 2
+    active = manifests[store["active_manifest"]]
+    opened = assert_manifest_attribution(active, "c2pa.opened")
+    assert len(active["ingredients"]) == 1
+    ingredient = active["ingredients"][0]
+    assert ingredient["relationship"] == "parentOf"
+    assert ingredient["title"] == "Daedalus-Create output"
+    source_label = ingredient["active_manifest"]
+    assert source_label != store["active_manifest"]
+    source = manifests[source_label]
+    assert_manifest_attribution(source, "c2pa.created")
+    assert not source.get("ingredients")
+    assert len(opened["parameters"]["ingredients"]) == 1
+    assert opened["parameters"]["ingredients"][0]["url"].endswith(
+        "/" + ingredient["label"]
+    )
 
 
 @pytest.mark.parametrize("fmt", ["png", "jpeg", "webp"])
@@ -100,34 +121,22 @@ def test_tampered_pixels_invalidate_credentials(credentials):
     assert "assertion.dataHash.mismatch" in json.dumps(store)
 
 
-@pytest.mark.parametrize(
-    "fmt",
-    [
-        "png",
-        "jpeg",
-        pytest.param(
-            "webp",
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=ContentCredentialsError,
-                reason="Existing c2pa-python 0.37.10 WebP update data-hash mismatch",
-            ),
-        ),
-    ],
-)
-def test_preserves_embedded_provider_manifest(credentials, monkeypatch, fmt):
+@pytest.mark.parametrize("fmt", ["png", "jpeg", "webp"])
+def test_replaces_entire_provider_history(credentials, monkeypatch, fmt):
     from nat_helpers import content_credentials
 
     build_manifest = content_credentials._manifest
 
-    def provider_manifest(config, *, has_manifest):
-        manifest = build_manifest(config, has_manifest=has_manifest)
+    def provider_manifest(config, *, is_publication):
+        manifest = build_manifest(config, is_publication=is_publication)
         manifest["claim_generator_info"] = [{"name": "Example Provider"}]
         for assertion in manifest["assertions"]:
             if assertion["label"] == "c2pa.actions.v2":
                 assertion["data"]["actions"][0]["softwareAgent"] = {
                     "name": "Example Provider Model"
                 }
+            elif assertion["label"] == "cawg.metadata":
+                assertion["data"]["dc:description"] = "private provider prompt"
         return manifest
 
     mime = f"image/{fmt}"
@@ -138,18 +147,29 @@ def test_preserves_embedded_provider_manifest(credentials, monkeypatch, fmt):
     signed = sign_final_image(original, mime)
     store, state = read_manifest(base64.b64decode(signed), mime)
     assert state == "Valid"
-    assert provider["active_manifest"] in store["manifests"]
-    assert store["active_manifest"] != provider["active_manifest"]
-    active = store["manifests"][store["active_manifest"]]
-    assert len(active["ingredients"]) == 1
-    assert active["ingredients"][0]["relationship"] == "parentOf"
-    opened = assert_public_attribution(store, "c2pa.opened")
-    assert len(opened["parameters"]["ingredients"]) == 1
-    assert "c2pa.ingredient" in opened["parameters"]["ingredients"][0]["url"]
-    assert (
-        store["manifests"][provider["active_manifest"]]
-        == provider["manifests"][provider["active_manifest"]]
-    )
+    assert set(provider["manifests"]).isdisjoint(store["manifests"])
+    assert "Example Provider" not in json.dumps(store)
+    assert "private provider prompt" not in json.dumps(store)
+    assert b"Example Provider" not in base64.b64decode(signed)
+    assert_public_attribution(store)
+    with Image.open(io.BytesIO(base64.b64decode(original))) as before, Image.open(
+        io.BytesIO(base64.b64decode(signed))
+    ) as after:
+        assert before.size == after.size
+        assert before.mode == after.mode
+        assert before.tobytes() == after.tobytes()
+
+
+@pytest.mark.parametrize("fmt", ["png", "jpeg", "webp"])
+def test_resigning_does_not_accumulate_source_history(credentials, fmt):
+    mime = f"image/{fmt}"
+    original = sign_final_image(base64.b64encode(image_bytes(fmt)).decode(), mime)
+    previous, _ = read_manifest(base64.b64decode(original), mime)
+    signed = sign_final_image(original, mime)
+    store, state = read_manifest(base64.b64decode(signed), mime)
+    assert state == "Valid"
+    assert_public_attribution(store)
+    assert set(previous["manifests"]).isdisjoint(store["manifests"])
 
 
 def test_storage_signs_finals_but_leaves_partials_and_private_context_out(credentials):
@@ -187,6 +207,29 @@ def test_signing_failure_never_writes_final_to_redis(credentials):
         asyncio.run(
             store_image_in_redis(redis, "invalid image", "image/png", "private prompt")
         )
+    redis.execute_command.assert_not_called()
+
+
+def test_publication_failure_never_publishes_model_output(credentials, monkeypatch):
+    sign = c2pa.Builder.sign
+    calls = 0
+
+    def fail_second_signature(self, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("publication failed")
+        return sign(self, *args, **kwargs)
+
+    monkeypatch.setattr(c2pa.Builder, "sign", fail_second_signature)
+    redis = MagicMock()
+    with pytest.raises(ContentCredentialsError, match="not published"):
+        asyncio.run(
+            store_image_in_redis(
+                redis, base64.b64encode(image_bytes()).decode(), "image/png", "prompt"
+            )
+        )
+    assert calls == 2
     redis.execute_command.assert_not_called()
 
 

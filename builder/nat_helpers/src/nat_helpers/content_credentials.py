@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import io
-import json
 import logging
 import os
 from contextlib import contextmanager
@@ -19,6 +18,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _SOURCE_TYPE = "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"
+_MODEL_NAME = "Daedalus-Create"
 _ALGORITHMS = {"es256", "es384", "es512", "ps256", "ps384", "ps512"}
 
 
@@ -76,18 +76,17 @@ def _signer(config: SigningConfig):
         yield signer
 
 
-def _manifest(config: SigningConfig, *, has_manifest: bool) -> dict:
+def _manifest(config: SigningConfig, *, is_publication: bool) -> dict:
     action = {
-        "action": "c2pa.opened" if has_manifest else "c2pa.created",
+        "action": "c2pa.opened" if is_publication else "c2pa.created",
         "digitalSourceType": _SOURCE_TYPE,
-        "softwareAgent": {"name": "Daedalus-Create"},
+        "softwareAgent": {"name": _MODEL_NAME},
     }
-    if has_manifest:
-        # Open the signed provider output without claiming a new creation.
-        action["parameters"] = {"ingredientIds": ["provider-output"]}
+    if is_publication:
+        action["parameters"] = {"ingredientIds": ["daedalus-create-output"]}
     return {
         "claim_generator_info": [{"name": "Daedalus Agent"}],
-        "title": "AI-generated image",
+        "title": "AI-generated image" if is_publication else f"{_MODEL_NAME} output",
         "assertions": [
             {
                 "label": "cawg.metadata",
@@ -138,37 +137,36 @@ def sign_final_image(b64_data: str, mime_type: str) -> str:
             },
         }
         with c2pa.Context.from_dict(settings) as context, _signer(config) as signer:
-            # Preserve an embedded provider manifest as the parent of a metadata
-            # update. Never replace upstream provenance with a fresh history.
-            try:
-                with c2pa.Reader(
-                    mime_type, io.BytesIO(source), context=context
-                ) as reader:
-                    has_manifest = bool(
-                        json.loads(reader.json()).get("active_manifest")
-                    )
-            except c2pa.C2paError.ManifestNotFound:
-                has_manifest = False
-
+            # CREATE starts a fresh Daedalus history, omitting provider manifests.
+            # Inspect derives "AI model used" from source credentials, so sign
+            # the model output before attaching it to the publication claim.
             with c2pa.Builder(
-                _manifest(config, has_manifest=has_manifest), context=context
+                _manifest(config, is_publication=False), context=context
             ) as builder:
-                if has_manifest:
-                    builder.set_intent(c2pa.C2paBuilderIntent.UPDATE)
-                    # An explicit opened action disables automatic parent
-                    # insertion, so bind it to the original provider output.
-                    builder.add_ingredient(
-                        {"label": "provider-output", "relationship": "parentOf"},
-                        mime_type,
-                        io.BytesIO(source),
-                    )
-                else:
-                    builder.set_intent(
-                        c2pa.C2paBuilderIntent.CREATE,
-                        c2pa.C2paDigitalSourceType.TRAINED_ALGORITHMIC_MEDIA,
-                    )
+                builder.set_intent(
+                    c2pa.C2paBuilderIntent.CREATE,
+                    c2pa.C2paDigitalSourceType.TRAINED_ALGORITHMIC_MEDIA,
+                )
+                model_output = io.BytesIO()
+                builder.sign(signer, mime_type, io.BytesIO(source), model_output)
+            model_bytes = model_output.getvalue()
+            with c2pa.Builder(
+                _manifest(config, is_publication=True), context=context
+            ) as builder:
+                # A regular claim binds the final bytes itself. UPDATE inherits
+                # the parent's binding, which breaks WebP with this SDK version.
+                builder.set_intent(c2pa.C2paBuilderIntent.EDIT)
+                builder.add_ingredient(
+                    {
+                        "label": "daedalus-create-output",
+                        "title": f"{_MODEL_NAME} output",
+                        "relationship": "parentOf",
+                    },
+                    mime_type,
+                    io.BytesIO(model_bytes),
+                )
                 output = io.BytesIO()
-                builder.sign(signer, mime_type, io.BytesIO(source), output)
+                builder.sign(signer, mime_type, io.BytesIO(model_bytes), output)
             signed = output.getvalue()
             # Read the actual asset again to verify its content binding. Trust
             # is evaluated by external validators using their own trust lists;

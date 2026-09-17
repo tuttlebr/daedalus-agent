@@ -6,15 +6,21 @@ Certificate generation and image signing work offline after the Python dependenc
 are installed. No external signing or timestamp service is used.
 
 The public attribution is **Brandon Tuttle**, **Created with** is **Daedalus Agent**,
-and **AI model** is **Daedalus-Create**. Outputs are marked as AI-generated
+and both **AI model** and **AI model used** are **Daedalus-Create** in
+[Adobe Inspect](https://contentauthenticity.adobe.com/inspect). Outputs are marked as AI-generated
 (`trainedAlgorithmicMedia`). Added metadata
 excludes prompts, account/session details, input references, and uploaded images.
-An existing embedded provider manifest is preserved, including its existing public
-metadata. Uploaded edit-input history is not embedded or reconstructed.
+Embedded provider credentials and their source history are deliberately replaced
+with Daedalus credentials. Provider model names and assertions are not carried
+into the new history. Uploaded edit-input history is not embedded or reconstructed.
 
 The application name is stored in `claim_generator_info`; the public model name
-is stored in the AI action's `softwareAgent`. New credentials record `c2pa.created`;
-when preserving a provider manifest, the update records `c2pa.opened` instead.
+is stored in the AI action's `softwareAgent`. Each final output receives two signed
+claims: a fresh `c2pa.created` claim for the Daedalus-Create output, followed by a
+publication claim that records `c2pa.opened` and references that output as its sole
+parent. Adobe Inspect reads **AI model** from the publication claim and **AI model
+used** from source history, so both resolve to the same public label. Signing an
+image again replaces these claims rather than accumulating more source history.
 These fields follow the [C2PA actions specification](https://spec.c2pa.org/specifications/specifications/2.3/specs/C2PA_Specification.html#_actions)
 and the [CAI viewer's AI model extraction](https://github.com/contentauth/c2pa-js-legacy/blob/main/packages/c2pa/src/selectors/selectGenerativeInfo.ts).
 `Daedalus-Create` is the public model label, independent of the provider model ID.
@@ -26,10 +32,10 @@ prevent delivery of that final image. Full downloads preserve the signed bytes;
 re-encoded thumbnails and screenshots do not preserve credentials. Previously
 stored images are not retroactively signed.
 
-Known SDK limitation: with `c2pa-python==0.37.10`, updating a WebP that already
-contains credentials fails content-binding validation and prevents publication.
-This also occurs before the application/model metadata additions. Newly signed
-WebP files and provider-manifest updates in PNG/JPEG pass verification.
+The publication claim includes its own content binding. It does not use the SDK's
+`UPDATE` intent, whose inherited content binding fails for WebP with
+`c2pa-python==0.37.10`. All three formats are tested with and without existing
+provider credentials, including pixel preservation and signature validation.
 
 ## Generate your certificate bundle
 
@@ -153,7 +159,7 @@ not change images that were already signed. Old Secrets are retained.
 
 After enabling signing, download a final image from both Chat and Create and
 inspect the original file. Confirm creator attribution, **Created with: Daedalus
-Agent**, **AI model: Daedalus-Create**, AI source type, valid
+Agent**, **AI model: Daedalus-Create**, **AI model used: Daedalus-Create**, AI source type, valid
 signature/content binding, and the expected unrecognized issuer. The generated
 `signed-example.png` can also be inspected before deployment.
 
