@@ -1014,8 +1014,6 @@ general:
         - TTC_END
         - FUNCTION_START
         - FUNCTION_END
-        - CUSTOM_START
-        - CUSTOM_END
         - SPAN_START
         - SPAN_END
   telemetry:
