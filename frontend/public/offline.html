@@ -135,22 +135,24 @@
       }
       :root {
         color-scheme: light;
-        --app: #f2efe9;
-        --label: #172c3a;
-        --muted: #5f655f;
-        --action: #1b4f72;
-        --on-action: #f2efe9;
+        --app: #f5f1e8;
+        --label: #3a3a38;
+        --muted: #625d54;
+        --action: #a3b899;
+        --focus: #46563f;
+        --on-action: #3a3a38;
       }
       :root.dark {
         color-scheme: dark;
-        --app: #081923;
-        --label: #f2efe9;
-        --muted: #afc0c6;
-        --action: #8bc4dc;
-        --on-action: #081923;
+        --app: #2e2c28;
+        --label: #eae4d8;
+        --muted: #c3baac;
+        --action: #a3b899;
+        --focus: #b4c5aa;
+        --on-action: #2e2c28;
       }
       :focus-visible {
-        outline: 3px solid var(--action);
+        outline: 3px solid var(--focus);
         outline-offset: 4px;
       }
       @media (prefers-reduced-motion: reduce) {

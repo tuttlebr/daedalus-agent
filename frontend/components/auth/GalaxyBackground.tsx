@@ -3,6 +3,7 @@
 import { useEffect, useRef, memo } from 'react';
 
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { useTheme } from '@/hooks/useTheme';
 
 const PARTICLE_COUNT = 80;
 const CONNECTION_DISTANCE = 120;
@@ -18,18 +19,22 @@ interface Particle {
 
 /**
  * Canvas-based particle animation for the login screen.
- * Renders drifting particles with blue connections between nearby ones.
+ * Renders drifting particles with palette-colored connections between them.
  * Falls back to a static gradient when reduced motion is preferred.
  */
 export const GalaxyBackground = memo(() => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reducedMotion = useReducedMotion();
+  const { isDark } = useTheme();
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    const particleColor = getComputedStyle(document.documentElement)
+      .getPropertyValue('--palette-blue')
+      .trim();
 
     let animationId: number;
     let particles: Particle[] = [];
@@ -64,7 +69,7 @@ export const GalaxyBackground = memo(() => {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < CONNECTION_DISTANCE) {
             const alpha = (1 - dist / CONNECTION_DISTANCE) * 0.15;
-            ctx.strokeStyle = `rgba(46, 134, 171, ${alpha})`;
+            ctx.strokeStyle = `rgb(${particleColor} / ${alpha})`;
             ctx.lineWidth = 0.5;
             ctx.beginPath();
             ctx.moveTo(particles[i].x, particles[i].y);
@@ -78,7 +83,7 @@ export const GalaxyBackground = memo(() => {
       for (const p of particles) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(46, 134, 171, ${p.opacity})`;
+        ctx.fillStyle = `rgb(${particleColor} / ${p.opacity})`;
         ctx.fill();
 
         if (!reducedMotion) {
@@ -102,13 +107,13 @@ export const GalaxyBackground = memo(() => {
       cancelAnimationFrame(animationId);
       window.removeEventListener('resize', resize);
     };
-  }, [reducedMotion]);
+  }, [reducedMotion, isDark]);
 
   return (
     <canvas
       ref={canvasRef}
       className="fixed inset-0 z-0"
-      style={{ background: '#081923' }}
+      style={{ background: 'rgb(var(--app))' }}
       aria-hidden="true"
     />
   );

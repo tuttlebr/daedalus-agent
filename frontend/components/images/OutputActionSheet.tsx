@@ -194,7 +194,7 @@ function sheetActionClasses(
   return classNames(
     'inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2',
     emphasis
-      ? 'border-nvidia-green bg-action text-on-action hover:bg-nvidia-green-dark focus-visible:ring-nvidia-green/50'
+      ? 'border-nvidia-green bg-action text-on-action hover:brightness-95 focus-visible:ring-nvidia-green/50'
       : destructive
       ? 'border-red-500/25 text-nvidia-red hover:bg-red-500/10 focus-visible:ring-red-500/40'
       : 'border-separator/70 bg-fill/[0.04] text-secondary hover:bg-fill/[0.08] focus-visible:ring-nvidia-green/40',

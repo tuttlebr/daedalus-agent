@@ -69,7 +69,7 @@ function App({ Component, pageProps }: AppProps<{}>) {
       </a>
       <Head>
         <title>Daedalus</title>
-        <meta name="theme-color" content={isDark ? '#081923' : '#f2efe9'} />
+        <meta name="theme-color" content={isDark ? '#2e2c28' : '#f5f1e8'} />
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"

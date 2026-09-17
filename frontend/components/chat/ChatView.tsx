@@ -1325,7 +1325,7 @@ export const ChatView = memo(() => {
                     className={
                       prompt.succeeded
                         ? 'inline-flex items-center gap-1.5 rounded-md border border-nvidia-green/40 bg-nvidia-green/15 px-3 py-1.5 text-xs font-medium text-nvidia-green'
-                        : 'inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-xs font-medium text-on-action hover:bg-nvidia-green/90'
+                        : 'inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-xs font-medium text-on-action hover:brightness-95'
                     }
                     onClick={
                       prompt.succeeded

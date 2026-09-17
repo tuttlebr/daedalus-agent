@@ -17,8 +17,8 @@ const BRANDING = {
     "/icons/icon-72x72.png": "/icons/icon-72x72.png?v=fe0003e4b0c55ce2",
     "/icons/icon-96x96.png": "/icons/icon-96x96.png?v=70ff6d5181094bbf"
   },
-  "manifest": "/manifest.json?v=8235cfcb12f36e6a",
-  "version": "199fe84b2b02b190"
+  "manifest": "/manifest.json?v=b95b57d194d23426",
+  "version": "d415d4e6ed82143a"
 };
 // END GENERATED BRANDING
 const CACHE_NAME = `daedalus-v3-${BRANDING.version}`;
@@ -55,11 +55,11 @@ const BUILD_PRECACHE = [
   '/_next/static/chunks/webpack-cce4b53c4c33001d.js',
   '/_next/static/chunks/framework-b9fd9bcc3ecde907.js',
   '/_next/static/chunks/main-5f8fac673b6d5748.js',
-  '/_next/static/css/c6876593da058672.css',
-  '/_next/static/chunks/pages/_app-e2750e09b378db60.js',
+  '/_next/static/css/1961975430d7a111.css',
+  '/_next/static/chunks/pages/_app-aa120582a9029f61.js',
   '/_next/static/chunks/2bd9703c-1a649cebe01df6da.js',
   '/_next/static/chunks/8942-c90b4cc746758b74.js',
-  '/_next/static/chunks/pages/index-16c17f64fc07f045.js',
+  '/_next/static/chunks/pages/index-6376be708f0bdb39.js',
   '/_next/static/chunks/pages/login-c240302514405d5b.js',
 ];
 const ALL_PRECACHE = STATIC_ASSETS.concat(BUILD_PRECACHE);

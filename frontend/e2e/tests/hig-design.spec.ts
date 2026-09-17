@@ -21,8 +21,20 @@ test('appearance follows the system, respects an override, and persists', async 
   await page.emulateMedia({ colorScheme: 'light' });
   await openApp(page);
   await expect(page.locator('html')).not.toHaveClass(/dark/);
+  await expect(page.locator('body')).toHaveCSS(
+    'background-color',
+    'rgb(245, 241, 232)',
+  );
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveClass(/dark/);
+  await expect(page.locator('body')).toHaveCSS(
+    'background-color',
+    'rgb(46, 44, 40)',
+  );
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
+    'content',
+    '#2e2c28',
+  );
   await openSidebar(page);
   await page.getByRole('radio', { name: 'Light', exact: true }).check();
   await expect(page.locator('html')).not.toHaveClass(/dark/);
@@ -30,7 +42,7 @@ test('appearance follows the system, respects an override, and persists', async 
   await expect(page.locator('html')).not.toHaveClass(/dark/);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
     'content',
-    '#f2efe9',
+    '#f5f1e8',
   );
 });
 

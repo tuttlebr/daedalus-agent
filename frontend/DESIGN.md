@@ -55,39 +55,47 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   The manifest uses the neutral launch background and current, correctly sized
   Chat and sign-in screenshots.
 
-## September 12 palette update
+## September 17 Creative Office palette pair
 
-The palette uses sRGB brand colors with appearance-specific semantic roles:
+The supplied light and dark swatches are preserved as sRGB palette tokens in
+`styles/appearance.css`. Semantic roles use the swatches directly for canvases,
+controls, and decoration, with derived shades for readable text.
 
-| Brand color | Role                                                      |
-| ----------- | --------------------------------------------------------- |
-| `#1B4F72`   | Primary actions, links, and selection in light appearance |
-| `#2E86AB`   | Supporting blue gradients and decorative accents          |
-| `#A9762F`   | Bronze detail and highlight rules                         |
-| `#E0B463`   | Warm content highlights and dark secondary accents        |
-| `#F2EFE9`   | Light canvas, light action labels, and dark primary text  |
+| Role               | Light                   | Dark                     |
+| ------------------ | ----------------------- | ------------------------ |
+| Canvas             | Warm Canvas `#F5F1E8`   | Deep Canvas `#2E2C28`    |
+| Supporting surface | Soft Daylight `#E8DCC8` | Warm Espresso `#3D3830`  |
+| Sage emphasis      | Sage Focus `#A3B899`    | Sage Shadow `#5C6E52`    |
+| Cool detail        | Dusty Calm `#7C93A6`    | Slate Calm `#4E5E6E`     |
+| Warm highlight     | Apricot Spark `#D98E73` | Ember Glow `#A65E47`     |
+| Primary text       | Ink Anchor `#3A3A38`    | Moonlight Note `#EAE4D8` |
+| Wood detail        | Light Oak `#C9A87C`     | Dark Walnut `#6B5138`    |
 
-Light surfaces use warm ivory tints; dark surfaces use deep blue shades. Small
-blue and bronze text needs stronger contrast than the unmodified swatches give
-on ivory, so light text uses deep blue and `#805722`. Dark interactive text and
-filled actions use `#8BC4DC`, with dark ink on filled actions. Status success and
-error colors stay distinct and retain existing labels and icons. These are
-project choices informed by Apple's color, Dark Mode, and accessibility guidance,
-reviewed September 12, 2026, rather than Apple-prescribed brand colors.
+Light panels use a warm tint between the canvas and Soft Daylight. Dark panels
+use Warm Espresso, with lighter brown control and elevated surfaces. Sage tints
+identify user messages and interactive emphasis; slate, apricot, and wood tones
+support charts, highlights, and decorative gradients.
 
-`styles/appearance.css` owns the palette. Existing `nvidia-*` utility names are
-compatibility aliases to these semantic roles. Browser theme metadata,
-the install manifest, and offline recovery use matching colors. Generated brand
-URLs are refreshed through `npm run branding`; icon artwork is independent.
+Small interactive text uses `#46563F` in light appearance and `#B4C5AA` in dark
+appearance. Blue and warm text also use contrast-adjusted shades. Filled actions
+use Sage Focus with Ink Anchor labels in light appearance and Deep Canvas labels
+in dark appearance, measuring 5.4:1 and 6.6:1 contrast respectively. Filled-action
+hover states retain sage backgrounds and dark labels. Focus outlines use the
+stronger text accent. Success and error colors remain distinct and keep their
+existing labels and icons. Increased-contrast mode strengthens secondary text
+and separators.
+
+Existing `nvidia-*` utility names remain compatibility aliases to semantic roles.
+Browser theme metadata, the install manifest, and offline recovery use matching
+colors. Generated branding references are refreshed through `npm run branding`;
+icon artwork is independent of the interface palette.
 
 Validation: production build and type checks, ESLint, pre-commit, 10 focused
-branding/service-worker unit tests, and 67 browser tests passed (4 platform-only
-skips). Browser coverage includes Chromium and WebKit, desktop/phone/tablet/320px
-layouts, both appearances, 200% text, contrast scans, keyboard focus, populated
-activity, and recovery states. Rendered screenshots were inspected and install
-previews refreshed. Primary-action contrast measures 7.6:1 in light mode and
-9.4:1 in dark mode. This is browser evidence; physical Apple devices and VoiceOver
-were not tested.
+branding/service-worker unit tests, and 10 browser tests passed. Desktop Chromium
+and mobile WebKit covered both appearances, all five destinations, 200% text,
+contrast scans, appearance persistence, populated activity and Autonomy, sign-in,
+and offline recovery. Desktop and mobile screenshots were inspected. Physical
+devices and VoiceOver were not tested for this palette update.
 
 ## Source guidance
 
