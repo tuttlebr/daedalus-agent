@@ -1,3 +1,3 @@
 interface:
   display_name: 'Hue CLIP API'
-  short_description: 'Use bundled Philips Hue API v2 operation contracts'
+  short_description: 'Use self-contained Philips Hue API v2 guidance'
