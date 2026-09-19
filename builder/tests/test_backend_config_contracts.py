@@ -624,9 +624,10 @@ def test_deployed_tool_surface_is_optimized():
         assert removed_router_tool not in functions, path
         assert removed_router_tool not in workflow_tools, path
         # Infrastructure MCPs now contribute nineteen explicitly reviewed
-        # reads instead of two uncounted full server catalogs. Keep the total
-        # bounded so later allowlist growth requires a deliberate review.
-        assert _effective_operation_count(config, workflow_tools) <= 95, path
+        # reads instead of two uncounted full server catalogs. Hue contributes
+        # eleven explicitly reviewed tools, including eight gated mutations.
+        # Keep the total bounded so later growth requires a deliberate review.
+        assert _effective_operation_count(config, workflow_tools) <= 106, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -968,6 +969,7 @@ def test_shared_api_key_mcp_auth_is_operator_managed():
             ("github_mcp_server", "GITHUB_PAT"),
             ("k8s_mcp_server", "KUBERNETES_MCP_TOKEN"),
             ("unifi_mcp_server", "UNIFI_MCP_TOKEN"),
+            ("hue_mcp_server", "HUE_MCP_TOKEN"),
         ):
             provider = config["authentication"][name]
             group = config["function_groups"][name]
@@ -1124,6 +1126,26 @@ def test_espn_mcp_uses_the_deployment_token_without_user_oauth():
         }, path
 
 
+def test_hue_mcp_exposes_reviewed_tools_with_only_reads_exempt_from_approval():
+    reads = {"get_bridge_status", "list_resources", "get_resource"}
+    mutations = {
+        "set_light_state",
+        "set_group_state",
+        "recall_scene",
+        "create_scene",
+        "update_scene",
+        "delete_scene",
+        "update_room",
+        "update_zone",
+    }
+    for path in DEPLOYED_CONFIGS:
+        group = _config(path)["function_groups"]["hue_mcp_server"]
+        assert set(group["include"]) == reads | mutations, path
+        assert group["tool_overrides"] == {
+            name: {"approval_policy": "read_only"} for name in reads
+        }, path
+
+
 def test_restricted_nginx_allows_oauth_redirect_callback():
     template = NGINX_TEMPLATE.read_text(encoding="utf-8")
     callback_location = "location = /auth/redirect"
@@ -1149,6 +1171,7 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
     for active_name in (
         "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS",
         "X_MCP_BEARER_TOKEN",
+        "HUE_MCP_TOKEN",
         "GITHUB_PAT",
         "VERIFIER_API_KEY",
         "VERIFIER_BASE_URL",

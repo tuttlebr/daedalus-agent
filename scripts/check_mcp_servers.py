@@ -405,6 +405,7 @@ def check_with_kubectl(
     namespace: str,
     image: str,
     secret_name: str | None,
+    pod_labels: dict[str, str] | None = None,
 ) -> CheckResult:
     provider = server.auth_provider or {}
     auth_environment_name = ""
@@ -546,6 +547,8 @@ printf '\\n__MCP_TOOLS_BODY_END__\\n'
             }
         ]
     overrides = {"spec": pod_spec}
+    if pod_labels:
+        overrides["metadata"] = {"labels": pod_labels}
     command.extend(
         [
             "--overrides",
@@ -593,6 +596,7 @@ def check_server(
     namespace: str | None,
     kubectl_image: str,
     kubernetes_secret: str | None = None,
+    pod_labels: dict[str, str] | None = None,
 ) -> CheckResult:
     if looks_unset(server.url):
         return CheckResult(server.name, server.url, False, "server URL is unresolved")
@@ -610,6 +614,7 @@ def check_server(
                 namespace,
                 kubectl_image,
                 kubernetes_secret,
+                pod_labels,
             )
         return check_local(server, headers, timeout)
     except (CheckError, json.JSONDecodeError, ValueError) as exc:
@@ -625,6 +630,13 @@ def print_results(results: list[CheckResult]) -> None:
 
     ok_count = sum(1 for result in results if result.ok)
     print(f"\nMCP preflight: {ok_count}/{len(results)} servers passed")
+
+
+def parse_pod_label(value: str) -> tuple[str, str]:
+    key, separator, label_value = value.partition("=")
+    if not separator or not key:
+        raise argparse.ArgumentTypeError("pod labels must use KEY=VALUE")
+    return key, label_value
 
 
 def parse_args() -> argparse.Namespace:
@@ -665,6 +677,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--kubernetes-pod-label",
+        action="append",
+        type=parse_pod_label,
+        default=[],
+        help=(
+            "Label for cluster-local probes, as KEY=VALUE; may be repeated. "
+            "Use labels allowed by MCP ingress without matching a workload Service. "
+            "Probes do not validate the backend's egress policy."
+        ),
+    )
+    parser.add_argument(
         "--only",
         action="append",
         default=[],
@@ -700,6 +723,7 @@ def main() -> int:
             args.kubernetes_namespace,
             args.kubectl_image,
             args.kubernetes_secret,
+            dict(args.kubernetes_pod_label),
         )
         for server in servers
     ]

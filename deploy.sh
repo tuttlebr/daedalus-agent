@@ -636,7 +636,7 @@ PY
     ARIZE_SPACE_ID ARIZE_API_KEY ARIZE_PROJECT_NAME ARIZE_USE_EU_REGION
     KUBERNETES_MCP_SERVER KUBERNETES_MCP_TOKEN UNIFI_MCP_SERVER UNIFI_MCP_TOKEN
     X_MCP_BEARER_TOKEN DAEDALUS_REQUIRED_MCP_GROUPS
-    DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS ESPN_MCP_TOKEN
+    DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS ESPN_MCP_TOKEN HUE_MCP_TOKEN
     GOOGLE_MCP_CLIENT_ID GOOGLE_MCP_CLIENT_SECRET
     GOOGLE_MCP_REDIRECT_URI LLM_SANDBOX_BASE_URL LLM_SANDBOX_API_KEY
     MILVUS_URI MILVUS_DATABASE MILVUS_METADATA_TIMEOUT_SECONDS MILVUS_SEARCH_TIMEOUT_SECONDS
@@ -916,11 +916,15 @@ fi
 if [[ "$SKIP_MCP_PREFLIGHT" == false ]]; then
   if [[ -f "$BACKEND_CONFIG" ]]; then
     log "Checking MCP server reachability"
+    # Satisfy MCP ingress selectors without the instance label that would add
+    # the temporary curl pod to the backend Service or its egress policy.
     run python3 "$SCRIPT_DIR/scripts/check_mcp_servers.py" \
       --config "$BACKEND_CONFIG" \
       --env-file "$ENV_FILE" \
       --kubernetes-namespace "$NAMESPACE" \
       --kubernetes-secret "$RELEASE-backend-env" \
+      --kubernetes-pod-label app.kubernetes.io/name=daedalus \
+      --kubernetes-pod-label app.kubernetes.io/component=backend-default \
       --kubectl-image "$MCP_PREFLIGHT_KUBECTL_IMAGE" \
       --timeout "$MCP_PREFLIGHT_TIMEOUT"
   else

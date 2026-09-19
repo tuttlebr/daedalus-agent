@@ -56,6 +56,10 @@ elif tool == "kubectl":
             if arg.startswith("--from-file="):
                 key, path = arg[len("--from-file="):].split("=", 1)
                 data[key] = base64.b64encode(Path(path).read_bytes()).decode()
+            elif arg.startswith("--from-env-file="):
+                for line in Path(arg.split("=", 1)[1]).read_text().splitlines():
+                    key, value = line.split("=", 1)
+                    data[key] = base64.b64encode(value.encode()).decode()
         print(json.dumps({"kind": "Secret", "metadata": {"name": args[args.index("generic") + 1], "namespace": args[args.index("-n") + 1]}, "data": data}))
     elif "create" in args and "namespace" in args:
         print('{"kind": "Namespace"}')
@@ -121,6 +125,33 @@ def deploy_fixture(tmp_path):
         return result, records
 
     return run, bundle, values
+
+
+def test_deploy_passes_hue_token_only_to_backend(deploy_fixture, tmp_path):
+    run, _, _ = deploy_fixture
+    env_file = tmp_path / "hue.env"
+    token = "unit-test-hue-credential"
+    env_file.write_text(
+        f"DAEDALUS_MEMORY_MODE=disabled\nHUE_MCP_TOKEN='{token}'\n"
+        "AUTH_USERNAME=test-user\nAUTH_PASSWORD_HASH='$2b$12$" + "a" * 53 + "'\n"
+    )
+    result, records = run("--env-file", str(env_file))
+    assert result.returncode == 0, result.stdout + result.stderr
+    secrets = {
+        item["name"]: item["keys"]
+        for item in records
+        if item["tool"] == "installed-secret"
+    }
+    assert (
+        secrets["test-images-backend-env"]["HUE_MCP_TOKEN"]
+        == hashlib.sha256(token.encode()).hexdigest()
+    )
+    assert all(
+        "HUE_MCP_TOKEN" not in keys
+        for name, keys in secrets.items()
+        if name != "test-images-backend-env"
+    )
+    assert token not in result.stdout + result.stderr + json.dumps(records)
 
 
 def test_deploy_installs_only_signing_material_reuses_then_rotates(deploy_fixture):

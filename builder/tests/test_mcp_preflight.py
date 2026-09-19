@@ -6,6 +6,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "check_mcp_servers.py"
 DEPLOY = Path(__file__).resolve().parents[2] / "deploy.sh"
 SPEC = importlib.util.spec_from_file_location("check_mcp_servers", SCRIPT)
@@ -143,13 +145,29 @@ def test_deploy_runs_mcp_preflight_before_helm():
     assert "scripts/check_mcp_servers.py" in deploy
     assert "--skip-mcp-preflight" in deploy
     assert '--kubernetes-secret "$RELEASE-backend-env"' in deploy
+    assert "--kubernetes-pod-label app.kubernetes.io/name=daedalus" in deploy
+    assert (
+        "--kubernetes-pod-label app.kubernetes.io/component=backend-default" in deploy
+    )
+    assert "--kubernetes-pod-label app.kubernetes.io/instance=" not in deploy
     assert deploy.index("Checking MCP server reachability") < deploy.index(
         "Deploying Daedalus via Helm"
     )
 
 
+@pytest.mark.parametrize(
+    "labels",
+    [
+        None,
+        {
+            "app.kubernetes.io/name": "daedalus",
+            "app.kubernetes.io/component": "backend-default",
+        },
+    ],
+)
 def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
     monkeypatch,
+    labels,
 ):
     server = check_mcp_servers.McpServer(
         name="k8s_mcp_server",
@@ -194,6 +212,7 @@ def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
         "daedalus",
         "curlimages/curl:8.8.0",
         "daedalus-backend-env",
+        labels,
     )
 
     command = captured["command"]
@@ -216,6 +235,45 @@ def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
         }
     ]
     assert "affinity" not in overrides["spec"]
+    assert overrides.get("metadata", {}).get("labels") == labels
+
+
+def test_cli_passes_ingress_labels_to_cluster_probe(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--only",
+            "hue_mcp_server",
+            "--kubernetes-pod-label",
+            "app.kubernetes.io/name=daedalus",
+            "--kubernetes-pod-label",
+            "app.kubernetes.io/component=backend-default",
+        ],
+    )
+    captured = {}
+
+    def check(server, *args):
+        captured["labels"] = args[-1]
+        return check_mcp_servers.CheckResult(server.name, server.url, True, "ok")
+
+    monkeypatch.setattr(check_mcp_servers, "check_server", check)
+    monkeypatch.chdir(SCRIPT.parent.parent)
+    assert check_mcp_servers.main() == 0
+    assert captured["labels"] == {
+        "app.kubernetes.io/name": "daedalus",
+        "app.kubernetes.io/component": "backend-default",
+    }
+
+
+def test_cli_rejects_malformed_pod_label(monkeypatch):
+    monkeypatch.setattr(
+        sys, "argv", [str(SCRIPT), "--kubernetes-pod-label", "missing-equals"]
+    )
+    with pytest.raises(SystemExit) as exc:
+        check_mcp_servers.parse_args()
+    assert exc.value.code == 2
 
 
 def test_authenticated_cluster_probe_requires_kubernetes_secret():

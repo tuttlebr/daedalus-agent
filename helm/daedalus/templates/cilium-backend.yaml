@@ -175,6 +175,16 @@ spec:
             - port: "6006"
               protocol: TCP
 
+    # Philips Hue MCP server
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: {{ $.Values.contextServices.hueMcp.namespace | quote }}
+            app.kubernetes.io/name: hue-mcp-server
+      toPorts:
+        - ports:
+            - port: {{ $.Values.contextServices.hueMcp.port | quote }}
+              protocol: TCP
+
     # ESPN Fantasy Football MCP server
     - toEndpoints:
         - matchLabels:

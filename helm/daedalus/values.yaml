@@ -126,6 +126,7 @@ contextServices:
   kubernetesMcp: { namespace: daedalus, port: 8080 }
   unifiMcp: { namespace: daedalus, port: 8080 }
   espnMcp: { namespace: daedalus, port: 8000 }
+  hueMcp: { namespace: daedalus, port: 8000 }
 
 # Embedded Content Credentials for final generated/edited images in Chat/Create.
 # Keep off until credentials are provisioned. See docs/content-credentials.md.
