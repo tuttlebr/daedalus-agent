@@ -398,6 +398,35 @@ def extract_marker(output: str, marker: str) -> str:
     return match.group(1) if match else ""
 
 
+def delete_probe_pod(namespace: str, pod_name: str) -> None:
+    """Remove our temporary pod without hiding a probe or log-collection error."""
+    try:
+        deleted = subprocess.run(  # nosec B603 B607 - fixed kubectl command and generated pod name
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "delete",
+                "pod",
+                pod_name,
+                "--ignore-not-found=true",
+                "--wait=false",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+        if deleted.returncode == 0:
+            return
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    print(
+        f"WARNING: could not clean up MCP probe pod {namespace}/{pod_name}",
+        file=sys.stderr,
+    )
+
+
 def check_with_kubectl(
     server: McpServer,
     headers: dict[str, str],
@@ -522,7 +551,6 @@ printf '\\n__MCP_TOOLS_BODY_END__\\n'
         namespace,
         "run",
         pod_name,
-        "--rm",
         "-i",
         "--quiet",
         "--restart=Never",
@@ -562,29 +590,60 @@ printf '\\n__MCP_TOOLS_BODY_END__\\n'
             command,
             text=True,
             capture_output=True,
-            timeout=max(timeout + 90, 120),
+            timeout=max(timeout * 3 + 90, 120),
             check=False,
         )
+        # kubectl attaches after the container starts. Fast MCP responses can
+        # print the initialize markers before attachment, even when run exits 0.
+        # Read the complete stored logs before deleting the pod; attached stdout
+        # is not a reliable record of the probe's protocol exchange.
+        logs = subprocess.run(  # nosec B603 B607 - fixed kubectl command and generated pod name
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "logs",
+                pod_name,
+                "--container",
+                pod_name,
+                "--tail=-1",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+        if completed.returncode != 0:
+            message = summarize_body(
+                logs.stdout or completed.stderr or completed.stdout
+            )
+            raise CheckError(f"kubectl check failed: {message}")
+        if logs.returncode != 0:
+            raise CheckError(
+                f"could not read MCP probe logs: {summarize_body(logs.stderr or logs.stdout)}"
+            )
+        output = logs.stdout
     except FileNotFoundError as exc:
         raise CheckError("kubectl was not found for cluster-local MCP check") from exc
     except subprocess.TimeoutExpired as exc:
         raise CheckError("kubectl cluster-local MCP check timed out") from exc
-
-    output = completed.stdout
-    if completed.returncode != 0:
-        message = summarize_body(completed.stderr or completed.stdout)
-        raise CheckError(f"kubectl check failed: {message}")
+    finally:
+        delete_probe_pod(namespace, pod_name)
 
     init_status = extract_marker(output, "INIT_STATUS").strip()
     init_body = extract_marker(output, "INIT_BODY")
+    if not init_status:
+        raise CheckError("MCP probe logs are missing the initialize status marker")
     if init_status != "200":
-        raise CheckError(f"initialize returned HTTP {init_status or 'unknown'}")
+        raise CheckError(f"initialize returned HTTP {init_status}")
     validate_payload("initialize", parse_mcp_body(init_body))
 
     tools_status = extract_marker(output, "TOOLS_STATUS").strip()
     tools_body = extract_marker(output, "TOOLS_BODY")
+    if not tools_status:
+        raise CheckError("MCP probe logs are missing the tools/list status marker")
     if tools_status != "200":
-        raise CheckError(f"tools/list returned HTTP {tools_status or 'unknown'}")
+        raise CheckError(f"tools/list returned HTTP {tools_status}")
     tool_count = validate_tools(server, parse_mcp_body(tools_body))
     return CheckResult(server.name, server.url, True, "ok", tool_count)
 

@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -193,9 +194,11 @@ def test_deploy_runs_mcp_preflight_before_helm():
         },
     ],
 )
+@pytest.mark.parametrize("attached_output", ["empty", "tools_only", "complete"])
 def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
     monkeypatch,
     labels,
+    attached_output,
 ):
     server = check_mcp_servers.McpServer(
         name="k8s_mcp_server",
@@ -225,11 +228,22 @@ def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
         "__MCP_TOOLS_STATUS_START__\n200\n__MCP_TOOLS_STATUS_END__\n"
         f"__MCP_TOOLS_BODY_START__\n{tools_body}\n__MCP_TOOLS_BODY_END__\n"
     )
-    captured = {}
+    captured = []
 
     def fake_run(command, **_kwargs):
-        captured["command"] = command
-        return types.SimpleNamespace(returncode=0, stdout=output, stderr="")
+        captured.append(command)
+        if command[3] == "run":
+            stdout = {
+                "empty": "",
+                "tools_only": output[output.index("__MCP_TOOLS_STATUS_START__") :],
+                "complete": output,
+            }[attached_output]
+        elif command[3] == "logs":
+            stdout = output
+        else:
+            assert command[3] == "delete"
+            stdout = ""
+        return types.SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     monkeypatch.setattr(check_mcp_servers.subprocess, "run", fake_run)
 
@@ -243,12 +257,15 @@ def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
         labels,
     )
 
-    command = captured["command"]
-    rendered = " ".join(command)
+    command = captured[0]
+    rendered = " ".join(arg for call in captured for arg in call)
     overrides = json.loads(command[command.index("--overrides") + 1])
     script = command[-1]
     assert result.ok is True
     assert result.tool_count == 1
+    assert "--rm" not in command
+    assert [call[3] for call in captured] == ["run", "logs", "delete"]
+    assert captured[1][4] == captured[2][5] == command[4]
     assert "actual-secret-value" not in rendered
     assert "KUBERNETES_MCP_TOKEN" in script
     assert overrides["spec"]["containers"][0]["envFrom"] == [
@@ -264,6 +281,125 @@ def test_authenticated_cluster_probe_uses_secret_without_putting_key_in_argv(
     ]
     assert "affinity" not in overrides["spec"]
     assert overrides.get("metadata", {}).get("labels") == labels
+
+
+def _probe_output(init_status="200", tools_status="200"):
+    return (
+        f"__MCP_INIT_STATUS_START__\n{init_status}\n__MCP_INIT_STATUS_END__\n"
+        '__MCP_INIT_BODY_START__\n{"result":{}}\n__MCP_INIT_BODY_END__\n'
+        f"__MCP_TOOLS_STATUS_START__\n{tools_status}\n__MCP_TOOLS_STATUS_END__\n"
+        '__MCP_TOOLS_BODY_START__\n{"result":{"tools":[{"name":"get_status"}]}}\n'
+        "__MCP_TOOLS_BODY_END__\n"
+    )
+
+
+def _cluster_probe():
+    server = check_mcp_servers.McpServer(
+        name="probe_mcp_server",
+        url="http://probe.daedalus.svc.cluster.local/mcp",
+        include=["get_status"],
+        auth_provider_name=None,
+        auth_provider=None,
+    )
+    return check_mcp_servers.check_with_kubectl(
+        server, {}, 20, "daedalus", "curlimages/curl:8.8.0", None
+    )
+
+
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        ("run_error", "kubectl check failed"),
+        ("curl_error", "curl:.*timed out"),
+        ("run_timeout", "check timed out"),
+        ("logs_timeout", "check timed out"),
+        ("missing_kubectl", "kubectl was not found"),
+        ("logs_error", "could not read MCP probe logs"),
+        ("empty_logs", "missing the initialize status marker"),
+        ("missing_tools_marker", "missing the tools/list status marker"),
+        ("http_401", "initialize returned HTTP 401"),
+        ("http_503", "tools/list returned HTTP 503"),
+        ("rpc_error", "initialize returned MCP error: denied"),
+        ("missing_tool", "missing configured tools: get_status"),
+    ],
+)
+def test_cluster_probe_preserves_failures_and_cleans_up(monkeypatch, failure, expected):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        action = command[3]
+        calls.append(action)
+        if failure == f"{action}_timeout":
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        if action == "run":
+            if failure == "missing_kubectl":
+                raise FileNotFoundError("kubectl")
+            return types.SimpleNamespace(
+                returncode=1 if failure in {"run_error", "curl_error"} else 0,
+                # A complete-looking attach stream must not hide failed log collection.
+                stdout=_probe_output(),
+                stderr="",
+            )
+        if action == "logs":
+            output = _probe_output()
+            if failure == "curl_error":
+                output = "curl: (28) Connection timed out"
+            elif failure == "empty_logs":
+                output = ""
+            elif failure == "missing_tools_marker":
+                output = output[: output.index("__MCP_TOOLS_STATUS_START__")]
+            elif failure == "http_401":
+                output = _probe_output(init_status="401")
+            elif failure == "http_503":
+                output = _probe_output(tools_status="503")
+            elif failure == "rpc_error":
+                output = output.replace(
+                    '{"result":{}}', '{"error":{"message":"denied"}}'
+                )
+            elif failure == "missing_tool":
+                output = output.replace("get_status", "different_tool")
+            return types.SimpleNamespace(
+                returncode=1 if failure == "logs_error" else 0,
+                stdout=output,
+                stderr="log access denied" if failure == "logs_error" else "",
+            )
+        assert action == "delete"
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(check_mcp_servers.subprocess, "run", fake_run)
+    with pytest.raises(check_mcp_servers.CheckError, match=expected):
+        _cluster_probe()
+    assert calls[-1] == "delete"
+
+
+@pytest.mark.parametrize("probe_ok", [True, False])
+@pytest.mark.parametrize("cleanup_failure", ["exit", "timeout"])
+def test_cleanup_failure_does_not_replace_probe_result(
+    monkeypatch, capsys, probe_ok, cleanup_failure
+):
+    def fake_run(command, **kwargs):
+        action = command[3]
+        if action == "delete":
+            if cleanup_failure == "timeout":
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return types.SimpleNamespace(
+                returncode=1, stdout="", stderr="delete denied"
+            )
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout=_probe_output(init_status="200" if probe_ok else "401")
+            if action == "logs"
+            else "",
+            stderr="",
+        )
+
+    monkeypatch.setattr(check_mcp_servers.subprocess, "run", fake_run)
+    if probe_ok:
+        assert _cluster_probe().ok
+    else:
+        with pytest.raises(check_mcp_servers.CheckError, match="HTTP 401"):
+            _cluster_probe()
+    assert "could not clean up MCP probe pod" in capsys.readouterr().err
 
 
 def test_cli_passes_ingress_labels_to_cluster_probe(monkeypatch):

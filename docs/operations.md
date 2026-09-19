@@ -69,6 +69,9 @@ cluster-local URLs such as `*.svc.cluster.local` from a short-lived Kubernetes
 curl pod in the target namespace. Authenticated cluster-local probes read API
 keys from the same backend Secret through `envFrom`; key values are never
 placed in command arguments or printed.
+The checker reads complete pod logs after the probe exits, then deletes the
+temporary pod. This avoids losing fast initialization responses before
+`kubectl` attaches; cleanup is also attempted when execution or log collection fails.
 
 For Kubernetes RAG deployments, `make deploy` also mirrors the authoritative
 Milvus and MinIO credentials into namespace-local workload Secrets, then runs
