@@ -139,6 +139,34 @@ def test_validate_tools_requires_configured_include_names():
         raise AssertionError("missing configured tool should fail validation")
 
 
+def test_discovery_preflight_accepts_new_tools_without_an_include_list():
+    config = {
+        "function_groups": {
+            "hue_mcp_server": {
+                "_type": "mcp_client",
+                "approval_policy": "auto_approve",
+                "server": {
+                    "transport": "streamable-http",
+                    "url": "https://hue.example/mcp",
+                },
+            }
+        }
+    }
+    (server,) = check_mcp_servers.discover_mcp_servers(config, {})
+    assert server.include == []
+    assert (
+        check_mcp_servers.validate_tools(
+            server,
+            {
+                "result": {
+                    "tools": [{"name": "get_bridge_status"}, {"name": "new_control"}]
+                }
+            },
+        )
+        == 2
+    )
+
+
 def test_deploy_runs_mcp_preflight_before_helm():
     deploy = DEPLOY.read_text(encoding="utf-8")
 

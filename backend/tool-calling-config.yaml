@@ -123,18 +123,8 @@ function_groups:
     tool_call_timeout: 15
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    include:
-      - get_bridge_status
-      - list_resources
-      - get_resource
-      - set_light_state
-      - set_group_state
-      - recall_scene
-      - create_scene
-      - update_scene
-      - delete_scene
-      - update_room
-      - update_zone
+    # Discover all Hue tools and authorize them without per-call UI approval.
+    approval_policy: auto_approve
     tool_overrides:
       get_bridge_status:
         approval_policy: read_only
@@ -142,23 +132,6 @@ function_groups:
         approval_policy: read_only
       get_resource:
         approval_policy: read_only
-      # Operator-authorized Hue controls run without per-call UI approval.
-      set_light_state:
-        approval_policy: auto_approve
-      set_group_state:
-        approval_policy: auto_approve
-      recall_scene:
-        approval_policy: auto_approve
-      create_scene:
-        approval_policy: auto_approve
-      update_scene:
-        approval_policy: auto_approve
-      delete_scene:
-        approval_policy: auto_approve
-      update_room:
-        approval_policy: auto_approve
-      update_zone:
-        approval_policy: auto_approve
     server:
       transport: streamable-http
       url: http://hue-mcp-server.daedalus.svc.cluster.local:8000/mcp

@@ -797,6 +797,7 @@ def test_local_read_only_registry_matches_configured_includes():
         "delete_scene",
         "update_room",
         "update_zone",
+        "new_hue_control",
     ],
 )
 @pytest.mark.parametrize(
@@ -835,7 +836,7 @@ def test_hue_reads_do_not_require_ui_approval(tool_name):
 @pytest.mark.parametrize(
     "server_name,tool_name",
     [
-        ("hue_mcp_server", "delete_all_resources"),
+        ("k8s_mcp_server", "delete_all_resources"),
         ("other_mcp_server", "set_light_state"),
     ],
 )
@@ -876,11 +877,15 @@ def test_operator_approval_can_be_revoked_by_inherited_configuration(tmp_path):
         mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
 
-def test_every_mcp_group_has_a_nonempty_allowlist():
+def test_only_hue_discovers_all_tools_in_the_deployed_configuration():
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     for group_name, group in config["function_groups"].items():
         if group.get("_type") in {"mcp_client", "per_user_mcp_client"}:
-            assert group.get("include"), group_name
+            if group_name == "hue_mcp_server":
+                assert "include" not in group
+                assert group["approval_policy"] == "auto_approve"
+            else:
+                assert group.get("include"), group_name
 
 
 def test_per_user_mcp_endpoint_identity_is_loaded_from_config():
@@ -928,6 +933,7 @@ def test_approval_policy_follows_base_inheritance(tmp_path):
     canonical_state = (
         dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
         dict(mcp_patches._LOCAL_AUTO_APPROVED_MCP_TOOLS),
+        dict(mcp_patches._MCP_GROUP_APPROVAL_POLICIES),
         mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
     )
     assert canonical_state[0], "canonical policy is empty"
@@ -936,6 +942,7 @@ def test_approval_policy_follows_base_inheritance(tmp_path):
     overlay_state = (
         dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
         dict(mcp_patches._LOCAL_AUTO_APPROVED_MCP_TOOLS),
+        dict(mcp_patches._MCP_GROUP_APPROVAL_POLICIES),
         mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
     )
 
@@ -1017,24 +1024,112 @@ function_groups:
     mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
 
-def test_approval_policy_rejects_an_empty_allowlist(tmp_path):
-    config_path = tmp_path / "bad-policy.yaml"
+@pytest.mark.parametrize("filter_config", [{}, {"include": []}])
+def test_discovery_does_not_grant_approval_by_default(tmp_path, filter_config):
+    config_path = tmp_path / "discovery.yaml"
     config_path.write_text(
-        """
-function_groups:
-  inventory_mcp_server:
-    _type: mcp_client
-    server:
-      transport: streamable-http
-      url: https://inventory.example.test/mcp
-""",
-        encoding="utf-8",
+        yaml.safe_dump(
+            {
+                "function_groups": {
+                    "inventory_mcp_server": {
+                        "_type": "mcp_client",
+                        **filter_config,
+                        "tool_overrides": {
+                            "get_inventory": {"approval_policy": "read_only"}
+                        },
+                    }
+                }
+            }
+        )
     )
-
-    with pytest.raises(RuntimeError, match="non-empty include allowlist"):
+    try:
         mcp_patches.configure_mcp_approval_policy(config_path)
+        assert mcp_patches._validate_mcp_approval(
+            "get_inventory", {}, server_name="inventory_mcp_server"
+        ) == (True, "read-only")
+        assert not mcp_patches._validate_mcp_approval(
+            "new_tool",
+            {},
+            annotations=_Annotations(readOnlyHint=True),
+            server_name="inventory_mcp_server",
+        )[0]
+    finally:
+        mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
-    mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+@pytest.mark.parametrize(
+    "filters,allowed",
+    [
+        ({}, True),
+        ({"include": []}, True),
+        ({"exclude": ["new_tool"]}, False),
+        ({"include": [], "exclude": ["new_tool"]}, False),
+        ({"include": ["another_tool"]}, False),
+        ({"include": ["new_tool"], "exclude": ["new_tool"]}, True),
+    ],
+)
+def test_group_approval_respects_nat_exposure_filters(tmp_path, filters, allowed):
+    config_path = tmp_path / "group.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "function_groups": {
+                    "inventory_mcp_server": {
+                        "_type": "mcp_client",
+                        "approval_policy": "auto_approve",
+                        **filters,
+                    }
+                }
+            }
+        )
+    )
+    try:
+        mcp_patches.configure_mcp_approval_policy(config_path)
+        ok, reason = mcp_patches._validate_mcp_approval(
+            "new_tool", {}, server_name="inventory_mcp_server"
+        )
+        assert ok is allowed
+        if allowed:
+            assert reason == "auto-approved"
+    finally:
+        mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
+def test_read_only_override_keeps_mutation_checks_with_group_auto_approval():
+    assert not mcp_patches._validate_mcp_approval(
+        "get_resource",
+        {},
+        server_name="hue_mcp_server",
+        annotations=_Annotations(destructiveHint=True),
+    )[0]
+
+
+@pytest.mark.parametrize("default", ["read_only", "typo", None])
+def test_group_approval_rejects_invalid_defaults(default):
+    with pytest.raises(RuntimeError, match="Unsupported MCP group approval policy"):
+        mcp_patches._parse_mcp_group_approval_policy(
+            "inventory", {"approval_policy": default}
+        )
+
+
+@pytest.mark.parametrize("key", ["include", "exclude"])
+@pytest.mark.parametrize("value", [None, "get_inventory", [""], [42]])
+def test_exposure_filters_reject_invalid_values(key, value):
+    with pytest.raises(RuntimeError, match="list of non-empty tool names"):
+        mcp_patches._parse_mcp_group_approval_policy("inventory", {key: value})
+
+
+def test_approval_override_for_excluded_tool_is_rejected():
+    with pytest.raises(RuntimeError, match="excluded tool"):
+        mcp_patches._parse_mcp_group_approval_policy(
+            "inventory",
+            {
+                "exclude": ["get_inventory"],
+                "tool_overrides": {
+                    "get_inventory": {"approval_policy": "auto_approve"}
+                },
+            },
+        )
 
 
 def test_approval_policy_rejects_unknown_value(tmp_path):

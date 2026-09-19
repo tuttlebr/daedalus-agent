@@ -623,11 +623,10 @@ def test_deployed_tool_surface_is_optimized():
         removed_router_tool = "mas" + "_optimizer_tool"
         assert removed_router_tool not in functions, path
         assert removed_router_tool not in workflow_tools, path
-        # Infrastructure MCPs now contribute nineteen explicitly reviewed
-        # reads instead of two uncounted full server catalogs. Hue contributes
-        # eleven explicitly reviewed tools, including eight operator-approved mutations.
-        # Keep the total bounded so later growth requires a deliberate review.
-        assert _effective_operation_count(config, workflow_tools) <= 106, path
+        # Bound the static catalog. Hue intentionally discovers its full remote
+        # catalog, so its size is checked against tools/list at runtime.
+        static_tools = [name for name in workflow_tools if name != "hue_mcp_server"]
+        assert _effective_operation_count(config, static_tools) <= 95, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -1107,7 +1106,10 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
                 if policy == "approval_required"
             } == approval_required.get(group_name, set()), path
         for group_name, group in groups.items():
-            if group.get("_type") in {"mcp_client", "per_user_mcp_client"}:
+            if group_name != "hue_mcp_server" and group.get("_type") in {
+                "mcp_client",
+                "per_user_mcp_client",
+            }:
                 assert group.get("include"), (path, group_name)
 
 
@@ -1126,24 +1128,14 @@ def test_espn_mcp_uses_the_deployment_token_without_user_oauth():
         }, path
 
 
-def test_hue_mcp_exposes_reviewed_tools_without_per_call_approval():
+def test_hue_mcp_discovers_all_tools_without_per_call_approval():
     reads = {"get_bridge_status", "list_resources", "get_resource"}
-    mutations = {
-        "set_light_state",
-        "set_group_state",
-        "recall_scene",
-        "create_scene",
-        "update_scene",
-        "delete_scene",
-        "update_room",
-        "update_zone",
-    }
     for path in DEPLOYED_CONFIGS:
         group = _config(path)["function_groups"]["hue_mcp_server"]
-        assert set(group["include"]) == reads | mutations, path
+        assert "include" not in group and not group.get("exclude"), path
+        assert group["approval_policy"] == "auto_approve", path
         assert group["tool_overrides"] == {
-            **{name: {"approval_policy": "read_only"} for name in reads},
-            **{name: {"approval_policy": "auto_approve"} for name in mutations},
+            name: {"approval_policy": "read_only"} for name in reads
         }, path
 
 

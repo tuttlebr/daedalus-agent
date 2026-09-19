@@ -127,15 +127,16 @@ also needs `DescribeCollection`, exercised by `has_collection`.
 
 ### Adding or expanding an MCP server
 
-MCP exposure and approval follow one default-deny configuration rule:
+MCP exposure and approval are configured separately:
 
-- Every MCP group must define a non-empty `include` allowlist. An omitted or
-  empty allowlist fails backend startup. Only included tools are exposed, and
-  every included tool must be classified. Unknown server-advertised tools remain
-  unavailable until configuration review.
+- A non-empty `include` list exposes only those tools. Omitting `include` or
+  setting `include: []` exposes all tools advertised by the server, except any
+  listed in `exclude`. A non-empty `include` takes precedence over `exclude`,
+  matching NAT's native filtering. Discovery happens when the workflow is
+  built; restart or rebuild cached workflows to discover newly added tools.
+  Discovering a tool does not itself authorize its execution.
 
-- A verified read-only tool must be added to its function group's exact
-  `include` list and marked beside the tool under `tool_overrides`:
+- Mark a verified read-only tool beside its exact name under `tool_overrides`:
 
   ```yaml
   function_groups:
@@ -153,24 +154,47 @@ MCP exposure and approval follow one default-deny configuration rule:
   declarations before installing the approval gate. NAT ignores this
   Daedalus-owned extension itself.
 
-- In an explicitly allowlisted group, a mutating, irreversible, or unreviewed
-  tool must never be marked
-  `read_only`. Omit `approval_policy`, or use
-  `approval_policy: approval_required` when an explicit marker improves
-  clarity. The call remains fail-closed until
+- A mutating, irreversible, or unreviewed tool must never be marked `read_only`.
+  The group default is `approval_required`. Unless explicitly authorized as
+  described below, the call remains fail-closed until
   `confirm_action` records an intent bound to the exact server, tool, and final
   arguments. In interactive Chat, a strict next-message approval atomically
   creates one short-lived credential in trusted request metadata. The browser
-  and model never receive it. Unknown policy values and policy entries outside
-  `include` fail backend startup. Autonomous runs cannot request approvals.
+  and model never receive it. Unknown policy values, policy entries outside a
+  non-empty `include`, and policy entries for excluded tools fail backend
+  startup. Autonomous runs cannot request approvals.
 - To authorize an exact tool without per-call approval, set its override to
   `approval_policy: auto_approve`. This is an explicit operator authorization,
   including for mutations, and applies to interactive and autonomous calls.
-  Hue's eight configured controls use this policy; its three reads remain
-  `read_only`. Removing an override restores approval requirements. Newly
-  included tools do not inherit approval from their group. Auto-approved
-  mutations retain protection against automatic replay after an uncertain
-  response and do not create per-call approval credentials or receipts.
+  To authorize all exposed tools, set `approval_policy: auto_approve` on the
+  function group. Exact per-tool overrides take precedence: `approval_required`
+  requires approval even with that group default, while `read_only` retains
+  read-only checks and safe retry behavior. Removing an override restores the
+  group default. Group defaults support `auto_approve` and `approval_required`;
+  `read_only` must be assigned to individual verified tools.
+
+  Hue omits `include` and uses the group default below. Its three verified reads
+  keep `read_only` overrides; other current and newly discovered Hue tools
+  inherit `auto_approve`:
+
+  ```yaml
+  function_groups:
+    hue_mcp_server:
+      _type: mcp_client
+      approval_policy: auto_approve
+      tool_overrides:
+        get_bridge_status:
+          approval_policy: read_only
+        list_resources:
+          approval_policy: read_only
+        get_resource:
+          approval_policy: read_only
+      # Keep the existing server and authentication settings.
+  ```
+
+  Auto-approved calls retain protection against automatic replay after an
+  uncertain response and do not create per-call approval credentials or receipts.
+
 - For static API-key MCP providers, backend startup logs only whether the
   required environment variable is non-empty (`configured=True|False`), never
   the value. This verifies deployment injection, not upstream acceptance; a

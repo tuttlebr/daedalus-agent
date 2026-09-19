@@ -194,6 +194,8 @@ def require(condition, message):
 
 
 def check_configuration(config):
+    from mcp_patches import _parse_mcp_group_approval_policy
+
     functions = config["functions"]
     groups = config["function_groups"]
     available = set(config["workflow"]["nat_tools"])
@@ -211,10 +213,16 @@ def check_configuration(config):
             f"Unknown source capability: {entry['id']}",
         )
     for name, group in groups.items():
+        _parse_mcp_group_approval_policy(name, group)
         included = set(group.get("include", []))
         overrides = set(group.get("tool_overrides", {}))
-        require(included, f"MCP group has no include allowlist: {name}")
-        require(overrides <= included, f"Stale MCP override: {name}")
+        if included:
+            require(overrides <= included, f"Stale MCP override: {name}")
+        else:
+            require(
+                not overrides.intersection(group.get("exclude", [])),
+                f"Override for excluded MCP tool: {name}",
+            )
 
 
 def check_mcp_catalog(config, catalog, skills_directory=None):
@@ -232,7 +240,9 @@ def check_mcp_catalog(config, catalog, skills_directory=None):
         )
         tools = {tool["name"]: tool for tool in entry["tools"]}
         require(len(tools) == len(entry["tools"]), f"Duplicate MCP leaf names: {name}")
-        included = set(group.get("include", [])) or set(tools)
+        included = set(group.get("include", [])) or (
+            set(tools) - set(group.get("exclude", []))
+        )
         require(
             included <= set(tools),
             f"Configured MCP tools missing: {name}: {included - set(tools)}",

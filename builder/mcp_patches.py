@@ -39,6 +39,7 @@ import os
 import re
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -81,9 +82,9 @@ _ambiguous_mcp_servers: set[str] = set()
 # Repository-owned tool authorization is loaded from the deployed NAT workflow
 # YAML before the approval gate is installed. NAT 1.9 accepts additional keys
 # inside ``tool_overrides`` but does not retain them in its runtime model, so
-# this pinned adapter consumes the Daedalus-only ``approval_policy`` field from
-# the same source file. Every group must have a non-empty ``include`` list; an
-# omitted allowlist is rejected during startup.
+# this pinned adapter consumes group and tool ``approval_policy`` fields from
+# the same source file. An omitted or empty ``include`` discovers all tools,
+# matching NAT's native function-group filtering.
 _approval_policy_configured = False
 _READ_ONLY_APPROVAL_POLICY = "read_only"
 _APPROVAL_REQUIRED_POLICY = "approval_required"
@@ -238,12 +239,32 @@ _WORD_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 # This runtime registry is authorization evidence, not a discovery cache. It is
 # populated only from exact ``tool_overrides.<tool>.approval_policy: read_only``
 # declarations in the deployed workflow configuration. Within an explicitly
-# allowlisted group, adding a tool to ``include`` never authorizes it
-# automatically.
+# allowlisted group, adding a tool to ``include`` never classifies it as read-only.
 _LOCAL_READ_ONLY_MCP_TOOLS: dict[str, frozenset[str]] = {}
 # Exact operator-authorized tools may run without per-call UI approval, even
 # when they mutate state. Keep this separate from evidence that a tool is read-only.
 _LOCAL_AUTO_APPROVED_MCP_TOOLS: dict[str, frozenset[str]] = {}
+
+
+@dataclass(frozen=True)
+class _McpGroupApprovalPolicy:
+    included: frozenset[str]
+    excluded: frozenset[str]
+    default: str
+    overrides: dict[str, str]
+
+    def for_tool(self, tool_name: str) -> str:
+        # NAT gives a nonempty include precedence over exclude. Never extend
+        # a group default to tools outside that group's exposure filter.
+        if self.included:
+            if tool_name not in self.included:
+                return _APPROVAL_REQUIRED_POLICY
+        elif tool_name in self.excluded:
+            return _APPROVAL_REQUIRED_POLICY
+        return self.overrides.get(tool_name, self.default)
+
+
+_MCP_GROUP_APPROVAL_POLICIES: dict[str, _McpGroupApprovalPolicy] = {}
 
 _MCP_APPROVAL_MARKER_PREFIX = "<!--daedalus-mcp-approval:"
 _MCP_APPROVAL_MARKER_SUFFIX = "-->"
@@ -343,23 +364,76 @@ def _load_policy_config(path: Path, _seen: frozenset[Path] = frozenset()) -> dic
     return _deep_merge_policy_mapping(base_config, raw_config)
 
 
+def _parse_mcp_group_approval_policy(
+    name: str, config: dict
+) -> _McpGroupApprovalPolicy:
+    """Validate exposure and approval defaults without changing runtime state."""
+
+    def tool_names(key: str) -> frozenset[str]:
+        raw = config.get(key, [])
+        if not isinstance(raw, list) or any(
+            not isinstance(tool, str) or not tool.strip() for tool in raw
+        ):
+            raise RuntimeError(
+                f"function_groups.{name}.{key} must be a list of non-empty tool names"
+            )
+        return frozenset(tool.strip().casefold() for tool in raw)
+
+    included, excluded = tool_names("include"), tool_names("exclude")
+    default = (
+        str(config.get("approval_policy", _APPROVAL_REQUIRED_POLICY)).strip().casefold()
+    )
+    if default not in {_APPROVAL_REQUIRED_POLICY, _AUTO_APPROVE_POLICY}:
+        raise RuntimeError(
+            f"Unsupported MCP group approval policy {default!r} for {name}"
+        )
+    raw_overrides = config.get("tool_overrides", {}) or {}
+    if not isinstance(raw_overrides, dict):
+        raise RuntimeError(f"function_groups.{name}.tool_overrides must be a mapping")
+    overrides: dict[str, str] = {}
+    for raw_tool_name, override in raw_overrides.items():
+        if not isinstance(override, dict) or override.get("approval_policy") is None:
+            continue
+        raw_policy = override["approval_policy"]
+        policy = str(raw_policy).strip().casefold()
+        if policy not in _SUPPORTED_APPROVAL_POLICIES:
+            raise RuntimeError(
+                f"Unsupported MCP approval policy {raw_policy!r} for {name}.{raw_tool_name}"
+            )
+        tool_name = str(raw_tool_name).strip().casefold()
+        if included and tool_name not in included:
+            raise RuntimeError(
+                f"MCP approval policy references a tool outside include: {name}.{raw_tool_name}"
+            )
+        if not included and tool_name in excluded:
+            raise RuntimeError(
+                f"MCP approval policy references an excluded tool: {name}.{raw_tool_name}"
+            )
+        if policy == _READ_ONLY_APPROVAL_POLICY and _is_mutating_mcp_call(
+            str(raw_tool_name), {}
+        ):
+            raise RuntimeError(
+                f"MCP read-only policy conflicts with local mutation detection: {name}.{raw_tool_name}"
+            )
+        overrides[tool_name] = policy
+    return _McpGroupApprovalPolicy(included, excluded, default, overrides)
+
+
 def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
     """Load exact MCP authorization declarations from the deployed YAML.
 
     Follows NAT ``base:`` inheritance with the same child-over-base deep-merge
     semantics, so overlay configs keep the canonical authorization policy.
 
-    Every group requires a non-empty ``include`` list. An empty or omitted
-    allowlist is a startup error instead of authorization for a server's full
-    advertised surface. ``read_only`` exempts verified reads; ``auto_approve``
-    explicitly authorizes an exact tool, including mutations, without UI approval.
-    ``approval_required`` is an optional explicit marker and has the same
-    fail-closed behavior as an omitted policy. Policy entries for tools outside
-    the group's ``include`` list are rejected as stale.
+    Omitted or empty ``include`` discovers all tools, subject to ``exclude``.
+    Group defaults support ``auto_approve`` and ``approval_required`` (default).
+    Exact tool policies take precedence and can also classify verified reads
+    as ``read_only``. Discovery alone never authorizes execution.
     """
 
     global _LOCAL_READ_ONLY_MCP_TOOLS
     global _LOCAL_AUTO_APPROVED_MCP_TOOLS
+    global _MCP_GROUP_APPROVAL_POLICIES
     global _PER_USER_MCP_OAUTH_SERVERS
     global _approval_policy_configured
 
@@ -375,6 +449,7 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
 
     read_only_registry: dict[str, frozenset[str]] = {}
     auto_approved_registry: dict[str, frozenset[str]] = {}
+    group_policies: dict[str, _McpGroupApprovalPolicy] = {}
     restricted_groups: set[str] = set()
     configured_endpoints: dict[str, str] = {}
     ambiguous_endpoints: set[str] = set()
@@ -387,56 +462,20 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
             continue
 
         group_name = raw_group_name.casefold()
-        raw_include = raw_group.get("include", []) or []
-        if not isinstance(raw_include, list):
-            raise RuntimeError(
-                f"function_groups.{raw_group_name}.include must be a list"
-            )
-        included = {
-            str(tool).strip().casefold() for tool in raw_include if str(tool).strip()
+        group_policy = _parse_mcp_group_approval_policy(raw_group_name, raw_group)
+        group_policies[group_name] = group_policy
+        if group_policy.included:
+            restricted_groups.add(group_name)
+        read_only_tools = {
+            tool
+            for tool, policy in group_policy.overrides.items()
+            if policy == _READ_ONLY_APPROVAL_POLICY
         }
-        if not included:
-            raise RuntimeError(
-                "MCP function group requires a non-empty include allowlist: "
-                f"{raw_group_name}"
-            )
-        restricted_groups.add(group_name)
-        overrides = raw_group.get("tool_overrides", {}) or {}
-        if not isinstance(overrides, dict):
-            raise RuntimeError(
-                f"function_groups.{raw_group_name}.tool_overrides must be a mapping"
-            )
-
-        read_only_tools: set[str] = set()
-        auto_approved_tools: set[str] = set()
-        for raw_tool_name, raw_override in overrides.items():
-            if not isinstance(raw_override, dict):
-                continue
-            raw_policy = raw_override.get("approval_policy")
-            if raw_policy is None:
-                continue
-            policy = str(raw_policy).strip().casefold()
-            if policy not in _SUPPORTED_APPROVAL_POLICIES:
-                raise RuntimeError(
-                    "Unsupported MCP approval policy "
-                    f"{raw_policy!r} for {raw_group_name}.{raw_tool_name}"
-                )
-            tool_name = str(raw_tool_name).strip().casefold()
-            if tool_name not in included:
-                raise RuntimeError(
-                    "MCP approval policy references a tool outside include: "
-                    f"{raw_group_name}.{raw_tool_name}"
-                )
-            if policy == _READ_ONLY_APPROVAL_POLICY:
-                if _is_mutating_mcp_call(str(raw_tool_name), {}):
-                    raise RuntimeError(
-                        "MCP read-only policy conflicts with local mutation "
-                        f"detection: {raw_group_name}.{raw_tool_name}"
-                    )
-                read_only_tools.add(tool_name)
-            elif policy == _AUTO_APPROVE_POLICY:
-                auto_approved_tools.add(tool_name)
-
+        auto_approved_tools = {
+            tool
+            for tool, policy in group_policy.overrides.items()
+            if policy == _AUTO_APPROVE_POLICY
+        }
         if read_only_tools:
             read_only_registry[group_name] = frozenset(read_only_tools)
         if auto_approved_tools:
@@ -465,17 +504,21 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
 
     _LOCAL_READ_ONLY_MCP_TOOLS = read_only_registry
     _LOCAL_AUTO_APPROVED_MCP_TOOLS = auto_approved_registry
+    _MCP_GROUP_APPROVAL_POLICIES = group_policies
     _PER_USER_MCP_OAUTH_SERVERS = frozenset(per_user_oauth_servers)
     _mcp_server_group_names.update(configured_endpoints)
     _ambiguous_mcp_servers.update(ambiguous_endpoints)
     _approval_policy_configured = True
     logger.info(
         "Loaded MCP approval policy: config=%s restricted_groups=%d "
-        "read_only_tools=%d auto_approved_tools=%d per_user_oauth_groups=%d",
+        "read_only_tools=%d auto_approved_tools=%d auto_approved_groups=%d per_user_oauth_groups=%d",
         path,
         len(restricted_groups),
         sum(len(tools) for tools in read_only_registry.values()),
         sum(len(tools) for tools in auto_approved_registry.values()),
+        sum(
+            policy.default == _AUTO_APPROVE_POLICY for policy in group_policies.values()
+        ),
         len(per_user_oauth_servers),
     )
 
@@ -588,10 +631,8 @@ def _is_mutating_mcp_call(tool_name: str, payload: dict, annotations=None) -> bo
     return bool(tokens & _MUTATING_TOOL_TOKENS)
 
 
-def _has_local_tool_policy(
-    server_name: str, tool_name: str, registry: dict[str, frozenset[str]]
-) -> bool:
-    """Match one exact configured operation within its canonical server."""
+def _mcp_policy_target(server_name: str, tool_name: str) -> tuple[str, str]:
+    """Normalize a tool name within its canonical server identity."""
 
     logical_server = _mcp_server_group_names.get(server_name, server_name).casefold()
     normalized_tool = tool_name.strip().casefold()
@@ -600,13 +641,16 @@ def _has_local_tool_policy(
         if normalized_tool.startswith(prefix):
             normalized_tool = normalized_tool[len(prefix) :]
             break
-    return normalized_tool in registry.get(logical_server, frozenset())
+    return logical_server, normalized_tool
 
 
 def _has_local_read_only_evidence(server_name: str, tool_name: str) -> bool:
     """Return whether one exact repository-owned operation is read-only."""
 
-    return _has_local_tool_policy(server_name, tool_name, _LOCAL_READ_ONLY_MCP_TOOLS)
+    logical_server, normalized_tool = _mcp_policy_target(server_name, tool_name)
+    return normalized_tool in _LOCAL_READ_ONLY_MCP_TOOLS.get(
+        logical_server, frozenset()
+    )
 
 
 def _canonical_mcp_call(payload: dict, input_schema=None) -> tuple[str, str]:
@@ -730,12 +774,19 @@ def _validate_mcp_approval(
     input_schema=None,
     validated_binding: dict[str, str] | None = None,
 ) -> tuple[bool, str]:
-    if _has_local_tool_policy(server_name, tool_name, _LOCAL_AUTO_APPROVED_MCP_TOOLS):
+    logical_server, normalized_tool = _mcp_policy_target(server_name, tool_name)
+    group_policy = _MCP_GROUP_APPROVAL_POLICIES.get(logical_server)
+    policy = (
+        group_policy.for_tool(normalized_tool)
+        if group_policy
+        else _APPROVAL_REQUIRED_POLICY
+    )
+    if policy == _AUTO_APPROVE_POLICY:
         return True, "auto-approved"
     is_mutating = _is_mutating_mcp_call(tool_name, payload, annotations)
-    if not _has_local_read_only_evidence(server_name, tool_name):
-        # Unknown operations require approval in every explicitly allowlisted
-        # group. In particular, read-like names, payload verbs, and remote
+    if policy != _READ_ONLY_APPROVAL_POLICY:
+        # Operations without operator authorization or exact read-only evidence
+        # require approval. In particular, read-like names, payload verbs, and remote
         # readOnlyHint annotations are not local authorization evidence.
         is_mutating = True
     if not is_mutating:

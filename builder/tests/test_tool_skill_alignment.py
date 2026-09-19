@@ -25,6 +25,27 @@ def test_all_native_tools_have_runtime_catalog_fixtures():
     assert set(FACTORIES) == set(SAMPLES)
 
 
+@pytest.mark.parametrize("filters", [{}, {"include": []}, {"exclude": ["hidden"]}])
+def test_configuration_contract_accepts_discovery_with_group_approval(filters):
+    from tool_catalog_contract_check import check_configuration
+
+    config = configuration()
+    config["function_groups"]["hue_mcp_server"].update(filters)
+    check_configuration(config)
+
+
+@pytest.mark.parametrize(
+    "filters", [{"include": ["new_control"]}, {"exclude": ["get_bridge_status"]}]
+)
+def test_configuration_contract_rejects_overrides_outside_exposure(filters):
+    from tool_catalog_contract_check import check_configuration
+
+    config = configuration()
+    config["function_groups"]["hue_mcp_server"].update(filters)
+    with pytest.raises(RuntimeError, match="outside include|excluded tool"):
+        check_configuration(config)
+
+
 def test_source_ids_agree_across_verifier_chat_and_autonomous_runs():
     from autonomous_agent.prompt import _SOURCE_POLICY_IDS
     from source_verifier.source_verifier_function import _default_source_registry

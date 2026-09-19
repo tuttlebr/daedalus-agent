@@ -14,6 +14,7 @@ import mcp_patches
 import uvicorn
 import yaml
 from mcp.server.fastmcp import FastMCP
+from nat.builder.workflow_builder import WorkflowBuilder
 from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient
 from nat.plugins.mcp.client.client_config import MCPClientConfig
 from nat.plugins.mcp.client.client_impl import MCPFunctionGroup
@@ -84,6 +85,16 @@ async def check_mcp_lifecycle():
         calls.append(value)
         return value
 
+    @server.tool()
+    def new_control(value: str) -> str:
+        calls.append(value)
+        return value
+
+    @server.tool()
+    def excluded_control(value: str) -> str:
+        calls.append(value)
+        return value
+
     # Bind before starting Uvicorn to avoid a free-port race.
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -103,13 +114,75 @@ async def check_mcp_lifecycle():
             async with asyncio.timeout(25):
                 await check_clients(url, calls)
                 await check_operator_approval(url, calls)
+                await check_group_approval(url, calls)
         finally:
             http_server.should_exit = True
             await asyncio.wait_for(server_task, timeout=5)
     print(
         "MCP lifecycle runtime contract passed: owner cleanup, reconnect, "
-        "session replacement, concurrent leases, operator approval, mutation non-replay, and shutdown"
+        "session replacement, concurrent leases, operator approval, group discovery, "
+        "mutation non-replay, and shutdown"
     )
+
+
+async def check_group_approval(url, calls):
+    """Discover unlisted tools through NAT, then execute under group defaults."""
+    name = "hue_mcp_server"
+    for filters in ({}, {"include": []}, {"exclude": ["excluded_control"]}):
+        raw = {
+            "_type": "mcp_client",
+            "approval_policy": "auto_approve",
+            "tool_overrides": {"echo": {"approval_policy": "approval_required"}},
+            "server": {"transport": "streamable-http", "url": url},
+            **filters,
+        }
+        with TemporaryDirectory() as directory:
+            config = Path(directory) / "config.yaml"
+            config.write_text(yaml.safe_dump({"function_groups": {name: raw}}))
+            mcp_patches.configure_mcp_approval_policy(config)
+        async with WorkflowBuilder() as builder:
+            group = await builder.add_function_group(
+                name, MCPClientConfig.model_validate(raw)
+            )
+            functions = await group.get_accessible_functions()
+            expected = {"echo", "set_light_state", "new_control", "excluded_control"}
+            expected -= set(filters.get("exclude", []))
+            require(
+                set(functions) == {f"{name}__{leaf}" for leaf in expected},
+                "NAT discovery did not respect omitted/empty include and exclude",
+            )
+            value = f"group-default-{len(calls)}"
+            result = await functions[f"{name}__new_control"].acall_invoke(
+                {"value": value}
+            )
+            require(result == value, "newly discovered tool did not inherit approval")
+            require(
+                calls.count(value) == 1, "group-authorized tool call count mismatch"
+            )
+            denied = await functions[f"{name}__echo"].acall_invoke(
+                {"value": "group-denied"}
+            )
+            require(
+                "execution credential" in denied,
+                "group default bypassed exact approval_required override",
+            )
+            require(
+                "group-denied" not in calls, "approval-required tool reached server"
+            )
+            tool = await group.mcp_client.get_tool("new_control")
+            original_call = group.mcp_client._session.call_tool
+
+            async def lost_response(*args, **kwargs):
+                await original_call(*args, **kwargs)
+                raise ConnectionError("response lost after group-authorized execution")
+
+            lost_value = f"group-lost-{len(calls)}"
+            with patch.object(group.mcp_client._session, "call_tool", lost_response):
+                outcome = await tool.acall({"value": lost_value})
+            require(
+                "mcp_tool_failed" in outcome, "ambiguous group call reported success"
+            )
+            require(calls.count(lost_value) == 1, "group-authorized mutation replayed")
 
 
 async def check_operator_approval(url, calls):
