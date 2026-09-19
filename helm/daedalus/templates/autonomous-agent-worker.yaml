@@ -39,6 +39,8 @@ spec:
         - name: wait-for-backend
           image: {{ include "daedalus.image" .Values.images.backend | quote }}
           imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          resources:
+            {{- toYaml .Values.autonomousAgent.waitForBackend.resources | nindent 12 }}
           {{- with .Values.autonomousAgent.containerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
