@@ -1,5 +1,24 @@
 # Skill review records
 
+## 2026-09-19: use-hue-api compact reference
+
+Added the latest Hue skill with a generated JSON reference for 155 REST
+operations, an offline reference reader, and an optional HTML importer. The
+superseded HTML export is not bundled. Corrected paths and links for Daedalus,
+documented explicit resource staging for sandbox use, and tied live operations
+to the discovered `hue_mcp_server` catalog. Registered the skill in the ownership
+table and updated the catalog expectation to 20 skills. The generated reference
+has a dedicated 2 MB pre-commit limit; other files retain their existing limits.
+
+Validation: 82 catalog, parser, dispatcher, and tool-alignment tests passed,
+including discovery and text-resource loading across all 20 skills. Frontmatter
+and local links passed. Offline helper checks covered reader pagination,
+alternate references, invalid inputs, importer deduplication, nested required
+fields, and rejection of conflicting copies without overwriting the output.
+The bundled reference contains 155 distinct operation contracts. These checks
+validate packaging and helper behavior; no bridge operation, model behavior
+evaluation, or deployment was performed for this skill addition.
+
 ## 2026-09-16: fantasy-football-recap Fowling Dispatch design pattern
 
 Made the supplied Fowling Dispatch visual system the standard for every recap,

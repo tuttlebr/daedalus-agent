@@ -54,6 +54,7 @@ not a collection of installed CLI plugins. Keep all skills compatible with
 | Dynamo offline replay parity         | dynamo-kv-replay-parity   | its frozen campaign references                                                                                |
 | Dynamo documentation authoring       | dynamo-docs               | dynamo-recipe-runner only for requested deployment validation                                                 |
 | UniFi operations                     | unifi-network             | network-health-check or unifi-network-setup                                                                   |
+| Hue lighting and resource operations | use-hue-api               | devops-engineer for a separately requested integration or deployment change                                   |
 | UniFi connector configuration        | unifi-network-setup       | unifi-network after authenticated discovery/read                                                              |
 | Read-only UniFi health               | network-health-check      | unifi-network for a separately requested change                                                               |
 | ESPN fantasy decisions               | espn-fantasy-football     | current research tools; no transaction execution                                                              |
@@ -61,7 +62,7 @@ not a collection of installed CLI plugins. Keep all skills compatible with
 
 ## Validation
 
-Validate all 19 entries through the real parser/dispatcher, load every bundled
+Validate all 20 entries through the real parser/dispatcher, load every bundled
 text resource, and check local links and cross-skill targets. Run the focused
 builder tests for any changed scripts/contracts and pre-commit on changed files.
 Do not use syntax checks as proof of model behavior, a deployment, or benchmark
