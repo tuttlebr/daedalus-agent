@@ -114,8 +114,9 @@ def test_mcp_success_receipt_mismatch_is_consumed():
         (None, TimeoutError("tool timed out"), False),
     ],
 )
+@pytest.mark.parametrize("approval_reason", ["approved", "auto-approved"])
 def test_gate_records_receipt_only_for_successful_approved_result(
-    monkeypatch, result, raised, receipt_expected
+    monkeypatch, result, raised, receipt_expected, approval_reason
 ):
     calls = {"tool": 0, "receipts": []}
 
@@ -166,7 +167,7 @@ def test_gate_records_receipt_only_for_successful_approved_result(
                 "arguments_sha256": "a" * 64,
             }
         )
-        return True, "approved"
+        return True, approval_reason
 
     monkeypatch.setattr(mcp_patches, "_validate_mcp_approval", approve)
     monkeypatch.setattr(
@@ -182,6 +183,7 @@ def test_gate_records_receipt_only_for_successful_approved_result(
     )
 
     assert calls["tool"] == 1
+    receipt_expected = receipt_expected and approval_reason == "approved"
     assert bool(calls["receipts"]) is receipt_expected
     if receipt_expected:
         assert calls["receipts"][0]["approval_token"] == "secret"
@@ -192,7 +194,8 @@ def test_gate_records_receipt_only_for_successful_approved_result(
         assert "mcp_tool_failed" in wrapped_result
 
 
-def test_approved_mutation_disables_automatic_replay(monkeypatch):
+@pytest.mark.parametrize("approval_reason", ["approved", "auto-approved"])
+def test_approved_mutation_disables_automatic_replay(monkeypatch, approval_reason):
     reconnect_values = []
 
     class FakeMCPToolClient:
@@ -229,7 +232,7 @@ def test_approved_mutation_disables_automatic_replay(monkeypatch):
     monkeypatch.setattr(
         mcp_patches,
         "_validate_mcp_approval",
-        lambda *_args, **_kwargs: (True, "approved"),
+        lambda *_args, **_kwargs: (True, approval_reason),
     )
     monkeypatch.setattr(
         mcp_patches,
@@ -783,6 +786,96 @@ def test_local_read_only_registry_matches_configured_includes():
     assert mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS == configured_policy
 
 
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "set_light_state",
+        "set_group_state",
+        "recall_scene",
+        "create_scene",
+        "update_scene",
+        "delete_scene",
+        "update_room",
+        "update_zone",
+    ],
+)
+@pytest.mark.parametrize(
+    "server_name",
+    [
+        "hue_mcp_server",
+        "streamable-http:http://hue-mcp-server.daedalus.svc.cluster.local:8000/mcp",
+    ],
+)
+def test_hue_controls_are_operator_authorized_without_approval_storage(
+    monkeypatch, tool_name, server_name
+):
+    def forbidden(**_kwargs):
+        pytest.fail("auto-approved Hue calls must not create UI approvals")
+
+    monkeypatch.setattr(mcp_patches, "_create_mcp_approval_marker", forbidden)
+    assert mcp_patches._validate_mcp_approval(
+        tool_name,
+        {},
+        annotations=_Annotations(destructiveHint=True),
+        server_name=server_name,
+        approval_token=None,
+    ) == (True, "auto-approved")
+    assert not mcp_patches._has_local_read_only_evidence(server_name, tool_name)
+
+
+@pytest.mark.parametrize(
+    "tool_name", ["get_bridge_status", "list_resources", "get_resource"]
+)
+def test_hue_reads_do_not_require_ui_approval(tool_name):
+    assert mcp_patches._validate_mcp_approval(
+        tool_name, {}, server_name="hue_mcp_server"
+    ) == (True, "read-only")
+
+
+@pytest.mark.parametrize(
+    "server_name,tool_name",
+    [
+        ("hue_mcp_server", "delete_all_resources"),
+        ("other_mcp_server", "set_light_state"),
+    ],
+)
+def test_operator_approval_does_not_extend_to_other_tools_or_servers(
+    server_name, tool_name
+):
+    ok, _ = mcp_patches._validate_mcp_approval(
+        tool_name, {"approval_policy": "auto_approve"}, server_name=server_name
+    )
+    assert not ok
+
+
+def test_operator_approval_can_be_revoked_by_inherited_configuration(tmp_path):
+    overlay = tmp_path / "revoked.yaml"
+    overlay.write_text(
+        yaml.safe_dump(
+            {
+                "base": str(CONFIG_PATH),
+                "function_groups": {
+                    "hue_mcp_server": {
+                        "tool_overrides": {
+                            "set_light_state": {"approval_policy": "approval_required"},
+                        }
+                    }
+                },
+            }
+        )
+    )
+    try:
+        mcp_patches.configure_mcp_approval_policy(overlay)
+        assert not mcp_patches._validate_mcp_approval(
+            "set_light_state", {}, server_name="hue_mcp_server"
+        )[0]
+        assert mcp_patches._validate_mcp_approval(
+            "recall_scene", {}, server_name="hue_mcp_server"
+        ) == (True, "auto-approved")
+    finally:
+        mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+
+
 def test_every_mcp_group_has_a_nonempty_allowlist():
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     for group_name, group in config["function_groups"].items():
@@ -834,6 +927,7 @@ def test_approval_policy_follows_base_inheritance(tmp_path):
     mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
     canonical_state = (
         dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
+        dict(mcp_patches._LOCAL_AUTO_APPROVED_MCP_TOOLS),
         mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
     )
     assert canonical_state[0], "canonical policy is empty"
@@ -841,6 +935,7 @@ def test_approval_policy_follows_base_inheritance(tmp_path):
     mcp_patches.configure_mcp_approval_policy(overlay_path)
     overlay_state = (
         dict(mcp_patches._LOCAL_READ_ONLY_MCP_TOOLS),
+        dict(mcp_patches._LOCAL_AUTO_APPROVED_MCP_TOOLS),
         mcp_patches._PER_USER_MCP_OAUTH_SERVERS,
     )
 
@@ -897,7 +992,8 @@ def test_approval_policy_rejects_circular_base_chain(tmp_path):
     mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
 
 
-def test_approval_policy_rejects_tool_outside_include(tmp_path):
+@pytest.mark.parametrize("policy", ["read_only", "auto_approve"])
+def test_approval_policy_rejects_tool_outside_include(tmp_path, policy):
     config_path = tmp_path / "bad-policy.yaml"
     config_path.write_text(
         """
@@ -911,7 +1007,7 @@ function_groups:
     server:
       transport: streamable-http
       url: https://gmail.example.test/mcp
-""",
+        """.replace("approval_policy: read_only", f"approval_policy: {policy}"),
         encoding="utf-8",
     )
 

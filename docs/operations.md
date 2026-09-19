@@ -163,6 +163,14 @@ MCP exposure and approval follow one default-deny configuration rule:
   creates one short-lived credential in trusted request metadata. The browser
   and model never receive it. Unknown policy values and policy entries outside
   `include` fail backend startup. Autonomous runs cannot request approvals.
+- To authorize an exact tool without per-call approval, set its override to
+  `approval_policy: auto_approve`. This is an explicit operator authorization,
+  including for mutations, and applies to interactive and autonomous calls.
+  Hue's eight configured controls use this policy; its three reads remain
+  `read_only`. Removing an override restores approval requirements. Newly
+  included tools do not inherit approval from their group. Auto-approved
+  mutations retain protection against automatic replay after an uncertain
+  response and do not create per-call approval credentials or receipts.
 - For static API-key MCP providers, backend startup logs only whether the
   required environment variable is non-empty (`configured=True|False`), never
   the value. This verifies deployment injection, not upstream acceptance; a

@@ -5,11 +5,14 @@ import asyncio
 import socket
 from contextlib import asynccontextmanager
 from datetime import timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import anyio
 import mcp_patches
 import uvicorn
+import yaml
 from mcp.server.fastmcp import FastMCP
 from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient
 from nat.plugins.mcp.client.client_config import MCPClientConfig
@@ -75,6 +78,12 @@ async def check_mcp_lifecycle():
         calls.append(value)
         return value
 
+    @server.tool()
+    def set_light_state(value: str) -> str:
+        # A loopback-only mutation fixture; never contacts a Hue bridge.
+        calls.append(value)
+        return value
+
     # Bind before starting Uvicorn to avoid a free-port race.
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -93,13 +102,65 @@ async def check_mcp_lifecycle():
                     await asyncio.sleep(0.01)
             async with asyncio.timeout(25):
                 await check_clients(url, calls)
+                await check_operator_approval(url, calls)
         finally:
             http_server.should_exit = True
             await asyncio.wait_for(server_task, timeout=5)
     print(
         "MCP lifecycle runtime contract passed: owner cleanup, reconnect, "
-        "session replacement, concurrent leases, mutation non-replay, and shutdown"
+        "session replacement, concurrent leases, operator approval, mutation non-replay, and shutdown"
     )
+
+
+async def check_operator_approval(url, calls):
+    with TemporaryDirectory() as directory:
+        config = Path(directory) / "config.yaml"
+        config.write_text(
+            yaml.safe_dump(
+                {
+                    "function_groups": {
+                        "hue_mcp_server": {
+                            "_type": "mcp_client",
+                            "include": ["set_light_state", "echo"],
+                            "tool_overrides": {
+                                "set_light_state": {"approval_policy": "auto_approve"}
+                            },
+                            "server": {"transport": "streamable-http", "url": url},
+                        }
+                    },
+                }
+            )
+        )
+        mcp_patches.configure_mcp_approval_policy(config)
+    async with MCPStreamableHTTPClient(url, reconnect_max_attempts=1) as client:
+        tool = await client.get_tool("set_light_state")
+        result = await tool.acall({"value": "operator-authorized"})
+        require(result == "operator-authorized", "operator-authorized call was gated")
+        require(calls.count("operator-authorized") == 1, "operator call count mismatch")
+        unapproved = await client.get_tool("echo")
+        try:
+            await unapproved.acall({"value": "unapproved"})
+        except PermissionError:
+            pass
+        else:
+            raise RuntimeError("operator approval leaked to another tool")
+        require("unapproved" not in calls, "unapproved tool reached the server")
+
+        original_call = client._session.call_tool
+
+        async def lost_response(*args, **kwargs):
+            await original_call(*args, **kwargs)
+            raise ConnectionError("response lost after operator-authorized execution")
+
+        with patch.object(client._session, "call_tool", lost_response):
+            outcome = await tool.acall({"value": "operator-response-lost"})
+        require(
+            "mcp_tool_failed" in outcome, "ambiguous operator call reported success"
+        )
+        require(
+            calls.count("operator-response-lost") == 1, "operator mutation replayed"
+        )
+        require(client._reconnect_enabled, "operator call changed reconnect setting")
 
 
 async def check_clients(url, calls):

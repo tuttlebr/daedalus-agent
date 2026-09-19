@@ -625,7 +625,7 @@ def test_deployed_tool_surface_is_optimized():
         assert removed_router_tool not in workflow_tools, path
         # Infrastructure MCPs now contribute nineteen explicitly reviewed
         # reads instead of two uncounted full server catalogs. Hue contributes
-        # eleven explicitly reviewed tools, including eight gated mutations.
+        # eleven explicitly reviewed tools, including eight operator-approved mutations.
         # Keep the total bounded so later growth requires a deliberate review.
         assert _effective_operation_count(config, workflow_tools) <= 106, path
 
@@ -1126,7 +1126,7 @@ def test_espn_mcp_uses_the_deployment_token_without_user_oauth():
         }, path
 
 
-def test_hue_mcp_exposes_reviewed_tools_with_only_reads_exempt_from_approval():
+def test_hue_mcp_exposes_reviewed_tools_without_per_call_approval():
     reads = {"get_bridge_status", "list_resources", "get_resource"}
     mutations = {
         "set_light_state",
@@ -1142,7 +1142,8 @@ def test_hue_mcp_exposes_reviewed_tools_with_only_reads_exempt_from_approval():
         group = _config(path)["function_groups"]["hue_mcp_server"]
         assert set(group["include"]) == reads | mutations, path
         assert group["tool_overrides"] == {
-            name: {"approval_policy": "read_only"} for name in reads
+            **{name: {"approval_policy": "read_only"} for name in reads},
+            **{name: {"approval_policy": "auto_approve"} for name in mutations},
         }, path
 
 

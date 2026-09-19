@@ -87,8 +87,9 @@ _ambiguous_mcp_servers: set[str] = set()
 _approval_policy_configured = False
 _READ_ONLY_APPROVAL_POLICY = "read_only"
 _APPROVAL_REQUIRED_POLICY = "approval_required"
+_AUTO_APPROVE_POLICY = "auto_approve"
 _SUPPORTED_APPROVAL_POLICIES = frozenset(
-    {_READ_ONLY_APPROVAL_POLICY, _APPROVAL_REQUIRED_POLICY}
+    {_READ_ONLY_APPROVAL_POLICY, _APPROVAL_REQUIRED_POLICY, _AUTO_APPROVE_POLICY}
 )
 
 # Startup is different from runtime: every MCP group is built serially inside
@@ -240,6 +241,9 @@ _WORD_SPLIT_RE = re.compile(r"[^a-z0-9]+")
 # allowlisted group, adding a tool to ``include`` never authorizes it
 # automatically.
 _LOCAL_READ_ONLY_MCP_TOOLS: dict[str, frozenset[str]] = {}
+# Exact operator-authorized tools may run without per-call UI approval, even
+# when they mutate state. Keep this separate from evidence that a tool is read-only.
+_LOCAL_AUTO_APPROVED_MCP_TOOLS: dict[str, frozenset[str]] = {}
 
 _MCP_APPROVAL_MARKER_PREFIX = "<!--daedalus-mcp-approval:"
 _MCP_APPROVAL_MARKER_SUFFIX = "-->"
@@ -347,14 +351,15 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
 
     Every group requires a non-empty ``include`` list. An empty or omitted
     allowlist is a startup error instead of authorization for a server's full
-    advertised surface. ``approval_policy: read_only`` is the sole
-    configuration value that can bypass human approval.
+    advertised surface. ``read_only`` exempts verified reads; ``auto_approve``
+    explicitly authorizes an exact tool, including mutations, without UI approval.
     ``approval_required`` is an optional explicit marker and has the same
     fail-closed behavior as an omitted policy. Policy entries for tools outside
     the group's ``include`` list are rejected as stale.
     """
 
     global _LOCAL_READ_ONLY_MCP_TOOLS
+    global _LOCAL_AUTO_APPROVED_MCP_TOOLS
     global _PER_USER_MCP_OAUTH_SERVERS
     global _approval_policy_configured
 
@@ -369,6 +374,7 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
         raise RuntimeError(f"authentication is not a mapping in {path}")
 
     read_only_registry: dict[str, frozenset[str]] = {}
+    auto_approved_registry: dict[str, frozenset[str]] = {}
     restricted_groups: set[str] = set()
     configured_endpoints: dict[str, str] = {}
     ambiguous_endpoints: set[str] = set()
@@ -402,6 +408,7 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
             )
 
         read_only_tools: set[str] = set()
+        auto_approved_tools: set[str] = set()
         for raw_tool_name, raw_override in overrides.items():
             if not isinstance(raw_override, dict):
                 continue
@@ -427,9 +434,13 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
                         f"detection: {raw_group_name}.{raw_tool_name}"
                     )
                 read_only_tools.add(tool_name)
+            elif policy == _AUTO_APPROVE_POLICY:
+                auto_approved_tools.add(tool_name)
 
         if read_only_tools:
             read_only_registry[group_name] = frozenset(read_only_tools)
+        if auto_approved_tools:
+            auto_approved_registry[group_name] = frozenset(auto_approved_tools)
 
         server = raw_group.get("server", {})
         if isinstance(server, dict):
@@ -453,16 +464,18 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
                 )
 
     _LOCAL_READ_ONLY_MCP_TOOLS = read_only_registry
+    _LOCAL_AUTO_APPROVED_MCP_TOOLS = auto_approved_registry
     _PER_USER_MCP_OAUTH_SERVERS = frozenset(per_user_oauth_servers)
     _mcp_server_group_names.update(configured_endpoints)
     _ambiguous_mcp_servers.update(ambiguous_endpoints)
     _approval_policy_configured = True
     logger.info(
         "Loaded MCP approval policy: config=%s restricted_groups=%d "
-        "read_only_tools=%d per_user_oauth_groups=%d",
+        "read_only_tools=%d auto_approved_tools=%d per_user_oauth_groups=%d",
         path,
         len(restricted_groups),
         sum(len(tools) for tools in read_only_registry.values()),
+        sum(len(tools) for tools in auto_approved_registry.values()),
         len(per_user_oauth_servers),
     )
 
@@ -575,8 +588,10 @@ def _is_mutating_mcp_call(tool_name: str, payload: dict, annotations=None) -> bo
     return bool(tokens & _MUTATING_TOOL_TOKENS)
 
 
-def _has_local_read_only_evidence(server_name: str, tool_name: str) -> bool:
-    """Return whether one exact repository-owned operation is read-only."""
+def _has_local_tool_policy(
+    server_name: str, tool_name: str, registry: dict[str, frozenset[str]]
+) -> bool:
+    """Match one exact configured operation within its canonical server."""
 
     logical_server = _mcp_server_group_names.get(server_name, server_name).casefold()
     normalized_tool = tool_name.strip().casefold()
@@ -585,9 +600,13 @@ def _has_local_read_only_evidence(server_name: str, tool_name: str) -> bool:
         if normalized_tool.startswith(prefix):
             normalized_tool = normalized_tool[len(prefix) :]
             break
-    return normalized_tool in _LOCAL_READ_ONLY_MCP_TOOLS.get(
-        logical_server, frozenset()
-    )
+    return normalized_tool in registry.get(logical_server, frozenset())
+
+
+def _has_local_read_only_evidence(server_name: str, tool_name: str) -> bool:
+    """Return whether one exact repository-owned operation is read-only."""
+
+    return _has_local_tool_policy(server_name, tool_name, _LOCAL_READ_ONLY_MCP_TOOLS)
 
 
 def _canonical_mcp_call(payload: dict, input_schema=None) -> tuple[str, str]:
@@ -711,6 +730,8 @@ def _validate_mcp_approval(
     input_schema=None,
     validated_binding: dict[str, str] | None = None,
 ) -> tuple[bool, str]:
+    if _has_local_tool_policy(server_name, tool_name, _LOCAL_AUTO_APPROVED_MCP_TOOLS):
+        return True, "auto-approved"
     is_mutating = _is_mutating_mcp_call(tool_name, payload, annotations)
     if not _has_local_read_only_evidence(server_name, tool_name):
         # Unknown operations require approval in every explicitly allowlisted
@@ -2714,8 +2735,12 @@ def _patch_tool_client():
                     # ambiguous and must never be replayed automatically. NAT's
                     # parent call_tool normally reconnects and invokes the same
                     # coroutine again. Suppress that replay for both explicitly
-                    # approved mutations, then restore the configured behavior.
-                    if approval_reason == "approved" and parent_client is not None:
+                    # approved and operator-authorized mutations, then restore
+                    # the configured behavior.
+                    if (
+                        approval_reason in {"approved", "auto-approved"}
+                        and parent_client is not None
+                    ):
                         mutation_lock = getattr(
                             parent_client, "_daedalus_mutation_lock", None
                         )
