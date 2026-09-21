@@ -4,12 +4,13 @@ import asyncio
 import json
 import logging
 import os
+import runpy
 import signal
 import sys
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
@@ -17,12 +18,14 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.agent_loop_guard import current_agent_run
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
 
 logger = logging.getLogger(__name__)
 
 _RESOURCES = {
     "edition-policy.json": "references/edition-policy.json",
+    "edition-schema.json": "references/edition-schema.json",
+    "edition_contract.py": "scripts/edition_contract.py",
     "daybook-v4.html": "assets/daybook-v4.html",
     "render_daybook.py": "scripts/render_daybook.py",
     "validate_daybook.py": "scripts/validate_daybook.py",
@@ -55,6 +58,69 @@ class BriefingRendererInput(BaseModel):
             "daily-summary/references/edition-format.md for its fields."
         ),
     )
+
+
+def briefing_input_schema(skill_directory: str):
+    """Advertise the canonical nested schema without duplicating its validator.
+
+    Keep runtime edition values as dictionaries so one canonical validation pass
+    can return every structural correction instead of NAT rejecting the first.
+    """
+    root = Path(skill_directory)
+    contract = runpy.run_path(str(root / "scripts/edition_contract.py"))
+    schema = contract["expanded_schema"](
+        contract["load_schema"](root / "references/edition-schema.json")
+    )
+    return create_model(
+        "BriefingRendererInput",
+        __base__=BriefingRendererInput,
+        edition=(
+            # LangChain subsets tool fields and preserves Annotated metadata;
+            # Field.json_schema_extra is discarded at that adapter boundary.
+            Annotated[dict[str, Any], WithJsonSchema(schema)],
+            Field(
+                description=BriefingRendererInput.model_fields["edition"].description,
+            ),
+        ),
+    )
+
+
+class SandboxUnavailable(ValueError):
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def _sandbox_capabilities(text: str) -> dict:
+    """Read the real llm_sandbox adapter's capability envelope before writes."""
+    if not text.startswith("## Sandbox Capabilities\n"):
+        raise SandboxUnavailable("capability_discovery_unavailable")
+    fields = dict(line.split(": ", 1) for line in text.splitlines() if ": " in line)
+    try:
+        if (
+            json.loads(fields["Isolation"]) != "bubblewrap"
+            or json.loads(fields["Stateless"]) is not True
+        ):
+            raise SandboxUnavailable("sandbox_isolation_unavailable")
+        if json.loads(fields["Conversation workspaces"]) is not True:
+            raise SandboxUnavailable("sandbox_workspace_unavailable")
+        commands = json.loads(fields["Commands (JSON)"])
+        if not isinstance(commands, list) or not all(
+            isinstance(command, str) for command in commands
+        ):
+            raise ValueError("invalid command list")
+        if "python3" not in commands:
+            raise SandboxUnavailable("sandbox_python3_unavailable")
+        if "true" not in commands:
+            raise SandboxUnavailable("sandbox_file_operations_unavailable")
+        maximum = int(fields["Maximum timeout"].removesuffix(" seconds"))
+        if maximum < 1:
+            raise ValueError("invalid command timeout")
+    except SandboxUnavailable:
+        raise
+    except (KeyError, ValueError, TypeError) as exc:
+        raise SandboxUnavailable("capability_report_invalid") from exc
+    return {"max_timeout_seconds": maximum}
 
 
 def _result(**payload) -> str:
@@ -140,7 +206,7 @@ async def _render_locally(config, edition):
                         await asyncio.shield(process.communicate())
                 report = json.loads(output)
                 if process.returncode != 0 or report.get("passed") is not True:
-                    return None, report
+                    return None, {**report, "validation_stage": argv[0]}
             path = directory / "daily-daedalus.html"
             if path.stat().st_size > config.max_edition_bytes * 10:
                 raise ValueError("canonical HTML exceeds output budget")
@@ -152,33 +218,72 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
         run = current_agent_run()
         if run is None:
             return _result(
-                passed=False, error="A request-scoped agent run is required."
+                passed=False,
+                error="A request-scoped agent run is required.",
+                execution_path="none",
+                stage="invocation",
+                failure_type="authorization",
+                recovery_reason=None,
             )
-        # Parallel model calls share this invocation's lock and budget. Another
-        # conversation or subsequent turn gets a different context object.
+        # Parallel calls share this request's lock and two-attempt budget.
         async with run.artifact_lock:
             if run.terminal_content is not None:
                 return _result(
-                    passed=run.terminal_reason == "validated_artifact", terminal=True
+                    passed=run.terminal_reason == "validated_artifact",
+                    terminal=True,
+                    **run.briefing_execution,
                 )
             retained_edition = None
+            metadata = {
+                "execution_path": "none",
+                "stage": "input_validation",
+                "failure_type": None,
+                "recovery_reason": None,
+            }
 
-            def fail(errors):
+            def fail(errors, failure_type="validation", *, validation_report=None):
                 remaining = max(0, 2 - run.attempts["briefing"])
+                metadata["failure_type"] = failure_type
+                if failure_type != "attempt_limit":
+                    run.briefing_execution = dict(metadata)
+                bounded_errors = [str(error)[:500] for error in errors[:100]]
+                report = validation_report or {}
+                reported_count = report.get("error_count")
+                error_count = max(
+                    len(errors), reported_count if type(reported_count) is int else 0
+                )
                 return _result(
                     passed=False,
-                    errors=[str(error)[:500] for error in errors[:5]],
+                    errors=bounded_errors,
+                    error_count=error_count,
+                    errors_truncated=report.get("errors_truncated") is True
+                    or error_count > len(bounded_errors)
+                    or any(len(str(error)) > 500 for error in errors[:100]),
                     attempts_remaining=remaining,
                     terminal=False,
                     edition=retained_edition,
+                    **metadata,
                     next_step=(
-                        "Correct the reported errors and retry, or deliver the "
-                        "available research as text."
+                        "Correct all reported validation errors and retry once, or deliver "
+                        "the available sourced research as text with honest source gaps."
                         if remaining
                         else "Do not retry this renderer in this request. Deliver "
-                        "the available research as text and explain that HTML "
-                        "rendering failed."
+                        "the available sourced research as text, retain source gaps, "
+                        "and explain that validated HTML rendering failed."
                     ),
+                )
+
+            def succeed(html, report):
+                metadata["failure_type"] = None
+                run.briefing_execution = dict(metadata)
+                run.terminal_reason = "validated_artifact"
+                run.terminal_content = f"```html\n{html}\n```"
+                return _result(
+                    passed=True,
+                    terminal=True,
+                    **metadata,
+                    rendering=metadata["execution_path"],
+                    metrics=report.get("metrics", {}),
                 )
 
             try:
@@ -186,29 +291,40 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                     input_data.edition, ensure_ascii=False, allow_nan=False
                 )
             except (TypeError, ValueError):
-                return fail(["Edition must contain only valid JSON values."])
+                return fail(["Edition must contain only valid JSON values."], "input")
             if len(serialized.encode()) > config.max_edition_bytes:
                 return fail(
                     [
                         "Edition exceeds the size budget; submit a smaller edition. "
                         "The original edition remains in the tool-call arguments."
-                    ]
+                    ],
+                    "input",
                 )
             retained_edition = input_data.edition
             if run.attempts["briefing"] >= 2:
-                return fail(["Briefing rendering attempt limit reached."])
+                return fail(
+                    ["Briefing rendering attempt limit reached."], "attempt_limit"
+                )
             run.attempts["briefing"] += 1
-            stage = "resource_loading"
+            metadata["stage"] = "resource_loading"
             try:
                 root = Path(config.skill_directory)
                 files = {
                     name: (root / relative).read_text(encoding="utf-8")
                     for name, relative in _RESOURCES.items()
                 }
-                files["edition.json"] = serialized
-                directory = f"briefing-{uuid.uuid4().hex}"
-                stage = "sandbox_staging"
+            except (OSError, UnicodeError):
+                return fail(
+                    ["Canonical briefing resources are unavailable."], "resource"
+                )
+            files["edition.json"] = serialized
+            directory = f"briefing-{uuid.uuid4().hex}"
+            try:
                 async with asyncio.timeout(config.timeout_seconds):
+                    metadata["stage"] = "sandbox_capability_check"
+                    _sandbox_capabilities(await sandbox(operation="list_commands"))
+                    metadata["execution_path"] = "sandbox"
+                    metadata["stage"] = "sandbox_staging"
                     for name, content in files.items():
                         result = _execution_result(
                             await sandbox(
@@ -218,7 +334,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                             )
                         )
                         if result["exit_code"] != 0:
-                            raise ValueError("unable to stage briefing resources")
+                            raise SandboxUnavailable("sandbox_staging_failed")
                     for argv in (
                         [
                             "python3",
@@ -237,7 +353,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                             "edition-policy.json",
                         ],
                     ):
-                        stage = argv[1]
+                        metadata["stage"] = argv[1]
                         result = _execution_result(
                             await sandbox(
                                 operation="execute",
@@ -247,15 +363,18 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                         )
                         report = json.loads(result["stdout"])
                         if not isinstance(report, dict):
-                            raise ValueError("invalid validation report")
+                            raise SandboxUnavailable(
+                                "sandbox_validation_report_invalid"
+                            )
                         if result["exit_code"] != 0 or report.get("passed") is not True:
                             errors = report.get("errors")
                             return fail(
                                 errors
                                 if isinstance(errors, list) and errors
-                                else ["Briefing validation failed."]
+                                else ["Briefing validation failed."],
+                                validation_report=report,
                             )
-                    stage = "validated_html_collection"
+                    metadata["stage"] = "validated_html_collection"
                     result = _execution_result(
                         await sandbox(
                             operation="read_file",
@@ -263,53 +382,55 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                         )
                     )
                     if result["exit_code"] != 0:
-                        raise ValueError("validated HTML unavailable")
+                        raise SandboxUnavailable("sandbox_html_unavailable")
                     html = json.loads(result["fields"]["content (UTF-8 JSON string)"])
-                    if not isinstance(html, str) or not html.strip():
-                        raise ValueError("validated HTML unavailable")
-                    # Collected-file truncation is separate from stdout truncation.
-                    if result["collection_incomplete"]:
-                        raise ValueError("validated HTML collection incomplete")
-                run.terminal_reason = "validated_artifact"
-                run.terminal_content = f"```html\n{html}\n```"
-                return _result(
-                    passed=True, terminal=True, metrics=report.get("metrics", {})
-                )
+                    if (
+                        not isinstance(html, str)
+                        or not html.strip()
+                        or result["collection_incomplete"]
+                    ):
+                        raise SandboxUnavailable("sandbox_html_incomplete")
+                return succeed(html, report)
             except Exception as exc:
+                metadata["recovery_reason"] = (
+                    exc.reason
+                    if isinstance(exc, SandboxUnavailable)
+                    else "sandbox_timeout"
+                    if isinstance(exc, TimeoutError)
+                    else "sandbox_transport_error"
+                )
+                metadata["sandbox_failure_stage"] = metadata["stage"]
+                metadata["execution_path"] = "local_recovery"
                 logger.warning(
-                    "Briefing transport recovery: stage=%s error_class=%s",
-                    stage,
+                    "Briefing recovery: stage=%s reason=%s error_class=%s",
+                    metadata["stage"],
+                    metadata["recovery_reason"],
                     type(exc).__name__,
                 )
                 try:
+                    metadata["stage"] = "local_canonical_validation"
                     html, report = await _render_locally(config, input_data.edition)
                     if html is None:
-                        return fail(
-                            report.get("errors") or ["Canonical validation failed."]
+                        metadata["stage"] = report.get(
+                            "validation_stage", metadata["stage"]
                         )
-                    run.terminal_reason = "validated_artifact"
-                    run.terminal_content = f"```html\n{html}\n```"
-                    logger.info(
-                        "Briefing recovered using canonical local validation: stage=%s",
-                        stage,
-                    )
-                    return _result(
-                        passed=True,
-                        terminal=True,
-                        rendering="local_recovery",
-                        metrics=report.get("metrics", {}),
-                    )
+                        return fail(
+                            report.get("errors") or ["Canonical validation failed."],
+                            validation_report=report,
+                        )
+                    metadata["stage"] = "validated_html_collection"
+                    return succeed(html, report)
                 except Exception as recovery:
                     logger.warning(
-                        "Briefing recovery unavailable: stage=%s error_class=%s",
-                        stage,
+                        "Briefing recovery unavailable: error_class=%s",
                         type(recovery).__name__,
                     )
                     return fail(
                         [
-                            f"Briefing rendering failed at {stage}; canonical recovery "
-                            f"is unavailable ({type(recovery).__name__})."
+                            "Canonical rendering recovery is unavailable "
+                            f"({type(recovery).__name__}). Deliver sourced text with gaps preserved."
                         ],
+                        "recovery",
                     )
 
     return render
@@ -318,8 +439,17 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
 @register_function(config_type=BriefingRendererConfig)
 async def briefing_renderer(config: BriefingRendererConfig, builder: Builder):
     sandbox = await builder.get_function(config.sandbox_tool)
+    input_schema = briefing_input_schema(config.skill_directory)
+    render = _build_briefing_runner(config, sandbox.acall_invoke)
+
+    # NAT compares the callable's input type with its schema by identity. Using
+    # the base class here makes NAT unwrap the edition field instead of passing
+    # the complete input model when a LangChain tool invokes it with a dict.
+    async def render_edition(input_data: input_schema) -> str:
+        return await render(input_data)
+
     yield FunctionInfo.from_fn(
-        _build_briefing_runner(config, sandbox.acall_invoke),
-        input_schema=BriefingRendererInput,
+        render_edition,
+        input_schema=input_schema,
         description=config.description,
     )

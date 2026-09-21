@@ -1,0 +1,727 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Daily Daedalus edition",
+  "description": "Structured reporting for the canonical renderer. Text is escaped; source URLs must be HTTPS and tool refs must identify connected tools. Canonical semantic, source-policy, and HTML checks remain required.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "type": "string",
+      "enum": ["daily-daedalus/v1"]
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "object",
+      "properties": {
+        "iso": {
+          "type": "string"
+        },
+        "display": {
+          "type": "string"
+        },
+        "issue_label": {
+          "type": "string"
+        }
+      },
+      "required": ["iso", "display", "issue_label"],
+      "additionalProperties": false
+    },
+    "description": {
+      "type": "string"
+    },
+    "lead": {
+      "$ref": "#/$defs/lead"
+    },
+    "day_ahead": {
+      "type": "object",
+      "properties": {
+        "weather": {
+          "$ref": "#/$defs/weather"
+        },
+        "email_calendar": {
+          "$ref": "#/$defs/email_calendar"
+        }
+      },
+      "required": ["weather", "email_calendar"],
+      "additionalProperties": false
+    },
+    "operations_details": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/operation"
+      },
+      "minItems": 1,
+      "maxItems": 8
+    },
+    "departments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/department"
+      },
+      "minItems": 0,
+      "maxItems": 20
+    },
+    "editors_note": {
+      "type": "string"
+    },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/coverage"
+      },
+      "minItems": 1,
+      "maxItems": 40
+    }
+  },
+  "required": [
+    "format",
+    "policy_version",
+    "generated_at",
+    "description",
+    "lead",
+    "day_ahead",
+    "operations_details",
+    "departments",
+    "editors_note",
+    "coverage"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "source": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["web"]
+            },
+            "label": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "detail": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["kind", "label", "url"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["tool"]
+            },
+            "label": {
+              "type": "string"
+            },
+            "refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "maxItems": 12
+            },
+            "detail": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["kind", "label", "refs"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "table": {
+      "type": "object",
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 8
+          },
+          "minItems": 1,
+          "maxItems": 20
+        }
+      },
+      "required": ["columns", "rows"],
+      "additionalProperties": false
+    },
+    "block": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["paragraph"]
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": ["type", "text"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["subhead"]
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": ["type", "text"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["list"]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "maxItems": 20
+            }
+          },
+          "required": ["type", "items"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["table"]
+            },
+            "columns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "maxItems": 8
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 8
+              },
+              "minItems": 1,
+              "maxItems": 20
+            }
+          },
+          "required": ["type", "columns", "rows"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["briefs"]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/source"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["title", "body"],
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 8
+            }
+          },
+          "required": ["type", "items"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["figure"]
+            },
+            "url": {
+              "type": "string"
+            },
+            "source_page": {
+              "type": "string"
+            },
+            "credit": {
+              "type": "string"
+            },
+            "alt": {
+              "type": "string"
+            },
+            "caption": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "url",
+            "source_page",
+            "credit",
+            "alt",
+            "caption"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "Every block needs type and the corresponding fields. Briefs use items; paragraph and subhead use text; table and figure fields are flat."
+    },
+    "weather_row": {
+      "type": "object",
+      "properties": {
+        "day": {
+          "type": "string"
+        },
+        "conditions": {
+          "type": "string"
+        },
+        "high": {
+          "type": "string"
+        },
+        "low": {
+          "type": "string"
+        },
+        "wind": {
+          "type": "string"
+        },
+        "precip": {
+          "type": "string"
+        }
+      },
+      "required": ["day", "conditions", "high", "low", "wind", "precip"],
+      "additionalProperties": false
+    },
+    "weather": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["covered"]
+            },
+            "title": {
+              "type": "string"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/weather_row"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "note": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            }
+          },
+          "required": ["status", "title", "rows", "note", "source"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["unavailable"]
+            },
+            "title": {
+              "type": "string"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/weather_row"
+              },
+              "minItems": 0,
+              "maxItems": 0
+            },
+            "note": {
+              "type": "string"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/source"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["status", "title", "rows", "note"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "email_calendar": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["covered"]
+            },
+            "agenda": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "time": {
+                    "type": "string"
+                  },
+                  "event": {
+                    "type": "string"
+                  },
+                  "location": {
+                    "type": "string"
+                  }
+                },
+                "required": ["time", "event", "location"],
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 20
+            },
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  }
+                },
+                "required": ["title", "body"],
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 20
+            },
+            "lookahead": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 0,
+              "maxItems": 20
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            }
+          },
+          "required": ["status", "agenda", "actions", "lookahead", "source"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["unavailable"]
+            },
+            "agenda": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "time": {
+                    "type": "string"
+                  },
+                  "event": {
+                    "type": "string"
+                  },
+                  "location": {
+                    "type": "string"
+                  }
+                },
+                "required": ["time", "event", "location"],
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 20
+            },
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  }
+                },
+                "required": ["title", "body"],
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 20
+            },
+            "lookahead": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 0,
+              "maxItems": 20
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/source"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["status", "agenda", "actions", "lookahead"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "lead": {
+      "type": "object",
+      "properties": {
+        "headline": {
+          "type": "string"
+        },
+        "dek": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "tone": {
+              "type": "string",
+              "enum": ["stable", "watch", "urgent"]
+            }
+          },
+          "required": ["label", "tone"],
+          "additionalProperties": false
+        },
+        "paragraphs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 2
+        },
+        "snapshot": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "maxItems": 8
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 8
+                  },
+                  "minItems": 1,
+                  "maxItems": 5
+                }
+              },
+              "required": ["columns", "rows"],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      },
+      "required": ["headline", "dek", "verdict", "paragraphs", "source"],
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          },
+          "minItems": 1,
+          "maxItems": 20
+        }
+      },
+      "required": ["title", "source", "blocks"],
+      "additionalProperties": false
+    },
+    "story": {
+      "type": "object",
+      "properties": {
+        "headline": {
+          "type": "string"
+        },
+        "dek": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          },
+          "minItems": 1,
+          "maxItems": 20
+        }
+      },
+      "required": ["headline", "source", "blocks"],
+      "additionalProperties": false
+    },
+    "department": {
+      "type": "object",
+      "properties": {
+        "desk_key": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "stories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/story"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        }
+      },
+      "required": ["desk_key", "title", "stories"],
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "desk_key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["covered", "quiet", "unavailable"]
+        }
+      },
+      "required": ["desk_key", "status"],
+      "additionalProperties": false
+    }
+  }
+}

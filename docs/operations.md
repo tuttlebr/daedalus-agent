@@ -467,6 +467,13 @@ cached. Clients retain TLS connections without sending cookies or credentials;
 public-IP validation and redirect restrictions still apply. A cancelled waiter
 does not cancel another consumer's shared fetch.
 
+Known generic HTML uses MarkItDown's HTML converter directly, retaining its
+complete output and charset handling. This avoids initializing the general
+Magika/ONNX file classifier for every page, which can oversubscribe a container's
+CPU quota. Non-HTML documents, specialized converter URLs, and installed plugins
+keep the general conversion path. Compare the conversion span separately from
+fetching; cache hits and faster downloads do not establish faster conversion.
+
 `nws_weather_tool` reads official NWS JSON for US coordinates. `days=4` covers
 today's remaining hours and the next three complete local calendar days.
 `include_observations=true` also reads current station observations. Forecast
@@ -481,6 +488,33 @@ these headers. Exact repeated read failures for rejected credentials or invalid
 arguments reuse their sanitized result only within the current agent request;
 successful reads, changed arguments, new requests, and transient failures are
 not suppressed.
+GitHub's explicit credential/repository access denials return
+`mcp_authorization_denied` with sanitized permission guidance. For `actions_list`,
+check repository access and Actions read permission; user confirmation does not
+change an operator-managed token's grants.
+
+The briefing tool advertises the nested canonical `edition-schema.json`
+contract. The standalone renderer checks that same contract and reports
+structural errors together before source/HTML validation. Correct all reported
+paths in the one permitted correction; the two-attempt limit remains unchanged.
+Diagnostics are bounded and indicate omitted errors when a malformed input
+exceeds the diagnostic budget. The schema and stdlib contract helper are required
+registration assets and are included in build-time runtime validation.
+
+Before staging files, the renderer checks discovered `python3`, file staging,
+and conversation workspace capabilities. The sandbox remains the primary path;
+the fixed local canonical scripts provide bounded recovery for unavailable
+capabilities or transport failures. Tool results identify `execution_path`,
+`stage`, `failure_type`, and `recovery_reason`, including failed local validation.
+All sandbox replicas must advertise the updated allowlist; changing a ConfigMap
+does not update environment variables already loaded by running pods.
+
+A daily-summary text response without a validated artifact emits
+`briefing_text_fallback`, `degraded=true`, and `artifact_validated=false`, with
+the render attempt count and failure reason. Gracefully delivered text retains
+`failed=false`; it is not a transport error. Canonical HTML emits
+`validated_artifact` and `artifact_validated=true`. A green request status alone
+does not establish that the requested HTML was produced.
 
 Phoenix now receives duration spans for `daedalus.agent.model`, MCP catalog,
 session acquisition and dispatch, feed fetch/rerank, public-content fetch and

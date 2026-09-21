@@ -22,6 +22,11 @@ requires-python = ">=3.11,<3.14"
 description = "Shared helper library for NeMo Agent Toolkit functions"
 classifiers = ["Programming Language :: Python"]
 
+[project.optional-dependencies]
+# Tool packages already supply these; standalone helpers retain their caller's
+# converter when this optional HTML optimization is unavailable.
+html-conversion = ["markitdown>=0.1.6,<0.2", "charset-normalizer>=3,<4"]
+
 [project.entry-points.'nat.components']
 nat_helpers = "nat_helpers.register"
 

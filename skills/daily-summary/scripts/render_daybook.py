@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,10 +24,19 @@ WORD = re.compile(r"\b[\w'’-]+\b")
 STATUSES = frozenset({"covered", "quiet", "unavailable"})
 VERDICT_TONES = frozenset({"stable", "watch", "urgent"})
 BLOCK_TYPES = frozenset({"paragraph", "subhead", "list", "table", "briefs", "figure"})
+_contract = runpy.run_path(str(Path(__file__).with_name("edition_contract.py")))
+_validate_edition = _contract["validate_edition"]
+_validation_errors = _contract["ValidationErrors"]
 
 
 class RenderError(ValueError):
     """Raised when structured edition data violates the rendering contract."""
+
+    def __init__(self, errors: str | list[str]) -> None:
+        self.errors = _validation_errors(
+            [errors] if isinstance(errors, str) else errors
+        )
+        super().__init__("; ".join(self.errors))
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:
@@ -665,6 +675,9 @@ def render_daybook(
     policy_value: dict[str, Any],
     template: str,
 ) -> tuple[str, dict[str, Any], dict[str, int]]:
+    structural_errors = _validate_edition(edition_value)
+    if structural_errors:
+        raise RenderError(structural_errors)
     policy = _load_policy(policy_value)
     edition = _object(edition_value, "edition")
     _keys(
@@ -835,9 +848,21 @@ def main(argv: list[str]) -> int:
             encoding="utf-8",
         )
     except (OSError, UnicodeError, RenderError) as exc:
+        errors = (
+            exc.errors
+            if isinstance(exc, RenderError)
+            else _validation_errors([str(exc)])
+        )
         print(
             json.dumps(
-                {"passed": False, "errors": [str(exc)]}, indent=2, sort_keys=True
+                {
+                    "passed": False,
+                    "errors": errors,
+                    "error_count": errors.error_count,
+                    "errors_truncated": errors.errors_truncated,
+                },
+                indent=2,
+                sort_keys=True,
             )
         )
         return 1

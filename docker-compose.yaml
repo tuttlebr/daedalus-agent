@@ -9,6 +9,8 @@ services:
       context: builder
       dockerfile: Dockerfile
       target: base
+      additional_contexts:
+        skills: ./skills
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:builder-${DAEDALUS_VERSION:-0.1.0}
     working_dir: /builder
     volumes:

@@ -281,7 +281,16 @@ def _declared_runtime_dependencies(manifest: Path) -> set[str]:
     }
 
 
-def _imported_runtime_distributions(package_dir: Path) -> set[str]:
+def _declared_optional_dependencies(manifest: Path) -> set[str]:
+    project = tomllib.loads(manifest.read_text(encoding="utf-8"))["project"]
+    return {
+        _normalized_distribution_name(dependency)
+        for extra in project.get("optional-dependencies", {}).values()
+        for dependency in extra
+    }
+
+
+def _imported_runtime_distributions(package_dir: Path) -> tuple[set[str], set[str]]:
     builder_dir = DOCKERFILE.parent
     local_modules = {
         manifest.parent.name for manifest in builder_dir.glob("*/pyproject.toml")
@@ -294,30 +303,74 @@ def _imported_runtime_distributions(package_dir: Path) -> set[str]:
         "nv_ingest_client": "nv-ingest-client",
         "yaml": "pyyaml",
     }
-    imported: set[str] = set()
+    required: set[str] = set()
+    optional: set[str] = set()
+
+    class Imports(ast.NodeVisitor):
+        guarded = False
+
+        def record(self, module):
+            top_level = module.split(".", 1)[0]
+            if (
+                top_level not in sys.stdlib_module_names
+                and top_level not in local_modules
+            ):
+                destination = optional if self.guarded else required
+                destination.add(
+                    _normalized_distribution_name(
+                        import_to_distribution.get(top_level, top_level)
+                    )
+                )
+
+        def visit_Import(self, node):
+            for alias in node.names:
+                self.record(alias.name)
+
+        def visit_ImportFrom(self, node):
+            if node.level == 0 and node.module:
+                self.record(node.module)
+
+        def visit_Try(self, node):
+            protected = False
+            # Be conservative about handler order: an earlier broad/custom
+            # handler may intercept and re-raise before a later ImportError.
+            for handler in node.handlers[:1]:
+                types = (
+                    handler.type.elts
+                    if isinstance(handler.type, ast.Tuple)
+                    else [handler.type]
+                )
+                if all(
+                    isinstance(exception, ast.Name)
+                    and exception.id in {"ImportError", "ModuleNotFoundError"}
+                    for exception in types
+                ) and not any(
+                    isinstance(child, ast.Raise) for child in ast.walk(handler)
+                ):
+                    protected = True
+            previous = self.guarded
+            self.guarded = previous or protected
+            for statement in node.body:
+                self.visit(statement)
+            # The same try does not catch errors in its handlers/else/finally.
+            self.guarded = previous
+            for statement in [*node.handlers, *node.orelse, *node.finalbody]:
+                self.visit(statement)
+
+        def visit_FunctionDef(self, node):
+            # Defining a function inside a try does not protect its later calls.
+            previous = self.guarded
+            self.guarded = False
+            self.generic_visit(node)
+            self.guarded = previous
+
+        visit_AsyncFunctionDef = visit_FunctionDef
 
     for source in (package_dir / "src").rglob("*.py"):
         tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
-        for node in ast.walk(tree):
-            module = None
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    top_level = alias.name.split(".", 1)[0]
-                    if (
-                        top_level not in sys.stdlib_module_names
-                        and top_level not in local_modules
-                    ):
-                        imported.add(import_to_distribution.get(top_level, top_level))
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                module = node.module.split(".", 1)[0]
-            if (
-                module
-                and module not in sys.stdlib_module_names
-                and module not in local_modules
-            ):
-                imported.add(import_to_distribution.get(module, module))
+        Imports().visit(tree)
 
-    return {_normalized_distribution_name(name) for name in imported}
+    return required, optional - required
 
 
 def test_backend_dockerfile_assigns_runtime_files_to_non_root_user():
@@ -344,9 +397,15 @@ def test_backend_dockerfile_copies_mcp_approval_executor_before_runtime_check():
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
 
     approval_copy = "COPY mcp_approval_api.py /workspace/mcp_approval_api.py"
-    runtime_check = "RUN python /workspace/runtime_contract_check.py"
+    runtime_check = "python /workspace/runtime_contract_check.py"
     assert approval_copy in dockerfile
     assert dockerfile.index(approval_copy) < dockerfile.index(runtime_check)
+    command = next(
+        line
+        for line in dockerfile.replace("\\\n", " ").splitlines()
+        if line.startswith("RUN ") and runtime_check in line
+    )
+    assert "--mount=type=bind,from=skills,target=/skills,readonly" in command
 
 
 def test_backend_build_context_excludes_local_generated_metadata():
@@ -361,12 +420,97 @@ def test_backend_build_context_excludes_local_generated_metadata():
 
 def test_local_packages_declare_every_direct_runtime_import():
     for manifest in sorted(DOCKERFILE.parent.glob("*/pyproject.toml")):
-        imported = _imported_runtime_distributions(manifest.parent)
+        required, optional = _imported_runtime_distributions(manifest.parent)
         declared = _declared_runtime_dependencies(manifest)
-        assert imported <= declared, (
+        extras = _declared_optional_dependencies(manifest)
+        assert required <= declared, (
             manifest,
-            f"undeclared direct imports: {sorted(imported - declared)}",
+            f"undeclared required imports: {sorted(required - declared)}",
         )
+        assert optional <= declared | extras, (
+            manifest,
+            f"undeclared optional imports: {sorted(optional - declared - extras)}",
+        )
+
+
+def test_dependency_contract_requires_explicit_import_fallbacks(tmp_path):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "example.py").write_text(
+        """
+import required_one
+def convert():
+    try:
+        from optional_one import converter
+    except ImportError:
+        return None
+try:
+    import optional_two
+except (ImportError, ModuleNotFoundError):
+    optional_two = None
+try:
+    import required_broad
+except Exception:
+    pass
+try:
+    import required_reraise
+except ImportError:
+    raise
+try:
+    import required_shadowed
+except Exception:
+    raise
+except ImportError:
+    pass
+try:
+    def deferred():
+        import required_deferred
+except ImportError:
+    pass
+try:
+    import optional_three
+except ImportError:
+    import required_handler
+else:
+    import required_else
+finally:
+    import required_finally
+"""
+    )
+    required, optional = _imported_runtime_distributions(tmp_path)
+    assert optional == {"optional-one", "optional-two", "optional-three"}
+    assert required == {
+        "required-one",
+        "required-broad",
+        "required-reraise",
+        "required-shadowed",
+        "required-deferred",
+        "required-handler",
+        "required-else",
+        "required-finally",
+    }
+
+
+def test_optional_dependency_metadata_cannot_satisfy_unguarded_import(tmp_path):
+    manifest = tmp_path / "pyproject.toml"
+    manifest.write_text(
+        '[project]\ndependencies = ["required-one"]\n'
+        '[project.optional-dependencies]\nhtml = ["optional-one", "unguarded"]\n'
+    )
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "example.py").write_text(
+        "import required_one\nimport unguarded\n"
+        "try:\n    import optional_one\n    import unguarded\n"
+        "except ImportError:\n    pass\n"
+    )
+    required, optional = _imported_runtime_distributions(tmp_path)
+    declared = _declared_runtime_dependencies(manifest)
+    extras = _declared_optional_dependencies(manifest)
+    assert optional <= declared | extras
+    assert required - declared == {"unguarded"}
+    assert "unguarded" in extras
+    assert "unguarded" not in optional
 
 
 def test_runtime_locks_cover_local_sources_nat_commit_and_registry_hashes():

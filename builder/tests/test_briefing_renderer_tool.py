@@ -1,11 +1,14 @@
 """Exercise actual canonical briefing gates through a local sandbox adapter."""
 
 import asyncio
+import base64
 import json
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
+import httpx
 import pytest
 from nat_helpers.agent_loop_guard import agent_run_scope
 from nat_helpers.briefing_renderer import (
@@ -25,45 +28,126 @@ def edition():
 
 
 class Sandbox:
-    def __init__(self, path):
+    """Actual LLM sandbox adapter against a deterministic capability-aware peer."""
+
+    def __init__(self, path, *, python=True, workspace=True, service_max_timeout=60):
         self.path = path
         self.calls = []
+        self.http_calls = []
+        self.command_timeouts = []
         self.truncate_html = False
+        self.python = python
+        self.workspace = workspace
+        self.service_max_timeout = service_max_timeout
+        self.generator = None
+        self.adapter = None
 
-    async def __call__(self, **args):
-        self.calls.append(args)
-        stdout, code, extra = "", 0, ""
-        if args["operation"] == "write_file":
-            path = self.path / args["file_path"]
+    def handle(self, request):
+        self.http_calls.append((request.method, request.url.path))
+        if request.url.path == "/readyz":
+            return httpx.Response(200, json={"status": "ready"})
+        if request.url.path == "/v1/commands":
+            return httpx.Response(
+                200,
+                json={
+                    "isolation": "bubblewrap",
+                    "networkMode": "isolated",
+                    "shellEnabled": False,
+                    "stateless": True,
+                    "path": "/usr/bin:/bin",
+                    "commands": ["true", *(["python3"] if self.python else [])],
+                    "limits": {
+                        "defaultTimeoutSeconds": 30,
+                        "maxTimeoutSeconds": self.service_max_timeout,
+                        "inputBytes": 1_000_000,
+                    },
+                    "workspacePersistence": {
+                        "supported": self.workspace,
+                        "mode": "opt-in",
+                        "storage": "pod-local",
+                        "ttlSeconds": 3600,
+                    },
+                },
+            )
+        assert request.url.path == "/v1/execute"
+        payload = json.loads(request.content)
+        assert payload["workspaceId"]
+        stdout, code, files = "", 0, []
+        for staged in payload.get("files", []):
+            path = self.path / staged["path"]
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(args["file_content"], encoding="utf-8")
-        elif args["operation"] == "execute":
-            # Only execute the two fixed scripts, never model-generated code.
-            assert args["argv"][:2] in (
+            path.write_text(staged["content"], encoding="utf-8")
+        argv = payload["argv"]
+        if argv != ["true"]:
+            self.command_timeouts.append(payload["timeoutSeconds"])
+            assert self.python
+            assert argv[:2] in (
                 ["python3", "render_daybook.py"],
                 ["python3", "validate_daybook.py"],
             )
             process = subprocess.run(
-                [sys.executable, *args["argv"][1:]],
-                cwd=self.path / args["working_directory"],
+                [sys.executable, *argv[1:]],
+                cwd=self.path / payload["workingDirectory"],
                 capture_output=True,
                 text=True,
                 timeout=10,
                 check=False,
             )
             stdout, code = process.stdout, process.returncode
-        elif args["operation"] == "read_file":
-            content = (self.path / args["file_path"]).read_text()
-            extra = (
-                f'\nCollected file "{args["file_path"]}" (1 bytes, mode 644, truncated={self.truncate_html}):\n'
-                f"content (UTF-8 JSON string): {json.dumps(content)}"
+        for name in payload.get("collect", []):
+            content = (self.path / name).read_bytes()
+            files.append(
+                {
+                    "path": name,
+                    "size": len(content),
+                    "mode": "644",
+                    "contentBase64": base64.b64encode(content).decode(),
+                    "truncated": self.truncate_html,
+                }
             )
-        return (
-            "## Sandbox Execution Result\nRequest ID: test\n"
-            f"Exit code: {code}\nDuration: 1 ms\nTimed out: False\nTruncated: False\n"
-            "Conversation workspace persisted: True\n"
-            f'stdout (JSON string): {json.dumps(stdout)}\nstderr (JSON string): ""{extra}'
+        return httpx.Response(
+            200,
+            json={
+                "requestId": "synthetic-renderer",
+                "exitCode": code,
+                "stdout": stdout,
+                "stderr": "",
+                "durationMs": 1,
+                "timedOut": False,
+                "truncated": False,
+                "workspacePersisted": self.workspace,
+                "files": files,
+            },
         )
+
+    async def __call__(self, **args):
+        import llm_sandbox.llm_sandbox_function as sandbox_module
+
+        self.calls.append(args)
+        if self.adapter is None:
+            self.generator = sandbox_module.llm_sandbox_function(
+                sandbox_module.LlmSandboxConfig(
+                    api_key="synthetic", base_url="https://sandbox.test"
+                ),
+                object(),
+            )
+            self.adapter = (await self.generator.__anext__()).single_fn
+        real_client = httpx.AsyncClient
+
+        def client(*args, **kwargs):
+            return real_client(
+                *args, **kwargs, transport=httpx.MockTransport(self.handle)
+            )
+
+        with (
+            patch.object(sandbox_module.httpx, "AsyncClient", client),
+            patch.object(
+                sandbox_module,
+                "_trusted_scope_from_context",
+                return_value=("synthetic-user", "synthetic-conversation"),
+            ),
+        ):
+            return await self.adapter(**args)
 
 
 def runner(sandbox):
@@ -101,7 +185,29 @@ def test_canonical_transfer_both_gates_and_exact_html_delivery(tmp_path):
                     next(tmp_path.glob(f"briefing-*/{name}")).read_bytes()
                     == (SKILL / "scripts" / name).read_bytes()
                 )
-            assert len(sandbox.calls) == 8
+            assert len(sandbox.calls) == 11
+            assert sandbox.calls[0]["operation"] == "list_commands"
+            assert result["execution_path"] == "sandbox"
+            assert result["recovery_reason"] is None
+
+    asyncio.run(scenario())
+
+
+def test_renderer_deadline_does_not_override_adapter_command_timeout(tmp_path):
+    sandbox = Sandbox(tmp_path, service_max_timeout=120)
+    render = _build_briefing_runner(
+        BriefingRendererConfig(skill_directory=str(SKILL), timeout_seconds=90),
+        sandbox,
+    )
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(await render(BriefingRendererInput(edition=edition())))
+            assert result["passed"] is True
+            assert result["execution_path"] == "sandbox"
+            assert result["recovery_reason"] is None
+            assert sandbox.command_timeouts == [30, 30]
+            assert run.terminal_reason == "validated_artifact"
 
     asyncio.run(scenario())
 
@@ -271,5 +377,170 @@ def test_unrenderable_inputs_return_bounded_errors_without_execution(tmp_path, i
             assert run.terminal_content is None
             assert not run.attempts["briefing"]
             assert not sandbox.calls
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "python,workspace,reason",
+    [
+        (False, True, "sandbox_python3_unavailable"),
+        (True, False, "sandbox_workspace_unavailable"),
+    ],
+)
+def test_missing_advertised_capability_recovers_before_any_staging(
+    tmp_path, python, workspace, reason
+):
+    sandbox = Sandbox(tmp_path, python=python, workspace=workspace)
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(
+                await runner(sandbox)(BriefingRendererInput(edition=edition()))
+            )
+            assert result["passed"] is True
+            assert result["execution_path"] == "local_recovery"
+            assert result["recovery_reason"] == reason
+            assert result["failure_type"] is None
+            assert [call["operation"] for call in sandbox.calls] == ["list_commands"]
+            assert not any(method == "POST" for method, _ in sandbox.http_calls)
+            assert not list(tmp_path.iterdir())
+            assert run.outcome_metadata("completed")["artifact_validated"] is True
+
+    asyncio.run(scenario())
+
+
+def test_schema_failure_reports_all_errors_without_transport_recovery(
+    tmp_path, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    sandbox = Sandbox(tmp_path)
+    invalid = edition()
+    invalid["editors_note"] = []
+    invalid["lead"]["unexpected"] = "not allowed"
+    local = AsyncMock(
+        side_effect=AssertionError("Schema errors must not rerun locally")
+    )
+    monkeypatch.setattr("nat_helpers.briefing_renderer._render_locally", local)
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(
+                await runner(sandbox)(BriefingRendererInput(edition=invalid))
+            )
+            assert result["passed"] is False
+            assert result["execution_path"] == "sandbox"
+            assert result["failure_type"] == "validation"
+            assert result["recovery_reason"] is None
+            assert result["stage"] == "render_daybook.py"
+            assert result["error_count"] >= 2
+            assert result["errors_truncated"] is False
+            assert any("editors_note" in error for error in result["errors"])
+            assert any("unexpected" in error for error in result["errors"])
+            assert (
+                run.outcome_metadata("completed")["fallback_reason"]
+                == "validation_failed"
+            )
+            local.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+def test_local_validation_failure_retains_capability_recovery_reason(tmp_path):
+    sandbox = Sandbox(tmp_path, python=False)
+    invalid = edition()
+    invalid["editors_note"] = []
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(
+                await runner(sandbox)(BriefingRendererInput(edition=invalid))
+            )
+            assert result["passed"] is False
+            assert result["failure_type"] == "validation"
+            assert result["execution_path"] == "local_recovery"
+            assert result["recovery_reason"] == "sandbox_python3_unavailable"
+            assert result["sandbox_failure_stage"] == "sandbox_capability_check"
+            assert run.terminal_content is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("python", [True, False])
+def test_large_error_report_retains_count_and_truncation_without_recovery_failure(
+    tmp_path, python
+):
+    sandbox = Sandbox(tmp_path, python=python)
+    invalid = edition()
+    invalid["operations_details"] = [{}] * 1000
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(
+                await runner(sandbox)(BriefingRendererInput(edition=invalid))
+            )
+            assert result["passed"] is False
+            assert result["failure_type"] == "validation"
+            assert result["execution_path"] == (
+                "sandbox" if python else "local_recovery"
+            )
+            assert result["errors_truncated"] is True
+            assert result["error_count"] == 3001
+            assert len(result["errors"]) == 100
+            assert result["attempts_remaining"] == 1
+            assert run.terminal_content is None
+
+    asyncio.run(scenario())
+
+
+def test_registered_tool_exposes_configured_canonical_nested_schema(tmp_path):
+    import inspect
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from nat_helpers.briefing_renderer import briefing_renderer
+    from pydantic import WithJsonSchema
+
+    async def scenario():
+        builder = SimpleNamespace(
+            get_function=AsyncMock(
+                return_value=SimpleNamespace(acall_invoke=AsyncMock())
+            )
+        )
+        config = BriefingRendererConfig(skill_directory=str(SKILL))
+        generator = briefing_renderer(config, builder)
+        info = await generator.__anext__()
+        try:
+            parameters = inspect.signature(info.single_fn).parameters
+            assert len(parameters) == 1
+            assert parameters["input_data"].annotation is info.input_schema
+            schema = info.input_schema.model_json_schema()
+            edition_schema = schema["properties"]["edition"]
+            assert any(
+                isinstance(metadata, WithJsonSchema)
+                for metadata in info.input_schema.model_fields["edition"].metadata
+            )
+            assert edition_schema["additionalProperties"] is False
+            operations = edition_schema["properties"]["operations_details"]["items"]
+            variants = operations["properties"]["blocks"]["items"]["anyOf"]
+            assert {
+                variant["properties"]["type"]["enum"][0] for variant in variants
+            } == {
+                "paragraph",
+                "subhead",
+                "list",
+                "table",
+                "briefs",
+                "figure",
+            }
+            assert '"$ref"' not in json.dumps(schema)
+            # Detailed validation stays with the canonical renderer so failures
+            # can return all correction paths together and preserve research.
+            assert info.input_schema(edition={"unexpected": "field"}).edition == {
+                "unexpected": "field"
+            }
+        finally:
+            await generator.aclose()
 
     asyncio.run(scenario())

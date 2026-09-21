@@ -143,7 +143,8 @@ COPY profile_import_api.py /workspace/profile_import_api.py
 
 # Exercise the installed NAT ABI and all local plugin registrations before the
 # runtime stage is assembled.
-RUN python /workspace/runtime_contract_check.py
+RUN --mount=type=bind,from=skills,target=/skills,readonly \
+    python /workspace/runtime_contract_check.py
 
 # Preserve the existing Compose development target while keeping its build
 # toolchain out of the backend stage below.

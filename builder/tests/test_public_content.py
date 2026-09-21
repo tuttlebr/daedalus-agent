@@ -377,3 +377,156 @@ def test_raw_html_challenge_rejected_before_converter_hides_signatures(monkeypat
         await session.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "media_type", ["text/html; charset=UTF-8", "application/xhtml+xml"]
+)
+def test_known_html_uses_shared_converter_without_generic_detection(
+    monkeypatch, media_type
+):
+    from unittest.mock import Mock
+
+    html = Mock(return_value="# Title\n\n_Source: https://example.com/_\n\nBody")
+    generic = Mock(side_effect=AssertionError("HTML must not initialize Magika"))
+    monkeypatch.setattr(content, "_convert_html_article", html)
+    assert "Body" in content._convert_article(
+        b"<p>Body</p>", "https://example.com/", media_type, generic
+    )
+    html.assert_called_once_with(b"<p>Body</p>", "https://example.com/")
+    generic.assert_not_called()
+
+
+@pytest.mark.parametrize("media_type", ["", "application/pdf", "text/plain"])
+def test_other_documents_retain_existing_converter(monkeypatch, media_type):
+    from unittest.mock import Mock
+
+    html = Mock(side_effect=AssertionError("Document must retain format detection"))
+    generic = Mock(return_value="Document body")
+    monkeypatch.setattr(content, "_convert_html_article", html)
+    assert (
+        content._convert_article(
+            b"document", "https://example.com/", media_type, generic
+        )
+        == "Document body"
+    )
+    generic.assert_called_once_with(b"document", "https://example.com/", media_type)
+    html.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "missing", ["charset_normalizer", "markitdown", "markitdown.converters"]
+)
+def test_missing_optional_html_libraries_preserve_supplied_converter(
+    monkeypatch, missing
+):
+    import builtins
+    from unittest.mock import Mock
+
+    original_import = builtins.__import__
+
+    def without_optional_library(name, *args, **kwargs):
+        if name == missing:
+            raise ImportError(f"Optional library unavailable: {name}")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_optional_library)
+    generic = Mock(return_value="Alternate complete HTML content")
+    assert (
+        content._convert_article(
+            b"<p>Article</p>", "https://example.com/", "text/html", generic
+        )
+        == "Alternate complete HTML content"
+    )
+    generic.assert_called_once_with(
+        b"<p>Article</p>", "https://example.com/", "text/html"
+    )
+
+
+@pytest.mark.parametrize("error", [ValueError, ImportError])
+def test_actual_html_conversion_errors_are_not_hidden_by_fallback(monkeypatch, error):
+    from unittest.mock import Mock
+
+    generic = Mock(return_value="Must not hide invalid extraction")
+    monkeypatch.setattr(
+        content, "_convert_html_article", Mock(side_effect=error("Invalid HTML"))
+    )
+    with pytest.raises(error, match="Invalid HTML"):
+        content._convert_article(
+            b"broken", "https://example.com/", "text/html", generic
+        )
+    generic.assert_not_called()
+
+
+def test_real_html_converter_preserves_full_markdown_without_classifier(tmp_path):
+    """Exercise the installed converter outside conftest's dependency stubs."""
+    import importlib.metadata
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    try:
+        importlib.metadata.version("markitdown")
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("Real MarkItDown contract also runs in the built backend image")
+
+    fixture = """<!doctype html><html><head><title>Full article</title>
+    <meta charset="utf-8"><style>.hidden {display:none}</style></head><body>
+    <nav><a href="/archive">Archive</a></nav><main><h1>Full article</h1>
+    <p>Evidence: café, α, 東京. <a href="https://example.org/paper#results">Paper</a></p>
+    <table><tr><th>Model</th><th>Rate</th></tr><tr><td>A</td><td>42</td></tr></table>
+    <pre><code class="language-python">if ready:\n    print("retained")</code></pre>
+    <ul><li>First observation</li><li>Second observation</li></ul>
+    <p>Footnote <a href="#reference-1">[1]</a></p></main>
+    <footer id="reference-1">Reference outside main content</footer>
+    <script>throw new Error("not article text")</script></body></html>"""
+    path = tmp_path / "article.html"
+    path.write_text(fixture)
+    program = """
+import sys
+from pathlib import Path
+from markitdown import MarkItDown
+from nat_helpers.public_content import _convert_article
+path = Path(sys.argv[1])
+url = "https://example.com/article"
+expected = MarkItDown(enable_plugins=True).convert(path)
+expected = f"# {expected.title or url}\\n\\n_Source: {url}_\\n\\n{expected.text_content}"
+def forbidden(*args, **kwargs):
+    raise AssertionError("General classifier must not run for known HTML")
+MarkItDown.__init__ = forbidden
+actual = _convert_article(path.read_bytes(), url, "text/html", forbidden)
+assert actual == expected
+for retained in ("café", "α", "東京", "https://example.org/paper#results", "| Model | Rate |", 'print("retained")', "Reference outside main content", "#reference-1", "/archive"):
+    assert retained in actual, retained
+assert "not article text" not in actual
+assert ".hidden" not in actual
+# HTML's encoding declarations and legacy non-UTF8 prose are retained as well.
+legacy = '<html><head><title>Café</title><meta charset="windows-1252"></head><body><p>Résumé — £42</p></body></html>'.encode("cp1252")
+actual = _convert_article(legacy, url, "text/html", forbidden)
+assert "Café" in actual and "Résumé" in actual and "£42" in actual
+# Preserve the caller's specialized conversion, without activating a converter
+# here that could perform an unpinned network fetch (YouTube transcripts).
+for specialized_url in ("https://en.wikipedia.org/wiki/Example", "https://www.youtube.com/watch?v=example", "https://www.bing.com/search?q=example"):
+    calls = []
+    def specialized(data, source, media_type):
+        calls.append((data, source, media_type))
+        return "Specialized complete content"
+    assert _convert_article(path.read_bytes(), specialized_url, "text/html", specialized) == "Specialized complete content"
+    assert calls == [(path.read_bytes(), specialized_url, "text/html")]
+# An installed plugin can override generic HTML extraction. Keep that contract.
+import nat_helpers.public_content as public_content
+public_content._has_markitdown_plugins = lambda: True
+assert _convert_article(path.read_bytes(), url, "text/html", lambda *_: "Plugin content") == "Plugin content"
+print("Real HTML conversion: exact Markdown, full content, Unicode, tables, code and links passed")
+"""
+    env = {**os.environ, "PYTHONPATH": str(Path(content.__file__).parents[1])}
+    result = subprocess.run(
+        [sys.executable, "-c", program, str(path)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

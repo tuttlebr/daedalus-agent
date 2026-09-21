@@ -520,6 +520,18 @@ async def verify_agent_loop_contract():
             "Validated artifact missing from NAT telemetry",
         )
 
+        _require(
+            any(
+                o["outcome"] == "briefing_text_fallback"
+                and o["degraded"]
+                and not o["failed"]
+                and not o["artifact_validated"]
+                and o["fallback_reason"] == "no_render_attempt"
+                for o in outcomes
+            ),
+            "Completed daily-summary text was mislabeled as a validated artifact or generic completion",
+        )
+
         class SandboxBuilder:
             async def get_function(self, name):
                 _require(name == "llm_sandbox_tool", "Incorrect sandbox dependency")
@@ -530,13 +542,24 @@ async def verify_agent_loop_contract():
                     "Missing resources should fail before sandbox execution"
                 )
 
-        async with briefing_renderer(
-            BriefingRendererConfig(skill_directory="/missing-contract-skill"),
-            SandboxBuilder(),
-        ) as info:
+        renderer_config = BriefingRendererConfig()
+        async with briefing_renderer(renderer_config, SandboxBuilder()) as info:
             _require(
-                info.input_schema is BriefingRendererInput, "Briefing input schema lost"
+                issubclass(info.input_schema, BriefingRendererInput),
+                "Briefing input schema lost",
             )
+            nested = info.input_schema.model_json_schema()["properties"]["edition"]
+            _require(
+                "operations_details" in nested.get("properties", {}),
+                "Canonical nested edition schema missing from the actual NAT function",
+            )
+            _require(
+                '"$ref"' not in json.dumps(nested),
+                "Unresolved nested schema references",
+            )
+            # Registration must read the real configured schema; simulate a
+            # later resource loss without silently publishing a weak catalog.
+            renderer_config.skill_directory = "/missing-contract-skill"
             with agent_run_scope() as run:
                 output = await info.single_fn(BriefingRendererInput(edition={}))
                 _require(

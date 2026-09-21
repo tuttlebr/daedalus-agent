@@ -29,6 +29,12 @@ results, releases, or schedules. A search snippet is discovery evidence, not
 support for a precise or volatile final claim. Prefer a small number of strong,
 primary sources over broad link collection.
 
+When a candidate is selected, fetch its source page in the next eligible parallel
+round with independent operational reads or image checks. Do not wait for an
+unrelated desk to finish before retrieving already-selected evidence. Once the
+desk inventory and supported reporting are sufficient, stop optional discovery;
+continue only for a material unresolved claim, source gap, or new anomaly.
+
 Always check the Cluster & Infrastructure, Weather, and Email & Calendar desks.
 For other desks, use a trusted quick signal first and deepen only material
 items. The conditional finance desk normally needs no research unless a

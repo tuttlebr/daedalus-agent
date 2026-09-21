@@ -2374,7 +2374,32 @@ def _mcp_tool_error_payload(exc, *, server_name: str, tool_name: str) -> str:
                 ),
             }
         )
-    if _is_mcp_authentication_required_error(exc):
+    if server_name == "github_mcp_server" and any(
+        marker in error_text.casefold()
+        for marker in (
+            "resource not accessible by personal access token",
+            "resource not accessible by integration",
+        )
+    ):
+        # GitHub authenticated the request but rejected access to the resource.
+        # Keep this distinct from OAuth/401 recovery and transient rate limits.
+        payload = {
+            **base,
+            "error": "mcp_authorization_denied",
+            "auth_scope": "shared",
+            "message": (
+                "GitHub denied the configured credential access to this repository "
+                "or operation. Check the credential's repository grant and "
+                "required read permissions; do not retry unchanged or request "
+                "user confirmation."
+            ),
+            **(
+                {"required_permission": "Actions: read"}
+                if tool_name == "actions_list"
+                else {}
+            ),
+        }
+    elif _is_mcp_authentication_required_error(exc):
         if server_name in _STATIC_MCP_API_KEY_ENVIRONMENTS:
             payload = {
                 **base,
@@ -2789,6 +2814,7 @@ def _remember_mcp_failure(cache, key, result):
                 "mcp_shared_authentication_failed",
                 "mcp_user_authentication_required",
                 "mcp_invalid_arguments",
+                "mcp_authorization_denied",
                 "google_workspace_refresh_failed",
             }
         ):

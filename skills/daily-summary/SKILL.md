@@ -172,6 +172,10 @@ share that permitted baseline round after personal-source authorization. Batch i
 feed questions with `curated_feed_search_tool(mode="discover", queries=[...])`;
 use the returned snippets to select material articles, then fetch only the pages
 needed to support final claims. A discovery result is not an article verification.
+Once selected URLs are known, fetch them in the next eligible parallel round
+alongside independent checks. Do not defer their verification behind unrelated
+image or operational follow-ups. Stop optional discovery when desk coverage and
+the selected claims have sufficient evidence.
 Preserve follow-up calls when a result reveals an anomaly or a real evidence gap.
 
 Follow the policy's cadence: always check
@@ -246,13 +250,15 @@ Escape all externally sourced text before inserting it into HTML.
 Validation is mandatory for a full edition.
 
 Submit `briefing_renderer_tool(edition=...)` with the edition as a nested object,
-not a JSON string. The backend serializes it, transfers the canonical policy,
-template, `scripts/render_daybook.py`, and validator into llm-sandbox, and runs
-both gates. Do not load or transcribe those fixed resources or use sandbox
-commands to assemble the edition.
+not a JSON string. Follow the tool's nested field schema, including each block's
+`type` and the `items` array for `briefs`. The backend verifies sandbox
+capabilities and supplies the canonical contract, policy, template,
+`scripts/render_daybook.py`, and validator for both quality gates. Structural
+errors are reported together. Do not load or
+transcribe those fixed resources or use sandbox commands to assemble the edition.
 
 If the tool returns validation errors with `attempts_remaining=1`, correct the
-reported fields in the object and submit it once more. Rebuild the affected
+reported fields together in the object and submit it once more. Rebuild the affected
 object or array from the verified source material; do not patch delimiters or
 inspect successive string slices. A successful shell command is not evidence
 that an edition passes validation.

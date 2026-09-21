@@ -349,6 +349,8 @@ async def check_catalog(config=None, skills_directory=None):
             )
         if name == "agent_skills_tool" and skills_directory:
             kwargs["skills_directory"] = str(skills_directory)
+        if name == "briefing_renderer_tool" and skills_directory:
+            kwargs["skill_directory"] = str(Path(skills_directory) / "daily-summary")
         if name == "agent_skills_tool":
             kwargs.setdefault("enabled_operations", ["list_skills", "load_skill"])
         tool_config = config_type(**kwargs)
@@ -366,6 +368,60 @@ async def check_catalog(config=None, skills_directory=None):
         async with factory(tool_config, builder) as info:
             schema = info.input_schema.model_json_schema()
             properties = schema.get("properties", {})
+            if name == "briefing_renderer_tool":
+                from langchain_core.utils.function_calling import convert_to_openai_tool
+                from nat.builder.function import LambdaFunction
+                from nat.plugins.langchain.tool_wrapper import langchain_tool_wrapper
+                from nat_helpers.agent_loop_guard import agent_run_scope
+
+                function = LambdaFunction.from_info(
+                    config=tool_config, info=info, instance_name=name
+                )
+                wrapped = langchain_tool_wrapper(name, function, builder)
+                serialized = convert_to_openai_tool(wrapped)
+                edition_schema = serialized["function"]["parameters"]["properties"][
+                    "edition"
+                ]
+                blocks = edition_schema["properties"]["operations_details"]["items"][
+                    "properties"
+                ]["blocks"]["items"]["anyOf"]
+                briefs = next(
+                    block
+                    for block in blocks
+                    if block["properties"]["type"]["enum"] == ["briefs"]
+                )
+                require(
+                    briefs["required"] == ["type", "items"]
+                    and "items" in briefs["properties"]
+                    and briefs["additionalProperties"] is False
+                    and '"$ref"' not in json.dumps(edition_schema),
+                    "Canonical briefing block constraints did not reach the model schema",
+                )
+                require(
+                    function.input_type is info.input_schema,
+                    "NAT renderer input type must match its dynamic schema exactly",
+                )
+                # Exercise the same dict -> LangChain -> NAT conversion as an
+                # actual model call. Canonical validation must receive the
+                # complete input model and return all structural corrections.
+                sandbox = await builder.get_function(tool_config.sandbox_tool)
+                sandbox.acall_invoke.side_effect = None
+                sandbox.acall_invoke.return_value = (
+                    "## Sandbox Capabilities\n"
+                    'Isolation: "bubblewrap"\nStateless: true\n'
+                    'Conversation workspaces: true\nCommands (JSON): ["true"]\n'
+                    "Maximum timeout: 60 seconds"
+                )
+                submitted = {"format": "daily-daedalus/v1", "editors_note": []}
+                with agent_run_scope():
+                    result = json.loads(await wrapped.ainvoke({"edition": submitted}))
+                require(
+                    result.get("passed") is False
+                    and result.get("failure_type") == "validation"
+                    and result.get("error_count", 0) > 1
+                    and result.get("edition") == submitted,
+                    "Wrapped renderer invocation did not preserve the edition and aggregate errors",
+                )
             if name != "current_datetime_tool":
                 require(
                     kwargs["description"] in info.description,

@@ -58,17 +58,28 @@ def run(coro):
     return asyncio.run(coro)
 
 
-@pytest.mark.parametrize("mode", ["failure", "success", "mutation"])
+@pytest.mark.parametrize(
+    "mode", ["failure", "authorization_failure", "success", "mutation"]
+)
 def test_nonretryable_read_failure_reuse_is_exact_and_request_scoped(monkeypatch, mode):
     from nat_helpers.agent_loop_guard import agent_run_scope
 
     class ToolClient:
         _tool_name = "read_status"
-        _parent_client = types.SimpleNamespace(server_name="k8s_mcp_server")
+        _parent_client = types.SimpleNamespace(
+            server_name="github_mcp_server"
+            if mode == "authorization_failure"
+            else "k8s_mcp_server"
+        )
         calls = 0
 
         async def acall(self, tool_args):
             self.calls += 1
+            if mode == "authorization_failure":
+                raise RuntimeError(
+                    "403 Resource not accessible by personal access token: "
+                    "private upstream details"
+                )
             if mode != "success":
                 raise RuntimeError("Unauthorized: private upstream details")
             return '{"status":"ready"}'
@@ -92,20 +103,61 @@ def test_nonretryable_read_failure_reuse_is_exact_and_request_scoped(monkeypatch
 
     async def scenario():
         client = ToolClient()
+        cached_failure = mode in {"failure", "authorization_failure"}
         with agent_run_scope():
             first = await client.acall({"namespace": "one"})
             assert await client.acall({"namespace": "one"}) == first
-            assert client.calls == (1 if mode == "failure" else 2)
+            assert client.calls == (1 if cached_failure else 2)
             await client.acall({"namespace": "two"})
-            assert client.calls == (2 if mode == "failure" else 3)
+            assert client.calls == (2 if cached_failure else 3)
         with agent_run_scope():
             await client.acall({"namespace": "one"})
-            assert client.calls == (3 if mode == "failure" else 4)
-        if mode == "failure":
+            assert client.calls == (3 if cached_failure else 4)
+        if cached_failure:
             assert "private upstream details" not in first
             assert json.loads(first)["retryable"] is False
 
     run(scenario())
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "Resource not accessible by personal access token",
+        "Resource not accessible by integration",
+    ],
+)
+def test_github_permission_denial_is_actionable_and_redacted(marker):
+    error = RuntimeError(f"GitHub REST 403: {marker}; secret-token private-repo")
+    payload = json.loads(
+        mcp_patches._mcp_tool_error_payload(
+            error, server_name="github_mcp_server", tool_name="actions_list"
+        )
+    )
+    assert payload["error"] == "mcp_authorization_denied"
+    assert payload["retryable"] is False
+    assert payload["auth_scope"] == "shared"
+    assert payload["required_permission"] == "Actions: read"
+    assert "repository grant" in payload["message"]
+    assert "secret-token" not in json.dumps(payload)
+    assert "private-repo" not in json.dumps(payload)
+
+
+def test_github_permission_classification_does_not_capture_other_failures():
+    for server, message in (
+        ("github_mcp_server", "API rate limit exceeded"),
+        ("github_mcp_server", "upstream HTTP 503 unavailable"),
+        ("k8s_mcp_server", "Resource not accessible by personal access token"),
+    ):
+        payload = json.loads(
+            mcp_patches._mcp_tool_error_payload(
+                RuntimeError(message), server_name=server, tool_name="read_status"
+            )
+        )
+        assert payload["error"] != "mcp_authorization_denied"
+        cache = {}
+        mcp_patches._remember_mcp_failure(cache, "key", json.dumps(payload))
+        assert not cache
 
 
 def test_mcp_phase_labels_do_not_export_transport_urls():

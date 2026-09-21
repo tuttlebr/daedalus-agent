@@ -1,5 +1,31 @@
 # Skill review records
 
+## 2026-09-21: daily-summary edition contract and rendering outcomes
+
+The nested edition contract is now one maintained JSON schema used by the tool
+catalog and the standalone renderer. A stdlib helper checks supported schema
+keywords and collects structural errors across the edition, so one correction
+can address all reported block defects. Existing source, coverage, image, HTML,
+and two-attempt gates remain in force. The briefing instructions direct selected
+source-page fetches into the next eligible parallel round and stop optional
+discovery when reporting has sufficient evidence.
+
+The renderer checks sandbox capabilities before staging canonical resources and
+reports its execution path and recovery reason. Text fallback has a distinct
+degraded outcome instead of ordinary completion; only canonical validated HTML
+is marked as an artifact success. The runtime, rather than skill prose, owns
+these checks and outcomes.
+
+Validation records include synthetic aggregate-error regressions, standalone
+stdlib-only rendering, the real parser/dispatcher and every bundled text
+resource, schema serialization and invocation through the actual NAT/LangChain
+wrapper, and sandbox adapter contracts. HTTP scenarios use a synthetic model
+provider and the real sandbox to check exact inline HTML, one correction, and
+the bounded text fallback with its distinct outcome.
+Private trace payloads are used only in temporary local reproduction; no private
+edition data is included in fixtures. These checks do not establish future model
+adherence or a deployed end-to-end latency improvement.
+
 ## 2026-09-21: daily-summary preparation and source latency
 
 The initial daily-summary load now returns the four required canonical policy,

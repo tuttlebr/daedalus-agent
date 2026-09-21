@@ -97,6 +97,11 @@ continuation. Nothing is silently dropped.
 
 ## Operations and departments
 
+The tool exposes the nested field shapes from [edition-schema.json](edition-schema.json).
+The same contract checks all structural errors before rendering; correct every
+reported path in the one allowed correction. The source and HTML quality gates
+still run after structural validation.
+
 `operations_details` is a non-empty array of independent modules with `title`,
 `source`, and `blocks`. It contains GPU, Flux, UniFi, storage, incident, and
 other detailed evidence that must not lengthen the opening grid.

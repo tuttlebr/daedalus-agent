@@ -683,10 +683,11 @@ async def _responses_api_agent_workflow(
         return ToolCallAgentGraphState(messages=messages)
 
     def _record_outcome(run, outcome):
-        outcome = run.terminal_reason or run.stop_reason or outcome
+        semantic = run.outcome_metadata(outcome)
+        outcome = semantic["outcome"]
         log = (
             logger.warning
-            if outcome not in {"completed", "validated_artifact"}
+            if semantic["failed"] or semantic["degraded"]
             else logger.info
         )
         log(
@@ -701,8 +702,7 @@ async def _responses_api_agent_workflow(
             "daedalus.agent.outcome",
             {
                 "run_id": run.run_id,
-                "outcome": outcome,
-                "failed": outcome not in {"completed", "validated_artifact"},
+                **semantic,
                 "model_calls": run.model_calls,
                 "tool_calls": run.tool_calls,
                 **run.model_selection.metadata(),

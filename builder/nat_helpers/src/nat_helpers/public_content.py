@@ -8,6 +8,7 @@ content cache: owners and their clients are released after the last tool closes.
 from __future__ import annotations
 
 import asyncio
+import io
 import re
 import time
 from collections import OrderedDict
@@ -15,6 +16,8 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
+from importlib.metadata import entry_points
 from urllib.parse import urldefrag, urlparse
 
 import httpx
@@ -86,13 +89,81 @@ class PublicArticle:
     last_modified: str | None = None
 
 
+@lru_cache(maxsize=1)
+def _has_markitdown_plugins() -> bool:
+    # Installed entry points are process-lifetime metadata, not article data.
+    return bool(entry_points(group="markitdown.plugin"))
+
+
+def _convert_html_article(content: bytes, url: str) -> str | None:
+    """Use MarkItDown's HTML converter without rebuilding its file classifier.
+
+    The HTTP media type already identifies HTML. Constructing the general
+    MarkItDown dispatcher initializes Magika/ONNX and guesses the file type on
+    every article, before reaching this same converter. Keep the complete DOM,
+    charset detection, and dispatcher whitespace normalization; selecting an
+    article subtree would discard tables, links, or other useful page content.
+    Specialized URLs, plugins, and non-HTML documents retain the caller's
+    existing general converter.
+    """
+    try:
+        from charset_normalizer import from_bytes
+        from markitdown import StreamInfo
+        from markitdown.converters import (
+            BingSerpConverter,
+            HtmlConverter,
+            WikipediaConverter,
+            YouTubeConverter,
+        )
+    except ImportError:
+        # The tool packages own these optional dependencies. Standalone helper
+        # users can supply their own converter without installing MarkItDown.
+        return None
+
+    if _has_markitdown_plugins():
+        return None
+    stream = io.BytesIO(content)
+    known_html = StreamInfo(mimetype="text/html", extension=".html", url=url)
+    if any(
+        specialized().accepts(stream, known_html)
+        for specialized in (WikipediaConverter, YouTubeConverter, BingSerpConverter)
+    ):
+        # Do not replace specialized extraction with the generic HTML path, or
+        # activate it here: YouTube's converter can fetch unpinned transcripts.
+        return None
+
+    # Match the bounded charset detection used by the general dispatcher. The
+    # converter still receives bytes so HTML encoding declarations remain usable.
+    detected = from_bytes(content[:4096]).best()
+    result = HtmlConverter().convert(
+        io.BytesIO(content),
+        StreamInfo(
+            mimetype="text/html",
+            extension=".html",
+            charset=detected.encoding if detected is not None else None,
+        ),
+    )
+    markdown = "\n".join(
+        line.rstrip() for line in re.split(r"\r?\n", result.text_content)
+    )
+    markdown = re.sub(r"\n{3,}", "\n\n", markdown)
+    return f"# {result.title or url}\n\n_Source: {url}_\n\n{markdown}"
+
+
 def _convert_article(
     content: bytes,
     url: str,
     content_type: str,
     converter: Callable[[bytes, str, str], str],
 ) -> str:
-    markdown = converter(content, url, content_type)
+    markdown = None
+    if content_type.split(";", 1)[0].strip().lower() in {
+        "text/html",
+        "application/xhtml+xml",
+    }:
+        markdown = _convert_html_article(content, url)
+    if markdown is None:
+        markdown = converter(content, url, content_type)
     # Shared converters return a canonical title/source header, which alone is
     # not evidence of successful article extraction.
     source = f"_Source: {url}_"

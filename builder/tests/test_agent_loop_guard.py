@@ -187,3 +187,37 @@ def test_request_context_isolated_across_parallel_tasks_and_reset_after_cancella
         assert current_agent_run() is None
 
     asyncio.run(scenario())
+
+
+def test_daily_briefing_text_fallback_has_distinct_non_transport_failure_outcome():
+    run = AgentRun(request_profile="daily_summary")
+    outcome = run.outcome_metadata("completed")
+    assert outcome["outcome"] == "briefing_text_fallback"
+    assert outcome["degraded"] is True
+    assert outcome["failed"] is False
+    assert outcome["artifact_validated"] is False
+    assert outcome["fallback_reason"] == "no_render_attempt"
+    run.attempts["briefing"] = 2
+    run.briefing_execution = {
+        "execution_path": "local_recovery",
+        "failure_type": "validation",
+        "recovery_reason": "sandbox_python3_unavailable",
+    }
+    outcome = run.outcome_metadata("completed")
+    assert outcome["render_attempts"] == 2
+    assert outcome["fallback_reason"] == "validation_failed"
+    assert outcome["render_recovery_reason"] == "sandbox_python3_unavailable"
+
+
+def test_rendered_artifacts_and_real_failures_remain_distinct_from_text_fallback():
+    run = AgentRun(request_profile="daily_summary")
+    run.stop_reason = "execution_error"
+    assert run.outcome_metadata("completed")["failed"] is True
+    assert run.outcome_metadata("completed")["outcome"] == "execution_error"
+    run.stop_reason = None
+    run.terminal_reason = "validated_artifact"
+    outcome = run.outcome_metadata("completed")
+    assert outcome["artifact_validated"] is True
+    assert outcome["degraded"] is False
+    assert outcome["outcome"] == "validated_artifact"
+    assert AgentRun().outcome_metadata("completed")["outcome"] == "completed"
