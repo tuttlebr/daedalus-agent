@@ -4,6 +4,7 @@ import asyncio
 
 import memory_api
 import pytest
+from nat_helpers.hindsight_client import HindsightError
 
 
 def run(coro):
@@ -187,6 +188,30 @@ def test_edit_updates_hindsight_without_redis_ledger(configured):
         "update_memory",
         {"user_id": "alice", "memory_id": "memory-1", "text": "Corrected fact"},
     )
+
+
+@pytest.mark.parametrize(
+    ("upstream_status", "status", "detail"),
+    [
+        (400, 400, "Memory service rejected this request."),
+        (404, 404, "Memory resource was not found. Refresh and try again."),
+        (401, 502, "memory service unavailable"),
+        (403, 502, "memory service unavailable"),
+        (500, 502, "memory service unavailable"),
+        (None, 502, "memory service unavailable"),
+    ],
+)
+def test_memory_errors_distinguish_rejection_from_unavailability(
+    configured, upstream_status, status, detail
+):
+    async def rejected():
+        raise HindsightError("Hindsight request failed", status_code=upstream_status)
+
+    with pytest.raises(_TestHTTPException) as raised:
+        run(memory_api._call(rejected()))
+
+    assert raised.value.status_code == status
+    assert raised.value.detail == detail
 
 
 def test_operation_status_distinguishes_completed_zero_fact():

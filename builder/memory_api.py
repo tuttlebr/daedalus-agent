@@ -121,6 +121,17 @@ async def _call(operation) -> Any:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HindsightError as exc:
         logger.warning("Hindsight memory operation failed: %s", exc)
+        # Keep upstream bodies private while distinguishing rejected requests
+        # and stale resources from service/credential failures.
+        if exc.status_code == 400:
+            raise HTTPException(
+                status_code=400, detail="Memory service rejected this request."
+            ) from exc
+        if exc.status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="Memory resource was not found. Refresh and try again.",
+            ) from exc
         raise HTTPException(
             status_code=502, detail="memory service unavailable"
         ) from exc

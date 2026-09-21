@@ -235,9 +235,10 @@ def test_retain_batch_rejects_duplicate_document_ids_before_request():
         )
 
 
-def test_client_errors_do_not_echo_upstream_body():
+@pytest.mark.parametrize("status_code", [400, 401, 403, 404, 422, 500])
+def test_client_errors_preserve_status_without_echoing_upstream_body(status_code):
     def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, text="secret user content")
+        return httpx.Response(status_code, text="secret user content")
 
     client = HindsightClient(
         base_url="http://hindsight.test",
@@ -248,7 +249,39 @@ def test_client_errors_do_not_echo_upstream_body():
     with pytest.raises(HindsightError) as raised:
         run(client.list_documents(user_id="alice"))
     assert "secret user content" not in str(raised.value)
-    assert "500" in str(raised.value)
+    assert str(status_code) in str(raised.value)
+    assert raised.value.status_code == status_code
+
+
+def test_invalidate_memory_uses_bank_scoped_curation_not_document_deletion():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"id": "fact-1", "state": "invalidated"})
+
+    client = HindsightClient(
+        base_url="http://hindsight.test",
+        api_key="secret-api-key",
+        transport=httpx.MockTransport(handler),
+    )
+    result = run(
+        client.invalidate_memory(
+            user_id="alice", memory_id="fact-1", reason="user requested forget"
+        )
+    )
+
+    assert result["state"] == "invalidated"
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.method == "PATCH"
+    assert request.url.path == (
+        f"/v1/default/banks/{derive_bank_id('alice')}/memories/fact-1"
+    )
+    assert json.loads(request.content) == {
+        "state": "invalidated",
+        "reason": "user requested forget",
+    }
 
 
 def test_bootstrap_pages_reflect_and_operation_routes_remain_bank_bound():

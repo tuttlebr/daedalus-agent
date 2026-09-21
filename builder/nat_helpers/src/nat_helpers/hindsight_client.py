@@ -28,6 +28,10 @@ _DEFAULT_API_TIMEOUT_SECONDS = 60.0
 class HindsightError(RuntimeError):
     """Credential-safe Hindsight client error."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 def memory_mode() -> MemoryMode:
     """Return the configured Hindsight availability mode."""
@@ -182,7 +186,8 @@ class HindsightClient:
             raise HindsightError("Hindsight is unavailable") from exc
         if response.status_code >= 400:
             raise HindsightError(
-                f"Hindsight request failed with status {response.status_code}"
+                f"Hindsight request failed with status {response.status_code}",
+                status_code=response.status_code,
             )
         if response.status_code == 204 or not response.content:
             return {}

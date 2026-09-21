@@ -23,7 +23,7 @@ import { useUISettingsStore } from '@/state/uiSettingsStore';
 type MemoryFact = {
   id: string;
   text: string;
-  type?: 'world' | 'experience' | 'observation' | string;
+  fact_type?: 'world' | 'experience' | 'observation' | string;
   state?: string;
   context?: string;
   date?: string;
@@ -666,7 +666,7 @@ export function MemoryCenter() {
                     <div className="min-w-0 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">
-                          {memory.type || 'fact'}
+                          {memory.fact_type || 'fact'}
                         </Badge>
                         {memory.state && memory.state !== 'valid' && (
                           <Badge variant="warning">{memory.state}</Badge>
@@ -687,8 +687,15 @@ export function MemoryCenter() {
                           {memory.context}
                         </p>
                       )}
+                      {memory.fact_type === 'observation' && (
+                        <p className="text-xs text-dark-text-muted">
+                          Edit or forget the underlying facts to change this
+                          observation.
+                        </p>
+                      )}
                     </div>
-                    {memory.type !== 'observation' && (
+                    {(memory.fact_type === 'world' ||
+                      memory.fact_type === 'experience') && (
                       <div className="flex flex-shrink-0 gap-1">
                         <button
                           type="button"
