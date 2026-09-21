@@ -449,13 +449,12 @@ def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch
     "server_name,tool_name,payload",
     [
         ("docs_mcp_server", "update_doc", {"document_id": "doc-1"}),
-        ("calendar_mcp_server", "create_event", {"calendar_id": "primary"}),
         ("calendar_mcp_server", "update_event", {"event_id": "event-1"}),
         ("calendar_mcp_server", "delete_event", {"event_id": "event-1"}),
         ("calendar_mcp_server", "respond_to_event", {"event_id": "event-1"}),
     ],
 )
-def test_docs_and_calendar_writes_require_exact_approval(
+def test_docs_updates_and_existing_calendar_event_changes_require_exact_approval(
     server_name, tool_name, payload
 ):
     for qualified_tool_name in (tool_name, f"{server_name}.{tool_name}"):
@@ -466,6 +465,52 @@ def test_docs_and_calendar_writes_require_exact_approval(
         )
         assert ok is False
         assert "execution credential" in reason
+
+
+@pytest.mark.parametrize(
+    "server_name",
+    [
+        "calendar_mcp_server",
+        "streamable-http:https://calendarmcp.googleapis.com/mcp/v1",
+    ],
+)
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "create_event",
+        "calendar_mcp_server.create_event",
+        "calendar_mcp_server::create_event",
+    ],
+)
+def test_calendar_creation_skips_approval_storage(monkeypatch, server_name, tool_name):
+    def forbidden(**_kwargs):
+        pytest.fail("Calendar creation must not create a per-call approval")
+
+    monkeypatch.setattr(mcp_patches, "_create_mcp_approval_marker", forbidden)
+    assert mcp_patches._validate_mcp_approval(
+        tool_name,
+        {"calendar_id": "primary", "summary": "Test event"},
+        annotations=_Annotations(destructiveHint=True),
+        server_name=server_name,
+    ) == (True, "auto-approved")
+    assert not mcp_patches._has_local_read_only_evidence(server_name, tool_name)
+    assert "calendar_mcp_server" in mcp_patches._PER_USER_MCP_OAUTH_SERVERS
+
+
+@pytest.mark.parametrize(
+    "server_name,tool_name",
+    [
+        ("other_mcp_server", "create_event"),
+        ("calendar_mcp_server", "create_calendar"),
+        ("calendar_mcp_server", "create_event_batch"),
+    ],
+)
+def test_calendar_creation_approval_exception_is_exact(server_name, tool_name):
+    ok, reason = mcp_patches._validate_mcp_approval(
+        tool_name, {}, server_name=server_name
+    )
+    assert ok is False
+    assert "execution credential" in reason
 
 
 def test_strip_approval_token_removes_nested_values():

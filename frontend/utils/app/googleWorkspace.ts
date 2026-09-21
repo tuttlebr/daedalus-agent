@@ -8,7 +8,8 @@ export const GOOGLE_WORKSPACE_SERVICES = [
   {
     id: 'calendar',
     label: 'Google Calendar',
-    description: 'Read calendars and make approved event changes.',
+    description:
+      'Read calendars and create events. Other event changes require approval.',
     authSignals: ['calendar.'],
   },
   {

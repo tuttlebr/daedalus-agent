@@ -2251,8 +2251,14 @@ class TestMcpErrorNoReconnect:
             '"server":"gmail_mcp_server","tool":"get_thread"}'
         )
 
-    def test_google_tool_call_binds_current_oauth_callback(self, monkeypatch):
+    @pytest.mark.parametrize("tool_name", ["list_events", "create_event"])
+    def test_google_tool_call_binds_current_oauth_callback(
+        self, monkeypatch, tool_name
+    ):
         """The tool wrapper must bridge the current callback to cached transport."""
+        mcp_patches.configure_mcp_approval_policy(
+            Path(__file__).parents[2] / "backend" / "tool-calling-config.yaml"
+        )
         auth_adapter = types.SimpleNamespace()
 
         async def callback(_config, _method):
@@ -2264,7 +2270,7 @@ class TestMcpErrorNoReconnect:
                 return types.SimpleNamespace(user_auth_callback=callback)
 
         class FakeMCPToolClient:
-            _tool_name = "list_events"
+            _tool_name = tool_name
 
             def __init__(self):
                 self._parent_client = types.SimpleNamespace(
@@ -2307,12 +2313,6 @@ class TestMcpErrorNoReconnect:
             "_PER_USER_MCP_OAUTH_SERVERS",
             frozenset({"calendar_mcp_server"}),
         )
-        monkeypatch.setattr(
-            mcp_patches,
-            "_validate_mcp_approval",
-            lambda *_args, **_kwargs: (True, "read-only"),
-        )
-
         mcp_patches._patch_tool_client()
 
         assert run(FakeMCPToolClient().acall({})) == "ok"

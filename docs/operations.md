@@ -176,6 +176,11 @@ MCP exposure and approval are configured separately:
   group default. Group defaults support `auto_approve` and `approval_required`;
   `read_only` must be assigned to individual verified tools.
 
+  Google Calendar's `create_event` uses an exact `auto_approve` override. Once
+  Calendar OAuth is connected, new events run without a per-call approval prompt.
+  Missing or expired authorization still follows the per-user OAuth flow.
+  Updating, deleting, and responding to existing events require approval.
+
   Hue omits `include` and uses the group default below. Its three verified reads
   keep `read_only` overrides; other current and newly discovered Hue tools
   inherit `auto_approve`:

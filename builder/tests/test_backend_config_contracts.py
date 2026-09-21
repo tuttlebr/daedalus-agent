@@ -1078,13 +1078,13 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
     }
     approval_required = {
         "calendar_mcp_server": {
-            "create_event",
             "update_event",
             "delete_event",
             "respond_to_event",
         },
         "docs_mcp_server": {"update_doc"},
     }
+    auto_approved = {"calendar_mcp_server": {"create_event"}}
     for path in DEPLOYED_CONFIGS:
         groups = _config(path)["function_groups"]
         for group_name, expected_tools in allowlisted.items():
@@ -1097,14 +1097,19 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             read_only = {
                 tool for tool, policy in policies.items() if policy == "read_only"
             }
-            assert read_only == expected_tools - approval_required.get(
-                group_name, set()
+            assert read_only == (
+                expected_tools
+                - approval_required.get(group_name, set())
+                - auto_approved.get(group_name, set())
             ), path
             assert {
                 tool
                 for tool, policy in policies.items()
                 if policy == "approval_required"
             } == approval_required.get(group_name, set()), path
+            assert {
+                tool for tool, policy in policies.items() if policy == "auto_approve"
+            } == auto_approved.get(group_name, set()), path
         for group_name, group in groups.items():
             if group_name != "hue_mcp_server" and group.get("_type") in {
                 "mcp_client",
