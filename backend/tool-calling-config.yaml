@@ -251,6 +251,8 @@ function_groups:
   github_mcp_server:
     _type: mcp_client
     include:
+      - actions_list
+      - get_commit
       - get_file_contents
       - get_latest_release
       - issue_read
@@ -262,6 +264,10 @@ function_groups:
       - search_pull_requests
       - search_repositories
     tool_overrides:
+      actions_list:
+        approval_policy: read_only
+      get_commit:
+        approval_policy: read_only
       get_file_contents:
         approval_policy: read_only
       get_latest_release:
@@ -294,6 +300,9 @@ function_groups:
       transport: streamable-http
       url: https://api.githubcopilot.com/mcp/
       auth_provider: github_mcp_server
+      custom_headers:
+        X-MCP-Readonly: 'true'
+        X-MCP-Tools: actions_list,get_commit,get_file_contents,get_latest_release,issue_read,list_branches,list_commits,list_issues,search_code,search_issues,search_pull_requests,search_repositories
   gmail_mcp_server:
     _type: per_user_mcp_client
     include:
@@ -522,6 +531,8 @@ functions:
       disabled, skill not found, or requested resource path escapes skill dir.
       For a daily summary or daily briefing request, skip discovery and make
       operation=load_skill with skill_name=daily-summary your first tool call.
+      Its initial load includes the canonical briefing references and fresh
+      backend current time; reuse them instead of loading each resource again.
       Do not call get_memory or subject-matter tools until that skill is loaded.
       For an explicit image generation or edit request, load
       image-creation before visual_media_tool generation/editing,
@@ -700,33 +711,16 @@ functions:
   curated_feed_search_tool:
     _type: rss_feed
     description: >-
-      Search curated RSS feeds for recent, source-specific items.
-      Args: query and optional feed_scope. Use feed_scope="auto" when
-      the best source is unclear. Available scopes: nvidia_blog for
-      NVIDIA corporate/product news, AI, GPUs, data center, robotics,
-      gaming, and company stories; nvidia_developer for NVIDIA
-      technical developer content, SDKs, CUDA, inference, training,
-      acceleration, and implementation guides; nvidia_newsroom for
-      official NVIDIA press releases, partnerships, earnings-adjacent
-      announcements, executive statements, and launch announcements;
-      semianalysis for AI infrastructure, semiconductors, GPUs,
-      datacenters, market analysis, and deep industry analysis;
-      npr_news for general US/world news, politics, culture, health,
-      science, and public-interest reporting; nomadicmatt for budget
-      travel, destination guides, itineraries, travel planning, and
-      travel tips; openai_news for official OpenAI product, research,
-      model, safety, policy, and company updates; huggingface for
-      Hugging Face models, datasets, libraries, Spaces, open-source ML,
-      and community AI updates; mit_ai_review for MIT Technology
-      Review artificial intelligence coverage, AI research, policy,
-      industry impact, and AI society issues; mit_culture_review for
-      MIT Technology Review culture coverage, internet culture, media,
-      society, and technology's human impact; mit_computing_review for
-      MIT Technology Review computing coverage, software, chips,
-      cybersecurity, quantum, infrastructure, and computing trends.
-      Returns the scraped top-ranked item. Use perplexity_search_tool
-      for sources outside this feed set or when
-      broad web coverage is needed.
+      Search curated RSS feeds for recent, source-specific items. For a
+      briefing use mode="discover", queries containing independent query
+      and feed_scope pairs, and top_k=3 to gather candidates in one batch.
+      Available scopes come from the registered schema. Prefer a named
+      scope; auto searches every configured feed. Discovery returns dated
+      source URLs and excerpts, not verified article claims. Fetch selected
+      URLs with webscrape_tool when their content is needed for verification.
+      The default mode="article" accepts query and feed_scope and returns
+      the scraped top-ranked item. Use perplexity_search_tool for sources
+      outside this feed set or when broad web coverage is needed.
     feeds:
       nvidia_developer: https://developer.nvidia.com/blog/feed
       semianalysis: https://newsletter.semianalysis.com/feed
@@ -738,6 +732,9 @@ functions:
       mit_culture_review: https://www.technologyreview.com/topic/culture/feed/
       mit_computing_review: https://www.technologyreview.com/topic/computing/feed/
     max_entries: 5
+    cache_ttl_hours: 0.25
+    feed_concurrency: 4
+    max_batch_queries: 6
     reranker_api_key: ${RERANKER_API_KEY}
     reranker_endpoint: ${RERANKER_BASE_URL}
     reranker_model: ${RERANKER_MODEL}
@@ -852,6 +849,15 @@ functions:
     timeout: 60
     user_agent: daedalus-webscraper/0.1.0
     verbose: false
+  nws_weather_tool:
+    _type: nws_weather
+    description: >-
+      Read official US National Weather Service forecasts and active alerts
+      for latitude and longitude. Use days=4 for today plus the next three
+      local calendar days. Returns structured periods, source URLs, issue
+      and fetch times, and explicit coverage gaps. Request current
+      observations only when needed; unavailable readings are not forecasts.
+      Prefer this tool to scraping weather HTML for a daily briefing.
   llm_sandbox_tool:
     _type: llm_sandbox
     description: >-
@@ -927,9 +933,10 @@ functions:
         requires_auth: false
       - id: known_url_scrape
         name: Known URL Scrape
-        description: Fetch a specific URL already observed or provided.
+        description: Fetch an observed URL or official structured US weather data.
         tools:
           - webscrape_tool
+          - nws_weather_tool
         default_enabled: true
         requires_auth: false
       - id: nvidia_docs
@@ -1081,8 +1088,9 @@ workflow:
   max_history_tokens: 32000
   # Compact only large JSON-shaped tool results. The exact original remains in
   # user-isolated Redis and is recoverable through tool_output_retriever_tool.
-  # Plain text, code, small results, parse failures, and cache failures pass
-  # through unchanged.
+  # Public article results can use sourced excerpts with exact recovery too.
+  # Other plain text, code, small results, parse failures, and cache failures
+  # pass through unchanged.
   tool_output_compaction_enabled: true
   tool_output_compaction_min_chars: 8000
   tool_output_compaction_max_items: 16
@@ -1106,6 +1114,7 @@ workflow:
     - github_mcp_server
     - gmail_mcp_server
     - k8s_mcp_server
+    - nws_weather_tool
     - perplexity_search_tool
     - source_verifier_tool
     - tool_output_retriever_tool
@@ -1155,6 +1164,7 @@ workflow:
     - k8s_mcp_server
     - llm_sandbox_tool
     - nvidia_docs_tool
+    - nws_weather_tool
     - perplexity_search_tool
     - source_verifier_tool
     - tool_output_retriever_tool

@@ -1,10 +1,11 @@
-"""Reversible, low-latency compaction for large structured tool results.
+"""Reversible, low-latency compaction for structured results and public articles.
 
 The model does not need repeated JSON keys or every routine row to decide its
 next step.  This module keeps a representative, query-aware preview in the
 prompt and stores the exact original in user-isolated Redis for bounded
 retrieval.  Content that is small, unstructured, unsafe to parse, or cannot be
-cached passes through unchanged.
+cached passes through unchanged. Only structured RSS article results are
+eligible for text excerpts; generic scrapes may contain code or documents.
 """
 
 from __future__ import annotations
@@ -121,6 +122,7 @@ class CompactionSettings:
     max_compacted_ratio: float = 0.70
     max_original_chars: int = 4_000_000
     cache_ttl_seconds: int = 7_200
+    article_excerpt_chars: int = 4_000
 
 
 @dataclass(frozen=True)
@@ -424,6 +426,100 @@ def _reversible_preview(
     return optimized, reference
 
 
+def _article_preview(
+    content: str,
+    parsed: _ParsedJSON | None,
+    *,
+    tool_name: str,
+    query: str,
+    settings: CompactionSettings,
+) -> tuple[str, str] | None:
+    """Keep attributed, verbatim windows without pretending they are complete."""
+    metadata: dict[str, Any]
+    if tool_name == "curated_feed_search_tool" and parsed is not None:
+        value = parsed.value
+        if (
+            not isinstance(value, dict)
+            or value.get("success") is not True
+            or not isinstance(value.get("content"), str)
+            or not isinstance(value.get("source"), dict)
+        ):
+            return None
+        article = value["content"]
+        metadata = {key: item for key, item in value.items() if key != "content"}
+        query = f"{query} {value.get('query', '')}"
+        path = "$.content"
+    else:
+        return None
+
+    budget = max(800, settings.article_excerpt_chars)
+    if len(article) <= budget:
+        return None
+    window = min(800, budget // 2)
+    windows = [
+        (offset, min(offset + window, len(article)))
+        for offset in range(0, len(article), window)
+    ]
+    terms = _query_terms(query)
+    # Keep boundaries and relevant/cautionary passages. These remain explicitly
+    # partial; selection is not a substitute for reading surrounding evidence.
+    selected = {0, len(windows) - 1}
+    ranked = sorted(
+        range(1, len(windows) - 1),
+        key=lambda index: (
+            -int(bool(_ERROR_SIGNAL.search(article[slice(*windows[index])]))),
+            -sum(
+                article[slice(*windows[index])].casefold().count(term) for term in terms
+            ),
+            index,
+        ),
+    )
+    remaining = budget - sum(windows[i][1] - windows[i][0] for i in selected)
+    for index in ranked:
+        size = windows[index][1] - windows[index][0]
+        if size > remaining:
+            continue
+        selected.add(index)
+        remaining -= size
+    excerpts = [
+        {
+            "start_offset": windows[i][0],
+            "end_offset": windows[i][1],
+            "text": article[slice(*windows[i])],
+        }
+        for i in sorted(selected)
+    ]
+    reference = tool_output_reference(content)
+    envelope = {
+        COMPACTION_MARKER: {
+            "reference": reference,
+            "content_path": path,
+            "offset_basis": "decoded_article",
+            "original_chars": len(content),
+            "article_chars": len(article),
+            "omitted_chars": len(article) - sum(len(e["text"]) for e in excerpts),
+            "selection": "verbatim_boundaries,cautions,query_relevance",
+            "retrieval": (
+                "Partial excerpts, not the complete source. Use "
+                "tool_output_retriever_tool with this reference to read exact "
+                "surrounding content when omitted context could affect a claim. "
+                "Do not infer absence from this preview. "
+                "Excerpt offsets refer to the decoded article, not its JSON "
+                "wrapper. Recover this source by query or page the original "
+                "JSON; do not use excerpt offsets as retrieval offsets."
+            ),
+        },
+        "preview": {**metadata, "excerpts": excerpts},
+    }
+    optimized = parsed.render(envelope)
+    if (
+        len(content) - len(optimized) < settings.min_savings_chars
+        or len(optimized) / len(content) > settings.max_compacted_ratio
+    ):
+        return None
+    return optimized, reference
+
+
 async def optimize_tool_content(
     content: str,
     *,
@@ -452,17 +548,16 @@ async def optimize_tool_content(
         return unchanged
 
     parsed = _parse_structured_json(content)
-    if parsed is None:
-        return unchanged
-    minified = parsed.render(parsed.value)
     lossless = unchanged
-    if len(content) - len(minified) >= 256:
-        lossless = OptimizedToolContent(
-            content=minified,
-            mode="lossless_json",
-            original_chars=original_chars,
-            optimized_chars=len(minified),
-        )
+    if parsed is not None:
+        minified = parsed.render(parsed.value)
+        if len(content) - len(minified) >= 256:
+            lossless = OptimizedToolContent(
+                content=minified,
+                mode="lossless_json",
+                original_chars=original_chars,
+                optimized_chars=len(minified),
+            )
 
     if original_chars < settings.min_chars:
         return lossless
@@ -470,12 +565,20 @@ async def optimize_tool_content(
         # Exact counts, exhaustive lists, and absence claims should not depend
         # on the model noticing a retrieval marker. Preserve the whole result.
         return lossless
-    reversible = _reversible_preview(
+    reversible = _article_preview(
         content,
         parsed,
+        tool_name=tool_name,
         query=query,
         settings=settings,
     )
+    if reversible is None and parsed is not None:
+        reversible = _reversible_preview(
+            content,
+            parsed,
+            query=query,
+            settings=settings,
+        )
     if reversible is None:
         return lossless
     optimized, reference = reversible

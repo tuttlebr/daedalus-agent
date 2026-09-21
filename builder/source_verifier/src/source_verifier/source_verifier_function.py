@@ -221,8 +221,8 @@ def _default_source_registry() -> list[dict[str, Any]]:
         {
             "id": "known_url_scrape",
             "name": "Known URL Scrape",
-            "description": "Fetch and convert a specific URL already known.",
-            "tools": ["webscrape_tool"],
+            "description": "Fetch an observed URL or official structured US weather data.",
+            "tools": ["webscrape_tool", "nws_weather_tool"],
             "default_enabled": True,
             "requires_auth": False,
         },
@@ -753,7 +753,7 @@ def _source_reason(source_id: str, question: str, depth: str) -> str:
         "curated_domains": "Use curated corpora for stable background and primary reference passages.",
         "curated_feeds": "Use recent trusted feeds for current announcements or latest-source checks.",
         "perplexity_search": "Use Perplexity internet search for ranked web sources, snippets, publication dates, and freshness metadata.",
-        "known_url_scrape": "Use only after a specific URL is already known.",
+        "known_url_scrape": "Fetch observed URLs; use structured NWS data for US weather coordinates.",
         "uploaded_documents": "Use when the question is about authenticated uploaded documents.",
         "workspace_data": "Use when the question is about authenticated Google Workspace data.",
         "nvidia_docs": "Route official NVIDIA product documentation questions to the docs specialist.",
@@ -784,12 +784,8 @@ def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
 
     if source_id == "curated_feeds":
         feed_scope = "auto"
-        if "nvidia" in q:
-            feed_scope = "nvidia_blog"
         if any(token in q for token in ("developer", "cuda", "nemo", "inference")):
             feed_scope = "nvidia_developer"
-        if any(token in q for token in ("press", "partnership", "earnings")):
-            feed_scope = "nvidia_newsroom"
         if "semianalysis" in q:
             feed_scope = "semianalysis"
         return [{"tool": "curated_feed_search_tool", "feed_scope": feed_scope}]
@@ -801,6 +797,8 @@ def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
         return [hint]
 
     if source_id == "known_url_scrape":
+        if "weather" in q:
+            return [{"tool": "nws_weather_tool"}]
         return [{"tool": "webscrape_tool"}]
     if source_id == "uploaded_documents":
         return [{"tool": "user_document_tool"}]

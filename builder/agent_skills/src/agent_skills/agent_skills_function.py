@@ -10,7 +10,9 @@ import json
 import logging
 import os
 import signal
+from datetime import UTC, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agent_skills.skill_parser import SkillParser
 from nat.builder.builder import Builder
@@ -35,6 +37,17 @@ _DEFAULT_DESCRIPTION = (
 # Maximum bytes of combined stdout+stderr captured from a skill script.
 # Prevents OOM if a script produces unbounded output.
 _MAX_SCRIPT_OUTPUT_BYTES = 1_048_576  # 1 MB
+
+# Every interactive daily summary needs these canonical instructions. Loading
+# them with the entrypoint avoids model turns spent retrieving fixed resources.
+# Read through the parser so path containment and supported-file checks remain
+# identical to explicit resource loads; do not duplicate their contents here.
+DAILY_SUMMARY_BOOTSTRAP_RESOURCES = (
+    "references/edition-policy.json",
+    "references/research-and-sourcing.md",
+    "references/edition-format.md",
+    "references/editorial-spec.md",
+)
 
 # Environment variables forwarded to skill scripts. This is an ALLOWLIST, not a
 # denylist: only these explicitly-safe, non-secret names are passed through. A
@@ -162,6 +175,24 @@ async def _load_skill(
         resources = parser.list_skill_resources(skill_name)
 
         result = instructions
+        bundled = ()
+        if parser.get_skill_metadata(skill_name).name == "daily-summary":
+            bundled = DAILY_SUMMARY_BOOTSTRAP_RESOURCES
+            contents = {
+                path: parser.get_skill_resource(skill_name, path) for path in bundled
+            }
+            clock = _daily_summary_clock(contents[bundled[0]])
+            result += (
+                "\n\n## Current date and time (trusted backend clock)\n\n"
+                + json.dumps(clock)
+            )
+            for path, content in contents.items():
+                result += f"\n\n---\n\n## Bundled resource: `{path}`\n\n{content}"
+            result += (
+                "\n\nThe four required daily-summary references above are already "
+                "loaded. Use them directly; do not request them again."
+            )
+        resources = [path for path in resources if path not in bundled]
         if resources:
             result += "\n\n---\n\n**Available resources** (use `load_skill` with the `resource` parameter to read):\n"
             for r in resources:
@@ -177,6 +208,22 @@ async def _load_skill(
         return f"Skill '{skill_name}' not found. Available skills: {available}"
     except (FileNotFoundError, PermissionError, ValueError) as exc:
         return f"Error: {exc}"
+
+
+def _daily_summary_clock(policy_text: str) -> dict[str, str]:
+    """Generate a fresh clock snapshot using the canonical reader timezone."""
+    try:
+        zone_name = json.loads(policy_text)["edition"]["timezone"]
+        zone = ZoneInfo(zone_name)
+    except (KeyError, TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+        raise ValueError("Daily-summary policy has no valid edition timezone.") from exc
+    now = datetime.now(UTC)
+    return {
+        "source": "daily_summary_runtime_clock",
+        "utc": now.isoformat(),
+        "local": now.astimezone(zone).isoformat(),
+        "timezone": zone_name,
+    }
 
 
 async def _run_skill_script(

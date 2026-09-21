@@ -86,6 +86,11 @@ FACTORIES = {
         "WebscrapeFunctionConfig",
         "webscrape_function",
     ),
+    "nws_weather_tool": (
+        "webscrape.nws_weather_function",
+        "NwsWeatherFunctionConfig",
+        "nws_weather_function",
+    ),
     "llm_sandbox_tool": (
         "llm_sandbox.llm_sandbox_function",
         "LlmSandboxConfig",
@@ -129,8 +134,17 @@ SAMPLES = {
         {"operation": "list_collections"},
     ],
     "curated_feed_search_tool": [
-        {"query": "NVIDIA updates", "feed_scope": "nvidia_developer"}
+        {"query": "NVIDIA updates", "feed_scope": "nvidia_developer"},
+        {
+            "mode": "discover",
+            "queries": [
+                {"query": "Developer releases", "feed_scope": "nvidia_developer"},
+                {"query": "Infrastructure analysis", "feed_scope": "semianalysis"},
+            ],
+            "top_k": 3,
+        },
     ],
+    "nws_weather_tool": [{"latitude": 42.1667, "longitude": -83.7833, "days": 4}],
     "content_distiller_tool": [
         {
             "content": "Observed public source prose.",
@@ -325,6 +339,14 @@ async def check_catalog(config=None, skills_directory=None):
             )
         if name == "domain_retriever_tool":
             kwargs.update(uri="http://milvus.invalid:19530", embedding_model="fixture")
+        if name == "curated_feed_search_tool":
+            kwargs["feeds"] = raw.get(
+                "feeds",
+                {
+                    "nvidia_developer": "https://example.com/developer.xml",
+                    "semianalysis": "https://example.com/analysis.xml",
+                },
+            )
         if name == "agent_skills_tool" and skills_directory:
             kwargs["skills_directory"] = str(skills_directory)
         if name == "agent_skills_tool":

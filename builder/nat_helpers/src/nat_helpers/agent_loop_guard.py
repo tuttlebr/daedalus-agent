@@ -113,6 +113,9 @@ class AgentRun:
     consecutive_failures: int = 0
     artifact_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_messages: list = field(default_factory=list)
+    # Only sanitized non-retryable MCP read failures, keyed by exact-call hash.
+    # The ContextVar lifetime prevents reuse across requests or identities.
+    nonretryable_mcp_results: dict[str, str] = field(default_factory=dict)
 
     def observe(self, messages: list) -> None:
         """Count this turn only; a success or changed failure resets the guard."""

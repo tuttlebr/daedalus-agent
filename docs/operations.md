@@ -411,7 +411,7 @@ Daedalus reduces large structured tool results immediately before each model
 call. This is separate from Hindsight memory, provider prompt caching, and the
 manual `content_distiller_tool`:
 
-- Small results, prose, code, malformed JSON, duplicate-key JSON, and
+- Small results, generic prose, code, malformed JSON, duplicate-key JSON, and
   non-finite JSON pass through unchanged. Valid JSON can be whitespace-minified
   without losing data.
 - Large JSON arrays receive a bounded preview containing the first and last
@@ -419,6 +419,12 @@ manual `content_distiller_tool`:
   the original item count and the exact indices retained. Requests for exact
   counts, exhaustive lists, absence checks, raw output, or verbatim output keep
   the complete result instead.
+- Structured RSS article results retain their source metadata and up to 4,000
+  characters of verbatim excerpts. Their marker explicitly identifies omitted
+  content and explains exact recovery. Excerpt positions are relative to the
+  decoded article, not offsets into the stored JSON; use literal search or page
+  the original JSON. Generic web scrapes remain unchanged because they can
+  contain code or documents.
 - Before a preview replaces the result, Daedalus stores the exact original in
   user-isolated Redis with a two-hour TTL. If storage fails, the original result
   stays in the prompt. `tool_output_retriever_tool` can search or page the exact
@@ -433,6 +439,60 @@ provider-reported input tokens and end-to-end latency on the same request set,
 then use exact-answer, exhaustive-list, absence-claim, and anomaly-retention
 checks as quality gates. Logs record only tool names and aggregate sizes; they
 do not record result content or cache references.
+
+### Daily briefing latency
+
+The initial `daily-summary` skill load includes a fresh backend UTC/local clock
+and the four canonical policy, sourcing, format, and editorial references. It
+does not fetch personal sources or bypass their authorization preflight. After
+that preflight, source planning can share a tool round with independent baseline
+reads that already satisfy the source policy. Conditional sources and anomaly
+follow-ups remain agent decisions; the renderer still validates the final edition.
+
+Use `curated_feed_search_tool` with `mode="discover"`, `top_k=3`, and up to six
+`queries` containing `query`/`feed_scope` pairs. The registered schema derives
+valid scopes from the feed map. Discovery returns bounded excerpts, publication
+and fetch dates, cache expiry, and explicit `ok`, `partial`, `empty`, or
+`unavailable` results. Feed excerpts are candidate evidence, not verified article
+claims. Fetch selected URLs concurrently when their contents are needed. The
+legacy single-query article mode remains available. Production feed freshness
+is 15 minutes, with four concurrent feed fetches and shared in-flight misses.
+
+RSS article mode and webscrape share a bounded anonymous article cache within
+the owning workflow builder. The cache holds at most 64 entries / 8 MiB for at
+most five minutes and honors shorter server cache lifetimes. Query-string URLs,
+responses setting cookies, and private/no-store/no-cache responses are not
+cached. Cache hits retain original fetch timestamps; failed fetches are not
+cached. Clients retain TLS connections without sending cookies or credentials;
+public-IP validation and redirect restrictions still apply. A cancelled waiter
+does not cancel another consumer's shared fetch.
+
+`nws_weather_tool` reads official NWS JSON for US coordinates. `days=4` covers
+today's remaining hours and the next three complete local calendar days.
+`include_observations=true` also reads current station observations. Forecast
+gaps, stale issue times, unavailable observations, and alert failures remain
+explicit. Only location-to-grid mappings are cached; forecasts and alerts are
+fetched on each call.
+
+GitHub requests explicitly select the read-only remote catalog using
+`X-MCP-Tools` and `X-MCP-Readonly`, including `get_commit` and `actions_list`.
+Keep the header and local allowlist aligned. The direct MCP preflight honors
+these headers. Exact repeated read failures for rejected credentials or invalid
+arguments reuse their sanitized result only within the current agent request;
+successful reads, changed arguments, new requests, and transient failures are
+not suppressed.
+
+Phoenix now receives duration spans for `daedalus.agent.model`, MCP catalog,
+session acquisition and dispatch, feed fetch/rerank, public-content fetch and
+conversion, and NWS requests. Metadata contains operational labels, timings,
+counts and cache states, without source text, queries, credential values, or
+exception messages. These complement the existing workflow outcome and model
+call count. Compare end-to-end p50/p95, model rounds, and cache states across
+repeated cold and warm runs; account for overlapping spans rather than summing
+tool durations. Require the same desk coverage, source freshness, supported
+claims, explicit unavailable sources, and successful renderer validation before
+accepting a latency improvement. A shorter timeout alone is not evidence of a
+faster successful workflow.
 
 ## Frontend Capabilities
 

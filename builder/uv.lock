@@ -32,6 +32,7 @@ source = { editable = "." }
 [package.optional-dependencies]
 test = [
     { name = "c2pa-python" },
+    { name = "cachetools" },
     { name = "httpcore" },
     { name = "httpx" },
     { name = "idna" },
@@ -46,6 +47,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "c2pa-python", marker = "extra == 'test'", specifier = "==0.37.10" },
+    { name = "cachetools", marker = "extra == 'test'", specifier = ">=6.2.1" },
     { name = "httpcore", marker = "extra == 'test'", specifier = ">=0.18" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28" },
     { name = "idna", marker = "extra == 'test'", specifier = ">=3.15" },
@@ -76,6 +78,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/9a/54/815f9b116153f46647413007838eb913b1711badcf5ae8d0e65eaf512287/c2pa_python-0.37.10-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:a24d600a5d6a0759ae48a5a003690f7edfc175bdb86eca860016aef400778e61", size = 14755085, upload-time = "2026-09-04T19:13:37.551Z" },
     { url = "https://files.pythonhosted.org/packages/60/03/502ffca6024e50a83d4ac37b842dd59b095e23e0e1e84511ca6abfc72a71/c2pa_python-0.37.10-py3-none-win_amd64.whl", hash = "sha256:25ced040898ef3374e110b91e7d3754777950b5e992a87cde96937fa8ffa848a", size = 86751605, upload-time = "2026-09-04T19:13:42.241Z" },
     { url = "https://files.pythonhosted.org/packages/86/4a/8ad03f9316fc8b36d3a21c641ec4b0859714a43102be0bd4bd7587398494/c2pa_python-0.37.10-py3-none-win_arm64.whl", hash = "sha256:447c76a3e7ee40e2da55b4e61471d3bbc019e309716544db6e947f1fc9e5e303", size = 84081550, upload-time = "2026-09-04T19:13:47.665Z" },
+]
+
+[[package]]
+name = "cachetools"
+version = "7.1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/8b/0d3945a13955303b81272f759a0331e54c5c793da455e6f5706b89d2639c/cachetools-7.1.4.tar.gz", hash = "sha256:437f55a4e0c1b01a4f3077cc470e6991d47430970e36fbcb77e2be0df4fc1cd6", size = 40085, upload-time = "2026-05-21T22:40:43.376Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/7b/1fc1c09cc0756cf25861a3be10565915953876da48bb228fb9a672b20a42/cachetools-7.1.4-py3-none-any.whl", hash = "sha256:323dc4127934744db5b54eb4924482d7edafbf9554e820d1531c2e08c0e4ef54", size = 16761, upload-time = "2026-05-21T22:40:41.845Z" },
 ]
 
 [[package]]

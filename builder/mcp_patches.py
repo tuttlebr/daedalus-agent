@@ -45,6 +45,7 @@ from pathlib import Path
 
 import httpx
 import yaml
+from nat_helpers.phase_timing import phase_timing
 
 logger = logging.getLogger("daedalus.mcp_patches")
 
@@ -2187,9 +2188,20 @@ def _patch_mcp_session_recovery():
                 if not busy:
                     # Acquire NAT's ref_count before another caller can evict
                     # this generation. Release the recovery lock before the call.
-                    client = await stack.enter_async_context(
-                        original_usage(self, session_id)
-                    )
+                    with phase_timing(
+                        "daedalus.mcp.session_acquire",
+                        {
+                            "server": _mcp_trace_label(
+                                _canonical_mcp_server_name(
+                                    getattr(self, "mcp_client", None)
+                                )
+                            ),
+                            "cache_hit": data is not None and stale is None,
+                        },
+                    ):
+                        client = await stack.enter_async_context(
+                            original_usage(self, session_id)
+                        )
             yield client
 
     usage._daedalus_session_recovery = True
@@ -2700,6 +2712,7 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     _patch_mcp_auth_transport_timeout()
     _patch_mcp_lifecycle_recovery()
     _patch_mcp_session_recovery()
+    _patch_mcp_catalog_timing()
     _patch_per_user_mcp_builder_recovery()
 
     # Patch MCPToolClient to add the approval gate + diagnostic logging, then
@@ -2714,6 +2727,73 @@ def patch(config_path: str | os.PathLike[str] | None = None):
     _patch_startup_resilience()
 
     _patched = True
+
+
+def _mcp_trace_label(value):
+    """Trace configured labels only, never fallback transport URLs or headers."""
+    return value if re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", value) else "unknown"
+
+
+def _patch_mcp_catalog_timing():
+    """Measure native tools/list without changing auth or catalog ownership."""
+    import functools
+
+    from nat.plugins.mcp.client.client_base import MCPBaseClient
+
+    original = MCPBaseClient.get_tools
+    if getattr(original, "_daedalus_catalog_timing", False):
+        return
+    if list(inspect.signature(original).parameters) != ["self"]:
+        raise RuntimeError("Unexpected MCPBaseClient.get_tools signature")
+
+    @functools.wraps(original)
+    async def get_tools(self):
+        with phase_timing(
+            "daedalus.mcp.catalog",
+            {"server": _mcp_trace_label(_canonical_mcp_server_name(self))},
+        ) as phase:
+            result = await original(self)
+            phase.set_metadata(tool_count=len(result))
+            return result
+
+    get_tools._daedalus_catalog_timing = True
+    MCPBaseClient.get_tools = get_tools
+
+
+def _request_mcp_failure_cache(server_name, tool_name, payload, approval_reason):
+    """Reuse only exact non-retryable reads within the authenticated agent run."""
+    if approval_reason != "read-only":
+        return None, None
+    from nat_helpers.agent_loop_guard import current_agent_run
+
+    run = current_agent_run()
+    if run is None:
+        return None, None
+    key = hashlib.sha256(
+        json.dumps([server_name, tool_name, payload], sort_keys=True).encode()
+    ).hexdigest()
+    return run.nonretryable_mcp_results, key
+
+
+def _remember_mcp_failure(cache, key, result):
+    if cache is not None and key is not None and len(cache) < 128:
+        try:
+            payload = json.loads(result)
+        except (TypeError, ValueError):
+            return result
+        if (
+            isinstance(payload, dict)
+            and payload.get("retryable") is False
+            and payload.get("error")
+            in {
+                "mcp_shared_authentication_failed",
+                "mcp_user_authentication_required",
+                "mcp_invalid_arguments",
+                "google_workspace_refresh_failed",
+            }
+        ):
+            cache[key] = result
+    return result
 
 
 def _patch_tool_client():
@@ -2774,6 +2854,16 @@ def _patch_tool_client():
                 )
                 raise PermissionError(approval_reason)
             _strip_approval_token((tool_args,), {})
+            failure_cache, failure_key = _request_mcp_failure_cache(
+                server_name, tool_name, payload, approval_reason
+            )
+            if failure_cache is not None and failure_key in failure_cache:
+                logger.info(
+                    "Reusing non-retryable MCP failure: server=%s tool=%s",
+                    server_name,
+                    tool_name,
+                )
+                return failure_cache[failure_key]
             logger.info(
                 "MCP tool call start: server=%s tool=%s",
                 server_name,
@@ -2781,7 +2871,7 @@ def _patch_tool_client():
             )
             try:
 
-                async def invoke_original():
+                async def invoke_authorized():
                     # A mutation that timed out after the server committed is
                     # ambiguous and must never be replayed automatically. NAT's
                     # parent call_tool normally reconnects and invokes the same
@@ -2815,6 +2905,20 @@ def _patch_tool_client():
                                     parent_client._reconnect_enabled = reconnect_enabled
                     return await original_fn(self, tool_args)
 
+                async def invoke_original():
+                    with phase_timing(
+                        "daedalus.mcp.dispatch",
+                        {
+                            "server": _mcp_trace_label(server_name),
+                            "tool": _mcp_trace_label(tool_name),
+                        },
+                    ) as phase:
+                        result = await invoke_authorized()
+                        phase.set_metadata(
+                            application_error=_mcp_result_is_error(result)
+                        )
+                        return result
+
                 # The cached Google transports have the same context-boundary
                 # problem even for read-only calls. Bind the current request's
                 # callback until the tool either completes or the OAuth redirect
@@ -2844,10 +2948,14 @@ def _patch_tool_client():
                         server_name,
                         tool_name,
                     )
-                    return _mcp_tool_error_payload(
-                        RuntimeError(str(result)),
-                        server_name=server_name,
-                        tool_name=tool_name,
+                    return _remember_mcp_failure(
+                        failure_cache,
+                        failure_key,
+                        _mcp_tool_error_payload(
+                            RuntimeError(str(result)),
+                            server_name=server_name,
+                            tool_name=tool_name,
+                        ),
                     )
                 else:
                     if approval_reason == "approved":
@@ -2868,10 +2976,14 @@ def _patch_tool_client():
                     tool_name,
                     type(exc).__name__,
                 )
-                return _mcp_tool_error_payload(
-                    exc,
-                    server_name=server_name,
-                    tool_name=tool_name,
+                return _remember_mcp_failure(
+                    failure_cache,
+                    failure_key,
+                    _mcp_tool_error_payload(
+                        exc,
+                        server_name=server_name,
+                        tool_name=tool_name,
+                    ),
                 )
 
         wrapped._daedalus_approval_gate = True

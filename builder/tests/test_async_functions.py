@@ -181,223 +181,115 @@ class TestScrapeWithMarkitdown:
 
 
 class TestWebscrapeFunctionResponseFn:
-    def _get_response_fn(self, config=None):
-        """Run webscrape_function generator and return the inner _response_fn."""
+    async def _call(self, url, *, respect_robots_txt=False):
+        from webscrape.webscrape_function import (
+            WebscrapeFunctionConfig,
+            webscrape_function,
+        )
 
-        async def _run():
+        generator = webscrape_function(
+            WebscrapeFunctionConfig(respect_robots_txt=respect_robots_txt), MagicMock()
+        )
+        fn_info = await generator.__anext__()
+        try:
+            return await fn_info.fn(url)
+        finally:
+            await generator.aclose()
+
+    def _article(self, markdown):
+        from nat_helpers.public_content import PublicArticle
+
+        return PublicArticle(
+            url="https://example.com",
+            markdown=markdown,
+            fetched_at="2026-09-21T12:00:00+00:00",
+        ), "miss"
+
+    def test_generator_yields_url_function(self):
+        async def check():
             from webscrape.webscrape_function import (
                 WebscrapeFunctionConfig,
                 webscrape_function,
             )
 
-            cfg = config or WebscrapeFunctionConfig()
-            builder = MagicMock()
-            fn_info = None
-            async for item in webscrape_function(cfg, builder):
-                fn_info = item
-            return fn_info
+            generator = webscrape_function(WebscrapeFunctionConfig(), MagicMock())
+            fn_info = await generator.__anext__()
+            try:
+                assert "url" in inspect.signature(fn_info.fn).parameters
+            finally:
+                await generator.aclose()
 
-        return run(_run())
-
-    def test_generator_yields_function_info(self):
-        fn_info = self._get_response_fn()
-        assert fn_info is not None
-        assert fn_info.fn is not None
-
-    def test_registered_argument_name_matches_tool_description(self):
-        fn_info = self._get_response_fn()
-        assert "url" in inspect.signature(fn_info.fn).parameters
+        run(check())
 
     def test_invalid_url_returns_error(self):
-        async def _run():
-            from webscrape.webscrape_function import (
-                WebscrapeFunctionConfig,
-                webscrape_function,
-            )
-
-            cfg = WebscrapeFunctionConfig()
-            builder = MagicMock()
-            fn_info = None
-            async for item in webscrape_function(cfg, builder):
-                fn_info = item
-            result = await fn_info.fn("not://invalid-scheme.com")
-            return result
-
-        result = run(_run())
-        assert result.startswith("Error: ") or "scheme" in result.lower()
+        assert run(self._call("not://invalid-scheme.com")).startswith("Error: ")
 
     def test_non_string_input_returns_error(self):
-        async def _run():
-            from webscrape.webscrape_function import (
-                WebscrapeFunctionConfig,
-                webscrape_function,
-            )
-
-            cfg = WebscrapeFunctionConfig()
-            builder = MagicMock()
-            fn_info = None
-            async for item in webscrape_function(cfg, builder):
-                fn_info = item
-            result = await fn_info.fn(None)  # not a string
-            return result
-
-        result = run(_run())
-        assert result.startswith("Error: ")
+        assert run(self._call(None)).startswith("Error: ")
 
     def test_hostname_resolving_private_is_rejected_before_scrape(self, monkeypatch):
-        async def _run():
-            import webscrape.webscrape_function as wsmod
-            from webscrape.webscrape_function import (
-                WebscrapeFunctionConfig,
-                webscrape_function,
-            )
-
-            monkeypatch.setattr(
-                socket,
-                "getaddrinfo",
-                lambda *_args, **_kwargs: [
-                    (socket.AF_INET, None, None, "", ("10.0.0.7", 0))
-                ],
-            )
-            http_fetch = AsyncMock()
-            with patch.object(wsmod, "_scrape_with_httpx_result", http_fetch):
-                generator = webscrape_function(
-                    WebscrapeFunctionConfig(respect_robots_txt=False),
-                    MagicMock(),
-                )
-                function_info = await generator.__anext__()
-                try:
-                    result = await function_info.fn("https://rebind.example/private")
-                finally:
-                    await generator.aclose()
-
-            http_fetch.assert_not_awaited()
-            return result
-
-        result = run(_run())
-
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, None, None, "", ("10.0.0.7", 0))
+            ],
+        )
+        result = run(self._call("https://rebind.example/private"))
         assert result.startswith("Error: ")
         assert "non-public" in result.lower()
 
-    def test_strategy1_success(self):
-        """The controlled fetch returns locally converted content."""
+    def test_controlled_fetch_success_has_provenance(self, monkeypatch):
+        from nat_helpers.public_content import PublicContentSession
 
-        async def _run():
-            import webscrape.webscrape_function as wsmod
-            from webscrape.webscrape_function import (
-                WebscrapeFunctionConfig,
-                webscrape_function,
-            )
-
-            # Disable robots.txt check
-            cfg = WebscrapeFunctionConfig(respect_robots_txt=False)
-            builder = MagicMock()
-
-            safe_local_content = (
-                "# Article Title\n\n_Source: https://example.com_\n\n"
-                + "Real article content " * 5
-            )
-            with patch.object(
-                wsmod,
-                "_scrape_with_httpx_result",
-                AsyncMock(return_value=(safe_local_content, "ok")),
-            ):
-                fn_info = None
-                async for item in webscrape_function(cfg, builder):
-                    fn_info = item
-                result = await fn_info.fn("https://example.com")
-                return result
-
-        result = run(_run())
+        markdown = (
+            "# Article Title\n\n_Source: https://example.com_\n\n"
+            + "Real article content " * 5
+        )
+        article = AsyncMock(return_value=self._article(markdown))
+        monkeypatch.setattr(PublicContentSession, "article", article)
+        result = run(self._call("https://example.com"))
         assert "Article Title" in result
         assert "Real article content" in result
+        assert "Fetched: 2026-09-21T12:00:00+00:00" in result
+        article.assert_awaited_once()
 
-    def test_strategy1_challenge_falls_through(self):
-        """A MarkItDown challenge page is not returned as successful content."""
+    def test_challenge_page_is_error(self, monkeypatch):
+        from nat_helpers.public_content import PublicContentSession
 
-        async def _run():
-            import webscrape.webscrape_function as wsmod
-            from webscrape.webscrape_function import (
-                WebscrapeFunctionConfig,
-                webscrape_function,
-            )
-
-            cfg = WebscrapeFunctionConfig(respect_robots_txt=False)
-            builder = MagicMock()
-
-            with patch.object(
-                wsmod,
-                "_scrape_with_httpx_result",
-                AsyncMock(return_value=(None, "blocked")),
-            ):
-                fn_info = None
-                async for item in webscrape_function(cfg, builder):
-                    fn_info = item
-                result = await fn_info.fn("https://example.com")
-                return result
-
-        result = run(_run())
+        monkeypatch.setattr(
+            PublicContentSession,
+            "article",
+            AsyncMock(
+                return_value=self._article("just a moment checking your browser")
+            ),
+        )
+        result = run(self._call("https://example.com"))
         assert result.startswith("Error: ")
 
-    def test_blocked_httpx_attempt_disables_browser_navigation(self):
-        """A blocked response must not trigger Chromium URL navigation."""
+    def test_failed_article_is_error_without_browser_fallback(self, monkeypatch):
+        from nat_helpers.public_content import PublicContentSession
 
-        async def _run():
-            import webscrape.webscrape_function as wsmod
-            from webscrape.webscrape_function import (
-                WebscrapeFunctionConfig,
-                webscrape_function,
-            )
-
-            cfg = WebscrapeFunctionConfig(respect_robots_txt=False)
-            builder = MagicMock()
-            httpx_result = AsyncMock(return_value=(None, "blocked"))
-
-            with patch.object(wsmod, "_scrape_with_httpx_result", httpx_result):
-                fn_info = None
-                async for item in webscrape_function(cfg, builder):
-                    fn_info = item
-                result = await fn_info.fn("https://example.com")
-
-            return result
-
-        result = run(_run())
+        article = AsyncMock(side_effect=RuntimeError("blocked"))
+        monkeypatch.setattr(PublicContentSession, "article", article)
+        result = run(self._call("https://example.com"))
         assert result.startswith("Error: ")
+        article.assert_awaited_once()
 
-    def test_robots_txt_blocked(self):
-        """robots.txt PermissionError is caught and returned as error message."""
+    def test_robots_denial_prevents_even_cached_article_access(self, monkeypatch):
+        import webscrape.webscrape_function as wsmod
+        from nat_helpers.public_content import PublicContentSession
 
-        async def _run():
-            import webscrape.webscrape_function as wsmod
-            from webscrape.webscrape_function import (
-                WebscrapeFunctionConfig,
-                webscrape_function,
-            )
-
-            # Mock _check_robots to raise PermissionError
-            async def mock_check_robots(**kwargs):
-                raise PermissionError("robots.txt disallows")
-
-            cfg = WebscrapeFunctionConfig(respect_robots_txt=True)
-            builder = MagicMock()
-
-            with patch.object(wsmod, "_check_robots", side_effect=mock_check_robots):
-                # Mock httpx.AsyncClient to avoid real network
-                mock_client = AsyncMock()
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=None)
-                with patch(
-                    "webscrape.webscrape_function.httpx.AsyncClient",
-                    return_value=mock_client,
-                ):
-                    fn_info = None
-                    async for item in webscrape_function(cfg, builder):
-                        fn_info = item
-                    result = await fn_info.fn("https://example.com")
-                    return result
-
-        result = run(_run())
-        assert result.startswith("Error: ") or "disallows" in result
+        article = AsyncMock(return_value=self._article("cached article"))
+        monkeypatch.setattr(PublicContentSession, "article", article)
+        monkeypatch.setattr(
+            wsmod,
+            "_check_robots",
+            AsyncMock(side_effect=PermissionError("robots.txt disallows")),
+        )
+        result = run(self._call("https://example.com", respect_robots_txt=True))
+        assert "disallows" in result
+        article.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -406,13 +298,12 @@ class TestWebscrapeFunctionResponseFn:
 
 
 class TestRssFeedInnerFunctions:
+    """Exercise registration while its clients remain inside their lifecycle."""
+
     def _make_config(self, **kwargs):
-        """Create a minimal RssFeedFunctionConfig for testing."""
         from rss_feed.rss_feed_function import RssFeedFunctionConfig
 
         defaults = {
-            # Public literal avoids live DNS while still exercising the strict
-            # URL guard before the mocked HTTP client is used.
             "feed_url": "https://8.8.8.8/rss",
             "reranker_endpoint": "http://reranker:8080/rerank",
             "reranker_model": "nvidia/test-reranker",
@@ -420,303 +311,123 @@ class TestRssFeedInnerFunctions:
         defaults.update(kwargs)
         return RssFeedFunctionConfig(**defaults)
 
-    def _get_search_fn(self, config):
-        """Run rss_feed_function and return the registered search_rss inner function."""
+    async def _call(self, config, query="AI news", entries=None, rankings=None):
+        from contextlib import asynccontextmanager
+        from types import SimpleNamespace
 
-        async def _run():
-            import rss_feed.rss_feed_function as rss_mod
-            from rss_feed.rss_feed_function import rss_feed_function
+        import httpx
+        import rss_feed.rss_feed_function as rss_mod
 
-            # Make TTLCache behave like a proper cache (always miss)
-            real_cache = {}
+        feed_response = httpx.Response(
+            200,
+            text="<rss/>",
+            request=httpx.Request("GET", config.feed_url or "https://8.8.8.8"),
+        )
+        rerank_response = httpx.Response(
+            200,
+            json={"results": rankings or [{"index": 0, "relevance_score": 0.9}]},
+            request=httpx.Request("POST", "http://reranker:8080/rerank"),
+        )
+        client = AsyncMock()
+        client.get.return_value = feed_response
+        client.post.return_value = rerank_response
+        client.__aenter__.return_value = client
+        article = SimpleNamespace(
+            markdown="# Article", fetched_at="2026-09-21T00:00:00+00:00"
+        )
+        content = SimpleNamespace(article=AsyncMock(return_value=(article, "miss")))
 
-            def fake_ttlcache(maxsize, ttl):
-                return real_cache
+        @asynccontextmanager
+        async def content_session(_builder):
+            yield content
 
-            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
-                fn_infos = []
-                async for item in rss_feed_function(config, MagicMock()):
-                    fn_infos.append(item)
-                return fn_infos
-
-        return run(_run())
+        with (
+            patch.object(rss_mod.httpx, "AsyncClient", return_value=client),
+            patch.object(rss_mod, "AnonymousPublicClient", return_value=client),
+            patch.object(rss_mod, "TTLCache", side_effect=lambda **kwargs: {}),
+            patch.object(rss_mod, "public_content_session", content_session),
+            patch.object(
+                rss_mod.fastfeedparser,
+                "parse",
+                return_value=SimpleNamespace(entries=entries or []),
+            ),
+        ):
+            generator = rss_mod.rss_feed_function(config, object())
+            try:
+                info = await generator.__anext__()
+                result = await info.fn(query)
+                return json.loads(result), client, info
+            finally:
+                await generator.aclose()
 
     def test_generator_yields_single_function(self):
-        config = self._make_config()
-        fn_infos = self._get_search_fn(config)
-        assert len(fn_infos) == 1
+        result, _, info = run(self._call(self._make_config(feed_url=None)))
+        assert info.fn.__name__ == "search_rss"
+        assert result["success"] is False
 
     def test_rss_search_no_feed_url(self):
-        """Returns a structured error when feed_url is not configured."""
-
-        async def _run():
-            import rss_feed.rss_feed_function as rss_mod
-            from rss_feed.rss_feed_function import (
-                RssFeedFunctionConfig,
-                rss_feed_function,
-            )
-
-            config = RssFeedFunctionConfig(feed_url=None)
-            real_cache = {}
-
-            def fake_ttlcache(maxsize, ttl):
-                return real_cache
-
-            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
-                fn_infos = []
-                async for item in rss_feed_function(config, MagicMock()):
-                    fn_infos.append(item)
-
-            search_fn = fn_infos[0].fn
-            return await search_fn("test query")
-
-        result = run(_run())
-        payload = json.loads(result)
-
-        assert payload["success"] is False
-        assert "feed_url" in payload["error"].lower()
+        result, _, _ = run(self._call(self._make_config(feed_url=None)))
+        assert result["success"] is False
+        assert "feed_url" in result["error"]
 
     def test_rss_search_empty_entries(self):
-        """Returns a structured error when no entries are found in the feed."""
-
-        async def _run():
-            import rss_feed.rss_feed_function as rss_mod
-            from rss_feed.rss_feed_function import rss_feed_function
-
-            config = self._make_config()
-            real_cache = {}
-
-            def fake_ttlcache(maxsize, ttl):
-                return real_cache
-
-            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
-                fn_infos = []
-                async for item in rss_feed_function(config, MagicMock()):
-                    fn_infos.append(item)
-
-            # Mock httpx to simulate empty feed response
-            mock_response = MagicMock()
-            mock_response.text = "<?xml version='1.0'?><rss></rss>"
-            mock_response.raise_for_status = MagicMock()
-
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_cm = AsyncMock()
-            mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_cm.__aexit__ = AsyncMock(return_value=None)
-
-            mock_parsed = MagicMock()
-            mock_parsed.entries = []
-
-            with patch(
-                "rss_feed.rss_feed_function.httpx.AsyncClient", return_value=mock_cm
-            ):
-                with patch(
-                    "rss_feed.rss_feed_function.fastfeedparser.parse",
-                    return_value=mock_parsed,
-                ):
-                    search_fn = fn_infos[0].fn
-                    return await search_fn("test")
-
-        result = run(_run())
-        payload = json.loads(result)
-
-        assert payload["success"] is False
-        assert payload["error"] == "No entries found in RSS feed"
+        result, _, _ = run(self._call(self._make_config()))
+        assert result["success"] is False
+        assert result["error"] == "No entries found in RSS feed"
+        assert result["feeds"][0]["status"] == "empty"
 
     def test_search_rss_returns_structured_error_on_failure(self):
-        """search_rss returns stable JSON when the feed is not configured."""
-
-        async def _run():
-            import rss_feed.rss_feed_function as rss_mod
-            from rss_feed.rss_feed_function import (
-                RssFeedFunctionConfig,
-                rss_feed_function,
-            )
-
-            config = RssFeedFunctionConfig(feed_url=None)
-            real_cache = {}
-
-            def fake_ttlcache(maxsize, ttl):
-                return real_cache
-
-            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
-                fn_infos = []
-                async for item in rss_feed_function(config, MagicMock()):
-                    fn_infos.append(item)
-
-            search_fn = fn_infos[0].fn
-            return await search_fn("AI news")
-
-        result = run(_run())
-        payload = json.loads(result)
-
-        assert payload["success"] is False
-        assert payload["query"] == "AI news"
-        assert "not configured" in payload["error"].lower()
+        result, _, _ = run(self._call(self._make_config(feed_url=None)))
+        assert result["query"] == "AI news"
+        assert "not configured" in result["error"]
 
     def test_rss_search_allows_unauthenticated_vllm_reranker(self):
-        """An in-cluster vLLM reranker does not require a bearer token."""
-
-        async def _run():
-            import os
-
-            import rss_feed.rss_feed_function as rss_mod
-            from rss_feed.rss_feed_function import rss_feed_function
-
-            config = self._make_config(reranker_api_key=None)
-            real_cache = {}
-
-            def fake_ttlcache(maxsize, ttl):
-                return real_cache
-
-            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
-                fn_infos = []
-                async for item in rss_feed_function(config, MagicMock()):
-                    fn_infos.append(item)
-
-            mock_response = MagicMock()
-            mock_response.text = "<rss><channel><item></item></channel></rss>"
-            mock_response.raise_for_status = MagicMock()
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_rerank_response = MagicMock()
-            mock_rerank_response.status_code = 200
-            mock_rerank_response.raise_for_status = MagicMock()
-            mock_rerank_response.json.return_value = {
-                "results": [{"index": 0, "relevance_score": 0.9}]
-            }
-            mock_client.post = AsyncMock(return_value=mock_rerank_response)
-            mock_cm = AsyncMock()
-            mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_cm.__aexit__ = AsyncMock(return_value=None)
-
-            mock_parsed = MagicMock()
-            mock_parsed.entries = [
-                {"title": "Article 1", "link": "https://example.com/1"},
-            ]
-
-            env_no_key = {k: v for k, v in os.environ.items() if k != "NVIDIA_API_KEY"}
-            with patch(
-                "rss_feed.rss_feed_function.httpx.AsyncClient", return_value=mock_cm
-            ):
-                with patch(
-                    "rss_feed.rss_feed_function.fastfeedparser.parse",
-                    return_value=mock_parsed,
-                ):
-                    with patch.object(
-                        rss_mod,
-                        "_scrape_content",
-                        return_value=("# Article", True),
-                    ):
-                        with patch.dict(os.environ, env_no_key, clear=True):
-                            search_fn = fn_infos[0].fn
-                            result = await search_fn("AI news")
-                            headers = mock_client.post.call_args.kwargs["headers"]
-                            return result, headers
-
-        result, headers = run(_run())
-        payload = json.loads(result)
-
-        assert payload == {
-            "success": True,
-            "query": "AI news",
-            "feed_scope": "auto",
-            "source": {
-                "title": "Article 1",
-                "url": "https://example.com/1",
-                "feed_scope": "default",
-                "feed_url": "https://8.8.8.8/rss",
-            },
-            "content": "# Article",
-            "content_truncated": True,
-            "entries_count": 1,
-            "cached": False,
-        }
-        assert "Authorization" not in headers
+        entries = [{"title": "Article 1", "link": "https://8.8.8.8/1"}]
+        with patch.dict(
+            os.environ,
+            {k: v for k, v in os.environ.items() if k != "NVIDIA_API_KEY"},
+            clear=True,
+        ):
+            result, client, _ = run(self._call(self._make_config(), entries=entries))
+        assert result["success"] is True
+        assert result["source"]["url"] == "https://8.8.8.8/1"
+        assert result["content"] == "# Article"
+        assert result["content_fetched_at"] == "2026-09-21T00:00:00+00:00"
+        assert "Authorization" not in client.post.call_args.kwargs["headers"]
 
     def test_rss_search_sends_compact_reranker_passages(self):
-        """Large RSS descriptions are compacted before reranking."""
+        import rss_feed.rss_feed_function as rss_mod
 
-        async def _run():
-            import rss_feed.rss_feed_function as rss_mod
-            from rss_feed.rss_feed_function import rss_feed_function
-
-            config = self._make_config(
-                reranker_api_key="test-key",
-                reranker_max_passage_tokens=32,
-            )
-            real_cache = {}
-
-            def fake_ttlcache(maxsize, ttl):
-                return real_cache
-
-            with patch.object(rss_mod, "TTLCache", side_effect=fake_ttlcache):
-                fn_infos = []
-                async for item in rss_feed_function(config, MagicMock()):
-                    fn_infos.append(item)
-
-            mock_feed_response = MagicMock()
-            mock_feed_response.text = "<rss></rss>"
-            mock_feed_response.raise_for_status = MagicMock()
-
-            mock_rerank_response = MagicMock()
-            mock_rerank_response.status_code = 200
-            mock_rerank_response.raise_for_status = MagicMock()
-            mock_rerank_response.json.return_value = {
-                "results": [
+        entries = [
+            {
+                "title": "Verbose",
+                "link": "https://8.8.8.8/1",
+                "description": "<p>" + "word " * 2000 + "</p>",
+            },
+            {
+                "title": "Relevant",
+                "link": "https://8.8.8.8/2",
+                "description": "Relevant summary",
+            },
+        ]
+        result, client, _ = run(
+            self._call(
+                self._make_config(
+                    reranker_api_key="test-key", reranker_max_passage_tokens=32
+                ),
+                entries=entries,
+                rankings=[
                     {"index": 1, "relevance_score": 0.9},
                     {"index": 0, "relevance_score": 0.1},
-                ]
-            }
-
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_feed_response)
-            mock_client.post = AsyncMock(return_value=mock_rerank_response)
-            mock_cm = AsyncMock()
-            mock_cm.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_cm.__aexit__ = AsyncMock(return_value=None)
-
-            mock_parsed = MagicMock()
-            mock_parsed.entries = [
-                {
-                    "title": "Verbose article",
-                    "link": "https://example.com/verbose",
-                    "description": "<p>" + ("word " * 2000) + "</p>",
-                },
-                {
-                    "title": "Relevant article",
-                    "link": "https://example.com/relevant",
-                    "description": "Relevant summary",
-                },
-            ]
-
-            with patch(
-                "rss_feed.rss_feed_function.httpx.AsyncClient", return_value=mock_cm
-            ):
-                with patch(
-                    "rss_feed.rss_feed_function.fastfeedparser.parse",
-                    return_value=mock_parsed,
-                ):
-                    with patch.object(
-                        rss_mod,
-                        "_scrape_content",
-                        return_value=("# Relevant", False),
-                    ):
-                        search_fn = fn_infos[0].fn
-                        result = await search_fn("AI news")
-
-            payload = mock_client.post.call_args.kwargs["json"]
-            return result, payload, rss_mod._count_tokens(payload["documents"][0])
-
-        result, reranker_payload, passage_tokens = run(_run())
-        tool_payload = json.loads(result)
-
-        assert tool_payload["content"] == "# Relevant"
-        assert tool_payload["source"]["url"] == "https://example.com/relevant"
-        assert reranker_payload["query"] == "AI news"
-        assert reranker_payload["top_n"] == 1
-        assert len(reranker_payload["documents"]) == 2
-        assert "<p>" not in reranker_payload["documents"][0]
-        assert passage_tokens <= 32
-        assert "passages" not in reranker_payload
+                ],
+            )
+        )
+        payload = client.post.call_args.kwargs["json"]
+        assert result["source"]["url"] == "https://8.8.8.8/2"
+        assert payload["top_n"] == 1
+        assert "<p>" not in payload["documents"][0]
+        assert rss_mod._count_tokens(payload["documents"][0]) <= 32
+        assert (
+            client.post.call_args.kwargs["headers"]["Authorization"]
+            == "Bearer test-key"
+        )

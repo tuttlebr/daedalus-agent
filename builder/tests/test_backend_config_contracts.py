@@ -626,7 +626,8 @@ def test_deployed_tool_surface_is_optimized():
         # Bound the static catalog. Hue intentionally discovers its full remote
         # catalog, so its size is checked against tools/list at runtime.
         static_tools = [name for name in workflow_tools if name != "hue_mcp_server"]
-        assert _effective_operation_count(config, static_tools) <= 95, path
+        # Three focused reads replace weather and repository HTML fallbacks.
+        assert _effective_operation_count(config, static_tools) <= 98, path
 
 
 def test_workflow_uses_responses_api_agent_schema():
@@ -749,6 +750,7 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
         "curated_feed_search_tool",
         "perplexity_search_tool",
         "webscrape_tool",
+        "nws_weather_tool",
         "content_distiller_tool",
         "user_document_tool",
         "gmail_mcp_server",
@@ -767,6 +769,32 @@ def test_rss_tool_has_bounded_scraped_content_budget():
 
     assert tool["scrape_max_output_tokens"] == 8000
     assert tool["scrape_timeout"] == 20
+    assert tool["cache_ttl_hours"] <= 0.25
+    assert tool["feed_concurrency"] == 4
+    assert tool["max_batch_queries"] == 6
+    assert "nvidia_newsroom" not in tool["description"]
+    assert "nvidia_blog" not in tool["description"]
+
+
+def test_weather_is_available_under_existing_public_source_policy():
+    config = _config()
+    assert "nws_weather_tool" in config["workflow"]["daily_summary_nat_tools"]
+    assert config["functions"]["nws_weather_tool"]["_type"] == "nws_weather"
+    sources = config["functions"]["source_verifier_tool"]["source_registry"]
+    public_web = next(
+        source for source in sources if source["id"] == "known_url_scrape"
+    )
+    assert "nws_weather_tool" in public_web["tools"]
+    assert not public_web["requires_auth"]
+
+
+def test_github_remote_catalog_matches_read_only_allowlist():
+    group = _config()["function_groups"]["github_mcp_server"]
+    headers = group["server"]["custom_headers"]
+    assert headers["X-MCP-Readonly"] == "true"
+    assert set(headers["X-MCP-Tools"].split(",")) == set(group["include"])
+    assert group["tool_overrides"]["actions_list"]["approval_policy"] == "read_only"
+    assert group["tool_overrides"]["get_commit"]["approval_policy"] == "read_only"
 
 
 def test_phoenix_telemetry_cannot_gate_workflow_completion():
@@ -1022,6 +1050,8 @@ def test_mcp_approval_policy_follows_explicit_include_lists():
             "get_users_posts",
         },
         "github_mcp_server": {
+            "actions_list",
+            "get_commit",
             "get_file_contents",
             "get_latest_release",
             "issue_read",

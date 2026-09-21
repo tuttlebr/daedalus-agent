@@ -127,6 +127,128 @@ def test_cache_failure_fails_open_to_lossless_json():
     assert COMPACTION_MARKER not in result.content
 
 
+def test_public_article_excerpts_preserve_provenance_and_exact_recovery(monkeypatch):
+    tool_name = "curated_feed_search_tool"
+    article = (
+        "# Source title\n\n_Source: https://example.com/article_\n\n"
+        + "Ordinary context. " * 800
+        + "\nImportant limitation: unavailable on older hardware.\n"
+        + "Additional evidence. " * 800
+    )
+    metadata = {
+        "success": True,
+        "source": {"url": "https://example.com/article", "published": "2026-09-21"},
+        "query": "hardware limitation",
+        "fetched_at": "2026-09-21T12:00:00Z",
+        "content_truncated": True,
+    }
+    original = (
+        json.dumps({**metadata, "content": article})
+        if tool_name == "curated_feed_search_tool"
+        else article
+    )
+    store = MemoryStore()
+    result = _run(
+        optimize_tool_content(
+            original,
+            tool_name=tool_name,
+            query="daily briefing hardware limitation",
+            user_id="user-a",
+            store=store,
+            settings=_settings(),
+        )
+    )
+    assert result.mode == "reversible_preview"
+    payload = json.loads(result.content)
+    assert len(result.content) < len(original) * 0.5
+    assert payload["preview"]["source"]["url"] == metadata["source"]["url"]
+    if tool_name == "curated_feed_search_tool":
+        for key, value in metadata.items():
+            assert payload["preview"][key] == value
+    excerpts = payload["preview"]["excerpts"]
+    assert sum(len(e["text"]) for e in excerpts) <= 4000
+    assert any("unavailable on older hardware" in e["text"] for e in excerpts)
+    for excerpt in excerpts:
+        assert (
+            excerpt["text"] == article[excerpt["start_offset"] : excerpt["end_offset"]]
+        )
+    assert "Partial excerpts" in payload[COMPACTION_MARKER]["retrieval"]
+    assert _run(store.get("user-a", result.reference)) == original
+    assert _run(store.get("user-b", result.reference)) is None
+    assert payload[COMPACTION_MARKER]["offset_basis"] == "decoded_article"
+    assert "do not use excerpt offsets" in payload[COMPACTION_MARKER]["retrieval"]
+    monkeypatch.setattr(
+        retriever_module, "authenticated_user_id_from_context", lambda: "user-a"
+    )
+    runner = _build_retriever_runner(ToolOutputRetrieverConfig(), store)
+    recovered = json.loads(
+        _run(
+            runner(
+                ToolOutputRetrieverInput(
+                    reference=result.reference,
+                    query="unavailable on older hardware",
+                )
+            )
+        )
+    )
+    assert recovered["matches_returned"] == 1
+    assert "unavailable on older hardware" in recovered["matches"][0]["content"]
+
+
+@pytest.mark.parametrize(
+    "reason", ["cache_failure", "exact_request", "unattributed", "other_tool"]
+)
+def test_public_article_preview_fails_open_when_recovery_or_scope_is_missing(reason):
+    original = (
+        "# Article\n\n_Source: https://example.com/article_\n\n" + "Evidence. " * 2000
+    )
+    if reason == "unattributed":
+        original = "Unattributed prose. " * 2000
+    if reason in {"cache_failure", "exact_request"}:
+        original = json.dumps(
+            {
+                "success": True,
+                "source": {"url": "https://example.com/article"},
+                "content": original,
+            }
+        )
+    result = _run(
+        optimize_tool_content(
+            original,
+            tool_name="read_code"
+            if reason == "other_tool"
+            else "curated_feed_search_tool",
+            query="Show the full article verbatim"
+            if reason == "exact_request"
+            else "briefing",
+            user_id="user-a",
+            store=MemoryStore(accept=reason != "cache_failure"),
+            settings=_settings(),
+        )
+    )
+    assert result.content == original
+    assert result.reference is None
+
+
+def test_attributed_scraped_code_is_not_treated_as_a_feed_article():
+    original = (
+        "# module.py\n\n_Source: https://example.com/module.py_\n\n"
+        + "def function():\n    return 42\n" * 800
+    )
+    result = _run(
+        optimize_tool_content(
+            original,
+            tool_name="webscrape_tool",
+            query="Review this module",
+            user_id="user-a",
+            store=MemoryStore(),
+            settings=_settings(),
+        )
+    )
+    assert result.content == original
+    assert result.reference is None
+
+
 def test_exhaustive_query_keeps_every_row_without_retrieval_dependency():
     original_value = {"items": _large_rows()}
     original = json.dumps(original_value, indent=2)

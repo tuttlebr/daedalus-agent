@@ -107,6 +107,43 @@ def test_oauth_auth_validation_reports_missing_client_secret():
     assert errors == ["auth provider gmail_mcp_server is missing client_secret"]
 
 
+def test_direct_probe_preserves_catalog_selection_headers(monkeypatch):
+    config = {
+        "function_groups": {
+            "github": {
+                "_type": "mcp_client",
+                "include": ["actions_list"],
+                "server": {
+                    "transport": "streamable-http",
+                    "url": "https://example.com/mcp",
+                    "custom_headers": {
+                        "X-MCP-Tools": "${GITHUB_READS}",
+                        "X-MCP-Readonly": "true",
+                    },
+                },
+            }
+        }
+    }
+    server = check_mcp_servers.discover_mcp_servers(
+        config, {"GITHUB_READS": "actions_list"}
+    )[0]
+    requests = []
+
+    def rpc_post(url, payload, headers, timeout):
+        requests.append((payload["method"], headers))
+        return 200, {}, json.dumps({"result": {"tools": [{"name": "actions_list"}]}})
+
+    monkeypatch.setattr(check_mcp_servers, "rpc_post", rpc_post)
+    result = check_mcp_servers.check_local(
+        server, {"Authorization": "Bearer fixture"}, 10
+    )
+    assert result.ok
+    for method, headers in requests:
+        assert headers["X-MCP-Tools"] == "actions_list", method
+        assert headers["X-MCP-Readonly"] == "true", method
+        assert headers["Authorization"] == "Bearer fixture", method
+
+
 def test_parse_mcp_body_supports_event_stream_json():
     body = (
         "event: message\n"

@@ -21,6 +21,7 @@ from nat_helpers.per_user_tool_calling import (
     IncompleteAgentRun,
     _responses_api_agent_workflow,
 )
+from nat_helpers.phase_timing import timed_model_runnable
 from pydantic import Field
 
 
@@ -170,7 +171,102 @@ class ContractBuilder:
         return [self.tool]
 
 
+async def _verify_model_phase_streaming():
+    """Verify actual NAT duration events and unbuffered LangChain streaming."""
+    events = []
+    subscription = Context.get().intermediate_step_manager.subscribe(events.append)
+    gate = asyncio.Event()
+    closed = asyncio.Event()
+
+    class ControlledModel:
+        async def astream(self, messages, config):
+            try:
+                yield AIMessageChunk(content="first")
+                await gate.wait()
+                raise RuntimeError("private provider failure must not reach telemetry")
+            finally:
+                closed.set()
+
+    try:
+        model = timed_model_runnable(ControlledModel(), {"model_call": 1})
+        stream = model.astream("private input must not reach telemetry")
+        first = await asyncio.wait_for(stream.__anext__(), timeout=2)
+        _require(first.content == "first", "Model phase buffered streamed content")
+        starts = [
+            e.payload
+            for e in events
+            if e.payload.name == "daedalus.agent.model"
+            and e.payload.event_type.value == "CUSTOM_START"
+        ]
+        _require(len(starts) == 1, "Model start missing while stream active")
+        _require(
+            not any(e.payload.event_type.value == "CUSTOM_END" for e in events),
+            "Model timing ended before provider stream completed",
+        )
+        await asyncio.sleep(0.02)
+        gate.set()
+        try:
+            await stream.__anext__()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Provider failure was swallowed")
+        ends = [
+            e.payload
+            for e in events
+            if e.payload.name == "daedalus.agent.model"
+            and e.payload.event_type.value == "CUSTOM_END"
+        ]
+        _require(
+            len(ends) == 1 and closed.is_set(), "Model error did not close stream/span"
+        )
+        _require(ends[0].UUID == starts[0].UUID, "Model phase UUID mismatch")
+        _require(
+            ends[0].event_timestamp > starts[0].event_timestamp,
+            "Instantaneous model span",
+        )
+        _require(
+            ends[0].metadata["duration_ms"] >= 15,
+            "Model duration excluded provider wait",
+        )
+        _require(
+            ends[0].metadata["outcome"] == "error", "Model failure missing from span"
+        )
+        _require(
+            "private" not in str(ends[0].metadata),
+            "Model trace leaked request/error text",
+        )
+
+        events.clear()
+        closed.clear()
+        gate.clear()
+        stream = model.astream("cancel fixture")
+        await stream.__anext__()
+        pending = asyncio.create_task(stream.__anext__())
+        await asyncio.sleep(0.01)
+        pending.cancel()
+        try:
+            await pending
+        except asyncio.CancelledError:
+            pass
+        _require(closed.is_set(), "Model cancellation leaked provider stream")
+        ends = [
+            e.payload
+            for e in events
+            if e.payload.name == "daedalus.agent.model"
+            and e.payload.event_type.value == "CUSTOM_END"
+        ]
+        _require(len(ends) == 1, "Model cancellation lost phase end")
+        _require(
+            ends[0].metadata["outcome"] == "cancelled",
+            "Cancellation classified as success",
+        )
+    finally:
+        subscription.unsubscribe()
+
+
 async def verify_agent_loop_contract():
+    await _verify_model_phase_streaming()
     previous = os.environ.get("DAEDALUS_MEMORY_MODE")
     os.environ["DAEDALUS_MEMORY_MODE"] = "disabled"
     events = []

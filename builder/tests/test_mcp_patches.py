@@ -58,6 +58,64 @@ def run(coro):
     return asyncio.run(coro)
 
 
+@pytest.mark.parametrize("mode", ["failure", "success", "mutation"])
+def test_nonretryable_read_failure_reuse_is_exact_and_request_scoped(monkeypatch, mode):
+    from nat_helpers.agent_loop_guard import agent_run_scope
+
+    class ToolClient:
+        _tool_name = "read_status"
+        _parent_client = types.SimpleNamespace(server_name="k8s_mcp_server")
+        calls = 0
+
+        async def acall(self, tool_args):
+            self.calls += 1
+            if mode != "success":
+                raise RuntimeError("Unauthorized: private upstream details")
+            return '{"status":"ready"}'
+
+    module = types.ModuleType("nat.plugins.mcp.client.client_base")
+    module.MCPToolClient = ToolClient
+    for name in ("nat", "nat.plugins", "nat.plugins.mcp", "nat.plugins.mcp.client"):
+        package = types.ModuleType(name)
+        package.__path__ = []
+        monkeypatch.setitem(sys.modules, name, package)
+    monkeypatch.setitem(sys.modules, "nat.plugins.mcp.client.client_base", module)
+    monkeypatch.setattr(
+        mcp_patches,
+        "_validate_mcp_approval",
+        lambda *args, **kwargs: (
+            True,
+            "auto-approved" if mode == "mutation" else "read-only",
+        ),
+    )
+    mcp_patches._patch_tool_client()
+
+    async def scenario():
+        client = ToolClient()
+        with agent_run_scope():
+            first = await client.acall({"namespace": "one"})
+            assert await client.acall({"namespace": "one"}) == first
+            assert client.calls == (1 if mode == "failure" else 2)
+            await client.acall({"namespace": "two"})
+            assert client.calls == (2 if mode == "failure" else 3)
+        with agent_run_scope():
+            await client.acall({"namespace": "one"})
+            assert client.calls == (3 if mode == "failure" else 4)
+        if mode == "failure":
+            assert "private upstream details" not in first
+            assert json.loads(first)["retryable"] is False
+
+    run(scenario())
+
+
+def test_mcp_phase_labels_do_not_export_transport_urls():
+    assert mcp_patches._mcp_trace_label("github_mcp_server") == "github_mcp_server"
+    assert (
+        mcp_patches._mcp_trace_label("streamable-http:https://host/?token=secret")
+        == "unknown"
+    )
+
+
 @pytest.mark.parametrize("prefix", ["", "MCPToolClient tool call failed: "])
 def test_unifi_site_validation_preserves_safe_recovery_guidance(prefix):
     payload = json.loads(

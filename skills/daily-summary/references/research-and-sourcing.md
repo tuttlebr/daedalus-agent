@@ -1,7 +1,8 @@
 # Daily Daedalus research and sourcing
 
-Load this reference after current time and policy, before personal-source
-preflight. Plan sources only after the preflight and memory merge complete.
+This reference and a trusted current clock arrive with the initial daily-summary
+skill load. Establish current time and policy before personal-source preflight.
+Plan sources only after the preflight and memory merge complete.
 
 ## Source planning and cadence
 
@@ -18,6 +19,10 @@ Pass the needed source IDs in `selected_sources_json`: public families
 inclusions/exclusions and reuse the completed personal-source reads. A broad
 topic or approval hint does not require a new approval for this requested
 briefing. The plan is a source menu, not a requirement to call every family.
+If explicit source policy and exclusions already establish which baseline reads
+are allowed, run those reads in parallel with this deterministic planning call.
+Never schedule an excluded source, and wait for the plan when eligibility or
+conditional source choice is unclear.
 
 Date-stamp queries about current health, today, tonight, this week, latest
 results, releases, or schedules. A search snippet is discovery evidence, not
@@ -86,11 +91,16 @@ a cluster incident.
 
 ### Saline weather
 
-Use an authoritative forecast for Saline, Michigan; prefer the National Weather
-Service point forecast when available. Cover current conditions plus the next
-three complete calendar days. Compare high, low, precipitation, wind, and any
-alert that changes plans. Reuse these facts for field-weather interpretation
-rather than making a second forecast query.
+Use `nws_weather_tool` with Saline, Michigan's latitude and longitude, `days=4`,
+and `include_observations=true` to collect the structured National Weather Service
+forecast, current observations, and alerts in one call. Cover current conditions
+plus the next three complete calendar days. Compare high, low, precipitation, wind, and any
+alert that changes plans. Treat unavailable observations separately from the
+forecast; a forecast is not a current observation. Retain the response's source
+URLs, timestamps, and any coverage gaps. If the structured source is unavailable,
+use an authoritative point-forecast page for the supported forecast claims.
+Reuse these facts for field-weather interpretation rather than making a second
+forecast query.
 
 ### Gmail
 
@@ -118,8 +128,14 @@ prompt, surface it and wait. Resume without repeating completed public calls.
 
 ## AI, science, and industry
 
-- For AI, NVIDIA, computing, and trusted recent feeds, start with
-  `curated_feed_search_tool` using the narrowest relevant scope. Deepen only the
+- For AI, NVIDIA, computing, and trusted recent feeds, start with one
+  `curated_feed_search_tool(mode="discover", queries=[...], top_k=3)` call for
+  independent feed questions. Each query has `query` and the narrowest relevant
+  `feed_scope` from the connected schema; do not invent scopes. The tool returns
+  ranked, sourced discovery candidates. Fetch selected material articles with
+  `webscrape_tool`, or use the feed tool's article mode for one known research
+  question. Reuse already returned article content rather than scraping it twice.
+  Deepen only the
   changes that affect inference engineering, the NVIDIA stack, Kubernetes GPU
   scheduling, NVIDIA NeMo Agent Toolkit, or the Daedalus project.
 - For official NVIDIA product behavior, use `nvidia_docs_tool`. For stable

@@ -238,7 +238,9 @@ async def get_public_response_async(
     current_url = url
     schemes = tuple(allowed_schemes)
     for _ in range(max_redirects + 1):
-        validate_public_url(current_url, allowed_schemes=schemes, check_dns=True)
+        await asyncio.to_thread(
+            validate_public_url, current_url, allowed_schemes=schemes, check_dns=True
+        )
         response = await client.get(current_url)
         if response.is_redirect is not True:
             return response

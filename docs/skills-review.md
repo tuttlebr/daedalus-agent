@@ -1,5 +1,30 @@
 # Skill review records
 
+## 2026-09-21: daily-summary preparation and source latency
+
+The initial daily-summary load now returns the four required canonical policy,
+sourcing, format, and editorial references together, plus a fresh UTC and reader
+timezone clock. The dispatcher reads the existing resources without copying them
+into a second maintained bundle, and a missing resource or invalid timezone
+prevents the successful-load event. Clock refresh remains required after an
+authorization pause or resumed briefing. Other skills retain on-demand resources.
+
+The briefing batches independent curated-feed discovery questions, hydrates only
+selected reporting, and uses structured National Weather Service evidence. Once
+personal-source authorization and memory merge finish, clearly permitted baseline
+reads can share a parallel round with deterministic source planning. Source
+exclusions, conditional research, anomaly follow-ups, source-only images, and the
+renderer validation and text-fallback guarantees remain in force.
+
+Validation: focused tests covered all 20 skills and every bundled text resource,
+exact canonical bootstrap contents, missing-resource failure, fresh local dates
+and daylight-saving offsets, routing, and privacy-safe duration events. The
+installed NAT/LangGraph runtime passed the full agent-loop contract and added
+streaming checks: first-chunk delivery precedes provider completion, measured
+model duration includes provider wait, and failure or cancellation closes the
+span and provider stream. These are source and offline runtime checks, not a live
+briefing latency benchmark or proof of model adherence. No deployment was performed.
+
 ## 2026-09-19: use-hue-api compact reference
 
 Added the latest Hue skill with a generated JSON reference for 155 REST

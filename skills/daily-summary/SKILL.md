@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 4.5.0
+  version: 4.6.0
   tags:
     - daily-briefing
     - html
@@ -50,18 +50,20 @@ in place of the worker's required result.
 
 ## Required resources
 
-After loading this skill, use `agent_skills_tool` with `operation=load_skill`,
-`skill_name=daily-summary`, and these `resource` values:
+The initial `agent_skills_tool(operation=load_skill, skill_name=daily-summary)`
+response includes all four required canonical references below. Read and apply
+those bundled resources directly; do not make four separate resource calls.
+It also includes a fresh trusted backend clock in UTC and the policy's reader
+timezone, generated for this load rather than stored with the skill text.
 
-1. Load `references/edition-policy.json` before any explicit memory fallback.
-   It is the canonical desk, cadence, topic, and reader-preference inventory.
-2. Load `references/research-and-sourcing.md` before planning source calls.
-3. Load `references/edition-format.md` before composing structured edition
-   data.
-4. Load `references/editorial-spec.md` before ranking material into the fixed
-   page regions.
-   The fixed template and scripts are supplied directly by `briefing_renderer_tool`.
-   Load them only for an explicit implementation review, not to produce an edition.
+1. `references/edition-policy.json` defines the desk, cadence, topic, and
+   reader-preference inventory. Establish it before any explicit memory fallback.
+2. `references/research-and-sourcing.md` governs source planning and research.
+3. `references/edition-format.md` defines the structured edition data.
+4. `references/editorial-spec.md` governs ranking and the fixed page regions.
+
+The fixed template and scripts are supplied directly by `briefing_renderer_tool`.
+Load them only for an explicit implementation review, not to produce an edition.
 
 Production enables skill listing and resource loading, not arbitrary bundled
 script execution. Use `briefing_renderer_tool` for the quality gates; do not call
@@ -95,13 +97,17 @@ artifact.
 
 ### 1. Establish time and policy
 
-1. Call `current_datetime_tool` first. Use its current date and time plus
-   timezone for every relative claim and in the visible dateline. If it fails,
-   return a compact HTML error edition instead of guessing.
-2. Load `references/edition-policy.json`. Start the coverage manifest with
+1. Establish the current date and time first from the bundled
+   `daily_summary_runtime_clock`, using its local timestamp and timezone for
+   every relative claim and the visible dateline. No separate clock call is
+   needed for a fresh initial load. After an authorization pause or a resumed
+   earlier briefing, call `current_datetime_tool` to refresh the clock before
+   time-sensitive reads. If no current clock can be established, return a
+   compact HTML error edition instead of guessing.
+2. Apply the bundled `references/edition-policy.json`. Start the coverage manifest with
    every policy desk exactly once; preserve its key, label, cadence, topics,
    and lead designation.
-3. Load `references/research-and-sourcing.md` before making any subject-matter
+3. Apply the bundled `references/research-and-sourcing.md` before making any subject-matter
    source call.
 
 ### 2. Front-load personal-source authorization
@@ -154,8 +160,21 @@ After the personal-source preflight and memory merge, use
 manifest in `research_question`, using the source IDs and `depth=quick` from
 the sourcing reference. Date-stamp every current query with the real date
 from step 1. Reuse completed reads; planning does not gather evidence.
+When explicit source policy and exclusions are already known, submit this
+deterministic planning call in the same parallel round as the baseline reads
+that are clearly permitted. Apply exclusions before scheduling reads; if source
+eligibility is unclear, wait for the plan. Use its results before adding
+conditional or ambiguous source families.
 
-Fan out independent read-only calls. Follow the policy's cadence: always check
+Fan out independent read-only calls in the same tool round: cluster and network
+checks, repository reads, structured weather, and public-source discovery can
+share that permitted baseline round after personal-source authorization. Batch independent
+feed questions with `curated_feed_search_tool(mode="discover", queries=[...])`;
+use the returned snippets to select material articles, then fetch only the pages
+needed to support final claims. A discovery result is not an article verification.
+Preserve follow-up calls when a result reveals an anomaly or a real evidence gap.
+
+Follow the policy's cadence: always check
 daily desks, but research conditional desks only when a quick trusted signal or
 the calendar makes them timely. Use primary or official pages when available,
 and the specific personal and operational tools for private or live state.
@@ -207,7 +226,7 @@ exists, use typography, rules, and compact whitespace.
 
 ### 5. Compose structured edition data
 
-Read the format and editorial references. Build one `daily-daedalus/v1` JSON
+Apply the bundled format and editorial references. Build one `daily-daedalus/v1` JSON
 object from the day's actual reporting. Supply structured text, tables, lists,
 briefs, figures, and source objects only. Never include raw HTML, CSS, Markdown,
 or template tokens.

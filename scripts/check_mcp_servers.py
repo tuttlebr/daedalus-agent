@@ -11,7 +11,7 @@ import shlex
 import subprocess  # nosec B404 - used to invoke `kubectl` for cluster-local preflight checks
 import sys
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -37,6 +37,7 @@ class McpServer:
     include: list[str]
     auth_provider_name: str | None
     auth_provider: dict[str, Any] | None
+    custom_headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -197,6 +198,12 @@ def discover_mcp_servers(
                 include=[str(item) for item in include],
                 auth_provider_name=str(provider_name) if provider_name else None,
                 auth_provider=provider,
+                custom_headers={
+                    str(key): resolve_template(value, env)[0]
+                    for key, value in (
+                        server_config.get("custom_headers") or {}
+                    ).items()
+                },
             )
         )
 
@@ -361,6 +368,9 @@ def validate_tools(server: McpServer, payload: dict[str, Any]) -> int:
 def check_local(
     server: McpServer, headers: dict[str, str], timeout: float
 ) -> CheckResult:
+    if any("${" in value for value in server.custom_headers.values()):
+        raise CheckError("custom HTTP header has an unresolved environment variable")
+    headers = {**server.custom_headers, **headers}
     init_status, init_headers, init_body = rpc_post(
         server.url, initialize_payload(), headers, timeout
     )
@@ -437,6 +447,8 @@ def check_with_kubectl(
     pod_labels: dict[str, str] | None = None,
 ) -> CheckResult:
     provider = server.auth_provider or {}
+    if server.custom_headers:
+        raise CheckError("custom HTTP headers require a direct preflight check")
     auth_environment_name = ""
     auth_header_name = ""
     auth_header_prefix = ""

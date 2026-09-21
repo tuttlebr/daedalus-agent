@@ -57,6 +57,7 @@ from nat_helpers.model_routing import (
     ModelSelection,
     validate_skill_mappings,
 )
+from nat_helpers.phase_timing import timed_model_runnable
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
@@ -504,7 +505,15 @@ async def _responses_api_agent_workflow(
             _record_trace("daedalus.agent.model_route", metadata)
         # RunnableLambda delegates streaming to the returned runnable. Bind on
         # every invocation, after tool restriction, without changing the client.
-        return binding.bind(model=_selected_alias())
+        return timed_model_runnable(
+            binding.bind(model=_selected_alias()),
+            {
+                "model_call": run.model_calls if run is not None else 0,
+                "requested_route_alias": _selected_alias(),
+                "request_profile": run.request_profile if run is not None else "",
+                "final_synthesis": bool(run and run.final_synthesis_requested),
+            },
+        )
 
     agent.agent = RunnableLambda(
         _model_messages,

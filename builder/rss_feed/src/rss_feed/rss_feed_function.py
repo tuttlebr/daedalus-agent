@@ -1,12 +1,15 @@
 import asyncio
 import html
 import importlib.util
+import json
 import logging
 import mimetypes
 import os
 import re
 import tempfile
-from typing import Any
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import fastfeedparser
@@ -17,6 +20,8 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.phase_timing import phase_timing
+from nat_helpers.public_content import AnonymousPublicClient, public_content_session
 from nat_helpers.safe_http import (
     PublicAsyncHTTPTransport,
     PublicHTTPTransport,
@@ -28,7 +33,7 @@ from nat_helpers.vllm_reranker import (
     build_vllm_rerank_payload,
     parse_vllm_rerank_response,
 )
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, ValidationError, create_model
 
 try:
     import tiktoken
@@ -100,7 +105,7 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
 
     # Cache configuration
     cache_ttl_hours: float = Field(
-        default=4.0, description="Cache TTL in hours for RSS feed data"
+        default=4.0, gt=0, le=24, description="Cache TTL in hours for RSS feed data"
     )
 
     # Request configuration
@@ -110,8 +115,12 @@ class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
         description="User-Agent header for RSS feed requests",
     )
     max_entries: int = Field(
-        default=20, description="Maximum number of RSS entries to process"
+        default=20, ge=1, le=100, description="Maximum number of RSS entries to process"
     )
+
+    feed_concurrency: int = Field(default=4, ge=1, le=16)
+    max_batch_queries: int = Field(default=6, ge=1, le=12)
+    discovery_excerpt_chars: int = Field(default=800, ge=100, le=2000)
 
     # RSS Feed URL configuration
     feed_url: str | None = Field(
@@ -196,6 +205,9 @@ class RssToolResponse(BaseModel):
     entries_count: int = 0
     cached: bool = False
     error: str | None = None
+    feeds: list[dict[str, Any]] = Field(default_factory=list)
+    content_fetched_at: str | None = None
+    content_cache_status: str | None = None
 
 
 def _bounded_optional_text(value: Any, max_chars: int) -> str | None:
@@ -233,6 +245,9 @@ def _format_tool_response(result: dict[str, Any]) -> str:
         entries_count=max(0, int(result.get("entries_count") or 0)),
         cached=bool(result.get("cached")),
         error=error,
+        feeds=result.get("feeds", []),
+        content_fetched_at=result.get("content_fetched_at"),
+        content_cache_status=result.get("content_cache_status"),
     )
     return response.model_dump_json(exclude_none=True)
 
@@ -374,7 +389,7 @@ def _feed_url_rejection_reason(url: str) -> str | None:
 
 def _scrape_content(
     url: str,
-    token_limit: int,
+    token_limit: int | None,
     *,
     fetched_content: bytes | None = None,
     content_type: str = "",
@@ -387,7 +402,7 @@ def _scrape_content(
     try:
         validate_public_url(url, check_dns=True)
     except UnsafeURLError as exc:
-        logger.warning("Blocked SSRF-unsafe feed link '%s': %s", url, exc)
+        logger.warning("Blocked SSRF-unsafe feed link (%s)", type(exc).__name__)
         return f"Error: {exc}", False
 
     try:
@@ -425,15 +440,30 @@ def _scrape_content(
         header = f"# {title_text}\n\n_Source: {url}_\n\n"
         full_content = header + (url_markdown.text_content or "")
 
-        content = truncate_text(full_content, token_limit)
+        if token_limit is None and not (url_markdown.text_content or "").strip():
+            raise ValueError("Article conversion produced no content")
+        content = (
+            truncate_text(full_content, token_limit)
+            if token_limit is not None
+            else full_content
+        )
         was_truncated = len(content) < len(full_content)
         return content, was_truncated
     except UnsafeURLError as exc:
-        logger.warning("Blocked SSRF-unsafe feed link '%s': %s", url, exc)
+        logger.warning("Blocked SSRF-unsafe feed link (%s)", type(exc).__name__)
         return f"Error: {exc}", False
     except Exception as e:
-        logger.error("Failed to scrape content from %s: %s", url, e)
+        logger.error("Failed to scrape feed content (%s)", type(e).__name__)
         raise
+
+
+def _convert_public_article(content: bytes, url: str, content_type: str) -> str:
+    markdown, _ = _scrape_content(
+        url, None, fetched_content=content, content_type=content_type
+    )
+    if markdown.startswith("Error: "):
+        raise UnsafeURLError("Article URL failed public URL validation.")
+    return markdown
 
 
 async def _scrape_content_with_timeout(
@@ -450,381 +480,410 @@ async def _scrape_content_with_timeout(
     )
 
 
+@dataclass(frozen=True)
+class _FeedSnapshot:
+    entries: tuple[RssEntry, ...]
+    fetched_at: str
+    expires_at: str
+
+
+def _rss_input_schema(feeds: dict[str, str], max_batch_queries: int) -> type[BaseModel]:
+    """Publish exactly the scopes this registered tool can search."""
+    scope_type = Literal[("auto", *sorted(feeds))]
+    scope_description = "Feed scope: " + ", ".join(["auto", *sorted(feeds)])
+    query_type = create_model(
+        "RssDiscoveryQuery",
+        query=(str, Field(..., min_length=1, max_length=1000)),
+        feed_scope=(scope_type, Field(default="auto", description=scope_description)),
+    )
+    return create_model(
+        "RssToolInput",
+        query=(str, Field(default="", max_length=1000)),
+        feed_scope=(scope_type, Field(default="auto", description=scope_description)),
+        mode=(
+            Literal["article", "discover"],
+            Field(
+                default="article",
+                description="article retrieves one full article; discover returns feed candidates only",
+            ),
+        ),
+        queries=(
+            list[query_type] | None,
+            Field(
+                default=None,
+                min_length=1,
+                max_length=max_batch_queries,
+                description="Batch of independent searches; requires mode='discover'",
+            ),
+        ),
+        top_k=(
+            int,
+            Field(default=3, ge=1, le=5, description="Candidates per discovery query"),
+        ),
+    )
+
+
 @register_function(config_type=RssFeedFunctionConfig)
-async def rss_feed_function(
-    config: RssFeedFunctionConfig,
-    builder: Builder,
-):
-    """
-    RSS feed function with reranking and web scraping.
+async def rss_feed_function(config: RssFeedFunctionConfig, builder: Builder):
+    """Search feeds with bounded discovery batches and optional article retrieval."""
+    feeds = {key: value for key, value in config.feeds.items() if key and value}
+    if not feeds and config.feed_url:
+        feeds["default"] = config.feed_url
+    input_schema = _rss_input_schema(feeds, config.max_batch_queries)
+    cache = TTLCache(maxsize=1000, ttl=config.cache_ttl_hours * 3600)
+    inflight: dict[str, asyncio.Task[_FeedSnapshot]] = {}
+    fetch_slots = asyncio.Semaphore(config.feed_concurrency)
+    rerank_slots = asyncio.Semaphore(config.feed_concurrency)
 
-    This function fetches RSS feeds, caches them with a 4-hour TTL,
-    reranks entries based on user queries, and scrapes the top result.
-    """
+    async with (
+        AnonymousPublicClient(
+            headers={"User-Agent": config.user_agent},
+            timeout=config.timeout,
+            follow_redirects=False,
+            transport=PublicAsyncHTTPTransport(),
+            trust_env=False,
+        ) as feed_client,
+        httpx.AsyncClient(timeout=config.timeout) as rerank_client,
+        public_content_session(builder) as content_session,
+    ):
 
-    # Initialize cache (TTL in seconds)
-    cache_ttl_seconds = config.cache_ttl_hours * 3600
-    cache = TTLCache(maxsize=1000, ttl=cache_ttl_seconds)
+        async def fetch_feed(url: str, scope: str) -> _FeedSnapshot:
+            async with fetch_slots, asyncio.timeout(config.timeout):
+                with phase_timing("daedalus.rss.feed_fetch", {"feed_scope": scope}):
+                    response = await asyncio.wait_for(
+                        get_public_response_async(feed_client, url), config.timeout
+                    )
+                    response.raise_for_status()
+                    fetched_at = datetime.now(UTC)
+                with phase_timing("daedalus.rss.feed_parse", {"feed_scope": scope}):
+                    parsed = await asyncio.to_thread(
+                        fastfeedparser.parse, response.text
+                    )
+                    entries = []
+                    for entry in parsed.entries[: config.max_entries]:
+                        title, link = entry.get("title", ""), entry.get("link", "")
+                        if not title or not link:
+                            continue
+                        # Discovery never opens links. Reject unsafe schemes and
+                        # literal addresses now; the pinned transport validates
+                        # hostname DNS and every redirect when an article is read.
+                        try:
+                            validate_public_url(link, check_dns=False)
+                        except UnsafeURLError:
+                            continue
+                        entries.append(
+                            RssEntry(
+                                title=title,
+                                link=link,
+                                published=entry.get("published"),
+                                author=entry.get("author"),
+                                description=entry.get("description"),
+                                feed_url=url,
+                            )
+                        )
+                    snapshot = _FeedSnapshot(
+                        tuple(entries),
+                        fetched_at.isoformat(),
+                        (
+                            fetched_at + timedelta(hours=config.cache_ttl_hours)
+                        ).isoformat(),
+                    )
+                    cache[url] = snapshot
+                    return snapshot
 
-    # Initialize HTTP client
-    headers = {"User-Agent": config.user_agent}
-
-    def _configured_feeds() -> dict[str, str]:
-        feeds = {k: v for k, v in (config.feeds or {}).items() if k and v}
-        if not feeds and config.feed_url:
-            feeds["default"] = config.feed_url
-        return feeds
-
-    async def parse_rss_feed(feed_url: str, feed_scope: str) -> list[RssEntry]:
-        """Parse RSS feed and extract entries."""
-        # F-002d: validate the (input-influenced) feed URL before fetching and
-        # skip the feed on an SSRF-unsafe target.
-        rejection = _feed_url_rejection_reason(feed_url)
-        if rejection is not None:
-            logger.warning(
-                "Skipping SSRF-unsafe feed URL '%s' (scope %s): %s",
-                feed_url,
-                feed_scope,
-                rejection,
-            )
-            return []
-
-        try:
-            # Check cache first
-            cache_key = f"rss_feed:{feed_url}"
-            cached_data = cache.get(cache_key)
-            if cached_data is not None:
-                logger.info("Using cached RSS feed data for %s", feed_url)
-                return cached_data
-
-            # Fetch and parse RSS feed
-            async with httpx.AsyncClient(
-                headers=headers,
-                timeout=config.timeout,
-                follow_redirects=False,
-                transport=PublicAsyncHTTPTransport(),
-                trust_env=False,
-            ) as client:
-                response = await get_public_response_async(client, feed_url)
-                response.raise_for_status()
-
-            # Parse with fastfeedparser
-            parsed = fastfeedparser.parse(response.text)
-
-            entries = []
-            for entry in parsed.entries[: config.max_entries]:
-                # Extract required and optional fields
-                rss_entry = RssEntry(
-                    title=entry.get("title", ""),
-                    link=entry.get("link", ""),
-                    published=entry.get("published", None),
-                    author=entry.get("author", None),
-                    description=entry.get("description", None),
-                    feed_scope=feed_scope,
-                    feed_url=feed_url,
-                )
-
-                # Only include entries with both title and link
-                if rss_entry.title and rss_entry.link:
-                    entries.append(rss_entry)
-
-            # Cache the parsed entries
-            cache[cache_key] = entries
-            logger.info("Cached %d RSS entries for %s", len(entries), feed_url)
-
-            return entries
-
-        except Exception as e:
-            logger.error("Failed to parse RSS feed %s: %s", feed_url, str(e))
-            return []  # Return empty results silently as requested
-
-    async def rerank_entries(query: str, entries: list[RssEntry]) -> RssEntry | None:
-        """Rerank RSS entries based on query and return top result."""
-        if not entries:
-            return None
-
-        # Check if reranker is configured
-        if not config.reranker_endpoint or not config.reranker_model:
-            raise ValueError(
-                "Reranker configuration is required. Please set "
-                "reranker_endpoint and reranker_model in the configuration."
-            )
-        # vLLM can run with or without API-key authentication.
-        api_key = config.reranker_api_key or os.getenv("NVIDIA_API_KEY")
-
-        try:
-            # Prepare reranker request
-            headers = {
-                "Accept": "application/json",
-                "Content-Type": "application/json",
+        async def read_feed(
+            scope: str, url: str
+        ) -> tuple[list[RssEntry], dict[str, Any]]:
+            metadata: dict[str, Any] = {
+                "feed_scope": scope,
+                "url": url,
+                "cached": False,
+                "coalesced": False,
             }
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
+            with phase_timing(
+                "daedalus.rss.feed_cache", {"feed_scope": scope}
+            ) as phase:
+                # Cached data performs no DNS or HTTP work. Only public fetches
+                # admitted by the safe transport can populate this cache.
+                snapshot = cache.get(url)
+                if snapshot is not None and datetime.fromisoformat(
+                    snapshot.expires_at
+                ) <= datetime.now(UTC):
+                    cache.pop(url, None)
+                    snapshot = None
+                metadata["cached"] = snapshot is not None
+                phase.set_metadata(cache_hit=snapshot is not None)
+            try:
+                if snapshot is None:
+                    task = inflight.get(url)
+                    if task is None:
+                        task = asyncio.create_task(fetch_feed(url, scope))
+                        inflight[url] = task
 
-            passages, entry_indexes = _build_reranker_passages(
-                query=query,
-                entries=entries,
-                max_passage_tokens=config.reranker_max_passage_tokens,
-                max_total_tokens=config.reranker_max_total_tokens,
+                        def forget(done: asyncio.Task, key: str = url) -> None:
+                            if inflight.get(key) is done:
+                                inflight.pop(key, None)
+                            if not done.cancelled():
+                                done.exception()  # consume failures if every waiter cancelled
+
+                        task.add_done_callback(forget)
+                    else:
+                        metadata["coalesced"] = True
+                    # One cancelled caller must not cancel another caller's fetch.
+                    snapshot = await asyncio.shield(task)
+                entries = [
+                    entry.model_copy(update={"feed_scope": scope})
+                    for entry in snapshot.entries
+                ]
+                metadata.update(
+                    status="available" if entries else "empty",
+                    fetched_at=snapshot.fetched_at,
+                    expires_at=snapshot.expires_at,
+                    entries_count=len(entries),
+                )
+                return entries, metadata
+            except Exception as exc:
+                logger.warning(
+                    "RSS feed unavailable (scope %s, %s)", scope, type(exc).__name__
+                )
+                metadata.update(
+                    status="unavailable", error="RSS feed fetch or parsing failed."
+                )
+                return [], metadata
+
+        async def rerank_entries(
+            query: str, entries: list[RssEntry], top_k: int
+        ) -> list[RssEntry]:
+            if not config.reranker_endpoint or not config.reranker_model:
+                raise ValueError("Reranker configuration is required.")
+            passages, indexes = _build_reranker_passages(
+                query,
+                entries,
+                config.reranker_max_passage_tokens,
+                config.reranker_max_total_tokens,
             )
             if not passages:
-                logger.warning("No non-empty passages available for reranking")
-                return None
-
+                return []
+            headers = {"Accept": "application/json", "Content-Type": "application/json"}
+            api_key = config.reranker_api_key or os.getenv("NVIDIA_API_KEY")
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             payload = build_vllm_rerank_payload(
                 model=config.reranker_model,
                 query=query,
                 documents=[passage["text"] for passage in passages],
-                top_n=1,
+                top_n=top_k,
             )
+            async with rerank_slots:
+                with phase_timing(
+                    "daedalus.rss.rerank",
+                    {"entries_count": len(passages), "top_k": top_k},
+                ):
+                    response = await asyncio.wait_for(
+                        rerank_client.post(
+                            str(config.reranker_endpoint),
+                            headers=headers,
+                            json=payload,
+                        ),
+                        config.timeout,
+                    )
+                    if response.status_code >= 400:
+                        raise ValueError(_reranker_error_message(response))
+                    response.raise_for_status()
+                    rankings = parse_vllm_rerank_response(
+                        response.json(), document_count=len(passages)
+                    )
+            return [entries[indexes[item.index]] for item in rankings[:top_k]]
 
-            # Make reranker request
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
-                response = await client.post(
-                    str(config.reranker_endpoint),
-                    headers=headers,
-                    json=payload,
+        async def perform_search(
+            query: str, scope: str, *, discover: bool, top_k: int
+        ) -> dict[str, Any]:
+            result: dict[str, Any] = {
+                "success": False,
+                "query": query,
+                "feed_scope": scope,
+                "entries_count": 0,
+                "cached": False,
+                "feeds": [],
+            }
+            if discover:
+                result.update(
+                    status="unavailable", sources=[], article_content_verified=False
                 )
-                if response.status_code >= 400:
-                    raise ValueError(_reranker_error_message(response))
-                response.raise_for_status()
-
-            # Process response
-            rankings = parse_vllm_rerank_response(
-                response.json(),
-                document_count=len(passages),
-            )
-
-            if not rankings:
-                logger.warning("No rankings returned from reranker")
-                return None
-
-            # Get the top-ranked entry
-            top_ranking = rankings[0]
-            passage_index = top_ranking.index
-
-            if 0 <= passage_index < len(entry_indexes):
-                return entries[entry_indexes[passage_index]]
-            else:
-                logger.error("Invalid index %d from reranker", passage_index)
-                return None
-
-        except Exception as e:
-            logger.error("Reranking failed: %s", str(e))
-            raise
-
-    async def _perform_search(query: str, feed_scope: str) -> dict[str, Any]:
-        """Internal helper: rerank RSS entries and scrape the top result.
-
-        Returns the structured RssSearchResponse as a dict. Errors are reported
-        via the `success`/`error` fields rather than raised, so callers (the
-        public `search_rss` tool) can format them for the LLM.
-        """
-        try:
-            search_request = RssSearchRequest(query=query, feed_scope=feed_scope)
-
-            feeds = _configured_feeds()
             if not feeds:
-                return RssSearchResponse(
-                    success=False,
-                    query=search_request.query,
-                    feed_url="",
-                    feed_scope=search_request.feed_scope,
-                    error=(
-                        "RSS feed URL not configured. Please set feed_url or feeds "
-                        "in configuration."
-                    ),
-                ).model_dump()
-
-            requested_scope = (search_request.feed_scope or "auto").strip()
-            if requested_scope == "auto":
-                selected_feeds = feeds
-            elif requested_scope in feeds:
-                selected_feeds = {requested_scope: feeds[requested_scope]}
-            else:
-                return RssSearchResponse(
-                    success=False,
-                    query=search_request.query,
-                    feed_url="",
-                    feed_scope=requested_scope,
-                    error=(
-                        f"Unknown feed_scope '{requested_scope}'. Available scopes: "
-                        f"{', '.join(sorted(feeds))}"
-                    ),
-                ).model_dump()
-
-            # Check cache status
-            cache_keys = [f"rss_feed:{url}" for url in selected_feeds.values()]
-            is_cached = all(cache_key in cache for cache_key in cache_keys)
-
-            # Parse RSS feed
-            nested_entries = await asyncio.gather(
-                *(
-                    parse_rss_feed(feed_url, scope)
-                    for scope, feed_url in selected_feeds.items()
+                result["error"] = (
+                    "RSS feed URL not configured. Please set feed_url or feeds in configuration."
                 )
+                return result
+            selected = feeds if scope == "auto" else {scope: feeds[scope]}
+            groups = await asyncio.gather(
+                *(read_feed(name, url) for name, url in selected.items())
             )
-            entries = [entry for group in nested_entries for entry in group]
-            feed_url_display = ",".join(selected_feeds.values())
-
-            if not entries:
-                return RssSearchResponse(
-                    success=True,
-                    query=search_request.query,
-                    feed_url=feed_url_display,
-                    feed_scope=requested_scope,
-                    entries_count=0,
-                    cached=is_cached,
-                    error="No entries found in RSS feed",
-                ).model_dump()
-
-            logger.info(
-                "Found %d entries across RSS feed scope %s",
-                len(entries),
-                requested_scope,
-            )
-
-            # Rerank entries
-            top_entry = await rerank_entries(search_request.query, entries)
-
-            if not top_entry:
-                return RssSearchResponse(
-                    success=True,
-                    query=search_request.query,
-                    feed_url=feed_url_display,
-                    feed_scope=requested_scope,
-                    entries_count=len(entries),
-                    cached=is_cached,
-                    error="No suitable entry found after reranking",
-                ).model_dump()
-
-            # Bound the complete synchronous fetch and MarkItDown conversion. The
-            # inner HTTP timeout alone cannot constrain a slow document converter.
-            logger.info("Scraping top-ranked result: %s", top_entry.link)
-            try:
-                scraped_content, was_truncated = await _scrape_content_with_timeout(
-                    top_entry.link,
-                    config.scrape_max_output_tokens,
-                    timeout=config.scrape_timeout,
-                )
-                if was_truncated:
-                    logger.info("Content was truncated to fit token limit")
-            except TimeoutError:
-                logger.warning(
-                    "RSS content scrape exceeded the %.1f second overall timeout",
-                    config.scrape_timeout,
-                )
-                return RssSearchResponse(
-                    success=True,
-                    query=search_request.query,
-                    feed_url=feed_url_display,
-                    feed_scope=requested_scope,
-                    top_result={
-                        "title": top_entry.title,
-                        "link": top_entry.link,
-                        "published": top_entry.published,
-                        "author": top_entry.author,
-                        "description": top_entry.description,
-                        "feed_scope": top_entry.feed_scope,
-                        "feed_url": top_entry.feed_url,
-                    },
-                    scraped_content=None,
-                    entries_count=len(entries),
-                    cached=is_cached,
-                    error="Selected RSS content exceeded the scrape timeout.",
-                ).model_dump()
-            except Exception as e:
-                logger.error("Failed to scrape content: %s", str(e))
-                # Return the RSS entry info without scraped content
-                return RssSearchResponse(
-                    success=True,
-                    query=search_request.query,
-                    feed_url=feed_url_display,
-                    feed_scope=requested_scope,
-                    top_result={
-                        "title": top_entry.title,
-                        "link": top_entry.link,
-                        "published": top_entry.published,
-                        "author": top_entry.author,
-                        "description": top_entry.description,
-                        "feed_scope": top_entry.feed_scope,
-                        "feed_url": top_entry.feed_url,
-                    },
-                    scraped_content=None,
-                    entries_count=len(entries),
-                    cached=is_cached,
-                    error="Failed to scrape the selected RSS content.",
-                ).model_dump()
-
-            # Prepare response
-            return RssSearchResponse(
-                success=True,
-                query=search_request.query,
-                feed_url=feed_url_display,
-                feed_scope=requested_scope,
-                top_result={
-                    "title": top_entry.title,
-                    "link": top_entry.link,
-                    "published": top_entry.published,
-                    "author": top_entry.author,
-                    "description": top_entry.description,
-                    "feed_scope": top_entry.feed_scope,
-                    "feed_url": top_entry.feed_url,
-                },
-                scraped_content=scraped_content,
-                content_truncated=was_truncated,
+            entries = [entry for group, _ in groups for entry in group]
+            metadata = [item for _, item in groups]
+            result.update(
+                feeds=metadata,
                 entries_count=len(entries),
-                cached=is_cached,
-            ).model_dump()
+                cached=all(item["cached"] for item in metadata),
+            )
+            failed = any(item["status"] == "unavailable" for item in metadata)
+            if not entries:
+                result["error"] = (
+                    "RSS feeds unavailable."
+                    if failed
+                    else "No entries found in RSS feed"
+                )
+                if discover:
+                    result.update(
+                        status="unavailable" if failed else "empty", success=not failed
+                    )
+                return result
+            try:
+                ranked = await rerank_entries(query, entries, top_k if discover else 1)
+            except Exception as exc:
+                logger.warning("RSS reranking failed (%s)", type(exc).__name__)
+                result["error"] = "RSS search configuration or reranking failed."
+                return result
+            if not ranked:
+                result["error"] = "No suitable entry found after reranking"
+                if discover:
+                    result.update(
+                        status="partial" if failed else "empty", success=not failed
+                    )
+                return result
+            if discover:
+                result.update(
+                    success=True,
+                    status="partial" if failed else "ok",
+                    sources=[
+                        {
+                            "title": entry.title[:500],
+                            "url": entry.link[:2048],
+                            "published": _bounded_optional_text(entry.published, 100),
+                            "feed_scope": entry.feed_scope,
+                            "excerpt": _normalize_reranker_text(entry.description)[
+                                : config.discovery_excerpt_chars
+                            ],
+                            "fetched_at": next(
+                                item["fetched_at"]
+                                for item in metadata
+                                if item["feed_scope"] == entry.feed_scope
+                            ),
+                            "evidence": "feed_summary",
+                        }
+                        for entry in ranked
+                    ],
+                )
+                return result
+            top_entry = ranked[0]
+            result["top_result"] = top_entry.model_dump()
+            try:
+                with phase_timing("daedalus.rss.article", {}):
+                    article, cache_status = await content_session.article(
+                        top_entry.link,
+                        timeout=config.scrape_timeout,
+                        allowed_schemes=("http", "https"),
+                        converter=_convert_public_article,
+                    )
+                content = truncate_text(
+                    article.markdown, config.scrape_max_output_tokens
+                )
+                result.update(
+                    success=True,
+                    scraped_content=content,
+                    content_truncated=len(content) < len(article.markdown),
+                    content_fetched_at=article.fetched_at,
+                    content_cache_status=cache_status,
+                )
+            except TimeoutError:
+                result["error"] = "Selected RSS content exceeded the scrape timeout."
+            except Exception as exc:
+                logger.warning("RSS article retrieval failed (%s)", type(exc).__name__)
+                result["error"] = "Failed to scrape the selected RSS content."
+            return result
 
-        except ValueError:
-            # Reranker configuration errors
-            return RssSearchResponse(
-                success=False,
-                query=query,
-                feed_url=",".join(_configured_feeds().values()),
-                error="RSS search configuration or reranking failed.",
-            ).model_dump()
-        except Exception as e:
-            logger.error("RSS feed search error: %s", str(e), exc_info=True)
-            return RssSearchResponse(
-                success=False,
-                query=query,
-                feed_url=",".join(_configured_feeds().values()),
-                error="RSS search failed unexpectedly.",
-            ).model_dump()
+        async def search_rss(
+            query: str = "",
+            feed_scope: str = "auto",
+            mode: str = "article",
+            queries: list[dict[str, Any]] | None = None,
+            top_k: int = 3,
+        ) -> str:
+            """Search one full article or discover candidates for independent queries."""
+            try:
+                request = input_schema(
+                    query=query,
+                    feed_scope=feed_scope,
+                    mode=mode,
+                    queries=queries,
+                    top_k=top_k,
+                )
+                if request.queries is not None and (
+                    request.mode != "discover" or request.query
+                ):
+                    raise ValueError(
+                        "Use queries only with mode='discover' and omit query."
+                    )
+                if request.queries is None and not request.query.strip():
+                    raise ValueError("Provide query or a discovery queries batch.")
+                if request.queries and any(
+                    not item.query.strip() for item in request.queries
+                ):
+                    raise ValueError("Discovery queries must not be blank.")
+            except (ValidationError, ValueError):
+                return RssToolResponse(
+                    success=False,
+                    query=str(query)[:1000],
+                    feed_scope=feed_scope,
+                    error="Invalid RSS search arguments. Use a configured feed_scope, a nonempty query or discovery queries batch, and top_k between 1 and 5.",
+                ).model_dump_json(exclude_none=True)
+            if request.mode == "discover":
+                searches = request.queries or [
+                    RssSearchRequest(query=request.query, feed_scope=request.feed_scope)
+                ]
+                with phase_timing(
+                    "daedalus.rss.discovery", {"query_count": len(searches)}
+                ):
+                    results = await asyncio.gather(
+                        *(
+                            perform_search(
+                                item.query,
+                                item.feed_scope,
+                                discover=True,
+                                top_k=request.top_k,
+                            )
+                            for item in searches
+                        )
+                    )
+                return json.dumps(
+                    {
+                        "success": any(item["success"] for item in results),
+                        "mode": "discover",
+                        "article_content_verified": False,
+                        "results": results,
+                    }
+                )
+            return _format_tool_response(
+                await perform_search(
+                    request.query, request.feed_scope, discover=False, top_k=1
+                )
+            )
 
-    async def search_rss(
-        query: str,
-        feed_scope: str = "auto",
-    ) -> str:
-        """Search configured RSS feeds and return one structured, sourced result.
-
-        Args:
-            query: Search query to rerank RSS entries against.
-            feed_scope: Named feed scope to search, or "auto" to search every
-                configured feed and pick the single best entry across them.
-
-        Returns:
-            JSON with bounded source metadata, scraped content, truncation status,
-            and a stable error field when no relevant content is available.
-        """
-        result = await _perform_search(query, feed_scope)
-        return _format_tool_response(result)
-
-    try:
-        yield FunctionInfo.from_fn(
-            search_rss,
-            description=config.description
-            or (
-                "Search configured RSS feeds and return one structured JSON result "
-                "with source URL, title, publication metadata, bounded article "
-                "content, and truncation status. Args: query and optional "
-                "feed_scope ('auto' or one configured feed name)."
-            ),
-        )
-
-    except GeneratorExit:
-        logger.warning("RSS feed function exited early!")
-    finally:
-        logger.info("Cleaning up RSS feed function.")
+        try:
+            yield FunctionInfo.from_fn(
+                search_rss,
+                input_schema=input_schema,
+                description=(
+                    (config.description + " " if config.description else "")
+                    + "Search curated RSS feeds. mode='article' (default) returns one full article for query. "
+                    + "mode='discover' returns top_k compact candidates per query; batch independent searches with queries=[{query,feed_scope}]. "
+                    + "Discovery excerpts are feed summaries, not verified article content; retrieve selected URLs for precise claims. "
+                    + "Available feed_scope values: "
+                    + ", ".join(["auto", *sorted(feeds)])
+                    + "."
+                ),
+            )
+        finally:
+            for task in list(inflight.values()):
+                task.cancel()
+            await asyncio.gather(*list(inflight.values()), return_exceptions=True)

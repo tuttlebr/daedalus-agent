@@ -15,6 +15,10 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.phase_timing import phase_timing
+from nat_helpers.public_content import AnonymousPublicClient
+from nat_helpers.public_content import is_challenge_page as _is_challenge_page
+from nat_helpers.public_content import public_content_session
 from nat_helpers.safe_http import (
     PublicAsyncHTTPTransport,
     PublicHTTPTransport,
@@ -57,30 +61,6 @@ _BROWSER_HEADERS = {
     "Sec-Fetch-User": "?1",
     "Cache-Control": "max-age=0",
 }
-
-# Signatures that indicate a bot-protection / challenge page rather than real content.
-# At least 2 must match to flag as a challenge page.
-_CHALLENGE_SIGNATURES = [
-    "just a moment",
-    "checking your browser",
-    "attention required",
-    "enable javascript and cookies",
-    "cf-browser-verification",
-    "challenge-platform",
-    "cdn-cgi/challenge-platform",
-    "_cf_chl_opt",
-    "ddos-guard",
-    "please turn javascript on",
-    "checking if the site connection is secure",
-    "verify you are human",
-    "ray id:",
-    "access denied",
-    "you don't have permission to access",
-    "request blocked",
-    "requested url was rejected",
-    "forbidden",
-    "reference #",
-]
 
 # Cap on redirect hops we will manually follow while re-validating each target.
 _MAX_REDIRECTS = 10
@@ -207,13 +187,6 @@ def _truncate_to_token_limit(
 # ---------------------------------------------------------------------------
 # Content validation
 # ---------------------------------------------------------------------------
-
-
-def _is_challenge_page(text: str) -> bool:
-    """Return True if *text* (HTML or markdown) looks like a bot-protection page."""
-    lower = text[:5000].lower()
-    hits = sum(1 for sig in _CHALLENGE_SIGNATURES if sig in lower)
-    return hits >= 2
 
 
 def _is_valid_content(markdown: str) -> bool:
@@ -365,7 +338,8 @@ async def _get_following_safe_redirects(
                     return response
 
                 next_url = urljoin(current_url, location)
-                validate_public_url(
+                await asyncio.to_thread(
+                    validate_public_url,
                     next_url,
                     allowed_schemes=allowed_schemes or list(_ALLOWED_FETCH_SCHEMES),
                     check_dns=True,
@@ -647,104 +621,88 @@ def _validate_url(
 
 @register_function(config_type=WebscrapeFunctionConfig)
 async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
-    headers = {"User-Agent": config.user_agent}
+    async with public_content_session(builder) as content_session:
+        async with AnonymousPublicClient(
+            headers={"User-Agent": config.user_agent},
+            follow_redirects=False,
+            timeout=_httpx_timeout_from_seconds(config.timeout),
+            transport=PublicAsyncHTTPTransport(),
+            trust_env=False,
+        ) as robots_client:
 
-    async def _response_fn(url: str) -> str:
-        """Scrape a URL and return its content as markdown.
+            async def _response_fn(url: str) -> str:
+                """Return markdown from a bounded, anonymous public URL fetch."""
+                try:
+                    url, parsed_url = _validate_url(url.strip(), config.allowed_schemes)
+                    if (
+                        parsed_url.username is not None
+                        or parsed_url.password is not None
+                    ):
+                        raise UnsafeURLError(
+                            "Anonymous public URLs cannot contain credentials"
+                        )
+                    # Literal/scheme rejection is immediate; DNS is validated by
+                    # the pinned transport on misses without blocking this loop.
+                    validate_public_url(
+                        url, allowed_schemes=config.allowed_schemes, check_dns=False
+                    )
+                except (AttributeError, ValueError, UnsafeURLError) as exc:
+                    return _format_error(str(exc))
 
-        A controlled HTTP client performs one bounded fetch with retries,
-        connection-time DNS validation, and per-redirect validation. HTML is
-        converted from the response body and other documents are handed to
-        MarkItDown as temporary local files.
+                if config.respect_robots_txt:
+                    try:
+                        with phase_timing("daedalus.webscrape.robots"):
+                            await _check_robots(
+                                url=url,
+                                parsed_url=parsed_url,
+                                client=robots_client,
+                                user_agent=config.user_agent,
+                                allowed_schemes=config.allowed_schemes,
+                            )
+                    except (PermissionError, UnsafeURLError) as exc:
+                        return _format_error(str(exc))
 
-        Direct browser navigation is intentionally unavailable because its DNS,
-        redirect, and subresource connections cannot use the pinned transport.
-        """
-        try:
-            sanitized_input = url.strip()
-        except AttributeError:
-            return _format_error("Input must be a URL string.")
-
-        try:
-            url, parsed_url = _validate_url(sanitized_input, config.allowed_schemes)
-        except ValueError as exc:
-            logger.info("URL validation failed for '%s': %s", sanitized_input, exc)
-            return _format_error(str(exc))
-
-        # F-001: block SSRF-unsafe targets, including hostnames that resolve to
-        # private, loopback, link-local, or metadata addresses, before any fetch
-        # strategy runs.
-        try:
-            validate_public_url(
-                url, allowed_schemes=config.allowed_schemes, check_dns=True
-            )
-        except UnsafeURLError as exc:
-            logger.warning("Blocked SSRF-unsafe URL '%s': %s", sanitized_input, exc)
-            return _format_error(str(exc))
-
-        if config.respect_robots_txt:
-            try:
-                # follow_redirects=False so each redirect hop is SSRF-validated
-                # inside _check_robots before being followed (F-002a).
-                async with httpx.AsyncClient(
-                    headers=headers,
-                    follow_redirects=False,
-                    transport=PublicAsyncHTTPTransport(),
-                    trust_env=False,
-                ) as client:
-                    await _check_robots(
-                        url=url,
-                        parsed_url=parsed_url,
-                        client=client,
-                        user_agent=config.user_agent,
+                try:
+                    article, cache_status = await content_session.article(
+                        url,
+                        converter=lambda content, source, content_type: (
+                            _bytes_to_markdown(
+                                content, source, content_type=content_type
+                            )
+                        ),
+                        timeout=config.timeout,
                         allowed_schemes=config.allowed_schemes,
                     )
-            except PermissionError as exc:
-                logger.info("robots.txt disallowed scraping for %s: %s", url, exc)
-                return _format_error(str(exc))
+                    if _is_challenge_page(article.markdown):
+                        return _format_error("The site is blocking automated access.")
+                    source = f"_Source: {article.url}_"
+                    content = article.markdown.replace(
+                        source,
+                        source
+                        + f"\n_Fetched: {article.fetched_at}; cache: {cache_status}_",
+                        1,
+                    )
+                    return _truncate_to_token_limit(
+                        content, config.max_output_tokens, config.truncation_message
+                    )[0]
+                except UnsafeURLError as exc:
+                    return _format_error(str(exc))
+                except Exception as exc:
+                    logger.info(
+                        "Public article retrieval failed: %s", type(exc).__name__
+                    )
+                    return _format_error(
+                        "Unable to retrieve page content. The site may require "
+                        "JavaScript or is blocking automated access."
+                    )
 
-        # One controlled fetch handles both HTML and supported document formats.
-        try:
-            httpx_output, httpx_outcome = await _scrape_with_httpx_result(
-                url,
-                token_limit=config.max_output_tokens,
-                truncation_msg=config.truncation_message,
-                allowed_schemes=config.allowed_schemes,
-                timeout=_httpx_timeout_from_seconds(config.timeout),
+            yield FunctionInfo.from_fn(
+                _response_fn,
+                description=config.description
+                or (
+                    "Scrape public web content and convert to markdown with source "
+                    "URL and fetch time. Uses bounded anonymous article caching and "
+                    "connection-time public DNS validation; document converters only "
+                    "receive local response files."
+                ),
             )
-            if httpx_output and _is_valid_content(httpx_output):
-                return httpx_output
-            if httpx_output and not _is_challenge_page(httpx_output):
-                return httpx_output
-        except UnsafeURLError as exc:
-            logger.warning("Blocked unsafe redirect while scraping %s: %s", url, exc)
-            return _format_error(str(exc))
-        except Exception as exc:
-            logger.info("httpx scraping failed for %s: %s", url, exc)
-            httpx_outcome = "error"
-
-        if httpx_outcome == "blocked":
-            logger.info(
-                "Blocked response for %s won't use an unpinned browser fallback", url
-            )
-
-        return _format_error(
-            "Unable to retrieve page content. The site may require JavaScript "
-            "or is blocking automated access."
-        )
-
-    try:
-        yield FunctionInfo.from_fn(
-            _response_fn,
-            description=config.description
-            or (
-                "Scrape web content from URLs and convert to clean markdown. "
-                "Uses one controlled HTTP fetch and gives MarkItDown only local "
-                "response files for supported documents. Direct browser navigation is "
-                "disabled to preserve the public-network boundary."
-            ),
-        )
-    except GeneratorExit:
-        logger.warning("Function exited early!")
-    finally:
-        logger.info("Cleaning up webscrape workflow.")
