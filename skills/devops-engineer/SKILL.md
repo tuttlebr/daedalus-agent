@@ -52,8 +52,12 @@ and `helm/daedalus` as relevant:
 5. Publish/deploy only within the user's requested scope and runtime gates;
    existing authorization carries forward. Verify immutable artifacts and the
    actual endpoint/tool result after a rollout.
-6. Report what changed, evidence, remaining risk, and any unexecuted stage.
-   Do not call a source test a deployed fix.
+6. Lead with the supported result and its operational or user consequence.
+   Follow with evidence, remaining uncertainty, and any unexecuted stage. Name
+   the next decision or validation and what it would resolve; distinguish
+   confirmed owners/dates from proposals. Keep build and rollout chronology as
+   supporting detail. Do not call a source test a deployed fix or a proposed
+   delivery date a commitment.
 
 Use [kubernetes-specialist](../kubernetes-specialist/SKILL.md) for manifests,
 Helm resources, networking, and storage; [sre-engineer](../sre-engineer/SKILL.md)

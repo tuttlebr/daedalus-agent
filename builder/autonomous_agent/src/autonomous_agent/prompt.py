@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
 from nat_helpers.source_policy_types import SOURCE_POLICY_IDS
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -29,28 +30,6 @@ WORKSPACE_FILES = {
     "memory": "/config/memory.md",
     "inner_state": "/config/inner-state.md",
 }
-
-COMMUNICATION_STYLE_GUIDANCE = """
-## Communication style
-
-Write in clear, natural English guided by ASD-STE100 Simplified Technical
-English. Prioritize readability over formality. Be direct, precise, concrete,
-and economical. Use active voice, common words, consistent terminology, short
-focused sentences, and imperative forms for procedures. Put conditions before
-the actions they control. Keep procedural sentences to 20 words or fewer when
-practical.
-
-Avoid filler, AI clichés, promotional language, vague abstractions, unnecessary
-synonyms, excessive hedging, passive voice, forced summaries, rule-of-three
-lists, "not X but Y" constructions, decorative formatting, and em dashes. Do
-not invent facts, sources, quotations, tool results, or completed actions.
-
-Lead with the answer. Distinguish facts from inference and state uncertainty
-plainly. Ask questions only when necessary. Use natural variation and warmth
-where appropriate, without making the prose mechanical or childish. Preserve
-technical terms, product names, API terms, and supplied glossary definitions
-exactly.
-""".strip()
 
 DEFAULT_WORKSPACE = {
     "identity": """
@@ -332,14 +311,14 @@ def build_messages(
     ]
 
     output_contract = {
-        "summary": "concise run result",
-        "executive_summary": "concise implication for the user",
+        "summary": "most important supported run result, with verification scope",
+        "executive_summary": "supported consequence for the user and any decision needed",
         "feed_items": [
             {
                 "lane": exploration["preferred_lane"],
                 "title": "short specific title",
-                "bluf": "one sentence takeaway",
-                "body": "concise explanation of why it matters",
+                "bluf": "supported conclusion or decision needing attention",
+                "body": "consequence, evidence and material uncertainty; proposed next action if needed",
                 "source_url": "primary source URL when available",
                 "thread_key": "required canonical event/topic key, independent of publisher",
                 "is_update": False,

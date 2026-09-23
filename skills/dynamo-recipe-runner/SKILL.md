@@ -76,6 +76,9 @@ Its `list --framework vllm --format table` and
 `validate recipes/<model>/<backend>/<mode>` subcommands perform discovery and
 lightweight text validation. They do not prove cluster/API compatibility.
 
-Report selected revision/path, fit evidence, exact patch, executed stages,
-endpoint/completion result, and remaining blockers. If execution is unavailable,
+Lead with the supported deployment or readiness conclusion and its operational
+consequence. Follow with selected revision/path, fit evidence, exact patch,
+executed stages, endpoint/completion result, and blockers that limit the
+conclusion. Identify the next validation and what it would resolve without
+inventing an owner or delivery date. If execution is unavailable,
 deliver the reviewable patch and commands without claiming a deployment.

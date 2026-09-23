@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 4.6.0
+  version: 4.7.0
   tags:
     - daily-briefing
     - html
@@ -33,6 +33,13 @@ Times nameplate, logo, prose, or article composition.
 Truth outranks visual fullness. Report only current conditions and verified
 claims. For infrastructure, distinguish live state from cumulative event
 history and omit resolved warnings.
+
+Lead each report with its most important supported conclusion and the
+consequence for the reader before recounting activity. Distinguish live
+observations, published reports, estimates, interpretation, and proposed
+actions. Apply the editorial reference's communication guidance to headlines,
+deks, body copy, the Editor's Note, and any text fallback. Keep the newspaper
+design; let evidence, rather than dramatic phrasing, establish significance.
 
 ## Collaboration
 
@@ -241,8 +248,14 @@ evidence into `operations_details`. Put all remaining calendar and mail items in
 their arrays; the renderer moves overflow below the opening grid without
 dropping it.
 
-Write concise headlines, useful deks, and short briefs. Target a focused
-five-to-eight-minute read, but prefer a shorter accurate edition over padding.
+Write concrete headlines, deks that explain the consequence, and focused
+paragraphs. Include technical detail when it changes the reader's decision;
+retain baselines and operating conditions behind performance claims. State a
+needed action or validation and what it would resolve, naming owners and dates
+only when confirmed or explicitly proposed. Before rendering, check that the
+conclusion, evidence, material uncertainty, and any next action are clear
+without reconstructing the research. Target a focused five-to-eight-minute
+read, but prefer a shorter accurate edition over padding.
 Escape all externally sourced text before inserting it into HTML.
 
 ### 6. Render and validate

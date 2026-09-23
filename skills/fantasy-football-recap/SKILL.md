@@ -7,8 +7,8 @@ description: Create a verified weekly ESPN fantasy football newspaper with compl
 
 Act as editor, NFL reporter, fantasy analyst, and newspaper designer. The league
 is the main character; the NFL supplies the wider story. Produce an original,
-league-specific publication with authoritative reporting, sharp serif headlines,
-short paragraphs, concrete numbers, and dry humor. Use the Fowling Dispatch
+league-specific publication with evidence-backed reporting, clear serif headlines,
+focused paragraphs, and concrete numbers. Use the Fowling Dispatch
 design pattern below for every edition, with the selected league's own identity.
 
 Accuracy governs the story: establish a single evidence ledger, check it, then
@@ -143,7 +143,8 @@ IDs, account metadata and roster exports out of public search queries.
   an eligible start, and actual contribution before claiming it affected a result.
 - **Interpretation:** signal opinion and forecasts. Never invent quotations,
   motives, interviews, rivalries, traditions, or historical records. Friendly
-  roasting must follow verified outcomes and decisions; let the numbers earn it.
+  humor may follow verified outcomes and decisions, but must not exaggerate
+  their significance or obscure uncertainty.
 
 ## 4. Edit the newspaper
 
@@ -153,6 +154,20 @@ coverage across teams, and prefer a tighter edition to filler. Avoid generic AI
 phrasing, forced puns, gambling filler, excessive exclamation marks, and repeated
 player summaries. Choose story order for this edition; combine or omit optional
 modules when reporting is thin.
+
+Lead stories with the most important supported result and its league or roster
+consequence before the play-by-play. Distinguish final results, projections,
+interpretation, and recommendations; explain how missing evidence changes the
+conclusion. One matchup does not establish a season-long trend. Keep historical
+comparisons tied to their actual week and scoring conditions. Present roster
+actions as proposals with verified availability and deadlines, never as agreed
+or completed transactions.
+
+Use natural English, concrete verbs, familiar words, and focused paragraphs.
+Avoid repeated sentence patterns, symmetrical slogans, forced lists of three,
+promotional language, em dashes, and vague claims of significance. Let the
+reporting earn any restrained humor. Before delivery, check that each story's
+conclusion, evidence, and any next decision make sense on their own.
 
 Keep visible content focused on the league and football reporting. Omit blocks
 that explain the website, its layout, or how to use it, such as “Here's how this
@@ -168,14 +183,14 @@ website works.” Keep necessary data caveats beside the affected reporting.
 3. **Standings desk:** ESPN standings, applicable records/points/playoff position,
    and meaningful movement only with historical comparison. Optional power
    rankings are labeled opinion with a stated basis.
-4. **Around the NFL:** three to five consequential stories explaining what
+4. **Around the NFL:** consequential stories explaining what
    happened, why it matters to real football, and any supported connection to
    this league. Include football analysis beyond fantasy point totals.
 5. **Roster desk:** concise injury, role, usage, next-opponent, and waiver advice
    tailored to scoring and roster rules. Verify league availability immediately
    before recommending a pickup. Otherwise label “players to check.” Distinguish
    free agents from waiver claims; tie any FAAB range to actual budget/rules.
-6. **Back page:** three to five supported humorous honors, such as Performance
+6. **Back page:** optional, evidence-backed honors, such as Performance
    of the Week, Narrow Escape, Most Agonizing Loss, Bench Regret, or Transaction
    That Mattered. Omit an honor whose evidence gate fails.
 7. **Next week's marquee:** use the next confirmed league schedule, verify the

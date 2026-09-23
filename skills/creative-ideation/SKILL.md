@@ -76,7 +76,10 @@ DevOps/Kubernetes skill only if the task calls for it. Use
 requested isolated text artifact/command task.
 
 Keep output proportional: name the method when useful, present the requested
-options or decision, and state the next concrete action. Do not stop at ideas
+options or decision, and explain their supported consequence before describing
+the method. Distinguish assumptions and imagined premises from evidence; state
+the next validation and what it would resolve. Use the quality check's plain
+language guidance for explanations and recommendations. Do not stop at ideas
 when the user also requested a finished deliverable. Conversely, idea selection
 alone does not authorize building, publishing, deploying or contacting people.
 

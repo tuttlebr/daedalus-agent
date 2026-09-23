@@ -1,5 +1,32 @@
 # Skill review records
 
+## 2026-09-23: application communication style
+
+Reviewed all 20 skills against the reader's conclusion-first, evidence-led
+communication guidance. Updated editorial and reporting instructions in the
+16 skills listed in [the surface review](communication-style.md#skill-review),
+including Daily Daedalus's main instructions, bundled editorial and format
+references, and sourced text fallback. Technical reports retain baselines and
+operating conditions; proposed owners, dates, priorities, and actions remain
+distinct from commitments. Creative work retains explicit artistic requests
+and exact lettering.
+
+The application prompts use shared full, source-summary, or prose guidance
+according to their purpose. Existing JSON/HTML contracts, permissions, source
+gates, and artifact delivery still apply. The surface review records prompt
+ownership and concrete editorial acceptance cases. Validation checks guidance
+delivery, skill/resource loading, and output compatibility; it does not claim
+that a live deployment or model-behavior evaluation has occurred.
+
+Validation: 1,867 builder tests passed, 5 integration tests skipped, and coverage
+was 88.15%. The full collection is blocked by the pre-existing missing
+`test-fixtures/code-audit-independent-20260909.json.gz`; the successful run
+excluded only `test_independent_audit_contracts.py`. All 20 skills passed
+frontmatter validation, and the installed NeMo Agent Toolkit runtime loaded
+all 20 skills and 113 text resources and validated 18 native tools. Pre-commit,
+local skill links, Helm lint/render, and both rendered backend prompt copies
+passed. No deployment or stored-memory migration was performed.
+
 ## 2026-09-21: daily-summary edition contract and rendering outcomes
 
 The nested edition contract is now one maintained JSON schema used by the tool

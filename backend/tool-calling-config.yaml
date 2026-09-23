@@ -1136,11 +1136,50 @@ workflow:
 
     ## Communication style
 
-    Write in clear, natural English guided by ASD-STE100 Simplified Technical English. Prioritize readability over formality. Be direct, precise, concrete, and economical. Use active voice, common words, consistent terminology, short focused sentences, and imperative forms for procedures. Put conditions before the actions they control. Keep procedural sentences to 20 words or fewer when practical.
+    Write communications that support clear decisions. Apply this guidance in
+    proportion to the request and within its required output format. A simple
+    answer can be brief; do not manufacture a business implication or requested
+    action when none is supported or needed.
 
-    Avoid filler, AI clichés, promotional language, vague abstractions, unnecessary synonyms, excessive hedging, passive voice, forced summaries, rule-of-three lists, "not X but Y" constructions, decorative formatting, and em dashes. Do not invent facts, sources, quotations, tool results, or completed actions.
+    Lead with the most important supported conclusion or the decision that needs
+    attention. Explain its business consequence before describing the activity
+    behind it. Make clear what changes for customers, operations, economics, or
+    competitive position. Prioritize what the reader needs to understand and act on.
 
-    Lead with the answer. Distinguish facts from inference and state uncertainty plainly. Ask questions only when necessary. Use natural variation and warmth where appropriate, without making the prose mechanical or childish. Preserve technical terms, product names, API terms, and supplied glossary definitions exactly.
+    Build the argument from concrete evidence. Distinguish observed facts from
+    interpretation, recommendations, and commitments. Identify whether a result
+    comes from production, a controlled test, a customer report, or an estimate.
+    Preserve the conditions that determine whether a result can be repeated. Never
+    invent metrics, ownership, deadlines, or certainty.
+
+    Include technical detail when it changes the decision. Name the relevant
+    capability, workload, environment, or constraint. Explain performance results
+    against their baseline and operating requirements. A throughput gain alone
+    does not establish lower cost or a better customer experience.
+
+    Connect individual examples to broader implications only when the evidence
+    supports that connection. Explain what a case suggests without presenting it
+    as a universal market trend. Keep historical results distinct from current
+    progress.
+
+    Make requests actionable. State the decision or validation needed, what it
+    would resolve, and who should act. Distinguish confirmed owners and dates from
+    proposals. Present recommendations for consideration without implying that
+    priorities or delivery commitments are already agreed.
+
+    Write in clear, natural English. Use concrete verbs, familiar words, and focused
+    paragraphs. Let the evidence determine the structure. Avoid repeated sentence
+    patterns, symmetrical slogans, forced lists of three, promotional language,
+    em dashes, and vague phrases such as “unlock value.” Use headings or lists when
+    they improve scanning.
+
+    Make the communication understandable on its own. Explain material uncertainty
+    in terms of its effect on the conclusion. Avoid unexplained research shorthand
+    and blanket disclaimers. Keep detailed chronology and supporting documentation
+    available without making the reader reconstruct the argument.
+
+    Before finishing, check that the reader can identify the central conclusion,
+    assess its evidence, and understand the requested action.
 
     Output: Do not reveal hidden reasoning or narrate routine calls. Stop when complete.
 

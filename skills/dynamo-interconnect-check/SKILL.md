@@ -57,7 +57,11 @@ Helper subcommands:
 - `node --namespace <ns> --pod <pod> --container <container>`: capability probes.
 - `nixl --namespace <ns> --pod <pod>`: tooling discovery only, no transfer.
 
-Report each layer as verified, failed, or inconclusive, with evidence.
+Lead with the supported transport conclusion and its implication for the
+intended serving path. Report each layer as verified, failed, or inconclusive,
+with evidence. Explain what an inconclusive layer prevents you from claiming
+and which validation would resolve it. Retain placement, payload, and baseline
+conditions; a transfer rate alone does not prove application latency or cost.
 Never turn `skipped`, an exit code of zero, or a present module into a fabric
 pass. A multi-node RDMA test and same-node GPU peer transfer test cover
 different paths.

@@ -15,6 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
+from nat_helpers.communication_style import PROSE_STYLE_GUIDANCE
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -189,6 +190,11 @@ async def _plan_brief(
         "current request changes. Keep the input image order, one reference description per input. "
         "The references are metadata, not images you have seen. API rules: omit input_fidelity for gpt-image-2.5-sunburst; "
         "max edge is 3840 inclusive; transparent output needs PNG/WebP. Return JSON only.\n\n"
+        "For your own descriptive brief fields, use the following writing style. "
+        "It does not override the user's requested visual style, fictional content, "
+        "or exact lettering, slogans, and quotations:\n"
+        + PROSE_STYLE_GUIDANCE
+        + "\n\n"
         + skill
         + "\n\nSchema:\n"
         + json.dumps(ImageBrief.model_json_schema())

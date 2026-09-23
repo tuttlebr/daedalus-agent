@@ -59,8 +59,11 @@ bundle is not evidence of a healthy deployment.
 
 ## Resolve and verify
 
-Report the primary failure class, strongest signal, observed impact, plausible
-cause, ruled-out layers, and the exact next read or source patch.
+Lead with the supported failure conclusion and observed user or operational
+impact. Follow with the strongest signal, plausible cause, ruled-out layers,
+and exact next read or source patch. Distinguish observation from hypothesis
+and explain what the next check would resolve. Name owners or dates only when
+confirmed or explicitly proposed; a proposed fix is not a recovery commitment.
 
 When repair is requested, choose one evidenced change in the owner source.
 Use [dynamo-recipe-runner](../dynamo-recipe-runner/SKILL.md) for recipe repair,

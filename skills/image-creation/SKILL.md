@@ -9,6 +9,13 @@ Translate the user's request into a precise visual brief, preserving their
 medium, text, references, and explicit settings. This guidance is used both by
 chat and by Create's prompt-preparation service; keep it self-contained.
 
+Write your own brief descriptions in clear, natural English with concrete
+verbs and specific visual details. Avoid promotional language, vague claims,
+symmetrical slogans, forced lists of three, and em dashes. These writing rules
+do not change the user's requested artistic style, fictional content, or exact
+lettering. In delivery notes, lead with the actual result and explain any
+material limitation; do not promise commercial impact or unverified fidelity.
+
 ## Application contract
 
 In chat, call `visual_media_tool` with `operation=generate` or `edit`,

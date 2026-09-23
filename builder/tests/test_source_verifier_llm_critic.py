@@ -37,6 +37,7 @@ def test_claim_focused_excerpt_preserves_middle_and_boundary_evidence():
 
 
 def test_llm_critic_validates_and_normalizes_a_verdict():
+    from nat_helpers.communication_style import PROSE_STYLE_GUIDANCE
     from source_verifier.critic import LLMClaimCritic
 
     captured = {}
@@ -78,6 +79,7 @@ def test_llm_critic_validates_and_normalizes_a_verdict():
     }
     assert "source-verification critic" in captured["system_prompt"]
     assert "Do not fill gaps with prior knowledge" in captured["system_prompt"]
+    assert PROSE_STYLE_GUIDANCE in captured["system_prompt"]
     assert "Release 4.2 supports Linux." in captured["user_prompt"]
     assert "BEGIN UNTRUSTED SOURCE CONTENT" in captured["user_prompt"]
 

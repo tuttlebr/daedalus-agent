@@ -69,7 +69,10 @@ smoke check. Do not substitute either for replay parity. Use current source and
 `nvidia_docs_tool` for semantic contracts; keep research, build, measurement,
 profiling and external publication distinct.
 
-Return revisions/artifacts, frozen matrix and lifecycle evidence, canonical
+Lead with the semantic and performance conclusions and the decision they
+support. Identify the evidence as an offline simulator campaign and explain
+its limits for live serving; a replay speedup alone proves neither lower cost
+nor better customer experience. Follow with revisions/artifacts, frozen matrix and lifecycle evidence, canonical
 digests/exceptions, every timing attempt and invalidation, confidence bounds,
 footprint and limitations. Do not claim a pass for missing rows or weakened
 protocol gates.

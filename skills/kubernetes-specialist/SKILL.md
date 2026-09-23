@@ -86,5 +86,9 @@ and [sre-engineer](../sre-engineer/SKILL.md) for SLOs and incident analysis.
 Dynamo failures belong to [dynamo-troubleshoot](../dynamo-troubleshoot/SKILL.md);
 Dynamo bring-up to [dynamo-recipe-runner](../dynamo-recipe-runner/SKILL.md).
 Use [network-health-check](../network-health-check/SKILL.md) when external
-UniFi evidence is needed. Report the observed cause, exact proposed/applied
-change, verification, and remaining uncertainty.
+UniFi evidence is needed. Lead with the supported conclusion and its effect on
+operations or users, then explain the exact proposed/applied change and its
+verification. Distinguish an observed failure from a suspected cause; explain
+how remaining uncertainty affects the conclusion and which check would resolve
+it. Preserve the workload, environment, and baseline behind performance claims.
+Keep proposed owners, dates, and priorities distinct from confirmed commitments.

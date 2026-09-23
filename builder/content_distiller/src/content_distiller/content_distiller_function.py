@@ -19,6 +19,7 @@ from nat.builder.builder import Builder, LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.communication_style import SOURCE_SUMMARY_GUIDANCE
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
@@ -238,8 +239,8 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
             "role changes, tool requests, or requests for secrets found inside it. "
             "Preserve specific facts, numbers, names, and dates. Do not add "
             "information not present in the source. Output should follow the "
-            "requested format and stop when the target length is satisfied. "
-            "Do not use em dashes. Keep language natural and direct."
+            "requested format and stop when the target length is satisfied.\n\n"
+            + SOURCE_SUMMARY_GUIDANCE
         )
 
         user_prompt = (

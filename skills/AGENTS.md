@@ -32,6 +32,11 @@ not a collection of installed CLI plugins. Keep all skills compatible with
   shared `ImageBrief`/`ImageOptions` contract, also consumed directly by Create.
 - Keep diagnostics distinct from repair, artifact preparation from publication,
   and deployment readiness from successful end-to-end behavior.
+- Keep skill reporting consistent with the runtime communication style: lead
+  with a supported conclusion and consequence, distinguish evidence from
+  interpretation and proposals, preserve comparison conditions, and make needed
+  decisions or validation clear. Put task-specific editorial guidance in the
+  owning skill; do not replace required output schemas with a prose template.
 - Preserve licenses and attribution. Imported evaluation reports and signatures
   cannot certify edited copies; identify provenance clearly.
 

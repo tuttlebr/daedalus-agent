@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import nat_helpers.hindsight_memory_context as context
+from nat_helpers.communication_style import SOURCE_SUMMARY_GUIDANCE
 
 
 def run(coro):
@@ -58,6 +59,9 @@ def test_bootstrap_applies_only_missing_overrides_and_missing_pages(monkeypatch)
         "Daedalus — Reusable Procedures & Constraints",
     ]
     assert all("tags" not in item for item in client.created_pages)
+    assert all(
+        SOURCE_SUMMARY_GUIDANCE in item["source_query"] for item in client.created_pages
+    )
 
 
 def test_memory_defense_uses_only_hindsight_supported_actions():
@@ -251,6 +255,8 @@ def test_session_brief_reflects_only_for_explicit_synthesis(monkeypatch):
     assert routine == ""
     assert synthesized == "Synthesized memory brief"
     assert len(client.queries) == 1
+    assert SOURCE_SUMMARY_GUIDANCE in client.queries[0]
+    assert client.queries[0].endswith("Current request: Summarize my memory")
 
 
 def test_clear_user_memory_caches_removes_bootstrap_and_all_user_sessions(monkeypatch):

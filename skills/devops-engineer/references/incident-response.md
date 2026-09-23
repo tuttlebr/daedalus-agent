@@ -14,5 +14,8 @@ scale/restart automatically on an error threshold, or turn diagnosis into a
 chaos experiment. Sending an incident notice is a separate external action.
 
 After a requested repair, verify endpoint behavior and retained data, then state
-what is recovered and what cause remains uncertain. Keep a concise timeline
-and follow-up checks proportionate to the incident.
+the recovered user or operational behavior before recounting the repair.
+Distinguish observations from causal interpretation, explain how remaining
+uncertainty affects the conclusion, and name the next validation that would
+resolve it. Keep a concise supporting timeline and label unconfirmed owners
+or dates as proposals.

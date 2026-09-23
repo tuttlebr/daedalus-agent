@@ -76,7 +76,13 @@ to the actual checkout, and use unique `LOG_DIR`/`RESULTS_DIR` per campaign.
 | [isolate.sh](scripts/isolate.sh), [unisolate.sh](scripts/unisolate.sh)                         | Optional authorized runtime CPU confinement with an exact recovery record |
 | [process_control.py](scripts/process_control.py), [cpu_isolation.py](scripts/cpu_isolation.py) | Process identity and scoped restoration                                   |
 
-Return the frozen setup, revisions/artifacts, complete/failed attempts, paired
-results, measurement assumptions, bottleneck evidence and cleanup state.
+Lead with the supported comparison and the decision it informs. Identify this
+as a controlled mock-worker test and explain its scope before any operational
+implication. Include the baseline, workload, environment, operating requirements,
+complete/failed attempts, paired results, measurement assumptions, bottleneck
+evidence and cleanup state; retain the frozen setup and revisions/artifacts for
+reproduction. A throughput gain alone proves neither lower cost nor a better
+customer experience. Label broader implications as hypotheses and state the
+validation they need, without inventing owners, dates, or delivery commitments.
 Separate observed closed-loop throughput from open-loop capacity. A flamegraph,
 HTTP 200, model listing, or parser exit zero cannot establish overall run success.

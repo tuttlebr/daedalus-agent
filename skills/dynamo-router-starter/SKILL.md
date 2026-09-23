@@ -47,8 +47,11 @@ resource=references/router-modes.md)`. Mode/flag names are version-dependent.
 5. Verify effective mode and worker registration. Read `/v1/models`, select
    the intended model, and send one bounded completion. Check the response
    schema, nonempty content, and finish/error state; HTTP 200 alone is not proof.
-6. Report the configured mode, evidence it took effect, model/output, and any
-   approximate-routing or untested-path limitation.
+6. Lead with the verified routing outcome and its operational consequence,
+   then the configured mode, evidence it took effect, and model/output. Explain
+   how approximate-routing or untested-path limitations affect the conclusion
+   and name any next validation needed. Keep proposed performance benefits
+   distinct from measured results.
 
 The optional operator helper
 [check_router_health.py](scripts/check_router_health.py) checks models and a

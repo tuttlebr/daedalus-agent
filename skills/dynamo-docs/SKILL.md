@@ -60,6 +60,12 @@ hand-edit CI-managed website branches or immutable release snapshots.
 Use present-tense, concrete explanations and bounded commands. Separate
 measured results from hypothetical examples. Do not invent benchmark numbers,
 API behavior, sources, internal issue references or publication state.
+Lead explanatory prose with the supported capability or conclusion and why it
+matters to the reader. Include technical detail that changes the decision;
+preserve benchmark baselines, workloads, environments, and operating limits.
+Throughput alone does not establish lower cost or better customer experience.
+Use focused paragraphs and headings or lists for scanning, without promotional
+language, symmetrical slogans, forced lists of three, or em dashes.
 
 ## Validate and deliver
 

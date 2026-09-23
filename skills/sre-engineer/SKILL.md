@@ -35,8 +35,11 @@ failure or silently removed from the denominator.
 2. For an SLO, specify good events, valid total events, source query, exclusions,
    window, and target. Separate an observed baseline from a proposed target.
    Missing telemetry is unknown, not zero errors.
-3. For an incident, lead with current impact, timeline, strongest evidence,
-   owner, and a bounded next action. Distinguish recovery from root-cause proof.
+3. For an incident, lead with current impact and the strongest supported
+   conclusion, then the evidence and needed decision or validation. Name
+   confirmed owners and dates; label proposed assignments as proposals.
+   Keep the detailed timeline available after the conclusion. Distinguish
+   recovery from root-cause proof.
 4. For capacity, use representative traffic, service latency and saturation;
    freeze the workload/topology before comparison. A mock frontend benchmark
    cannot establish real GPU serving capacity.
@@ -74,3 +77,7 @@ Hand off cluster objects to
 [dynamo-troubleshoot](../dynamo-troubleshoot/SKILL.md). Keep evidence and
 execution status together. Return the requested analysis or artifact, its
 measurement assumptions, validation, and unverified limits.
+Explain uncertainty through its effect on the decision. Preserve workload,
+baseline, and operating requirements when reporting performance; throughput
+alone does not establish lower cost or better user experience. Use concrete
+verbs and focused paragraphs, with headings or lists only when they help scanning.

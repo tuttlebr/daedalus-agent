@@ -11,7 +11,11 @@ DAILY_SUMMARY_SYNTHESIS_INSTRUCTION = (
     "successful briefing_renderer_tool result exists, call it now with the best "
     "supported edition. If rendering cannot succeed, return the sourced plain-text "
     "fallback required by the daily-summary skill. Do not restart research and omit "
-    "unsupported claims."
+    "unsupported claims. Preserve the communication style and daily-summary "
+    "editorial guidance in both rendered and fallback reporting: lead with the "
+    "supported conclusion and its consequence, distinguish observations from "
+    "interpretation and proposals, and explain uncertainty that affects the "
+    "reader's next action. Do not invent owners, deadlines, or commitments."
 )
 
 

@@ -8,6 +8,7 @@ dynamic = ["version"]
 dependencies = [
   "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "langchain-core",
+  "nat_helpers",
   "pydantic>=2,<2.14",
 ]
 requires-python = ">=3.11,<3.14"

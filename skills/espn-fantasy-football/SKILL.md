@@ -145,7 +145,7 @@ Return **accept, decline, counter, or hold**, with the strongest reason, project
 
 ## Deliver the recommendation
 
-Lead with the action and identify the league/team, season/week or draft pick, and data freshness. Keep outputs proportional to the question:
+Lead with the recommended action and its supported roster consequence, then identify the league/team, season/week or draft pick, and data freshness. Use concrete verbs, familiar words, and focused explanations. Avoid promotional language, symmetrical slogans, forced lists of three, and em dashes. Keep outputs proportional to the question:
 
 - **On the clock:** best pick, two backups, the scoring/roster reason, and any availability condition.
 - **Draft preparation:** tiered targets, positional needs, pick/price ranges, and contingencies.

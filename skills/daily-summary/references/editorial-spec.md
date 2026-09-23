@@ -60,18 +60,49 @@ creating the empty corridor seen in the v3 layout.
 
 ## Reporting density and voice
 
-- Begin operations with a plain verdict such as stable, watching, degraded, or
-  action required, supported by current evidence. Avoid alarmist language.
-- Give numbers denominators and scope: affected versus total, current versus
-  historical, ready versus desired.
-- Put the reader's next action near the fact that creates it.
-- Use short declarative headlines, precise deks, and compact paragraphs.
-- Keep private mail and calendar copy discreet. Prefer “prepare for” and
-  “reply to” over unnecessary quotations.
-- The Editor's Note may connect reported facts or name the day's priority; it
-  must not introduce an unsupported claim.
-- Aim for five to eight minutes only when the reporting earns that length. A
-  quiet edition should be visibly shorter.
+Lead with the most important supported conclusion or decision needing
+attention. Explain its consequence for the reader's operations, customers,
+economics, or plans before recounting activity. Begin operations with a plain,
+evidence-backed verdict such as stable, watching, degraded, or action required.
+Avoid alarmist headlines and do not invent a business consequence for a quiet day.
+
+Distinguish observed facts from interpretation, recommendations, and
+commitments. Identify production observations, controlled tests, published or
+customer reports, and estimates. Give numbers denominators and scope: affected
+versus total, current versus historical, ready versus desired. Include technical
+detail when it changes the decision, preserving the capability, workload,
+environment, baseline, and operating requirements needed to interpret or repeat
+a result. Throughput alone does not establish lower cost or a better customer
+experience.
+
+Connect cases to broader implications only as far as their evidence supports.
+A single launch, benchmark, or customer example is not a universal market
+trend. Keep historical results separate from today's progress. The Editor's
+Note may synthesize reported facts or propose a priority; it must not introduce
+unsupported claims or imply that a proposed priority is already agreed.
+
+Put the needed decision or validation near the fact that creates it. Explain
+what it would resolve and who should act, distinguishing confirmed owners and
+dates from proposals. Never invent metrics, ownership, deadlines, or delivery
+commitments. Keep private mail and calendar copy discreet; prefer “prepare
+for” and “reply to” over unnecessary quotations.
+
+Use clear, natural English, concrete verbs, familiar words, declarative
+headlines, precise deks, and focused paragraphs. Let the reporting determine
+paragraph and list structure within the fixed page layout. Avoid repeated
+sentence patterns, symmetrical slogans, forced lists of three, promotional
+language, em dashes, and vague phrases such as “unlock value.” Headings and
+lists should help scanning. The fixed masthead tagline is publication identity,
+not a pattern to repeat in reporting.
+
+Make every story understandable on its own. Explain how material uncertainty
+affects its conclusion or next action; avoid unexplained research shorthand
+and blanket disclaimers. Keep detailed chronology and supporting evidence in
+the continuation and linked sources. Before finishing, check that the reader
+can identify the central conclusion, assess its evidence, and understand any
+requested action. Apply this same voice to the sourced text fallback. Aim for
+five to eight minutes only when the reporting earns that length; a quiet
+edition should be visibly shorter.
 
 ## Structured provenance
 

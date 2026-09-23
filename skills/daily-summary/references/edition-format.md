@@ -7,6 +7,12 @@ CSS, Markdown, or template tokens in a field. Pass this structure as the `editio
 object to `briefing_renderer_tool`; the backend performs JSON serialization. The
 renderer is the authoritative validator and returns field-specific errors.
 
+Apply [the editorial voice](editorial-spec.md#reporting-density-and-voice) to
+every text field, including headlines, deks, briefs, and `editors_note`.
+Lead with a supported conclusion and its consequence; preserve evidence scope
+and uncertainty. Structured provenance supports the reporting but does not
+replace explaining whether a result is observed, reported, estimated, or proposed.
+
 ## Root object
 
 ```json
@@ -23,7 +29,7 @@ renderer is the authoritative validator and returns field-specific errors.
   "day_ahead": { "weather": {}, "email_calendar": {} },
   "operations_details": [],
   "departments": [],
-  "editors_note": "One concise synthesis grounded in reported facts.",
+  "editors_note": "The supported implication of reported facts and any decision or validation needed.",
   "coverage": []
 }
 ```
@@ -66,10 +72,12 @@ words. The snapshot has `columns` and at most five same-width `rows`.
 
 ```json
 {
-  "headline": "Cluster Returns to Steady State",
-  "dek": "A concise statement of current consequence.",
+  "headline": "All Five Cluster Nodes Report Ready",
+  "dek": "Node readiness is confirmed; application request behavior still needs validation.",
   "verdict": { "label": "Stable, watching", "tone": "watch" },
-  "paragraphs": ["Verified opening context."],
+  "paragraphs": [
+    "The current Kubernetes read reports 5 of 5 nodes Ready. This observation does not establish that application requests complete successfully."
+  ],
   "snapshot": {
     "columns": ["Scope", "Current state"],
     "rows": [["Nodes", "5 of 5 Ready"]]

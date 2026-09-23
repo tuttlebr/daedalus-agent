@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from nat_helpers import image_brief as mod
+from nat_helpers.communication_style import PROSE_STYLE_GUIDANCE
 from nat_helpers.image_brief import ImageBrief, ImageContext, ImageOptions
 from nat_helpers.image_utils import fetch_image_context
 
@@ -32,6 +33,32 @@ def test_exact_prompt_bypasses_skill_and_model_and_preserves_bytes(monkeypatch):
     assert result.prompt == result.originalPrompt == prompt
     assert result.guidance == "exact"
     planner.assert_not_called()
+
+
+def test_planner_sends_descriptive_style_without_rewriting_requested_lettering(
+    monkeypatch,
+):
+    monkeypatch.setenv("IMAGE_PROMPT_MODEL", "fixture-model")
+    monkeypatch.setenv("IMAGE_PROMPT_API_KEY", "fixture-key")
+    brief = ImageBrief(subject="poster", exact_text=["WIN—BUILD—LEAD"])
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=None)
+    client.responses.create = AsyncMock(
+        return_value=SimpleNamespace(output_text=brief.model_dump_json())
+    )
+    monkeypatch.setattr(mod, "AsyncOpenAI", lambda **_kwargs: client)
+    prompt = 'Letter the poster exactly "WIN—BUILD—LEAD".'
+
+    result = asyncio.run(
+        mod._plan_brief(prompt, "generate", [], "", None, "Visual guidance", {})
+    )
+
+    sent = client.responses.create.call_args.kwargs
+    assert PROSE_STYLE_GUIDANCE in sent["instructions"]
+    assert "Return JSON only" in sent["instructions"]
+    assert json.loads(sent["input"])["request"] == prompt
+    assert result.exact_text == brief.exact_text
 
 
 def test_create_and_chat_render_the_same_brief_once(monkeypatch):

@@ -5,6 +5,7 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
+from nat_helpers.communication_style import PROSE_STYLE_GUIDANCE
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 VerifierVerdict = Literal[
@@ -92,7 +93,14 @@ Output: return JSON only, with exactly these fields:
   "evidence": "<source evidence, or null>",
   "reasoning": "<concise explanation grounded only in the source>",
   "claim_issues": ["<unsupported, contradicted, or imprecise part>", ...]
-}"""
+}""" + (
+    "\n\nFor reasoning and claim_issues, lead with the decisive evidence or gap "
+    "and explain its effect on the verdict. Distinguish source observations "
+    "from interpretation; preserve the conditions and historical scope of any "
+    "result. Do not add recommendations or alter quoted evidence. Apply the "
+    "following style only to your own explanatory text, within the JSON schema:\n"
+    + PROSE_STYLE_GUIDANCE
+)
 
 
 def _extract_json_object(raw: str) -> dict[str, Any]:

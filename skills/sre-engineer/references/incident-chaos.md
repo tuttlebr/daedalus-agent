@@ -1,7 +1,8 @@
 # Incidents and resilience experiments
 
-For an incident, capture current user impact, affected scope, as-of time,
-strongest evidence and a concise timeline. Separate facts, hypotheses,
+For an incident, lead with the supported conclusion and current user impact,
+then the affected scope, as-of time, strongest evidence, and next decision or
+validation. Keep the timeline as supporting detail. Separate facts, hypotheses,
 mitigations, recovery and root cause. Use focused operational skills for reads
 and requested repair; preserve successful checks across handoffs.
 
@@ -11,7 +12,9 @@ scope and runtime gates. Draft communications only when requested and keep
 credentials/private payloads out of reports.
 
 A post-incident record should explain what failed, why detection/recovery took
-as long as they did, what remains uncertain, and owned follow-ups. Keep its
+as long as they did, how remaining uncertainty affects the conclusion, and
+which follow-ups would resolve it. Distinguish confirmed owners and dates from
+proposed assignments; never invent an agreed priority or commitment. Keep its
 length proportional to the incident; avoid a mandatory organizational ritual.
 
 For an explicitly requested fault experiment, predeclare the hypothesis,

@@ -9,6 +9,7 @@ from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
 from nat_helpers.content_credentials import ContentCredentialsError
 from nat_helpers.identity import resolve_authenticated_user_id
 from nat_helpers.image_brief import ImageBrief, ImageOptions, prepare_image_request
@@ -511,7 +512,17 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
         payload = {
             "model": config.comprehension_model,
             "messages": [
-                {"role": "system", "content": "/no_think" if is_video else "/think"},
+                {
+                    "role": "system",
+                    "content": ("/no_think" if is_video else "/think")
+                    + "\n\n"
+                    + COMMUNICATION_STYLE_GUIDANCE
+                    + "\n\nBase visual analysis on the supplied media. Distinguish "
+                    "visible observations from interpretation and explain when "
+                    "unreadable or missing detail limits the answer. Do not infer "
+                    "business outcomes, causality, or current operational health "
+                    "from appearance alone.",
+                },
                 {
                     "role": "user",
                     "content": [{"type": "text", "text": question}, media_content],

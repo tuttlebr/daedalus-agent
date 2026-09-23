@@ -86,6 +86,50 @@ def test_visual_media_config_groups_image_and_vlm_settings():
     assert config.comprehension_model == "nvidia/custom-vlm"
 
 
+@pytest.mark.parametrize(
+    ("media_type", "flag"), [("image", "/think"), ("video", "/no_think")]
+)
+def test_visual_analysis_sends_shared_style_and_preserves_media_mode(
+    monkeypatch, media_type, flag
+):
+    import visual_media.visual_media_function as mod
+    from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
+
+    client = MagicMock()
+    response = MagicMock()
+    response.json.return_value = {
+        "choices": [{"message": {"content": "The label is unreadable."}}]
+    }
+    client.post = AsyncMock(return_value=response)
+    client.aclose = AsyncMock()
+    monkeypatch.setattr(mod.httpx, "AsyncClient", lambda **_kwargs: client)
+
+    async def analyze():
+        generator = visual_media_function(VisualMediaFunctionConfig(), MagicMock())
+        info = await generator.__anext__()
+        try:
+            return await info.fn(
+                operation="analyze",
+                question="What does the label say?",
+                **{f"{media_type}_url": "https://8.8.8.8/fixture"},
+            )
+        finally:
+            await generator.aclose()
+
+    assert asyncio.run(analyze()) == "The label is unreadable."
+    messages = client.post.call_args.kwargs["json"]["messages"]
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"].startswith(flag + "\n")
+    assert COMMUNICATION_STYLE_GUIDANCE in messages[0]["content"]
+    assert messages[1]["content"] == [
+        {"type": "text", "text": "What does the label say?"},
+        {
+            "type": f"{media_type}_url",
+            f"{media_type}_url": {"url": "https://8.8.8.8/fixture"},
+        },
+    ]
+
+
 def test_visual_media_schema_accepts_transparent_background():
     request = VisualMediaInput.model_validate(
         {

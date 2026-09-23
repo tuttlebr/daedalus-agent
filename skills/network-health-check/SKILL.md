@@ -52,7 +52,11 @@ there are no alarms or healthy WAN/VPN sessions from tools that do not expose
 those observations.
 
 Keep healthy reports short. For a failure, lead with impact and current
-evidence, then give an actionable next step. No reboot, adoption, upgrade,
+evidence, then give an actionable next check and explain what it would resolve.
+Separate observed device state from causal interpretation and customer reports.
+Describe uncertainty through its effect on the conclusion, and label proposed
+owners or dates without implying an agreed maintenance commitment.
+No reboot, adoption, upgrade,
 acknowledgement, or configuration call belongs in this health check. Use
 [unifi-network](../unifi-network/SKILL.md) for a requested repair and
 [unifi-network-setup](../unifi-network-setup/SKILL.md) for access failures.
