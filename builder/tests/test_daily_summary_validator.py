@@ -414,3 +414,13 @@ def test_validator_rejects_nonembedded_or_invalid_raster_bytes(tmp_path, replace
     result, report = _run_validator(tmp_path, html)
     assert result.returncode == 1
     assert any("raster" in error for error in report["errors"])
+
+
+def test_validator_rejects_reintroduced_editor_note(tmp_path):
+    html, _ = _render()
+    html = html.replace(
+        "</main>", '<section id="editors-note"><h2>Editor’s Note</h2></section></main>'
+    )
+    result, report = _run_validator(tmp_path, html)
+    assert result.returncode == 1
+    assert any("must omit the editor's note" in error for error in report["errors"])

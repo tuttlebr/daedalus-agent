@@ -2010,9 +2010,6 @@ def test_daily_summary_contracts_structured_briefing():
         daily_skill = (SKILLS_DIR / "daily-summary" / "SKILL.md").read_text(
             encoding="utf-8"
         )
-        editorial = (
-            SKILLS_DIR / "daily-summary" / "references" / "editorial-spec.md"
-        ).read_text(encoding="utf-8")
         sourcing = (
             SKILLS_DIR / "daily-summary" / "references" / "research-and-sourcing.md"
         ).read_text(encoding="utf-8")
@@ -2048,51 +2045,39 @@ def test_daily_summary_contracts_structured_briefing():
         assert "references/edition-format.md" in daily_skill, path
         assert "scripts/render_daybook.py" in daily_skill, path
         assert "daily-daedalus/v1" in edition_format, path
-        assert "data-lead-layout" in editorial, path
-        assert 'data-lead-layout="split"' in editorial, path
-        assert 'data-daybook-version="4"' in editorial, path
-        assert "https://g1.nyt.com/fonts/css/web-fonts." in editorial, path
-        assert "Every `<img>` belongs inside a `<figure>`" in editorial, path
-        assert "data-coverage-status" in editorial, path
-        assert "data-edition-strap" in editorial, path
-        assert "data-lead-story" in editorial, path
-        assert 'id="editors-note"' in editorial, path
-        assert "operation=generate" in sourcing, path
-        assert "operation=edit" in sourcing, path
-        assert (
-            "source images only"
-            in config["functions"]["visual_media_tool"]["description"]
-        ), path
+        markup = template.read_text(encoding="utf-8")
+        schema = json.loads(
+            (
+                SKILLS_DIR / "daily-summary" / "references" / "edition-schema.json"
+            ).read_text()
+        )
+        assert 'data-lead-layout="split"' in markup, path
+        assert 'data-daybook-version="4"' in markup, path
+        assert 'id="editors-note"' not in markup, path
+        assert "<link" not in markup, path
+        assert "editors_note" not in schema["properties"], path
+        assert "data_url" not in schema["$defs"]["figure"]["required"], path
+        assert "figure" in schema["$defs"]["lead"]["properties"], path
+        assert "visual_media_tool" in sourcing, path
         assert validator.is_file(), path
         assert renderer.is_file(), path
-        assert template.is_file(), path
-        assert policy["policy_version"] == "2026-08-27", path
-        assert policy["edition"] == {
-            "title": "The Daily Daedalus",
-            "tagline": "One reader. One editor. No filler.",
-            "home_location": "Saline, Michigan",
-            "timezone": "America/Detroit",
-            "lead_desk": "cluster-infrastructure",
-            "target_read_minutes": {"minimum": 5, "maximum": 8},
-        }, path
+        assert policy["edition"]["lead_desk"] == "editorial-choice", path
         desks = {desk["key"]: desk for desk in policy["desks"]}
-        assert set(desks) == {
-            "cluster-infrastructure",
-            "weather",
-            "email-calendar",
-            "ai-inference",
-            "science-technology",
-            "markets-finance",
-            "outdoors-field",
+        assert {
+            "technology",
+            "business",
+            "health",
             "sports",
-            "culture-leisure",
-        }, path
-        assert desks["cluster-infrastructure"]["placement"] == "lead", path
-        assert desks["markets-finance"]["cadence"] == "conditional", path
-        assert "New York Yankees" in " ".join(desks["sports"]["topics"]), path
-        assert "Michigan State men's basketball" in " ".join(
-            desks["sports"]["topics"]
-        ), path
+            "world",
+            "us",
+            "science",
+            "opinion",
+            "arts",
+            "style",
+            "travel",
+            "michigan-region",
+        } <= set(desks), path
+        assert desks["cluster-infrastructure"]["cadence"] == "conditional", path
 
 
 def test_source_policy_metadata_is_self_describing():

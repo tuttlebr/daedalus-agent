@@ -62,9 +62,6 @@
       "minItems": 0,
       "maxItems": 20
     },
-    "editors_note": {
-      "type": "string"
-    },
     "coverage": {
       "type": "array",
       "items": {
@@ -83,7 +80,6 @@
     "day_ahead",
     "operations_details",
     "departments",
-    "editors_note",
     "coverage"
   ],
   "additionalProperties": false,
@@ -300,42 +296,7 @@
           "additionalProperties": false
         },
         {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": ["figure"]
-            },
-            "url": {
-              "type": "string"
-            },
-            "source_page": {
-              "type": "string"
-            },
-            "credit": {
-              "type": "string"
-            },
-            "alt": {
-              "type": "string"
-            },
-            "caption": {
-              "type": "string"
-            },
-            "data_url": {
-              "type": "string",
-              "description": "Verified raster bytes as a base64 data:image/png, jpeg, gif or webp URL. No external asset fetch."
-            }
-          },
-          "required": [
-            "type",
-            "url",
-            "source_page",
-            "credit",
-            "alt",
-            "caption",
-            "data_url"
-          ],
-          "additionalProperties": false
+          "$ref": "#/$defs/figure"
         }
       ],
       "description": "Every block needs type and the corresponding fields. Briefs use items; paragraph and subhead use text; table and figure fields are flat."
@@ -636,6 +597,9 @@
         },
         "desk_key": {
           "type": "string"
+        },
+        "figure": {
+          "$ref": "#/$defs/figure"
         }
       },
       "required": ["headline", "dek", "paragraphs", "source", "desk_key"],
@@ -729,6 +693,36 @@
         }
       },
       "required": ["desk_key", "status"],
+      "additionalProperties": false
+    },
+    "figure": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["figure"]
+        },
+        "url": {
+          "type": "string"
+        },
+        "source_page": {
+          "type": "string"
+        },
+        "credit": {
+          "type": "string"
+        },
+        "alt": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "data_url": {
+          "type": "string",
+          "description": "Optional already-embedded raster bytes; normally omit so the briefing tool fetches the linked photo."
+        }
+      },
+      "required": ["type", "url", "source_page", "credit"],
       "additionalProperties": false
     }
   }

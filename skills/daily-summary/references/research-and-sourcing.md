@@ -273,26 +273,28 @@ shared idea with Alicia only when it is genuinely specific and useful.
 - If authoritative sources disagree, state the disagreement or omit the claim.
 - If a cadence-appropriate check has no material result, mark the desk `quiet`.
 
-## Source-only images
+## Article photos and source descriptions
 
-Images are evidence-adjacent editorial assets, not decoration.
+When a selected article exposes a relevant photograph through its article
+markup, Markdown image, linked raster URL or article-specific image metadata,
+include that photo. Use the direct image URL rather than the article URL;
+ignore publisher logos, icons, ads and unrelated recommendations. Do not run
+another broad image search or an AI analysis step.
 
-1. Select a direct HTTPS raster URL published on the primary or official page
-   used for the adjacent story.
-2. Confirm that subject, event, team, place, and date match the caption. Use
-   `visual_media_tool` with `operation=analyze` when any match is uncertain.
-3. Record the direct image URL, source page, and named photographer or publisher
-   credit. Use all three in the required figure attributes and caption. Embed verified
-   raster bytes as a base64 `data_url`; provenance URLs are never image `src`.
-   The renderer does not download assets. If bytes are unavailable within the
-   bounded workflow, omit the image.
-4. Do not put article-page URLs in `<img src>`, use generic stock as reported
-   evidence, or reuse the same image URL twice.
-5. Never call `visual_media_tool` with `operation=generate` or `operation=edit`
-   for a daily summary. Never use `/api/generated-image/` assets.
+Pass the photo URL, source article page and original photographer/agency credit
+(or publisher when no photographer is credited) to the renderer. Copy the
+source's caption or photo description when provided, and its alt text when
+available. Keep this a short source excerpt and preserve attribution; do not
+infer depicted people, place or events from the headline. If no description is
+provided, omit it and use the renderer's neutral source-only fallback.
 
-When trustworthy source imagery is unavailable or fails analysis, omit it and
-rebalance the page with type, rules, and whitespace.
+`briefing_renderer_tool` downloads and embeds the selected raster images without
+passing bytes through the model. It uses bounded public HTTPS requests, compact
+display copies where needed, and skips inaccessible, oversized or unsupported
+images while retaining the story. Choose one photo per story and do not repeat
+the same photo. No `visual_media_tool` analysis, generation or editing is needed
+or permitted for routine source-photo inclusion. Never use generated-image
+assets. The final document has no external rendering dependencies.
 
 Recover relevant omitted compacted rows before exact or absence claims. Use
 `content_distiller_tool` for lengthy source prose only when helpful, preserving

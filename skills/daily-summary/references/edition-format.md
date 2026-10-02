@@ -8,7 +8,7 @@ object to `briefing_renderer_tool`; the backend performs JSON serialization. The
 renderer is the authoritative validator and returns field-specific errors.
 
 Apply [the editorial voice](editorial-spec.md#reporting-density-and-voice) to
-every text field, including headlines, deks, briefs, and `editors_note`.
+every text field, including headlines, deks, and briefs.
 Lead with a supported conclusion and its consequence; preserve evidence scope
 and uncertainty. Structured provenance supports the reporting but does not
 replace explaining whether a result is observed, reported, estimated, or proposed.
@@ -29,7 +29,6 @@ replace explaining whether a result is observed, reported, estimated, or propose
   "day_ahead": { "weather": {}, "email_calendar": {} },
   "operations_details": [],
   "departments": [],
-  "editors_note": "The supported implication of reported facts and any decision or validation needed.",
   "coverage": []
 }
 ```
@@ -67,7 +66,8 @@ separate Sources section. Image credits appear only in their figure captions.
 ## Lead and front page
 
 `lead` requires `desk_key` for the selected policy news desk, `headline`, `dek`,
-one or two `paragraphs`, and a `source`. `verdict` and `snapshot` are optional.
+one or two `paragraphs`, and a `source`. `verdict`, `snapshot` and `figure` are optional. A linked lead photo uses the
+same figure object as the supported block below.
 Choose the strongest current news; Opinion, Weather and Email & Calendar cannot
 be the reported-news lead. The paragraph total is at most 220
 words. The snapshot has `columns` and at most five same-width `rows`.
@@ -128,15 +128,24 @@ Supported block shapes:
 - `{"type":"list","items":["...","..."]}`
 - `{"type":"table","columns":["..."],"rows":[["..."]]}`
 - `{"type":"briefs","items":[{"title":"...","body":"...","source":{...}}]}`
-- `{"type":"figure","url":"https://...","data_url":"data:image/png;base64,...","source_page":"https://...","credit":"Publisher","alt":"...","caption":"..."}`
+- `{"type":"figure","url":"https://...","source_page":"https://...","credit":"Publisher","alt":"...","caption":"..."}`
 
-The renderer escapes every text value. Figures always use source imagery and
-the renderer supplies safe loading and referrer attributes. The `url` remains
-original image provenance; `data_url` contains verified PNG/JPEG/GIF/WebP bytes
-(maximum 100,000 characters per data URL, within the whole-edition tool budget).
-Do not invent or manually transcribe base64. Omit a figure if bytes cannot be
-obtained economically through an authorized read. The renderer never downloads
-an image, font or stylesheet.
+The renderer escapes every text value. Include a figure when the source article
+provides a linked photo. `url`, `source_page` and `credit` are required. `caption`
+and `alt` are optional: use the source's description and alt text, not an
+AI-written description. If alt is missing, the renderer uses the caption or
+“Photo from [credit]”; if caption is missing, it displays the linked credit only.
+
+Normally omit `data_url`. The briefing tool downloads bounded public HTTPS
+PNG/JPEG/GIF/WebP photos and embeds their bytes before calling the canonical
+renderer. It may make a compact display copy, without AI analysis. Up to six
+distinct linked photos are fetched, three at a time; each download is bounded
+to two MB and ten seconds, and embedded bytes to 74 KB. Prioritize photos in
+lead and high-priority stories when an edition has more candidates. Failed or
+unsupported photos are omitted; do not retry the edition merely for a photo.
+Already embedded `data_url` values remain supported (100,000-character limit).
+The standalone CLI expects embedded bytes; fetching belongs to the backend
+briefing tool. The final HTML never loads images or fonts from the network.
 
 ## Coverage
 
@@ -154,4 +163,4 @@ policy labels; include `label` only for an additional remembered desk. Do not
 include `explanation` or duplicate `source` objects here. Covered desks must
 have sourced reporting elsewhere in the edition. Quiet desks are omitted from
 the page; material unavailable-source limitations belong beside affected
-reporting or in `editors_note`.
+reporting. Do not supply `editors_note` or add an Editor’s Note section.

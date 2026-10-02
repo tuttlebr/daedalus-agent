@@ -22,17 +22,17 @@ markers for compatibility. Its current composition is:
    calendar and their continuation, followed by Opinion and selective lifestyle desks as
    designated by policy placement. Its stories stack in a single column. One column's length never postpones the other's next story.
 3. Optional operational exceptions after the newspaper grid.
-4. Editor's Note and edition footer. No Sources appendix or desk ledger;
+4. Edition footer. No Sources appendix or desk ledger;
    citations stay on their reporting and image credits in captions.
 
 At 740px and below, the DOM-backed grid becomes one column: lead, personal
-rail, ranked departments, any operational exceptions, Editor's Note. Long
+rail, ranked departments, any operational exceptions. Long
 headlines wrap, tables scroll within focusable labeled containers, and no text
 is clipped or line-clamped. Printing uses normal document flow, repeated table
 headers and breakable long articles so a long desk does not create blank pages.
 
 Everything needed to render is in one HTML document: embedded CSS, local
-Georgia/Times serif and Arial/Helvetica utility stacks, optional embedded raster
+Georgia/Times serif and Arial/Helvetica utility stacks, embedded article-photo
 bytes, and no scripts, remote fonts or external assets. Source hyperlinks
 remain ordinary HTTPS citations. Typography and semantic tables must look
 complete when there are no photographs. Never add imagery merely to fill space.
@@ -85,8 +85,8 @@ correction understandable without access to an earlier conversation.
 
 Opinion is labeled at both desk and story level. Name the writer, state the
 argument and show its evidence chain, uncertainty and material counterevidence.
-The Editor's Note may synthesize reported facts but may not introduce an
-unsupported factual claim or imply an agreed action.
+Do not include an Editor’s Note; put corrections and material source limitations
+beside the affected reporting.
 
 Private Hindsight context selects relevant coverage; it is not publishable
 copy. Do not reproduce diagnoses, medication schedules, supplement lists,
@@ -105,9 +105,11 @@ Apply the same evidence standard and voice to the sourced text fallback.
 Use the source objects and blocks in `edition-format.md`. Public reporting has
 an HTTPS `data-source-url` linked within its article; connected tools have safe
 `data-source-ref` identifiers. `source.detail` can state publication/as-of dates,
-but numeric dates must also be visible beside the claim. Every optional image
-has verified embedded raster bytes, original image URL, source page, credit,
-meaningful alt text and a linked caption. Remote image URLs are provenance only.
+but numeric dates must also be visible beside the claim. Include linked article photos when available, with embedded raster bytes,
+original image URL, source page and credit. Use source-provided descriptions
+and alt text; when neither exists, use only the neutral source label. Never
+require AI analysis or invent a photo description. Remote image URLs remain
+provenance only in the finished HTML; the backend fetches bytes before rendering.
 
 Keep the canonical `data-daybook-version="4"`,
 `data-template-version="daybook-v4"`, `data-lead-grid`, `data-lead-story`,

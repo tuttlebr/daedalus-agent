@@ -253,3 +253,26 @@ def test_operations_cannot_claim_a_quiet_desk():
     )["status"] = "quiet"
     with pytest.raises(renderer.RenderError, match="requires covered"):
         _render(edition)
+
+
+def test_editor_note_is_not_part_of_the_edition_contract():
+    document, _, _ = _render()
+    assert 'id="editors-note"' not in document
+    value = _edition()
+    value["editors_note"] = "Unwanted summary."
+    with pytest.raises(renderer.RenderError, match="unsupported field"):
+        _render(value)
+
+
+def test_figure_without_source_description_uses_neutral_credit_label():
+    value = _edition()
+    value["lead"]["figure"] = {
+        "type": "figure",
+        "url": "https://images.example/photo.png",
+        "source_page": "https://primary.example/article",
+        "credit": "Publisher",
+        "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+    }
+    document, _, _ = _render(value)
+    assert 'alt="Photo from Publisher"' in document
+    assert "</figcaption>" in document

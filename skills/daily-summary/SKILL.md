@@ -6,7 +6,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 5.0.0
+  version: 5.1.0
   tags:
     - daily-briefing
     - html
@@ -38,7 +38,7 @@ Lead each report with its most important supported conclusion and the
 consequence for the reader before recounting activity. Distinguish live
 observations, published reports, estimates, interpretation, and proposed
 actions. Apply the editorial reference's communication guidance to headlines,
-deks, body copy, the Editor's Note, and any text fallback. Keep the newspaper
+deks, body copy, and any text fallback. Keep the newspaper
 design; let evidence, rather than dramatic phrasing, establish significance.
 
 ## Collaboration
@@ -92,8 +92,8 @@ requirements below apply to validated editions.
   and no JavaScript, and makes no external asset requests. Source hyperlinks
   remain clickable; they are citations, not render dependencies.
 - Link public reporting inline and keep image credits in captions. Put material
-  source limitations beside affected reporting or in the Editor's Note.
-- Omit the Sources section and desk ledger from HTML and text fallback editions.
+  source limitations beside affected reporting.
+- Omit the Editor’s Note, Sources section and desk ledger from HTML and text fallback editions.
 - Leave no TODOs, placeholders, template tokens, empty sections, Markdown image
   syntax, or fabricated links.
 
@@ -223,7 +223,7 @@ For every manifest desk, record one status:
 Supply only each desk's key and status in `coverage`; policy labels are derived
 by the renderer. Do not repeat source objects or write ledger explanations.
 Quiet desks receive no visible entry. Disclose material source gaps briefly
-beside affected reporting or in the Editor's Note, without a desk-by-desk list.
+beside affected reporting, without a desk-by-desk list.
 
 ### 4. Edit the front page and source images
 
@@ -241,12 +241,20 @@ Rank remaining reporting by consequence and deadline. Preserve scientific and
 technical mechanisms, source dates and comparison conditions; cut low-relevance
 items first. Keep weather, actionable mail and calendar in the personal rail.
 
-Images are optional. Use only exact source raster bytes already available via
-an authorized read, embedded as a `data_url` with source URL, page and credit.
-Do not send large base64 payloads through the model just to decorate the page.
-When bytes or rights are unavailable, omit the figure; never hotlink, fabricate
-base64, generate imagery or substitute stock. Typography and tables must carry
-an image-free edition reliably.
+When a selected article provides a linked photo, include it beside that story.
+Supply the direct image URL, source article URL and photographer/publisher
+credit in a `figure` block (or `lead.figure` for the lead). The briefing tool
+fetches and embeds the raster bytes automatically; do not download or transcribe
+base64 through the model. Use the source's photo caption/description and alt
+text when present, preserving its meaning and attribution. If there is none,
+omit those fields; the renderer supplies a neutral source-only alt label.
+
+Do not call AI image analysis, caption generation, image generation or editing
+for these photos. Do not invent visual details or substitute stock imagery.
+Select one relevant article photo per story, avoid duplicate images, and place
+figures before detailed body copy where possible. An inaccessible or unsupported
+photo is omitted without losing the reporting; all successful images are
+embedded so the saved HTML still works offline.
 
 ### 5. Compose structured edition data
 

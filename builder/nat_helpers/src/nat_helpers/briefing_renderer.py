@@ -18,6 +18,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.agent_loop_guard import current_agent_run
+from nat_helpers.briefing_images import embed_article_photos
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,8 @@ class BriefingRendererConfig(FunctionBaseConfig, name="briefing_renderer"):
     description: str = (
         "Render and validate the Daily Daedalus from an edition object following "
         "the daily-summary skill. The backend supplies canonical resources and "
-        "serializes JSON. Submit one corrected object if validation fails. "
+        "serializes JSON and embeds linked article photos using source captions, "
+        "without AI image analysis. Submit one corrected object if validation fails. "
         "A validated edition is delivered directly. If rendering fails, the "
         "submitted edition is returned so the available research can be delivered "
         "as text. At most two rendering attempts are allowed per request."
@@ -317,7 +319,18 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                 return fail(
                     ["Canonical briefing resources are unavailable."], "resource"
                 )
-            files["edition.json"] = serialized
+            metadata["stage"] = "article_photo_embedding"
+            contract = runpy.run_path(str(root / "scripts/edition_contract.py"))
+            # Leave malformed input intact for the canonical aggregate diagnostics;
+            # do not make image requests for an edition that needs correction.
+            prepared_edition = (
+                input_data.edition
+                if contract["validate_edition"](input_data.edition)
+                else await embed_article_photos(input_data.edition)
+            )
+            files["edition.json"] = json.dumps(
+                prepared_edition, ensure_ascii=False, allow_nan=False
+            )
             directory = f"briefing-{uuid.uuid4().hex}"
             try:
                 async with asyncio.timeout(config.timeout_seconds):
@@ -409,7 +422,7 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
                 )
                 try:
                     metadata["stage"] = "local_canonical_validation"
-                    html, report = await _render_locally(config, input_data.edition)
+                    html, report = await _render_locally(config, prepared_edition)
                     if html is None:
                         metadata["stage"] = report.get(
                             "validation_stage", metadata["stage"]

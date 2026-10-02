@@ -232,8 +232,12 @@ def _render_figure(block: dict[str, Any], path: str, registry: SourceRegistry) -
         raise RenderError(f"{path}.data_url: {error}")
     source_page = _https(block.get("source_page"), f"{path}.source_page")
     credit = _text(block.get("credit"), f"{path}.credit")
-    alt = _text(block.get("alt"), f"{path}.alt")
-    caption = _text(block.get("caption"), f"{path}.caption")
+    caption = _text(block.get("caption", ""), f"{path}.caption", allow_empty=True)
+    alt = (
+        _text(block.get("alt", ""), f"{path}.alt", allow_empty=True)
+        or caption
+        or f"Photo from {credit}"
+    )
     registry.add(
         Source(
             "web", f"Image: {credit}", url=source_page, detail=f"Image credit: {credit}"
@@ -351,7 +355,16 @@ def _render_lead(value: Any, lead_desk: str, registry: SourceRegistry) -> str:
     lead = _object(value, "edition.lead")
     _keys(
         lead,
-        {"desk_key", "headline", "dek", "verdict", "paragraphs", "snapshot", "source"},
+        {
+            "desk_key",
+            "headline",
+            "dek",
+            "verdict",
+            "paragraphs",
+            "snapshot",
+            "source",
+            "figure",
+        },
         "edition.lead",
     )
     headline = _text(lead.get("headline"), "edition.lead.headline")
@@ -388,12 +401,17 @@ def _render_lead(value: Any, lead_desk: str, registry: SourceRegistry) -> str:
             "edition.lead.snapshot",
             maximum_rows=5,
         )
+    figure = (
+        _render_figure(lead["figure"], "edition.lead.figure", registry)
+        if "figure" in lead
+        else ""
+    )
     paragraphs_html = "".join(f"<p>{escape(item)}</p>" for item in paragraphs)
     return (
         f'<article class="lead-story" data-story data-lead-story data-layout-slot="lead" id="lead" '
         f'data-desk-key="{escape(lead_desk, quote=True)}"{_source_attrs(source)}>'
         f'<p class="kicker">{escape(lead_desk.replace("-", " "))}</p>'
-        f'<h2>{_sourced_title(source, headline)}</h2><p class="dek">{escape(dek)}</p>{verdict_html}'
+        f'<h2>{_sourced_title(source, headline)}</h2><p class="dek">{escape(dek)}</p>{figure}{verdict_html}'
         f'<div class="lead-copy">{paragraphs_html}</div>{snapshot}{_source_line(source)}</article>'
     )
 
@@ -724,7 +742,6 @@ def render_daybook(
             "day_ahead",
             "operations_details",
             "departments",
-            "editors_note",
             "coverage",
         },
         "edition",
@@ -754,7 +771,6 @@ def render_daybook(
         generated.get("issue_label"), "edition.generated_at.issue_label"
     )
     description = _text(edition.get("description"), "edition.description")
-    editors_note = _text(edition.get("editors_note"), "edition.editors_note")
 
     registry = SourceRegistry()
     lead_key = _text(edition["lead"].get("desk_key"), "edition.lead.desk_key")
@@ -849,7 +865,6 @@ def render_daybook(
         "@@DEPARTMENTS@@": departments_html,
         "@@RAIL_DEPARTMENTS@@": rail_html,
         "@@RAIL_FEATURE@@": feature_html,
-        "@@EDITORS_NOTE@@": escape(editors_note),
         "@@FOOTER@@": escape(footer),
     }
     document = template

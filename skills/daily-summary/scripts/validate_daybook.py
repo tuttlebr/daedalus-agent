@@ -573,8 +573,8 @@ def validate_daybook(
             break
     if parser.script_count:
         errors.append("Daybook HTML must not contain JavaScript")
-    if "editors-note" not in parser.ids:
-        errors.append("document must contain editor's note section")
+    if "editors-note" in parser.ids:
+        errors.append("document must omit the editor's note section")
     if {"coverage", "sources"} & parser.ids:
         errors.append("document must omit the desk ledger and Sources sections")
 

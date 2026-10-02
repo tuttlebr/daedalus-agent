@@ -215,14 +215,14 @@ def test_renderer_deadline_does_not_override_adapter_command_timeout(tmp_path):
 def test_one_correction_then_success(tmp_path):
     sandbox = Sandbox(tmp_path)
     invalid = edition()
-    invalid["editors_note"] = []
+    invalid["description"] = []
 
     async def scenario():
         with agent_run_scope() as run:
             render = runner(sandbox)
             first = json.loads(await render(BriefingRendererInput(edition=invalid)))
             assert first["attempts_remaining"] == 1
-            assert "editors_note" in first["errors"][0]
+            assert "description" in first["errors"][0]
             assert first["edition"] == invalid
             assert first["terminal"] is False
             assert run.terminal_content is None
@@ -236,7 +236,7 @@ def test_one_correction_then_success(tmp_path):
 def test_parallel_failures_preserve_edition_and_only_stop_further_rendering(tmp_path):
     sandbox = Sandbox(tmp_path)
     invalid = edition()
-    invalid["editors_note"] = []
+    invalid["description"] = []
 
     async def scenario():
         with agent_run_scope() as run:
@@ -417,7 +417,7 @@ def test_schema_failure_reports_all_errors_without_transport_recovery(
 
     sandbox = Sandbox(tmp_path)
     invalid = edition()
-    invalid["editors_note"] = []
+    invalid["description"] = []
     invalid["lead"]["unexpected"] = "not allowed"
     local = AsyncMock(
         side_effect=AssertionError("Schema errors must not rerun locally")
@@ -436,7 +436,7 @@ def test_schema_failure_reports_all_errors_without_transport_recovery(
             assert result["stage"] == "render_daybook.py"
             assert result["error_count"] >= 2
             assert result["errors_truncated"] is False
-            assert any("editors_note" in error for error in result["errors"])
+            assert any("description" in error for error in result["errors"])
             assert any("unexpected" in error for error in result["errors"])
             assert (
                 run.outcome_metadata("completed")["fallback_reason"]
@@ -450,7 +450,7 @@ def test_schema_failure_reports_all_errors_without_transport_recovery(
 def test_local_validation_failure_retains_capability_recovery_reason(tmp_path):
     sandbox = Sandbox(tmp_path, python=False)
     invalid = edition()
-    invalid["editors_note"] = []
+    invalid["description"] = []
 
     async def scenario():
         with agent_run_scope() as run:
@@ -542,5 +542,83 @@ def test_registered_tool_exposes_configured_canonical_nested_schema(tmp_path):
             }
         finally:
             await generator.aclose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("python", [True, False])
+def test_linked_lead_photo_is_embedded_and_source_caption_survives(
+    tmp_path, monkeypatch, python
+):
+    import io
+    from unittest.mock import AsyncMock
+
+    from nat_helpers import briefing_images
+    from PIL import Image
+
+    data = io.BytesIO()
+    Image.new("RGB", (32, 24), color="navy").save(data, format="PNG")
+    embedded = briefing_images._raster_data_url(data.getvalue())
+    fetcher = AsyncMock(return_value=embedded)
+    monkeypatch.setattr(briefing_images, "_fetch_photo", fetcher)
+    value = edition()
+    value["lead"]["figure"] = {
+        "type": "figure",
+        "url": "https://photos.example/article.png",
+        "source_page": value["lead"]["source"]["url"],
+        "credit": "Source Photographer",
+        "caption": "Exact source description & attribution.",
+    }
+    sandbox = Sandbox(tmp_path, python=python)
+
+    async def scenario():
+        with agent_run_scope() as run:
+            result = json.loads(
+                await runner(sandbox)(BriefingRendererInput(edition=value))
+            )
+            assert result["passed"] is True, result
+            assert 'id="editors-note"' not in run.terminal_content
+            assert f'src="{embedded}"' in run.terminal_content
+            assert (
+                'alt="Exact source description &amp; attribution."'
+                in run.terminal_content
+            )
+            assert (
+                "<figcaption>Exact source description &amp; attribution."
+                in run.terminal_content
+            )
+            assert 'src="https://' not in run.terminal_content
+            assert "data_url" not in value["lead"]["figure"]
+            fetcher.assert_awaited_once()
+
+    asyncio.run(scenario())
+
+
+def test_malformed_edition_does_not_fetch_photos_before_correction(
+    tmp_path, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from nat_helpers import briefing_images
+
+    fetcher = AsyncMock()
+    monkeypatch.setattr(briefing_images, "_fetch_photo", fetcher)
+    value = edition()
+    value["description"] = []
+    value["lead"]["figure"] = {
+        "type": "figure",
+        "url": "https://photos.example/photo.png",
+        "source_page": "https://news.example/article",
+        "credit": "Publisher",
+    }
+
+    async def scenario():
+        with agent_run_scope():
+            result = json.loads(
+                await runner(Sandbox(tmp_path))(BriefingRendererInput(edition=value))
+            )
+            assert result["passed"] is False
+            assert any("description" in error for error in result["errors"])
+            fetcher.assert_not_awaited()
 
     asyncio.run(scenario())
