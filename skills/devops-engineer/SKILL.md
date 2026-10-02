@@ -62,8 +62,6 @@ and `helm/daedalus` as relevant:
 Use [kubernetes-specialist](../kubernetes-specialist/SKILL.md) for manifests,
 Helm resources, networking, and storage; [sre-engineer](../sre-engineer/SKILL.md)
 for SLOs or incident policy. Preserve completed checks across handoffs.
-Dynamo recipe bring-up belongs to
-[dynamo-recipe-runner](../dynamo-recipe-runner/SKILL.md).
 
 ## Focused references
 

@@ -83,8 +83,6 @@ allowed; inspect routing, firewall/Cilium verdicts, and source/destination paths
 
 Use [devops-engineer](../devops-engineer/SKILL.md) for build/release pipelines
 and [sre-engineer](../sre-engineer/SKILL.md) for SLOs and incident analysis.
-Dynamo failures belong to [dynamo-troubleshoot](../dynamo-troubleshoot/SKILL.md);
-Dynamo bring-up to [dynamo-recipe-runner](../dynamo-recipe-runner/SKILL.md).
 Use [network-health-check](../network-health-check/SKILL.md) when external
 UniFi evidence is needed. Lead with the supported conclusion and its effect on
 operations or users, then explain the exact proposed/applied change and its

@@ -73,8 +73,7 @@ skill_name=sre-engineer, resource=references/<file>.md)`.
 
 Hand off cluster objects to
 [kubernetes-specialist](../kubernetes-specialist/SKILL.md), delivery changes to
-[devops-engineer](../devops-engineer/SKILL.md), and Dynamo failures to
-[dynamo-troubleshoot](../dynamo-troubleshoot/SKILL.md). Keep evidence and
+[devops-engineer](../devops-engineer/SKILL.md). Keep evidence and
 execution status together. Return the requested analysis or artifact, its
 measurement assumptions, validation, and unverified limits.
 Explain uncertainty through its effect on the decision. Preserve workload,
