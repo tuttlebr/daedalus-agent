@@ -46,7 +46,7 @@ EXPECTED_CONFLICTS = {
             r"^The package `nv-ingest-client` requires "
             r"`urllib3==2\.6\.3`, but `(?P<installed>[^`]+)` is installed$"
         ),
-        Version("2.7"),
+        Version("2.8"),
         Version("3"),
     ),
 }

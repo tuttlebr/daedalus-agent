@@ -6,8 +6,9 @@
 # stack through runtime_contract_check.py.
 cryptography>=50.0.0,<51
 
-# nv-ingest-client 26.3.0 pins urllib3 2.6.3, which is affected by
-# CVE-2026-44431 and CVE-2026-44432. The fixed 2.7 API stays inside NAT's
-# declared urllib3<3 compatibility boundary. Keep the override paired with the
-# build-time client pipeline contract until NV-Ingest widens its dependency.
-urllib3>=2.7,<3
+# nv-ingest-client 26.3.0 pins urllib3 2.6.3. Require 2.8 or newer to fix
+# CVE-2026-97687 and CVE-2026-97689 as well as the earlier 2.7 fixes.
+# The fixed 2.8 API stays inside NAT's declared urllib3<3 compatibility boundary.
+# Keep the override paired with the build-time client pipeline contract until
+# NV-Ingest widens its dependency.
+urllib3>=2.8,<3

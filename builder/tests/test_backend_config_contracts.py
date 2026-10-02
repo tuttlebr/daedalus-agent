@@ -536,9 +536,10 @@ def test_runtime_locks_cover_local_sources_nat_commit_and_registry_hashes():
         assert by_name["cryptography"]["version"] == "50.0.0"
         assert by_name["fastfeedparser"]["version"] == "0.5.10"
         assert by_name["pillow"]["version"] == "12.3.0"
+        assert by_name["pyjwt"]["version"] == "2.15.1"
         assert by_name["pyopenssl"]["version"] == "26.4.0"
         assert by_name["starlette"]["version"] == "1.3.1"
-        assert by_name["urllib3"]["version"] == "2.7.0"
+        assert by_name["urllib3"]["version"] == "2.8.0"
         assert by_name["nv-ingest-api"]["version"] == "26.3.0"
         assert by_name["nv-ingest-client"]["version"] == "26.3.0"
         assert by_name["nvidia-nat"]["version"] == "1.9.0"
@@ -1858,9 +1859,10 @@ def test_runtime_omits_legacy_async_job_dependencies():
     assert "cryptography>=50.0.0,<51" in runtime_requirements
     assert "fastfeedparser>=0.5.10,<0.6" in runtime_requirements
     assert "pillow>=12.2,<13" in runtime_requirements
+    assert "pyjwt>=2.14,<3" in runtime_requirements
     assert "pyopenssl>=26.4,<27" in runtime_requirements
     assert "starlette>=1.3.1,<2" in runtime_requirements
-    assert "urllib3>=2.7,<3" in runtime_requirements
+    assert "urllib3>=2.8,<3" in runtime_requirements
     assert "async_endpoints" not in dockerfile
     assert "dask" not in dockerfile.lower()
     assert "distributed" not in dockerfile.lower()
@@ -1870,7 +1872,7 @@ def test_runtime_omits_legacy_async_job_dependencies():
         for line in RUNTIME_OVERRIDES.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     }
-    assert overrides == {"cryptography>=50.0.0,<51", "urllib3>=2.7,<3"}
+    assert overrides == {"cryptography>=50.0.0,<51", "urllib3>=2.8,<3"}
 
     for manifest in DOCKERFILE.parent.glob("*/pyproject.toml"):
         project = manifest.read_text(encoding="utf-8")

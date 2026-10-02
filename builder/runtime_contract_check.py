@@ -29,9 +29,10 @@ SECURITY_DEPENDENCY_RANGES = {
     "cryptography": (Version("50.0.0"), Version("51")),
     "fastfeedparser": (Version("0.5.10"), Version("0.6")),
     "pillow": (Version("12.2"), Version("13")),
+    "pyjwt": (Version("2.14"), Version("3")),
     "pyopenssl": (Version("26.4"), Version("27")),
     "starlette": (Version("1.3.1"), Version("2")),
-    "urllib3": (Version("2.7"), Version("3")),
+    "urllib3": (Version("2.8"), Version("3")),
 }
 
 
