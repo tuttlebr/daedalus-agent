@@ -1,144 +1,241 @@
 import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const currentDir = __dirname;
-const root = resolve(currentDir, '../../..');
+const root = resolve(__dirname, '../../..');
 const skill = join(root, 'skills/daily-summary');
 const qaDir = mkdtempSync(join(tmpdir(), 'daily-daedalus-layout-'));
-const htmlPath = join(qaDir, 'daily-daedalus.html');
 
-test.beforeAll(() => {
+function render(name: string, edition: Record<string, unknown>) {
+  const source = join(qaDir, `${name}.json`);
+  writeFileSync(source, JSON.stringify(edition));
   execFileSync(
     'python3',
     [
       join(skill, 'scripts/render_daybook.py'),
-      join(root, 'builder/tests/fixtures/daily_summary_dense_edition.json'),
+      source,
       join(skill, 'references/edition-policy.json'),
       join(skill, 'assets/daybook-v4.html'),
-      htmlPath,
-      join(qaDir, 'coverage.json'),
+      join(qaDir, `${name}.html`),
+      join(qaDir, `${name}-coverage.json`),
     ],
     { stdio: 'pipe' },
   );
-});
-
-test.afterAll(() => {
-  rmSync(qaDir, { recursive: true, force: true });
-});
-
-async function openEdition(page: Page) {
-  const consoleErrors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  await page.goto(pathToFileURL(htmlPath).href, {
-    waitUntil: 'domcontentloaded',
-  });
-  await page.evaluate(() => document.fonts.ready);
-  return consoleErrors;
 }
 
-test('dense edition uses the front page without an empty corridor', async ({
-  page,
-}, testInfo) => {
-  for (const viewport of [
-    { width: 1440, height: 1100 },
-    { width: 1024, height: 900 },
-  ]) {
-    await page.setViewportSize(viewport);
-    const consoleErrors = await openEdition(page);
-    const geometry = await page.evaluate(() => {
-      const grid = document.querySelector<HTMLElement>('[data-lead-grid]');
-      const lead = document.querySelector<HTMLElement>(
-        '[data-layout-slot="lead"]',
-      );
-      const dayAhead = document.querySelector<HTMLElement>(
-        '[data-layout-slot="day-ahead"]',
-      );
-      if (!grid || !lead || !dayAhead)
-        throw new Error('Front page is incomplete');
-      const gridBox = grid.getBoundingClientRect();
-      const leadBox = lead.getBoundingClientRect();
-      const dayAheadBox = dayAhead.getBoundingClientRect();
-      const leadLast = lead.lastElementChild?.getBoundingClientRect();
-      const dayLast = dayAhead.lastElementChild?.getBoundingClientRect();
-      return {
-        columns: getComputedStyle(grid).gridTemplateColumns,
-        documentWidth: document.documentElement.scrollWidth,
-        viewportWidth: window.innerWidth,
-        ratio: leadBox.width / dayAheadBox.width,
-        leadTail: leadLast
-          ? gridBox.bottom - leadLast.bottom
-          : Number.POSITIVE_INFINITY,
-        dayAheadTail: dayLast
-          ? gridBox.bottom - dayLast.bottom
-          : Number.POSITIVE_INFINITY,
-        navBorder: getComputedStyle(
-          document.querySelector<HTMLElement>('[data-department-rail]')!,
-        ).borderBottomStyle,
-        strapDisplay: getComputedStyle(
-          document.querySelector<HTMLElement>('[data-edition-strap]')!,
-        ).display,
-      };
-    });
-
-    expect(geometry.columns.split(' ').length).toBeGreaterThanOrEqual(2);
-    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
-    expect(geometry.ratio).toBeGreaterThan(1.2);
-    expect(geometry.ratio).toBeLessThan(1.75);
-    expect(geometry.leadTail).toBeLessThanOrEqual(160);
-    expect(geometry.dayAheadTail).toBeLessThanOrEqual(160);
-    expect(geometry.navBorder).toBe('double');
-    expect(geometry.strapDisplay).toBe('flex');
-    expect(consoleErrors).toEqual([]);
-
-    await page.screenshot({
-      path: testInfo.outputPath(`daily-daedalus-${viewport.width}.png`),
-      fullPage: true,
-    });
+test.beforeAll(() => {
+  const edition = JSON.parse(
+    readFileSync(
+      join(root, 'builder/tests/fixtures/daily_summary_dense_edition.json'),
+      'utf8',
+    ),
+  );
+  render('dense', edition);
+  const embedded = structuredClone(edition);
+  embedded.departments[0].stories[0].blocks.push({
+    type: 'figure',
+    url: 'https://example.org/test.png',
+    data_url:
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+    source_page: 'https://example.org/image-fixture',
+    credit: 'Synthetic fixture',
+    alt: 'Single pixel to test offline image decoding',
+    caption: 'Synthetic raster test only.',
+  });
+  render('embedded', embedded);
+  const sparse = structuredClone(edition);
+  sparse.operations_details = [];
+  sparse.departments = [sparse.departments[0]];
+  sparse.departments[0].stories = sparse.departments[0].stories.slice(0, 1);
+  sparse.day_ahead.email_calendar.agenda = [];
+  sparse.day_ahead.email_calendar.actions = [];
+  sparse.day_ahead.email_calendar.lookahead = [];
+  for (const item of sparse.coverage) {
+    if (!['technology', 'weather', 'email-calendar'].includes(item.desk_key))
+      item.status = 'quiet';
   }
+  render('sparse', sparse);
+  const long = structuredClone(edition);
+  long.departments[0].stories[0].headline =
+    'A deliberately long systems headline with a workload_identifier_that_must_wrap_without_widening_the_page_123456789';
+  long.departments[0].stories[0].blocks.push({
+    type: 'table',
+    columns: ['Workload', 'Measured limit'],
+    rows: [
+      [
+        'long_unbroken_identifier_'.repeat(12),
+        'A long measurement label '.repeat(12),
+      ],
+    ],
+  });
+  long.day_ahead.email_calendar.actions = Array.from(
+    { length: 20 },
+    (_, index) => ({
+      title: `Synthetic action ${index + 1}`,
+      body: 'A longer calendar rail must not postpone the next news story. '.repeat(
+        3,
+      ),
+    }),
+  );
+  render('long', long);
 });
 
-test('mobile edition reflows to one ordered column', async ({
+test.afterAll(() => rmSync(qaDir, { recursive: true, force: true }));
+
+async function openEdition(page: Page, name = 'dense') {
+  const failures: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') failures.push(message.text());
+  });
+  page.on('request', (request) => {
+    if (/^https?:/.test(request.url())) failures.push(request.url());
+  });
+  await page.context().setOffline(true);
+  await page.goto(pathToFileURL(join(qaDir, `${name}.html`)).href);
+  await page.evaluate(() => document.fonts.ready);
+  return failures;
+}
+
+for (const width of [1440, 1024, 768]) {
+  test(`desktop newspaper flows independently at ${width}px, offline`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 1100 });
+    const failures = await openEdition(page);
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) =>
+        document.querySelector(selector)!.getBoundingClientRect();
+      const lead = box('[data-lead-story]');
+      const rail = box('[data-day-ahead]');
+      const nextDesk = box('[data-department]');
+      return {
+        overflow: document.documentElement.scrollWidth - innerWidth,
+        ratio: lead.width / rail.width,
+        nextStoryGap: nextDesk.top - lead.bottom,
+        railTop: rail.top - lead.top,
+        paper: getComputedStyle(document.body).backgroundColor,
+      };
+    });
+    expect(geometry.overflow).toBeLessThanOrEqual(1);
+    expect(geometry.ratio).toBeGreaterThan(1.8);
+    expect(geometry.ratio).toBeLessThan(2.2);
+    expect(geometry.nextStoryGap).toBeLessThanOrEqual(24);
+    expect(Math.abs(geometry.railTop)).toBeLessThanOrEqual(1);
+    expect(geometry.paper).toBe('rgb(255, 255, 255)');
+    expect(failures).toEqual([]);
+    await page.screenshot({
+      path: testInfo.outputPath(`newspaper-${width}.png`),
+      fullPage: true,
+    });
+  });
+}
+
+for (const width of [390, 320]) {
+  test(`mobile newspaper preserves reading order at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    const failures = await openEdition(page);
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) =>
+        document.querySelector(selector)!.getBoundingClientRect();
+      const lead = box('[data-lead-story]');
+      const rail = box('[data-day-ahead]');
+      const next = box('[data-department]');
+      return {
+        overflow: document.documentElement.scrollWidth - innerWidth,
+        leadBeforeRail: lead.bottom <= rail.top,
+        railBeforeDepartments: rail.bottom <= next.top,
+        aligned: Math.abs(lead.left - rail.left),
+      };
+    });
+    expect(geometry.overflow).toBeLessThanOrEqual(1);
+    expect(geometry.leadBeforeRail).toBe(true);
+    expect(geometry.railBeforeDepartments).toBe(true);
+    expect(geometry.aligned).toBeLessThanOrEqual(1);
+    expect(failures).toEqual([]);
+    await page.screenshot({
+      path: testInfo.outputPath(`newspaper-${width}.png`),
+      fullPage: true,
+    });
+  });
+}
+
+for (const name of ['sparse', 'long']) {
+  test(`${name} edition handles unequal content, long text and tables`, async ({
+    page,
+  }) => {
+    for (const width of [1440, 768, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const failures = await openEdition(page, name);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth - innerWidth,
+        ),
+      ).toBeLessThanOrEqual(1);
+      if (width > 740) {
+        const gap = await page.evaluate(
+          () =>
+            document.querySelector('[data-department]')!.getBoundingClientRect()
+              .top -
+            document.querySelector('[data-lead-story]')!.getBoundingClientRect()
+              .bottom,
+        );
+        expect(gap).toBeLessThanOrEqual(24);
+      }
+      if (name === 'long')
+        await expect(
+          page.getByText('Synthetic action 20', { exact: true }),
+        ).toBeVisible();
+      if (name === 'sparse')
+        await expect(page.locator('#operations-continuation')).toHaveCount(0);
+      expect(failures).toEqual([]);
+    }
+  });
+}
+
+test('print edition uses breakable articles and repeatable table headers', async ({
   page,
 }, testInfo) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const consoleErrors = await openEdition(page);
-  const geometry = await page.evaluate(() => {
-    const grid = document.querySelector<HTMLElement>('[data-lead-grid]')!;
-    const lead = document.querySelector<HTMLElement>(
-      '[data-layout-slot="lead"]',
-    )!;
-    const dayAhead = document.querySelector<HTMLElement>(
-      '[data-layout-slot="day-ahead"]',
-    )!;
-    const leadBox = lead.getBoundingClientRect();
-    const dayAheadBox = dayAhead.getBoundingClientRect();
-    return {
-      columns: getComputedStyle(grid).gridTemplateColumns,
-      documentWidth: document.documentElement.scrollWidth,
-      viewportWidth: window.innerWidth,
-      sameLeftEdge: Math.abs(leadBox.left - dayAheadBox.left),
-      ordered: leadBox.top < dayAheadBox.top,
-      navBorder: getComputedStyle(
-        document.querySelector<HTMLElement>('[data-department-rail]')!,
-      ).borderBottomStyle,
-    };
+  await openEdition(page, 'long');
+  await page.emulateMedia({ media: 'print' });
+  const print = await page.evaluate(() => ({
+    layout: getComputedStyle(document.querySelector('.front-page')!).display,
+    article: getComputedStyle(document.querySelector('.department-story')!)
+      .breakInside,
+    header: getComputedStyle(document.querySelector('thead')!).display,
+  }));
+  expect(print).toEqual({
+    layout: 'block',
+    article: 'auto',
+    header: 'table-header-group',
   });
-
-  expect(geometry.columns.split(' ')).toHaveLength(1);
-  expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
-  expect(geometry.sameLeftEdge).toBeLessThanOrEqual(1);
-  expect(geometry.ordered).toBe(true);
-  expect(geometry.navBorder).toBe('double');
-  expect(consoleErrors).toEqual([]);
-
-  await page.screenshot({
-    path: testInfo.outputPath('daily-daedalus-390.png'),
-    fullPage: true,
+  await page.pdf({
+    path: testInfo.outputPath('newspaper-print.pdf'),
+    format: 'Letter',
+    printBackground: true,
   });
+});
+
+test('embedded source raster decodes without any external request', async ({
+  page,
+}) => {
+  const failures = await openEdition(page, 'embedded');
+  const raster = page.locator('figure img');
+  await raster.scrollIntoViewIfNeeded();
+  await expect
+    .poll(() =>
+      raster.evaluate(
+        (element: HTMLImageElement) =>
+          element.complete && element.naturalWidth > 0,
+      ),
+    )
+    .toBe(true);
+  await expect(page.locator('figure figcaption')).toContainText(
+    'Synthetic fixture',
+  );
+  expect(failures).toEqual([]);
 });

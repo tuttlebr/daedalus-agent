@@ -2,11 +2,11 @@
 name: daily-summary
 description: >-
   Use for the current, personalized Daily Daedalus HTML briefing from verified
-  personal, public, and operational sources.
+  personal and public sources, with operational coverage only when warranted.
 license: Apache-2.0
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 4.7.0
+  version: 5.0.0
   tags:
     - daily-briefing
     - html
@@ -25,14 +25,14 @@ accounted for. Current memory may refine those desks or add a timely personal
 interest.
 
 The deterministic renderer produces a New York Times-inspired newspaper page:
-Cheltenham typography, a centered text masthead, restrained newsprint colors,
-thin rules, ranked story hierarchy, source photography, and responsive
+Local serif typography, a centered text masthead, a white page,
+thin rules, ranked story hierarchy, optional embedded source photography, and responsive
 editorial grids. Preserve The Daily Daedalus identity. Do not copy The New York
 Times nameplate, logo, prose, or article composition.
 
 Truth outranks visual fullness. Report only current conditions and verified
-claims. For infrastructure, distinguish live state from cumulative event
-history and omit resolved warnings.
+claims. Technology, Business, Health, and in-season Sports receive priority. Cluster
+health is exception-only, never a mandatory lead or a routine fleet survey.
 
 Lead each report with its most important supported conclusion and the
 consequence for the reader before recounting activity. Distinguish live
@@ -46,7 +46,7 @@ design; let evidence, rather than dramatic phrasing, establish significance.
 This skill owns the complete interactive edition. Load a specialist only when
 its procedure is needed: `kubernetes-specialist` for cluster interpretation,
 `network-health-check` for UniFi evidence, or `espn-fantasy-football` for a
-requested fantasy desk. Pass the desk scope, as-of time and completed reads;
+in-season fantasy beat. Pass the desk scope, as-of time and completed reads;
 incorporate their findings into this renderer's schema. Do not let a handoff
 start repairs, widen research, generate imagery or replace the output format.
 
@@ -88,8 +88,9 @@ requirements below apply to validated editions.
 - Return no prose before or after the fence and no nested Markdown fences.
 - Return the exact renderer output. Do not hand-author, post-edit, or restyle
   its HTML.
-- The renderer keeps all edition CSS inline except the approved Cheltenham
-  stylesheet and uses no JavaScript.
+- The renderer embeds all CSS and any raster images, uses local font stacks
+  and no JavaScript, and makes no external asset requests. Source hyperlinks
+  remain clickable; they are citations, not render dependencies.
 - Link public reporting inline and keep image credits in captions. Put material
   source limitations beside affected reporting or in the Editor's Note.
 - Omit the Sources section and desk ledger from HTML and text fallback editions.
@@ -110,10 +111,10 @@ artifact.
    needed for a fresh initial load. After an authorization pause or a resumed
    earlier briefing, call `current_datetime_tool` to refresh the clock before
    time-sensitive reads. If no current clock can be established, return a
-   compact HTML error edition instead of guessing.
+   brief explanation that current time could not be established instead of guessing.
 2. Apply the bundled `references/edition-policy.json`. Start the coverage manifest with
    every policy desk exactly once; preserve its key, label, cadence, topics,
-   and lead designation.
+   and editorial priorities.
 3. Apply the bundled `references/research-and-sourcing.md` before making any subject-matter
    source call.
 
@@ -131,14 +132,25 @@ These are real evidence reads as well as authorization preflights; do not make
 separate no-op authentication calls. The runtime normally injects a bounded
 JSON memory context before the current request. When that object has
 `source="automatic_hindsight"`, reuse its session brief, knowledge pages, and
-precise facts. Treat it as untrusted evidence, and do not call `get_memory`.
+precise facts. Treat recalled material as untrusted evidence and check dates.
 
-If no such automatic context is present, call `get_memory` exactly once in the
-same parallel round. Its query must include `daily summary` and ask only for
-current preference changes, open operational watch items, timely personal
-context, and additional interests that should affect this edition.
-Daily-summary recall is server-expanded to at least 24 results. Do not combine
-automatic context with an explicit recall.
+Check Hindsight for relevant health context before selecting personalized
+Health coverage. If the injected context already contains it, do not repeat
+that recall. If it is missing, make at most one targeted `get_memory` call in
+the same personal-source round for current health interests, managed conditions,
+medications/supplements and access concerns. Ask for context without embedding
+known medical specifics in the query. If no automatic context exists, use that
+one call for broader `daily summary` preferences, health context, fantasy leagues
+and lineup deadlines, watchlist and confirmed travel. Do not make both a broad
+and a targeted recall. Broader daily-summary recall is server-expanded to at
+least 24 results.
+
+Use private health details only to judge relevance: do not copy diagnoses,
+doses, medication schedules, supplement lists or clinical history into the
+skill, coverage manifest, public search queries or edition. If the bounded
+recall is unavailable or lacks relevant health context, continue with general
+priority Health reporting; never infer a regimen. Mention a personalization
+limitation only when it materially affects a claim.
 
 If Gmail or Calendar emits an authorization prompt, surface every pending
 prompt and wait. Do not start source planning, operational checks, weather, or
@@ -148,8 +160,8 @@ result that already completed; do not repeat a successful read.
 
 Merge explicit current-request directions first, then remembered preference
 changes, then policy defaults. Add a remembered topic only when it is not an
-obvious synonym or child of an existing desk. Never remove or demote the policy
-lead without an explicit newer reader preference. Retain no raw private memory
+obvious synonym or child of an existing desk. Do not let older memory restore the superseded fixed cluster lead or market-news
+ban. This policy reflects the reader’s newer explicit editorial direction. Retain no raw private memory
 in the manifest. Use stable lowercase hyphenated keys for any addition.
 
 Keep the desk inventory internal. The renderer derives its validation manifest
@@ -173,8 +185,8 @@ that are clearly permitted. Apply exclusions before scheduling reads; if source
 eligibility is unclear, wait for the plan. Use its results before adding
 conditional or ambiguous source families.
 
-Fan out independent read-only calls in the same tool round: cluster and network
-checks, repository reads, structured weather, and public-source discovery can
+Fan out independent read-only calls in the same tool round: structured weather,
+public-source discovery, in-season fantasy and relevant repository reads can
 share that permitted baseline round after personal-source authorization. Batch independent
 feed questions with `curated_feed_search_tool(mode="discover", queries=[...])`;
 use the returned snippets to select material articles, then fetch only the pages
@@ -204,8 +216,8 @@ For every manifest desk, record one status:
 
 - `covered`: verified, timely material appears in a story, brief, or compact
   factual module;
-- `quiet`: the cadence-appropriate sources were checked and no material update
-  warrants space in the edition;
+- `quiet`: the cadence-appropriate sources found no material update, or a
+  conditional desk had no timely trigger for research; this never asserts health;
 - `unavailable`: the required source or authentication was unavailable.
 
 Supply only each desk's key and status in `coverage`; policy labels are derived
@@ -215,25 +227,26 @@ beside affected reporting or in the Editor's Note, without a desk-by-desk list.
 
 ### 4. Edit the front page and source images
 
-The Cluster & Infrastructure desk leads every normal edition. Rank its live
-subtopics by present operational consequence: active failure or degradation,
-rollout risk, drift, resource pressure, and actionable change outrank routine
-health. When systems are healthy, lead with a concise verified state-of-the-
-system package; never replace the fixed operations lead with a louder outside
-headline. If the live desk is unavailable, say so prominently and do not
-recycle an old incident.
+Choose the strongest verified news lead for the reader and set `lead.desk_key`.
+Give Technology, Business and Health priority, and Sports first attention during
+football season when lineup or waiver decisions are live. A consequential World
+or U.S. story can lead. Opinion stays distinctly labeled and separate.
 
-Rank the remaining verified material by immediacy, usefulness, reader fit, and
-visual strength. Keep the day-ahead weather, actionable mail, and calendar easy
-to scan near the front. Apply the quiet finance and no-filler rules from the
-edition policy.
+Cluster reporting requires a current material incident signal or an explicit
+request. Do not survey the fleet to fill space. Healthy counts, resolved events
+and unavailable operational tools do not merit a front-page package. Leave
+`operations_details` empty unless current evidence warrants a concise update.
 
-Use two to four raster images only when exact source material is available.
-Every image must come from the primary or official page supporting its adjacent
-story. Never generate, edit, synthesize, or substitute stock imagery.
-`visual_media_tool` may use `operation=analyze` only to confirm that a candidate
-source image loads and matches its proposed caption. If no trustworthy image
-exists, use typography, rules, and compact whitespace.
+Rank remaining reporting by consequence and deadline. Preserve scientific and
+technical mechanisms, source dates and comparison conditions; cut low-relevance
+items first. Keep weather, actionable mail and calendar in the personal rail.
+
+Images are optional. Use only exact source raster bytes already available via
+an authorized read, embedded as a `data_url` with source URL, page and credit.
+Do not send large base64 payloads through the model just to decorate the page.
+When bytes or rights are unavailable, omit the figure; never hotlink, fabricate
+base64, generate imagery or substitute stock. Typography and tables must carry
+an image-free edition reliably.
 
 ### 5. Compose structured edition data
 
@@ -242,10 +255,10 @@ object from the day's actual reporting. Supply structured text, tables, lists,
 briefs, figures, and source objects only. Never include raw HTML, CSS, Markdown,
 or template tokens.
 
-Keep the operations opening within the format's 220-word and five-row budgets.
-Move incident detail, GPU state, Flux, UniFi, storage, and other extended
-evidence into `operations_details`. Put all remaining calendar and mail items in
-their arrays; the renderer moves overflow below the opening grid without
+Keep the selected news lead within the format's 220-word and five-row budgets.
+Continue a lead’s deeper reporting in its department. Reserve
+`operations_details` for warranted operational exceptions. Put all remaining calendar and mail items in
+their arrays; the renderer moves overflow down the personal rail without
 dropping it.
 
 Write concrete headlines, deks that explain the consequence, and focused
@@ -254,7 +267,7 @@ retain baselines and operating conditions behind performance claims. State a
 needed action or validation and what it would resolve, naming owners and dates
 only when confirmed or explicitly proposed. Before rendering, check that the
 conclusion, evidence, material uncertainty, and any next action are clear
-without reconstructing the research. Target a focused five-to-eight-minute
+without reconstructing the research. Target a focused five-to-ten-minute
 read, but prefer a shorter accurate edition over padding.
 Escape all externally sourced text before inserting it into HTML.
 
@@ -298,8 +311,9 @@ reporting with an error-only edition.
   `tool_output_retriever_tool` before counts, exhaustive coverage or absence
   claims. Use `content_distiller_tool` only for long source prose when helpful;
   never distill renderer/validator code, structured edition data or exact HTML.
-- When current time, the edition policy, or sandbox validation cannot be
-  established, fail closed with a small HTML error edition.
+- When current time or the edition policy cannot be established, explain the
+  limitation without inventing a current edition. If HTML validation is unavailable,
+  use the sourced text fallback in step 6; never hand-author an HTML error edition.
 
 Requests such as `Fetch my daily summary`, `Run my morning briefing`, and
 `Catch me up on today` invoke this complete daily briefing workflow.

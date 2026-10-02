@@ -27,6 +27,7 @@ BLOCK_TYPES = frozenset({"paragraph", "subhead", "list", "table", "briefs", "fig
 _contract = runpy.run_path(str(Path(__file__).with_name("edition_contract.py")))
 _validate_edition = _contract["validate_edition"]
 _validation_errors = _contract["ValidationErrors"]
+_embedded_image_error = _contract["embedded_image_error"]
 
 
 class RenderError(ValueError):
@@ -164,6 +165,16 @@ def _sourced_title(source: Source, title: str) -> str:
     return escape(title)
 
 
+def _source_line(source: Source) -> str:
+    label = (
+        _external_link(source.url, source.label)
+        if source.kind == "web"
+        else escape(source.label)
+    )
+    detail = f" · {escape(source.detail)}" if source.detail else ""
+    return f'<p class="source-line">{label}{detail}</p>'
+
+
 class SourceRegistry:
     def __init__(self) -> None:
         self._items: list[Source] = []
@@ -203,12 +214,22 @@ def _table(columns: Any, rows: Any, path: str, *, maximum_rows: int = 20) -> str
             "<tr>" + "".join(f"<td>{escape(cell)}</td>" for cell in cells) + "</tr>"
         )
     header = "".join(f"<th>{escape(label)}</th>" for label in labels)
-    return f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(rendered_rows)}</tbody></table>"
+    return (
+        '<div class="table-scroll" role="region" aria-label="Data table" tabindex="0">'
+        f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(rendered_rows)}</tbody></table></div>"
+    )
 
 
 def _render_figure(block: dict[str, Any], path: str, registry: SourceRegistry) -> str:
-    _keys(block, {"type", "url", "source_page", "credit", "alt", "caption"}, path)
+    _keys(
+        block,
+        {"type", "url", "data_url", "source_page", "credit", "alt", "caption"},
+        path,
+    )
     url = _https(block.get("url"), f"{path}.url")
+    data_url = _text(block.get("data_url"), f"{path}.data_url")
+    if error := _embedded_image_error(data_url):
+        raise RenderError(f"{path}.data_url: {error}")
     source_page = _https(block.get("source_page"), f"{path}.source_page")
     credit = _text(block.get("credit"), f"{path}.credit")
     alt = _text(block.get("alt"), f"{path}.alt")
@@ -222,7 +243,7 @@ def _render_figure(block: dict[str, Any], path: str, registry: SourceRegistry) -
         f'<figure data-image-source-url="{escape(url, quote=True)}" '
         f'data-source-page="{escape(source_page, quote=True)}" '
         f'data-image-credit="{escape(credit, quote=True)}">'
-        f'<img src="{escape(url, quote=True)}" alt="{escape(alt, quote=True)}" '
+        f'<img src="{escape(data_url, quote=True)}" alt="{escape(alt, quote=True)}" '
         'loading="lazy" decoding="async" referrerpolicy="no-referrer">'
         f"<figcaption>{escape(caption)} "
         f"{_external_link(source_page, credit)}</figcaption></figure>"
@@ -307,10 +328,14 @@ def _load_policy(value: dict[str, Any]) -> dict[str, Any]:
         label = _text(item.get("label"), f"policy.desks[{index}].label")
         if not DESK_KEY.fullmatch(key):
             raise RenderError(f"policy.desks[{index}].key is invalid")
-        desks.append({"key": key, "label": label})
+        desks.append(
+            {"key": key, "label": label, "placement": item.get("placement", "ranked")}
+        )
     if len(desks) != len({item["key"] for item in desks}):
         raise RenderError("policy.desks contains duplicate keys")
-    if lead_desk not in {item["key"] for item in desks}:
+    if lead_desk != "editorial-choice" and lead_desk not in {
+        item["key"] for item in desks
+    }:
         raise RenderError("policy lead desk is missing from policy desks")
     return {
         "policy_version": policy_version,
@@ -326,17 +351,22 @@ def _render_lead(value: Any, lead_desk: str, registry: SourceRegistry) -> str:
     lead = _object(value, "edition.lead")
     _keys(
         lead,
-        {"headline", "dek", "verdict", "paragraphs", "snapshot", "source"},
+        {"desk_key", "headline", "dek", "verdict", "paragraphs", "snapshot", "source"},
         "edition.lead",
     )
     headline = _text(lead.get("headline"), "edition.lead.headline")
     dek = _text(lead.get("dek"), "edition.lead.dek")
-    verdict = _object(lead.get("verdict"), "edition.lead.verdict")
-    _keys(verdict, {"label", "tone"}, "edition.lead.verdict")
-    verdict_label = _text(verdict.get("label"), "edition.lead.verdict.label")
-    verdict_tone = _text(verdict.get("tone"), "edition.lead.verdict.tone")
-    if verdict_tone not in VERDICT_TONES:
-        raise RenderError("edition.lead.verdict.tone must be stable, watch, or urgent")
+    verdict_html = ""
+    if lead.get("verdict") is not None:
+        verdict = _object(lead["verdict"], "edition.lead.verdict")
+        _keys(verdict, {"label", "tone"}, "edition.lead.verdict")
+        label = _text(verdict.get("label"), "edition.lead.verdict.label")
+        tone = _text(verdict.get("tone"), "edition.lead.verdict.tone")
+        if tone not in VERDICT_TONES:
+            raise RenderError(
+                "edition.lead.verdict.tone must be stable, watch, or urgent"
+            )
+        verdict_html = f'<p class="verdict verdict-{tone}">{escape(label)}</p>'
     paragraphs_raw = _array(
         lead.get("paragraphs"), "edition.lead.paragraphs", minimum=1, maximum=2
     )
@@ -360,11 +390,11 @@ def _render_lead(value: Any, lead_desk: str, registry: SourceRegistry) -> str:
         )
     paragraphs_html = "".join(f"<p>{escape(item)}</p>" for item in paragraphs)
     return (
-        f'<article class="lead-story" data-story data-lead-story data-layout-slot="lead" '
+        f'<article class="lead-story" data-story data-lead-story data-layout-slot="lead" id="lead" '
         f'data-desk-key="{escape(lead_desk, quote=True)}"{_source_attrs(source)}>'
-        f'<h2>{_sourced_title(source, headline)}</h2><p class="dek">{escape(dek)}</p>'
-        f'<p><span class="verdict verdict-{escape(verdict_tone, quote=True)}">{escape(verdict_label)}</span></p>'
-        f'<div class="lead-copy">{paragraphs_html}</div>{snapshot}</article>'
+        f'<p class="kicker">{escape(lead_desk.replace("-", " "))}</p>'
+        f'<h2>{_sourced_title(source, headline)}</h2><p class="dek">{escape(dek)}</p>{verdict_html}'
+        f'<div class="lead-copy">{paragraphs_html}</div>{snapshot}{_source_line(source)}</article>'
     )
 
 
@@ -565,7 +595,9 @@ def _render_day_ahead(value: Any, registry: SourceRegistry) -> tuple[str, str]:
 
 
 def _render_operations(value: Any, registry: SourceRegistry) -> str:
-    modules = _array(value, "edition.operations_details", minimum=1, maximum=8)
+    modules = _array(value, "edition.operations_details", minimum=0, maximum=8)
+    if not modules:
+        return ""
     rendered: list[str] = []
     for index, raw in enumerate(modules):
         path = f"edition.operations_details[{index}]"
@@ -576,7 +608,7 @@ def _render_operations(value: Any, registry: SourceRegistry) -> str:
         registry.add(source)
         blocks = _render_blocks(item.get("blocks"), f"{path}.blocks", registry)
         rendered.append(
-            f'<div class="report-block"{_source_attrs(source)}><h3>{_sourced_title(source, title)}</h3>{blocks}</div>'
+            f'<article class="report-block" data-story data-desk-key="cluster-infrastructure"{_source_attrs(source)}><h3>{_sourced_title(source, title)}</h3>{blocks}</article>'
         )
     return (
         '<section class="continuation" id="operations-continuation" data-lead-continuation '
@@ -618,10 +650,11 @@ def _render_departments(
             registry.add(source)
             body = _render_blocks(story.get("blocks"), f"{story_path}.blocks", registry)
             dek_html = f'<p class="dek">{escape(dek)}</p>' if dek else ""
+            opinion = '<p class="kicker">Opinion</p>' if key == "opinion" else ""
             stories.append(
                 f'<article class="department-story" data-story data-desk-key="{escape(key, quote=True)}"'
-                f"{_source_attrs(source)}><h3>{_sourced_title(source, headline)}</h3>{dek_html}"
-                f'<div class="story-body">{body}</div></article>'
+                f"{_source_attrs(source)}>{opinion}<h3>{_sourced_title(source, headline)}</h3>{dek_html}"
+                f'<div class="story-body">{body}</div>{_source_line(source)}</article>'
             )
         rendered.append(
             f'<section class="department" data-department="{escape(key, quote=True)}" id="{escape(key, quote=True)}" '
@@ -724,18 +757,38 @@ def render_daybook(
     editors_note = _text(edition.get("editors_note"), "edition.editors_note")
 
     registry = SourceRegistry()
-    lead_html = _render_lead(edition.get("lead"), policy["lead_desk"], registry)
+    lead_key = _text(edition["lead"].get("desk_key"), "edition.lead.desk_key")
+    if lead_key in {"opinion", "weather", "email-calendar"} or lead_key not in {
+        item["key"] for item in policy["desks"]
+    }:
+        raise RenderError("edition.lead.desk_key must select a policy news desk")
+    if policy["lead_desk"] != "editorial-choice" and lead_key != policy["lead_desk"]:
+        raise RenderError("edition.lead.desk_key must match the fixed policy lead")
+    lead_html = _render_lead(edition.get("lead"), lead_key, registry)
     day_ahead_html, day_ahead_continuation = _render_day_ahead(
         edition.get("day_ahead"), registry
     )
     operations_html = _render_operations(edition.get("operations_details"), registry)
-    departments_html, navigation = _render_departments(
-        edition.get("departments"), registry
+    rail_keys = {item["key"] for item in policy["desks"] if item["placement"] == "rail"}
+    departments = edition.get("departments", [])
+    departments_html, main_navigation = _render_departments(
+        [item for item in departments if item["desk_key"] not in rail_keys], registry
     )
+    feature_html, feature_navigation = _render_departments(
+        [item for item in departments if item["desk_key"] == "health"], registry
+    )
+    rail_html, rail_navigation = _render_departments(
+        [item for item in departments if item["desk_key"] in rail_keys - {"health"}],
+        registry,
+    )
+    navigation = main_navigation + feature_navigation + rail_navigation
     manifest, statuses = _coverage_manifest(edition.get("coverage"), policy)
 
-    if statuses.get(policy["lead_desk"]) not in {"covered", "unavailable"}:
-        raise RenderError("the policy lead desk must be covered or unavailable")
+    manifest["lead_desk"] = lead_key
+    if statuses.get(lead_key) != "covered":
+        raise RenderError("the selected lead desk must be covered")
+    if operations_html and statuses.get("cluster-infrastructure") != "covered":
+        raise RenderError("operations_details requires covered cluster-infrastructure")
     if statuses.get("weather") != _text(
         _object(edition["day_ahead"]["weather"], "edition.day_ahead.weather").get(
             "status"
@@ -755,21 +808,24 @@ def render_daybook(
     for key, _ in navigation:
         if statuses.get(key) != "covered":
             raise RenderError(f"department {key} must have covered status")
-    reported_keys = {policy["lead_desk"], "weather", "email-calendar"} | {
+    reported_keys = {lead_key, "weather", "email-calendar"} | {
         key for key, _ in navigation
     }
+    if operations_html:
+        reported_keys.add("cluster-infrastructure")
     for key, status in statuses.items():
         if status == "covered" and key not in reported_keys:
             raise RenderError(f"covered desk {key} must have reporting")
 
-    rail_items = [
-        ("operations-continuation", "Operations"),
-        (
-            "day-ahead-continuation" if day_ahead_continuation else "weather",
-            "The Day Ahead",
-        ),
+    lead_label = next(
+        item["label"] for item in policy["desks"] if item["key"] == lead_key
+    )
+    rail_items = [("lead", lead_label)] + [
+        item for item in navigation if item[0] != lead_key
     ]
-    rail_items.extend(navigation)
+    rail_items.append(("weather", "The Day Ahead"))
+    if operations_html:
+        rail_items.append(("operations-continuation", "Operations"))
     department_rail = "\n".join(
         f'<a href="#{escape(anchor, quote=True)}">{escape(label)}</a>'
         for anchor, label in rail_items
@@ -791,6 +847,8 @@ def render_daybook(
         "@@DAY_AHEAD_CONTINUATION@@": day_ahead_continuation,
         "@@OPERATIONS_CONTINUATION@@": operations_html,
         "@@DEPARTMENTS@@": departments_html,
+        "@@RAIL_DEPARTMENTS@@": rail_html,
+        "@@RAIL_FEATURE@@": feature_html,
         "@@EDITORS_NOTE@@": escape(editors_note),
         "@@FOOTER@@": escape(footer),
     }

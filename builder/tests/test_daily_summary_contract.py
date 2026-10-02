@@ -30,6 +30,7 @@ def malformed_blocks():
         {
             "type": "figure",
             "figure": {
+                "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
                 "url": "https://images.example/source.jpg",
                 "source_page": "https://primary.example/report",
                 "credit": "Example Publisher",
@@ -151,7 +152,7 @@ def test_cycles_fail_closed_instead_of_recursing():
 
 def test_schema_enforces_nested_required_unknown_type_enum_and_array_limits():
     value = edition()
-    value["lead"]["verdict"]["tone"] = "invented"
+    value["lead"]["verdict"] = {"label": "Test", "tone": "invented"}
     value["day_ahead"]["email_calendar"]["actions"][0]["body"] = []
     value["departments"][0]["stories"][0]["source"]["secret"] = "unused"
     value["operations_details"][0]["blocks"] = [

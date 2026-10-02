@@ -7,7 +7,10 @@ fail closed. Rendering retains the separate semantic and source-policy gates.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -253,3 +256,23 @@ def validate_edition(
         expanded_schema(schema if schema is not None else load_schema()),
         "edition",
     )
+
+
+def embedded_image_error(value: str) -> str:
+    """Check bounded embedded raster bytes without network access or dependencies."""
+    match = re.fullmatch(
+        r"data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/=]+)", value
+    )
+    if not match or len(value) > 100_000:
+        return "image must be a bounded embedded base64 raster data URL"
+    try:
+        data = base64.b64decode(match[2], validate=True)
+    except (ValueError, binascii.Error):
+        return "image has invalid base64 bytes"
+    signatures = {
+        "png": data.startswith(b"\x89PNG\r\n\x1a\n"),
+        "jpeg": data.startswith(b"\xff\xd8\xff"),
+        "gif": data.startswith((b"GIF87a", b"GIF89a")),
+        "webp": data.startswith(b"RIFF") and data[8:12] == b"WEBP",
+    }
+    return "" if signatures[match[1]] else "image MIME type does not match raster bytes"

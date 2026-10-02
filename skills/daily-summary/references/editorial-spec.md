@@ -1,167 +1,118 @@
 # The Daily Daedalus editorial specification
 
-Use this reference while ranking a full daily-summary edition into the fixed
-v4 renderer regions. The renderer owns the markup and CSS; the editor owns
-selection, hierarchy, brevity, and truthful sourcing.
+Use this reference to rank and edit a daily edition. The deterministic renderer
+owns markup and CSS; the editor owns selection, evidence and hierarchy.
 
-## Identity
+## Identity and composition
 
-The masthead is **The Daily Daedalus**. Directly beneath it, include the
-standing line **One reader. One editor. No filler.** The canonical template
-loads the approved Cheltenham stylesheet:
+Preserve **The Daily Daedalus** and **One reader. One editor. No filler.**
+Use the supplied newspaper reference as a visual direction: white paper,
+near-black serif headlines, compact sans-serif utility text, fine gray rules,
+a centered masthead, a double-rule department rail and varied story sizes.
+Do not copy the Times nameplate, logo or prose. No dashboard cards, shadows,
+gradients or decorative status panels.
 
-`https://g1.nyt.com/fonts/css/web-fonts.c851560786173ad206e1f76c1901be7e096e8f8b.css`
+The canonical `daybook-v4.html` asset retains its runtime filename and version
+markers for compatibility. Its current composition is:
 
-The page uses warm-white newsprint, near-black ink, muted secondary text, thin
-rules, and red only for a genuinely urgent condition. It is an edited
-newspaper, not an observability dashboard. Do not add rounded cards, gradients,
-glow, ornamental shadows, dark panels, or corporate-brand treatments.
+1. Dated utility strap, masthead, standing line and links to populated desks.
+2. A desktop 2.1/1 grid with independently flowing columns. The main column
+   contains the selected news lead followed immediately by ranked departments.
+   The narrower rail opens with Health when covered, then weather, mail,
+   calendar and their continuation, followed by Opinion and selective lifestyle desks as
+   designated by policy placement. Its stories stack in a single column. One column's length never postpones the other's next story.
+3. Optional operational exceptions after the newspaper grid.
+4. Editor's Note and edition footer. No Sources appendix or desk ledger;
+   citations stay on their reporting and image credits in captions.
 
-## Fixed page composition
+At 740px and below, the DOM-backed grid becomes one column: lead, personal
+rail, ranked departments, any operational exceptions, Editor's Note. Long
+headlines wrap, tables scroll within focusable labeled containers, and no text
+is clipped or line-clamped. Printing uses normal document flow, repeated table
+headers and breakable long articles so a long desk does not create blank pages.
 
-The template renders these regions in order:
+Everything needed to render is in one HTML document: embedded CSS, local
+Georgia/Times serif and Arial/Helvetica utility stacks, optional embedded raster
+bytes, and no scripts, remote fonts or external assets. Source hyperlinks
+remain ordinary HTTPS citations. Typography and semantic tables must look
+complete when there are no photographs. Never add imagery merely to fill space.
 
-1. A utility strap marked `data-edition-strap`, centered masthead, standing
-   line, and department rail marked `data-department-rail`.
-2. A desktop 7/5 front page marked `data-lead-grid data-lead-layout="split"`.
-   Cluster & Infrastructure is the bounded lead on the left. Weather and Email
-   & Calendar stack on the right.
-3. A full-width day-ahead continuation when the right rail exceeds four agenda
-   items or two mail actions, or when a three-day look-ahead exists.
-4. A full-width operations continuation marked `data-lead-continuation`.
-   Independent modules balance into two editorial columns on wide screens.
-5. Supporting departments as separate ranked bands. The first of three or more
-   stories becomes the feature; later stories form compact pairs.
-6. Editor's Note and edition footer. Omit the Sources section and desk ledger;
-   keep source links on the reporting and image credits in figure captions.
+## Selection and opening budgets
 
-At or below 740px, every region becomes one ranked column in DOM order. The
-lead comes first, followed by Weather and Email & Calendar, their overflow,
-operations detail, supporting departments, and Editor's Note.
+`edition-policy.json` owns desk interests and priority. Choose the strongest
+verified lead by personal consequence and deadline, setting `lead.desk_key`.
+Technology, Business and Health get first attention; Sports is highest priority
+during football season when fantasy decisions are live. World and U.S. can
+lead when their implications warrant it. Opinion is separate and cannot serve
+as the reported-news lead. Cluster health has no reserved front-page position:
+only a current consequential incident or explicit request warrants research.
 
-## Opening budgets
+Use one headline, one dek, one or two lead paragraphs totaling at most 220
+words, and optionally one five-row table. `verdict` is optional and useful only
+for an actual operational condition. Continue an important mechanism or detailed
+comparison in the same desk below the lead; do not cut it just to hit a reading
+time. Do not duplicate the lead story in full.
 
-The front grid is a bounded package, not a container for the complete
-operations report.
-
-- Use one operations headline, one dek, one verdict, one or two paragraphs
-  totaling at most 220 words, and at most one five-row snapshot table.
-- Put restart timelines, pod tables, GPU details, Flux, UniFi, Synology, mirror
-  state, and other extended evidence in `operations_details`.
-- Covered Weather always contains today plus three complete days.
-- The opening personal rail contains the first four agenda items and first two
-  actionable mail items. The renderer moves all remaining items below the grid;
-  do not manually truncate them.
-- Keep quiet desks internal. Mention material source limitations briefly beside
-  affected reporting or in the Editor's Note; do not create filler panels.
-
-These limits prevent one long story from pinning unrelated columns open and
-creating the empty corridor seen in the v3 layout.
+The personal rail opens with four agenda items and two mail actions; the
+renderer preserves the remainder and three-day look-ahead below them in that
+rail. Covered weather includes today plus three complete days. Departments
+with a single story use the main column's full width. With three or more, the
+first is a feature and the remaining stories form compact pairs. Quiet desks
+are omitted. Lower-priority items can be briefs or absent, never filler panels.
 
 ## Reporting density and voice
 
-Lead with the most important supported conclusion or decision needing
-attention. Explain its consequence for the reader's operations, customers,
-economics, or plans before recounting activity. Begin operations with a plain,
-evidence-backed verdict such as stable, watching, degraded, or action required.
-Avoid alarmist headlines and do not invent a business consequence for a quiet day.
+Lead with the supported conclusion and what changes for compute supply, cost,
+competition, work, health, a lineup or a trip. Explain the mechanism. Keep
+observations, published reports, forecasts, analyst speculation and editorial
+inference distinguishable. Attribute projections to their named originators.
+Vendor claims require workload, configuration, baseline, date and limitations;
+a claimed speedup is not production evidence or proof of cheaper inference.
 
-Distinguish observed facts from interpretation, recommendations, and
-commitments. Identify production observations, controlled tests, published or
-customer reports, and estimates. Give numbers denominators and scope: affected
-versus total, current versus historical, ready versus desired. Include technical
-detail when it changes the decision, preserving the capability, workload,
-environment, baseline, and operating requirements needed to interpret or repeat
-a result. Throughput alone does not establish lower cost or a better customer
-experience.
+Date every numerical claim by its measurement date or reporting period. Keep
+source precision, units, denominator, timezone and comparison basis in text or
+semantic tables, with the source beside the claim. An edition timestamp alone
+is insufficient. Market comparisons use the same session. Fantasy reporting
+uses the actual league rules and scoring period. Health studies retain design,
+population, effect size, absolute and relative risk where available, time horizon
+and uncertainty; say when a requested measure was not reported or derivable.
+The HTML structure validates presentation and provenance, not factual truth.
 
-Connect cases to broader implications only as far as their evidence supports.
-A single launch, benchmark, or customer example is not a universal market
-trend. Keep historical results separate from today's progress. The Editor's
-Note may synthesize reported facts or propose a priority; it must not introduce
-unsupported claims or imply that a proposed priority is already agreed.
+When later final numbers supersede earlier live estimates, replace the old
+claim in the story and add a dated correction naming both values and the
+source. Never present both as current. An archived edition should make the
+correction understandable without access to an earlier conversation.
 
-Put the needed decision or validation near the fact that creates it. Explain
-what it would resolve and who should act, distinguishing confirmed owners and
-dates from proposals. Never invent metrics, ownership, deadlines, or delivery
-commitments. Keep private mail and calendar copy discreet; prefer “prepare
-for” and “reply to” over unnecessary quotations.
+Opinion is labeled at both desk and story level. Name the writer, state the
+argument and show its evidence chain, uncertainty and material counterevidence.
+The Editor's Note may synthesize reported facts but may not introduce an
+unsupported factual claim or imply an agreed action.
 
-Use clear, natural English, concrete verbs, familiar words, declarative
-headlines, precise deks, and focused paragraphs. Let the reporting determine
-paragraph and list structure within the fixed page layout. Avoid repeated
-sentence patterns, symmetrical slogans, forced lists of three, promotional
-language, em dashes, and vague phrases such as “unlock value.” Headings and
-lists should help scanning. The fixed masthead tagline is publication identity,
-not a pattern to repeat in reporting.
+Private Hindsight context selects relevant coverage; it is not publishable
+copy. Do not reproduce diagnoses, medication schedules, supplement lists,
+clinical history, raw mail or attendee details. A missing medical profile does
+not make Health a low-priority desk. Do not infer personal applicability or
+recommend dosing changes.
 
-Make every story understandable on its own. Explain how material uncertainty
-affects its conclusion or next action; avoid unexplained research shorthand
-and blanket disclaimers. Keep detailed chronology and supporting evidence in
-the continuation and linked sources. Before finishing, check that the reader
-can identify the central conclusion, assess its evidence, and understand any
-requested action. Apply this same voice to the sourced text fallback. Aim for
-five to eight minutes only when the reporting earns that length; a quiet
-edition should be visibly shorter.
+Use concrete verbs, declarative headlines, explanatory deks and focused
+paragraphs. Avoid promotional language, “revolutionary,” slogans, forced lists
+of three, em dashes and invented consequences. Five to ten minutes is a guide,
+not a quota. Compress low-relevance copy before removing a useful mechanism.
+Apply the same evidence standard and voice to the sourced text fallback.
 
-## Structured provenance
+## Structured provenance and validation
 
-Use the source objects in `references/edition-format.md`. The renderer converts
-them into stable attributes:
+Use the source objects and blocks in `edition-format.md`. Public reporting has
+an HTTPS `data-source-url` linked within its article; connected tools have safe
+`data-source-ref` identifiers. `source.detail` can state publication/as-of dates,
+but numeric dates must also be visible beside the claim. Every optional image
+has verified embedded raster bytes, original image URL, source page, credit,
+meaningful alt text and a linked caption. Remote image URLs are provenance only.
 
-- public reporting becomes `data-source-kind="web"` with an HTTPS
-  `data-source-url` and a safe visible link;
-- live operational or personal reporting becomes `data-source-kind="tool"`
-  with a comma-separated `data-source-ref`;
-- weather and personal modules carry `data-coverage-status`; all desk statuses
-  stay in the internal validation manifest without a visible ledger;
-- Every `<img>` belongs inside a `<figure>` with URL, page, caption, credit,
-  meaningful alt text, asynchronous decoding, and no-referrer behavior.
-
-Use two to four images only when exact source material is available and
-relevant. Never generate, edit, synthesize, or substitute stock imagery.
-
-## Stable v4 interface
-
-The canonical template emits:
-
-```html
-<html
-  lang="en"
-  data-daybook-version="4"
-  data-template-version="daybook-v4"
-  data-policy-version="2026-08-27"
->
-  <p class="edition-strap" data-edition-strap>...</p>
-  <nav
-    class="departments"
-    data-department-rail
-    aria-label="Edition departments"
-  >
-    ...
-  </nav>
-  <main id="daybook">
-    <section class="front-page" data-lead-grid data-lead-layout="split">
-      <article
-        class="lead-story"
-        data-story
-        data-lead-story
-        data-layout-slot="lead"
-        data-desk-key="cluster-infrastructure"
-      >
-        ...
-      </article>
-      <aside class="day-ahead" data-day-ahead data-layout-slot="day-ahead">
-        ...
-      </aside>
-    </section>
-    <section id="operations-continuation" data-lead-continuation>...</section>
-    <section id="editors-note">...</section>
-  </main>
-</html>
-```
-
-Do not reproduce these elements by hand or edit them after rendering. The raw
-file sent to validation starts at `<!DOCTYPE html>` and ends at `</html>`.
-Return the exact validated document inside one `html` fence with no surrounding
-prose.
+Keep the canonical `data-daybook-version="4"`,
+`data-template-version="daybook-v4"`, `data-lead-grid`, `data-lead-story`,
+`data-layout-slot`, `data-department-rail` and internal coverage markers. The
+lead marker identifies the selected desk, not a fixed infrastructure desk.
+The optional operations continuation alone uses `data-lead-continuation`.
+Do not hand-edit rendered HTML. Return exactly the validated standalone
+document inside one `html` fence.

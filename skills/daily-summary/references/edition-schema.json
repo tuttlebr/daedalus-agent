@@ -51,7 +51,7 @@
       "items": {
         "$ref": "#/$defs/operation"
       },
-      "minItems": 1,
+      "minItems": 0,
       "maxItems": 8
     },
     "departments": {
@@ -320,6 +320,10 @@
             },
             "caption": {
               "type": "string"
+            },
+            "data_url": {
+              "type": "string",
+              "description": "Verified raster bytes as a base64 data:image/png, jpeg, gif or webp URL. No external asset fetch."
             }
           },
           "required": [
@@ -328,7 +332,8 @@
             "source_page",
             "credit",
             "alt",
-            "caption"
+            "caption",
+            "data_url"
           ],
           "additionalProperties": false
         }
@@ -628,9 +633,12 @@
         },
         "source": {
           "$ref": "#/$defs/source"
+        },
+        "desk_key": {
+          "type": "string"
         }
       },
-      "required": ["headline", "dek", "verdict", "paragraphs", "source"],
+      "required": ["headline", "dek", "paragraphs", "source", "desk_key"],
       "additionalProperties": false
     },
     "operation": {

@@ -38,6 +38,7 @@ def _edition(*, with_figure: bool = True) -> dict:
         edition["departments"][0]["stories"][0]["blocks"].append(
             {
                 "type": "figure",
+                "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
                 "url": "https://images.example/photo.jpg",
                 "source_page": "https://images.example/source-page",
                 "credit": "A. Photographer / Publisher",
@@ -95,11 +96,11 @@ def test_validator_accepts_renderer_output_with_source_image(tmp_path):
     assert result.returncode == 0
     assert report["passed"] is True
     assert report["errors"] == []
-    assert report["metrics"]["coverage_items"] == 9
-    assert report["metrics"]["manifest_desks"] == 9
-    assert report["metrics"]["required_policy_desks"] == 9
+    assert report["metrics"]["coverage_items"] == len(_policy()["desks"])
+    assert report["metrics"]["manifest_desks"] == len(_policy()["desks"])
+    assert report["metrics"]["required_policy_desks"] == len(_policy()["desks"])
     assert report["metrics"]["source_images"] == 1
-    assert report["metrics"]["stories"] == 11
+    assert report["metrics"]["stories"] == 16
     assert report["metrics"]["words"] > 500
 
 
@@ -192,11 +193,11 @@ def test_validator_rejects_identity_policy_or_fixed_lead_drift(tmp_path):
         )
         .replace("One reader. One editor. No filler.", "Everything, every day.")
         .replace(
-            'data-desk-key="cluster-infrastructure"',
+            'data-desk-key="technology"',
             'data-desk-key="culture-leisure"',
             1,
         )
-        .replace('data-policy-version="2026-08-27"', 'data-policy-version="old"')
+        .replace('data-policy-version="2026-10-02"', 'data-policy-version="old"')
     )
 
     result, report = _run_validator(tmp_path, html)
@@ -250,7 +251,7 @@ def test_validator_rejects_missing_editorial_and_accessibility_contracts(tmp_pat
     html, _ = _render()
     html = (
         html.replace("max-width: 1200px", "max-width: 900px")
-        .replace("a:focus-visible", "a:hover")
+        .replace(":focus-visible", ":hover")
         .replace("text-align: center;", "text-align: left;")
         .replace(' alt="Engineers examining a data center system"', "")
     )
@@ -276,12 +277,17 @@ def test_validator_rejects_unbounded_source_images(tmp_path):
 
 def test_validator_rejects_an_unapproved_stylesheet(tmp_path):
     html, _ = _render()
-    html = html.replace(FONT_STYLESHEET, "https://fonts.example/style.css")
+    html = html.replace(
+        "</head>",
+        '<link rel="stylesheet" href="https://fonts.example/style.css"></head>',
+    )
 
     result, report = _run_validator(tmp_path, html)
 
     assert result.returncode == 1
-    assert any("approved Cheltenham stylesheet" in error for error in report["errors"])
+    assert any(
+        "must not load external stylesheets" in error for error in report["errors"]
+    )
 
 
 def test_validator_rejects_missing_canonical_class_wiring(tmp_path):
@@ -298,12 +304,12 @@ def test_validator_rejects_missing_canonical_class_wiring(tmp_path):
     assert any("canonical departments class" in error for error in report["errors"])
 
 
-def test_validator_rejects_weak_hierarchy_and_non_chelt_primary_type(tmp_path):
+def test_validator_rejects_weak_hierarchy_and_missing_serif_type(tmp_path):
     html, _ = _render()
     html = (
         html.replace(" data-edition-strap", "", 1)
         .replace(" data-lead-story", "", 1)
-        .replace("font-family: nyt-cheltenham,", "font-family: Arial,", 1)
+        .replace("Georgia", "Arial")
     )
 
     result, report = _run_validator(tmp_path, html)
@@ -313,9 +319,7 @@ def test_validator_rejects_weak_hierarchy_and_non_chelt_primary_type(tmp_path):
     assert any(
         "exactly one lead grid and lead story" in error for error in report["errors"]
     )
-    assert any(
-        "Cheltenham as its primary family" in error for error in report["errors"]
-    )
+    assert any("local serif font family" in error for error in report["errors"])
 
 
 def test_validator_rejects_an_undeclared_lead_layout(tmp_path):
@@ -328,30 +332,35 @@ def test_validator_rejects_an_undeclared_lead_layout(tmp_path):
     assert any("data-lead-layout must be split" in error for error in report["errors"])
 
 
-def test_validator_requires_operations_continuation_outside_lead_grid(tmp_path):
-    html, _ = _render()
-    html = html.replace(" data-lead-continuation", "", 1)
-
-    result, report = _run_validator(tmp_path, html)
-
-    assert result.returncode == 1
-    assert any(
-        "exactly one operations lead continuation" in error
-        for error in report["errors"]
+def test_validator_accepts_news_edition_without_operations(tmp_path):
+    edition = _edition()
+    edition["operations_details"] = []
+    next(
+        item
+        for item in edition["coverage"]
+        if item["desk_key"] == "cluster-infrastructure"
+    )["status"] = "quiet"
+    html, manifest, _ = _renderer.render_daybook(
+        edition, _policy(), TEMPLATE.read_text()
     )
+    result, report = _run_validator(tmp_path, html, manifest=manifest)
+    assert result.returncode == 0, report
+    assert report["passed"] is True
 
 
 def test_validator_requires_canonical_front_page_ratio(tmp_path):
     html, _ = _render()
     html = html.replace(
-        "grid-template-columns: minmax(0, 7fr) minmax(19rem, 5fr)",
+        "grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr)",
         "grid-template-columns: 25% 45% 30%",
     )
 
     result, report = _run_validator(tmp_path, html)
 
     assert result.returncode == 1
-    assert any("canonical 7/5 front-page split" in error for error in report["errors"])
+    assert any(
+        "canonical 2.1/1 front-page split" in error for error in report["errors"]
+    )
 
 
 def test_validator_requires_image_provenance_in_caption(tmp_path):
@@ -367,3 +376,41 @@ def test_validator_requires_image_provenance_in_caption(tmp_path):
     assert any(
         "caption must link its source page" in error for error in report["errors"]
     )
+
+
+@pytest.mark.parametrize(
+    "asset",
+    [
+        '<img src="https://example.org/remote.png">',
+        '<iframe src="https://example.org/embed"></iframe>',
+        "<style>body { background: url(https://example.org/bg.png); }</style>",
+        '<style>@import "https://example.org/fonts.css";</style>',
+        '<video poster="https://example.org/poster.jpg"></video>',
+        '<div onclick="alert(1)">Active content</div>',
+    ],
+)
+def test_validator_rejects_external_assets_and_active_content(tmp_path, asset):
+    html, _ = _render()
+    result, report = _run_validator(
+        tmp_path, html.replace("</body>", asset + "</body>")
+    )
+    assert result.returncode == 1
+    assert report["passed"] is False
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "https://example.org/photo.png",
+        "data:image/svg+xml;base64,PHN2Zy8+",
+        "data:image/png;base64,bm90IGEgcG5n",
+    ],
+)
+def test_validator_rejects_nonembedded_or_invalid_raster_bytes(tmp_path, replacement):
+    html, _ = _render()
+    import re
+
+    html = re.sub(r'(<img src=")[^"]+', lambda match: match[1] + replacement, html)
+    result, report = _run_validator(tmp_path, html)
+    assert result.returncode == 1
+    assert any("raster" in error for error in report["errors"])

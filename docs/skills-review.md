@@ -1,5 +1,33 @@
 # Skill review records
 
+## 2026-10-02: daily-summary editorial priorities and offline newspaper
+
+Replaced the fixed cluster lead with an editor-selected news desk. Technology,
+Business, Health and football-season Sports receive first attention; the policy
+now includes World, U.S., Michigan/Region, Science, Opinion, Arts, Style and
+Travel. Routine infrastructure surveys and healthy-count filler are removed.
+The three Business beats, current fantasy evidence, study-quality reporting,
+mechanisms, source dates and explicit corrections are specified. Medical
+specifics remain outside shared resources; the skill checks injected Hindsight
+context and permits one targeted recall when the health context is absent.
+
+The renderer now accepts empty operations details and an optional operational
+verdict. The newspaper uses white paper, local serif typography, a 2.1/1 news
+and side-column layout, a Health feature, distinctly labeled Opinion, and
+wrapped headlines and contained tables. All CSS and optional raster images
+are embedded. Provenance URLs are citations, never asset dependencies. The
+existing runtime template path and v4 markers remain stable; policy version
+2026-10-02 and skill metadata 5.0.0 identify the revised contract.
+
+Validation uses synthetic data only: 170 focused renderer, schema, validator,
+briefing-tool, parser and full catalog/dispatcher tests; nine Chromium tests at 1440,
+1024, 768, 390 and 320px; sparse and long-content editions; offline request
+checks; and a print PDF. An independent forward test built and validated a
+Sports-led synthetic edition with no imagery or operations and identified
+three documentation mismatches, now corrected. This is local source and
+artifact validation, not a live researched edition, production deployment or
+proof of future model adherence.
+
 ## 2026-09-23: application communication style
 
 Reviewed all 20 skills against the reader's conclusion-first, evidence-led

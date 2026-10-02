@@ -11,10 +11,6 @@
     <meta name="description" content="@@DESCRIPTION@@" />
     <meta name="color-scheme" content="light" />
     <title>@@TITLE@@</title>
-    <link
-      rel="stylesheet"
-      href="https://g1.nyt.com/fonts/css/web-fonts.c851560786173ad206e1f76c1901be7e096e8f8b.css"
-    />
     <style>
       *,
       *::before,
@@ -26,7 +22,7 @@
         --ink: #121212;
         --muted: #5a5a5a;
         --rule: #d3d3d3;
-        --paper: #fafaf8;
+        --paper: #ffffff;
         --urgent: #d0021b;
       }
       html {
@@ -36,15 +32,18 @@
         margin: 0;
         background: var(--paper);
         color: var(--ink);
-        font-family: nyt-cheltenham, Georgia, 'Times New Roman', Times, serif;
-        font-size: 18px;
-        line-height: 1.48;
+        font-family: Georgia, 'Times New Roman', Times, serif;
+        font-size: 17px;
+        line-height: 1.5;
       }
       .page {
         width: calc(100% - 48px);
         max-width: 1200px;
         margin: 0 auto;
       }
+      h2,
+      h3,
+      h4,
       p,
       li,
       dd,
@@ -52,7 +51,7 @@
       figcaption,
       th,
       td {
-        overflow-wrap: break-word;
+        overflow-wrap: anywhere;
       }
       article,
       section,
@@ -80,13 +79,12 @@
         padding: 12px 0 7px;
         border-bottom: 1px solid var(--rule);
         color: var(--muted);
-        font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times,
-          serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 0.78rem;
       }
       .masthead {
-        margin: 18px 0 5px;
-        font-size: clamp(3rem, 7vw, 5.8rem);
+        margin: 16px 0 8px;
+        font-size: clamp(2.8rem, 6vw, 4.7rem);
         font-weight: 800;
         line-height: 0.9;
         text-align: center;
@@ -106,8 +104,7 @@
         padding: 8px 0;
         border-top: 1px solid var(--ink);
         border-bottom: 4px double var(--ink);
-        font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times,
-          serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 0.78rem;
         text-transform: uppercase;
         letter-spacing: 0.035em;
@@ -117,21 +114,53 @@
       }
       .front-page {
         display: grid;
-        grid-template-columns: minmax(0, 7fr) minmax(19rem, 5fr);
-        gap: 32px;
-        padding: 28px 0 30px;
+        grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+        gap: 24px;
+        padding: 22px 0 28px;
         border-bottom: 4px double var(--ink);
         align-items: start;
       }
+      .news-column {
+        padding-right: 24px;
+        border-right: 1px solid var(--rule);
+      }
       .lead-story {
-        padding-right: 30px;
-        border-right: 1px solid var(--ink);
+        padding-bottom: 22px;
+        border-bottom: 1px solid var(--ink);
+      }
+      .source-line,
+      .department-story .source-line {
+        margin: 12px 0 0;
+        color: var(--muted);
+        font: 0.7rem/1.4 Arial, Helvetica, sans-serif;
+      }
+      .kicker {
+        margin: 0 0 8px;
+        font: 700 0.72rem Arial, Helvetica, sans-serif;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      h2 a,
+      h3 a {
+        text-decoration: none;
+      }
+      h2 a:hover,
+      h3 a:hover {
+        text-decoration: underline;
+      }
+      .table-scroll {
+        max-width: 100%;
+        overflow-x: auto;
+      }
+      .table-scroll:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
       }
       .lead-story h2 {
         margin: 0 0 8px;
-        font-size: clamp(2.15rem, 4.6vw, 4.45rem);
+        font-size: clamp(1.85rem, 3vw, 2.8rem);
         font-weight: 800;
-        line-height: 0.96;
+        line-height: 1.07;
         letter-spacing: -0.02em;
       }
       .dek {
@@ -145,8 +174,7 @@
         margin: 0 0 13px;
         padding: 3px 8px 2px;
         border: 1px solid var(--ink);
-        font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times,
-          serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 0.72rem;
         font-weight: 700;
         line-height: 1.25;
@@ -168,11 +196,11 @@
       h2,
       h3,
       h4 {
-        font-family: nyt-cheltenham, Georgia, 'Times New Roman', Times, serif;
+        font-family: Georgia, 'Times New Roman', Times, serif;
         line-height: 1.12;
       }
       h2 {
-        font-size: clamp(1.55rem, 3vw, 2.35rem);
+        font-size: 1.5rem;
       }
       h3 {
         font-size: 1.18rem;
@@ -184,8 +212,7 @@
         width: 100%;
         margin: 14px 0 0;
         border-collapse: collapse;
-        font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times,
-          serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 0.82rem;
         line-height: 1.35;
       }
@@ -201,8 +228,8 @@
         font-weight: 700;
       }
       .day-ahead {
-        display: grid;
-        gap: 22px;
+        display: block;
+        font-size: 0.92rem;
       }
       .day-ahead-section + .day-ahead-section {
         padding-top: 20px;
@@ -210,7 +237,17 @@
       }
       .day-ahead h2 {
         margin: 0 0 9px;
-        font-size: 1.55rem;
+        font-size: 1.3rem;
+      }
+      .day-ahead > .department:first-child {
+        padding-top: 0;
+        margin-bottom: 22px;
+      }
+      .day-ahead .department-stories {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .day-ahead table {
+        font-size: 0.7rem;
       }
       .day-ahead h3 {
         margin: 14px 0 5px;
@@ -220,8 +257,8 @@
       }
       .brief {
         margin: 12px 0;
-        padding-left: 12px;
-        border-left: 3px solid var(--ink);
+        padding-top: 10px;
+        border-top: 1px solid var(--rule);
       }
       .brief h4,
       .brief p {
@@ -239,8 +276,8 @@
       }
       .day-ahead-continuation-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 20px 34px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 16px;
       }
       .day-ahead-continuation-grid > :last-child:nth-child(odd) {
         grid-column: 1 / -1;
@@ -262,13 +299,17 @@
         margin: 0 0 10px;
       }
       .department {
-        padding: 29px 0;
+        padding: 22px 0;
         border-bottom: 1px solid var(--rule);
       }
       .department-stories {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 26px 34px;
+        gap: 20px 24px;
+        align-items: start;
+      }
+      .department-story:only-child {
+        grid-column: 1 / -1;
       }
       .department-story {
         min-width: 0;
@@ -280,7 +321,7 @@
       }
       .department-story h3 {
         margin: 0 0 7px;
-        font-size: clamp(1.28rem, 2.4vw, 1.8rem);
+        font-size: clamp(1.15rem, 1.8vw, 1.5rem);
       }
       .department-story .dek {
         font-size: 1rem;
@@ -289,10 +330,7 @@
         max-width: 74ch;
         margin: 0 0 11px;
       }
-      .department-story:first-child:nth-last-child(n + 3) .story-body {
-        columns: 2 24rem;
-        column-gap: 34px;
-      }
+
       .department-story:first-child:nth-last-child(n + 3) .story-body > * {
         break-inside: avoid;
       }
@@ -315,8 +353,7 @@
       figcaption {
         margin-top: 6px;
         color: var(--muted);
-        font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times,
-          serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 0.77rem;
         line-height: 1.35;
       }
@@ -347,8 +384,7 @@
         padding: 19px 0 28px;
         border-top: 4px double var(--ink);
         color: var(--muted);
-        font-family: nyt-cheltenham-small, Georgia, 'Times New Roman', Times,
-          serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 0.76rem;
         text-align: center;
       }
@@ -356,8 +392,8 @@
         .front-page {
           gap: 24px;
         }
-        .lead-story {
-          padding-right: 22px;
+        .news-column {
+          padding-right: 20px;
         }
         .operations-flow {
           columns: 1;
@@ -388,13 +424,25 @@
           gap: 22px;
           padding-top: 23px;
         }
+        .news-column {
+          display: contents;
+        }
+        .lead-story {
+          order: 0;
+        }
+        .day-ahead {
+          order: 1;
+        }
+        .department {
+          order: 2;
+        }
         .lead-story {
           padding: 0 0 22px;
           border-right: 0;
           border-bottom: 1px solid var(--ink);
         }
         .lead-story h2 {
-          font-size: clamp(2.15rem, 11vw, 3.2rem);
+          font-size: clamp(1.8rem, 8vw, 2.5rem);
         }
         .day-ahead-continuation-grid,
         .department-stories {
@@ -424,7 +472,34 @@
         .front-page,
         .department-stories,
         .day-ahead-continuation-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          display: block;
+        }
+        .news-column {
+          display: contents;
+          border: 0;
+          padding: 0;
+        }
+        .day-ahead {
+          margin-top: 20px;
+        }
+        .table-scroll {
+          overflow: visible;
+        }
+        thead {
+          display: table-header-group;
+        }
+        tr,
+        figure {
+          break-inside: avoid;
+        }
+        h2,
+        h3,
+        h4 {
+          break-after: avoid;
+        }
+        p {
+          orphans: 3;
+          widows: 3;
         }
         .verdict,
         .verdict-watch,
@@ -434,10 +509,8 @@
         }
         article,
         section,
-        figure,
-        table,
         .report-block {
-          break-inside: avoid;
+          break-inside: auto;
         }
       }
     </style>
@@ -463,12 +536,13 @@
           data-lead-layout="split"
           aria-label="Front page"
         >
-          @@LEAD_STORY@@
+          <div class="news-column">@@LEAD_STORY@@ @@DEPARTMENTS@@</div>
           <aside class="day-ahead" data-day-ahead data-layout-slot="day-ahead">
-            @@DAY_AHEAD@@
+            @@RAIL_FEATURE@@ @@DAY_AHEAD@@ @@DAY_AHEAD_CONTINUATION@@
+            @@RAIL_DEPARTMENTS@@
           </aside>
         </section>
-        @@DAY_AHEAD_CONTINUATION@@ @@OPERATIONS_CONTINUATION@@ @@DEPARTMENTS@@
+        @@OPERATIONS_CONTINUATION@@
         <section
           class="editors-note"
           id="editors-note"

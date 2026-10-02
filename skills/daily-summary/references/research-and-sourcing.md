@@ -13,9 +13,10 @@ excludes one. Use the returned tool order as a plan, not as permission to call
 unrelated tools. Use `research_question` for the dated manifest and `depth=quick`.
 Pass the needed source IDs in `selected_sources_json`: public families
 `curated_feeds`, `perplexity_search`, `known_url_scrape`, `nvidia_docs`,
-`curated_domains`, and `x_mcp`, plus `workspace_data`, `cluster_state`,
-`network_state`, and `repository_data` for the standing desks. Add
-`fantasy_data` only for a requested fantasy desk. Preserve explicit source
+`curated_domains`, and `x_mcp`, plus `workspace_data` and relevant
+`repository_data`. Include `fantasy_data` for the in-season Sports beat. Add
+`cluster_state` or `network_state` only for an explicit check or a current
+material incident signal; do not run routine health reads. Preserve explicit source
 inclusions/exclusions and reuse the completed personal-source reads. A broad
 topic or approval hint does not require a new approval for this requested
 briefing. The plan is a source menu, not a requirement to call every family.
@@ -35,12 +36,18 @@ unrelated desk to finish before retrieving already-selected evidence. Once the
 desk inventory and supported reporting are sufficient, stop optional discovery;
 continue only for a material unresolved claim, source gap, or new anomaly.
 
-Always check the Cluster & Infrastructure, Weather, and Email & Calendar desks.
-For other desks, use a trusted quick signal first and deepen only material
-items. The conditional finance desk normally needs no research unless a
-seasonal date or structural event makes it relevant.
+Always check Weather and Email & Calendar. Give Technology, Business, Health
+and in-season Sports first research attention; use quick signals to select
+material stories across the other desks. The policy’s conditional desks need
+a timely trigger. Hindsight supplies private personalization, never verification
+of a current quote, injury, shortage, treatment guideline or incident.
 
-## Front Page — Cluster & Infrastructure
+## Optional operational exception
+
+Use this section only for an explicitly requested check or a current material
+incident signal. Scope the read to that signal; do not execute this whole
+checklist or inspect every system by default. A quiet omitted desk does not
+assert health.
 
 ### Kubernetes and GPU Operator
 
@@ -173,6 +180,16 @@ a concrete field or post-processing problem; do not manufacture gear news.
 
 ### Sports
 
+In football season load `espn-fantasy-football` and use connected ESPN evidence
+for both leagues before making personal lineup claims. Refresh scoring period,
+team/league mapping, roster availability, odd-team byes, waiver position, lineup
+slots and transaction/lock deadlines. Use team practice reports for DNP/Limited/
+Full trends with dates and distinguish these from game designations. Give
+snap/target/touch denominators and time windows. Check candidate ownership and
+league rules; a familiar player name is not evidence of waiver availability.
+Treat user-supplied records, injuries and Week 4 alternatives as dated leads to
+verify. State corrections when final numbers replace live estimates.
+
 Use official league, team, conference, or broadcaster pages for scores,
 standings, and schedules. Cover the Yankees, Steelers, Michigan State men's
 football, and Michigan State men's basketball only to their current seasonal
@@ -180,12 +197,47 @@ relevance. Prefer the last result, next game, standing or record context, and
 one material development. A WFAN listen link is optional and must be verified
 as useful for that game-day context.
 
-### Markets & Finance
+### Business, World and U.S.
 
-Do not run a daily ticker or market search. Research this desk only for a timely
-seasonal personal-finance reminder or a verified structural macro change that
-affects long-term planning. No stock picks, trading calls, fear framing, or
-generic market-close recap.
+Business has three daily signal checks: NVDA, the semiconductor complex, and
+AI-infrastructure economics. Use issuer filings/earnings, exchange or reliable
+market data, financing documents and named reporting. Compare NVDA with a
+semiconductor and broad-market benchmark over the same session. State price,
+currency, date, market timezone and close/intraday/delayed status; do not use a
+remembered price as today’s close. Distinguish fiscal quarters from calendar
+quarters and authorized buybacks from executed repurchases.
+
+Trace financing counterparties, debt, equity, commitments and actual spending.
+For export controls and regulation read the rule or official action: mechanism,
+jurisdiction, covered products/entities, exceptions, effective date and whether
+it is proposed, final or enforced. Attribute government and vendor projections.
+National bank, media-business and Fed/credit news belongs here, not in a forced
+New York regional section.
+
+### Health and private context
+
+Check the injected Hindsight context for relevant current health interests.
+If it lacks that context, use the single targeted recall allowed by SKILL.md;
+when no injection exists, include health in the one broader recall instead.
+Do not store or reproduce the reader’s medical specifics in shared resources or
+public research queries. Missing private context does not demote Health: cover
+material general news without claiming personal applicability.
+
+Use FDA safety communications, labels, shortage databases, published guidelines
+and original studies. Identify drug/formulation, notice date and affected scope.
+For studies retain population, sample size, design, comparator, duration, effect
+sizes, absolute/relative risks and confidence intervals when available. State
+when a metric was not reported or cannot be derived. Explain association versus
+causation and whether evidence is peer-reviewed, preliminary or replicated.
+Report evidence and practical access consequences; do not suggest regimen changes.
+
+### Science, Opinion, Arts, Style and Travel
+
+Follow each desk’s policy lane. Keep scientific mechanisms and limitations in
+the story. Opinion needs a named author and explicit label, its evidentiary
+chain and relevant counterevidence; do not treat commentary as a primary source
+for contested facts. For travel, date real prices and schedules and verify
+current plans through private context; an old work trip is not a new itinerary.
 
 ### Culture & Leisure
 
@@ -202,6 +254,14 @@ shared idea with Alicia only when it is genuinely specific and useful.
   `source_verifier_tool(operation=verify_claim, claim=..., source_url=...)`
   for public-source claims when support is not already exact. Private and live
   operational claims use their authenticated source tools, not a public fetch.
+- Date every numeric claim at its observation date or reporting period, not
+  merely the edition date. Retain exact decimals, units, denominators, currency,
+  timezone and comparison basis in plain text or semantic tables. Use Decimal
+  arithmetic for financial/fantasy calculations; do not round before deriving
+  changes. Identify forecasts and their named originators separately from facts.
+- Correct superseded live estimates in the story itself and add a dated
+  correction identifying the old value, final replacement and source. Never
+  silently mix live/final periods or carry stale user examples into a new issue.
 - Distinguish reported facts from the editor's synthesis.
 - Link every public-web story or brief to its HTTPS source page. For live tool
   or private-tool evidence, retain the tool reference in the reporting's
@@ -222,7 +282,10 @@ Images are evidence-adjacent editorial assets, not decoration.
 2. Confirm that subject, event, team, place, and date match the caption. Use
    `visual_media_tool` with `operation=analyze` when any match is uncertain.
 3. Record the direct image URL, source page, and named photographer or publisher
-   credit. Use all three in the required figure attributes and caption.
+   credit. Use all three in the required figure attributes and caption. Embed verified
+   raster bytes as a base64 `data_url`; provenance URLs are never image `src`.
+   The renderer does not download assets. If bytes are unavailable within the
+   bounded workflow, omit the image.
 4. Do not put article-page URLs in `<img src>`, use generic stock as reported
    evidence, or reuse the same image URL twice.
 5. Never call `visual_media_tool` with `operation=generate` or `operation=edit`

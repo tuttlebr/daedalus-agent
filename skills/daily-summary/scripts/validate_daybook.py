@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 import sys
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -12,10 +13,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-FONT_STYLESHEET = (
-    "https://g1.nyt.com/fonts/css/"
-    "web-fonts.c851560786173ad206e1f76c1901be7e096e8f8b.css"
-)
+_embedded_image_error = runpy.run_path(
+    str(Path(__file__).with_name("edition_contract.py"))
+)["embedded_image_error"]
 DAYBOOK_VERSION = "4"
 TEMPLATE_VERSION = "daybook-v4"
 DESK_KEY = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -87,6 +87,8 @@ class DaybookParser(HTMLParser):
         self.html_attrs: dict[str, str] = {}
         self.meta: list[dict[str, str]] = []
         self.stylesheets: list[str] = []
+        self.external_assets: list[str] = []
+        self.duplicate_ids: list[str] = []
         self.style_chunks: list[str] = []
         self._in_style = False
         self.script_count = 0
@@ -138,7 +140,19 @@ class DaybookParser(HTMLParser):
         self.stack.append(tag)
         element_id = values.get("id")
         if element_id:
+            if element_id in self.ids:
+                self.duplicate_ids.append(element_id)
             self.ids.add(element_id)
+        if tag not in {"a", "img"}:
+            for key in ("src", "srcset", "poster", "data"):
+                if values.get(key):
+                    self.external_assets.append(tag)
+        if tag == "link" or (tag == "img" and values.get("srcset")):
+            self.external_assets.append(tag)
+        if tag in {"iframe", "object", "embed", "svg"}:
+            self.external_assets.append(tag)
+        if any(key.startswith("on") for key in values):
+            self.external_assets.append("event handler")
         if element_id in {"weather", "email-calendar"}:
             self.day_ahead_attrs[element_id] = values
         if (
@@ -227,27 +241,30 @@ class DaybookParser(HTMLParser):
             else:
                 self.orphan_images.append(values)
 
+        if tag in {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }:
+            self.handle_endtag(tag)
+
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
         self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
-        closes_tagline = (
-            self._tagline_depth is not None
-            and len(self.stack) >= self._tagline_depth
-            and self.stack[self._tagline_depth - 1] == tag
-        )
-        closes_lead_grid = (
-            self._lead_grid_depth is not None
-            and len(self.stack) >= self._lead_grid_depth
-            and self.stack[self._lead_grid_depth - 1] == tag
-        )
-        closes_lead_story = (
-            self._lead_story_depth is not None
-            and len(self.stack) >= self._lead_story_depth
-            and self.stack[self._lead_story_depth - 1] == tag
-        )
         if tag == "style":
             self._in_style = False
         elif tag == "figure" and self._figure_stack:
@@ -258,11 +275,15 @@ class DaybookParser(HTMLParser):
             del self.stack[len(self.stack) - reverse_index - 1 :]
         while self._source_stack and self._source_stack[-1].depth > len(self.stack):
             self._source_stack.pop()
-        if closes_tagline:
+        if self._tagline_depth is not None and self._tagline_depth > len(self.stack):
             self._tagline_depth = None
-        if closes_lead_grid:
+        if self._lead_grid_depth is not None and self._lead_grid_depth > len(
+            self.stack
+        ):
             self._lead_grid_depth = None
-        if closes_lead_story:
+        if self._lead_story_depth is not None and self._lead_story_depth > len(
+            self.stack
+        ):
             self._lead_story_depth = None
 
     def handle_data(self, data: str) -> None:
@@ -403,14 +424,14 @@ def _load_policy(path: Path, errors: list[str]) -> EditionPolicy:
                     )
 
     desk_keys = {desk["key"] for desk in desks}
-    if lead_desk and lead_desk not in desk_keys:
+    if lead_desk and lead_desk != "editorial-choice" and lead_desk not in desk_keys:
         errors.append("edition policy lead_desk is missing from policy desks")
     lead_placements = {
         desk.get("key")
         for desk in raw_desks or []
         if isinstance(desk, dict) and desk.get("placement") == "lead"
     }
-    if lead_desk and lead_placements != {lead_desk}:
+    if lead_desk != "editorial-choice" and lead_placements != {lead_desk}:
         errors.append("edition policy must mark only lead_desk with placement=lead")
 
     return EditionPolicy(
@@ -462,9 +483,20 @@ def validate_daybook(
         errors.append("HTML data-policy-version must match the edition policy")
     if manifest.policy_version != policy.policy_version:
         errors.append("coverage manifest policy_version must match the edition policy")
-    if manifest.lead_desk != policy.lead_desk:
+    if (
+        policy.lead_desk != "editorial-choice"
+        and manifest.lead_desk != policy.lead_desk
+    ):
         errors.append("coverage manifest lead_desk must match the edition policy")
 
+    if manifest.lead_desk not in {
+        item["key"] for item in policy.desks
+    } or manifest.lead_desk in {"opinion", "weather", "email-calendar"}:
+        errors.append("selected lead must be a policy news desk")
+    if parser.external_assets or parser.duplicate_ids:
+        errors.append(
+            "document contains external assets, active content, or duplicate IDs"
+        )
     policy_desks = {item["key"]: item["label"] for item in policy.desks}
     manifest_desks = {item["key"]: item["label"] for item in manifest.desks}
     missing_policy_desks = sorted(set(policy_desks) - set(manifest_desks))
@@ -522,14 +554,14 @@ def validate_daybook(
         errors.append(
             "document must place exactly one day-ahead rail inside the lead grid"
         )
-    if parser.lead_continuation_count != 1:
-        errors.append("document must contain exactly one operations lead continuation")
+    if parser.lead_continuation_count > 1:
+        errors.append("document must contain at most one operations continuation")
     elif parser.lead_continuation_inside_grid:
         errors.append("operations lead continuation must be outside the lead grid")
     if parser.lead_story_attrs and (
-        parser.lead_story_attrs[0].get("data-desk-key") != policy.lead_desk
+        parser.lead_story_attrs[0].get("data-desk-key") != manifest.lead_desk
     ):
-        errors.append("lead story desk must match the edition policy lead_desk")
+        errors.append("lead story desk must match the selected manifest lead_desk")
     if parser.lead_layouts and parser.lead_layouts[0] not in LEAD_LAYOUTS:
         errors.append("lead grid data-lead-layout must be split")
     lead_words = re.findall(r"\b[\w'’-]+\b", " ".join(parser.lead_story_text))
@@ -561,12 +593,12 @@ def validate_daybook(
             "head must include charset, viewport, description, and color-scheme metadata"
         )
 
-    if parser.stylesheets != [FONT_STYLESHEET]:
-        errors.append("document must load only the approved Cheltenham stylesheet")
+    if parser.stylesheets:
+        errors.append("document must not load external stylesheets")
     css = "\n".join(parser.style_chunks)
     compact_css = re.sub(r"\s+", " ", css.lower())
     css_requirements = {
-        "Cheltenham font family": "nyt-cheltenham",
+        "local serif font family": "georgia",
         "1200px page width": "max-width: 1200px",
         "lead story grid": "grid-template-columns",
         "balanced operations continuation": "columns: 2 24rem",
@@ -579,20 +611,12 @@ def validate_daybook(
         if token not in compact_css:
             errors.append(f"CSS is missing {label}")
     if not re.search(
-        r"grid-template-columns\s*:\s*minmax\(0\s*,\s*7fr\)\s+minmax\(19rem\s*,\s*5fr\)",
+        r"grid-template-columns\s*:\s*minmax\(0\s*,\s*2\.1fr\)\s+minmax\(0\s*,\s*1fr\)",
         compact_css,
     ):
-        errors.append("CSS must use the canonical 7/5 front-page split")
-    font_declarations = re.findall(r"font-family\s*:\s*([^;}]+)", compact_css)
-    if not font_declarations:
-        errors.append("CSS must declare a Cheltenham font family")
-    for declaration in font_declarations:
-        primary = declaration.split(",", 1)[0].strip(" \"'")
-        if not primary.startswith("nyt-cheltenham"):
-            errors.append(
-                "every inline font stack must use Cheltenham as its primary family"
-            )
-            break
+        errors.append("CSS must use the canonical 2.1/1 front-page split")
+    if re.search(r"@import\b|url\s*\(", compact_css):
+        errors.append("CSS must be embedded and must not fetch assets")
     css_rules = re.findall(r"([^{}]+)\{([^{}]+)\}", compact_css)
     masthead_css = " ".join(
         declarations
@@ -645,8 +669,8 @@ def validate_daybook(
     for key, status in statuses.items():
         if status == "covered" and key not in reported_keys:
             errors.append(f"covered desk {key} must have reporting")
-    if statuses.get(policy.lead_desk) not in {"covered", "unavailable"}:
-        errors.append("the policy lead desk must be covered or unavailable")
+    if statuses.get(manifest.lead_desk) != "covered":
+        errors.append("the selected lead desk must be covered")
     for key in ("weather", "email-calendar"):
         attrs = parser.day_ahead_attrs.get(key, {})
         status = attrs.get("data-coverage-status")
@@ -659,7 +683,7 @@ def validate_daybook(
         key = attrs.get("data-desk-key", "")
         if key not in expected_keys:
             errors.append(f"story {index} references an unknown desk key")
-        elif key != policy.lead_desk and statuses.get(key) != "covered":
+        elif statuses.get(key) != "covered":
             errors.append(f"story {index} desk must have covered status")
         if attrs.get("data-source-kind") not in SOURCE_KINDS:
             errors.append(f"story {index} needs data-source-kind=web or tool")
@@ -703,9 +727,9 @@ def validate_daybook(
             continue
         image = figure.images[0]
         image_url = image.get("src", "")
-        image_urls.append(image_url)
-        if image_url != source_image:
-            errors.append(f"figure {index} image URL must match its provenance URL")
+        image_urls.append(source_image)
+        if error := _embedded_image_error(image_url):
+            errors.append(f"figure {index}: {error}")
         if not image.get("alt", "").strip():
             errors.append(f"figure {index} image needs meaningful alt text")
         if image.get("loading") not in {"eager", "lazy"}:
@@ -719,6 +743,10 @@ def validate_daybook(
 
     for index, link in enumerate(parser.links, start=1):
         href = link.get("href", "")
+        if href.startswith("#") and href[1:] not in parser.ids:
+            errors.append(f"internal link {index} has no target")
+        elif not href.startswith(("#", "https://")):
+            errors.append(f"link {index} must use an internal anchor or HTTPS")
         if href.startswith(("http://", "https://")):
             if not _is_https(href):
                 errors.append(f"external link {index} must use HTTPS")

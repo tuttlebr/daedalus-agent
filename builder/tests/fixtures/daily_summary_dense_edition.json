@@ -1,37 +1,33 @@
 {
   "format": "daily-daedalus/v1",
-  "policy_version": "2026-08-27",
+  "policy_version": "2026-10-02",
   "generated_at": {
-    "iso": "2026-08-27T08:11:00-04:00",
-    "display": "Thursday, August 27, 2026 · 8:11 a.m. EDT",
-    "issue_label": "Morning Edition"
+    "iso": "2026-10-02T08:11:00-04:00",
+    "display": "Friday, October 2, 2026 · 8:11 a.m. EDT",
+    "issue_label": "Layout proof · synthetic data"
   },
-  "description": "The Daily Daedalus, a current personalized daily briefing for August 27, 2026.",
+  "description": "Synthetic newspaper layout fixture. All stories and figures are test data, not current reporting.",
   "lead": {
-    "headline": "Cluster Returns to Steady State After a Brief Restart Wave",
-    "dek": "All five nodes are Ready. Four application pods restarted during a short dependency race, then recovered without intervention.",
-    "verdict": {
-      "label": "Stable, watching",
-      "tone": "watch"
-    },
+    "desk_key": "technology",
+    "headline": "Inference economics turn on memory movement, not just faster chips",
+    "dek": "A synthetic serving study illustrates the evidence needed to connect a systems improvement to a lower cost per request.",
     "paragraphs": [
-      "The current control plane is healthy across 26 namespaces. The restart wave remained isolated to one application namespace and ended within two minutes. No active rollout, storage, scheduling, or network failure remains, although the startup sequence deserves a follow-up after the morning edition.",
-      "GPU services, GitOps controllers, and the adopted network fleet are available. The practical watch item is version skew on one GPU node; it is not disrupting allocation now, but it should be resolved before the next driver-dependent deployment."
+      "In this layout fixture, a hypothetical engineering team separates model loading, prefill and decoding before comparing serving paths. Faster transfer alone would not establish a production gain: queueing, cache reuse and the latency target determine how much capacity becomes usable.",
+      "The mechanism belongs in the story. Moving fewer bytes between memory tiers could free bandwidth, but the result depends on model size, concurrency and context length. The illustrative comparison below is test data dated October 2, 2026, not a vendor result or a forecast."
     ],
-    "snapshot": {
-      "columns": ["Scope", "Current state", "Watch"],
-      "rows": [
-        ["Nodes", "5 of 5 Ready", "None"],
-        ["Application pods", "All Ready", "Four recent restarts"],
-        ["GPU allocation", "6 allocatable, 2 allocated", "Driver skew"],
-        ["GitOps", "Reconciling", "No drift"],
-        ["Network", "5 devices online", "No pending adoption"]
-      ]
-    },
     "source": {
-      "kind": "tool",
-      "label": "Live Kubernetes and UniFi reads",
-      "refs": ["k8s_mcp_server", "unifi_mcp_server"]
+      "kind": "web",
+      "label": "Synthetic engineering evidence",
+      "url": "https://example.org/inference-study",
+      "detail": "Synthetic layout fixture, October 2, 2026"
+    },
+    "snapshot": {
+      "columns": ["Test condition · Oct. 2", "Baseline", "Candidate"],
+      "rows": [
+        ["Concurrent requests", "32", "32"],
+        ["Output tokens per request", "256", "256"],
+        ["P95 latency budget", "2.0 s", "2.0 s"]
+      ]
     }
   },
   "day_ahead": {
@@ -40,7 +36,7 @@
       "title": "Saline Weather",
       "rows": [
         {
-          "day": "Thu 8/27",
+          "day": "Fri 10/2",
           "conditions": "Partly cloudy",
           "high": "81°F",
           "low": "63°F",
@@ -48,7 +44,7 @@
           "precip": "20%"
         },
         {
-          "day": "Fri 8/28",
+          "day": "Sat 10/3",
           "conditions": "Mostly sunny",
           "high": "80°F",
           "low": "61°F",
@@ -56,7 +52,7 @@
           "precip": "0%"
         },
         {
-          "day": "Sat 8/29",
+          "day": "Sun 10/4",
           "conditions": "Partly cloudy",
           "high": "84°F",
           "low": "66°F",
@@ -64,7 +60,7 @@
           "precip": "10%"
         },
         {
-          "day": "Sun 8/30",
+          "day": "Mon 10/5",
           "conditions": "Showers late",
           "high": "87°F",
           "low": "71°F",
@@ -72,7 +68,7 @@
           "precip": "30%"
         }
       ],
-      "note": "A comfortable start gives way to warmer, more humid conditions late in the weekend.",
+      "note": "Synthetic forecast rows for layout testing, issued October 2, 2026; not an actual forecast.",
       "source": {
         "kind": "web",
         "label": "National Weather Service Detroit/Pontiac",
@@ -82,7 +78,11 @@
     "email_calendar": {
       "status": "covered",
       "agenda": [
-        { "time": "7:30–9:00 a.m.", "event": "Gym", "location": "Saline" },
+        {
+          "time": "7:30–9:00 a.m.",
+          "event": "Gym",
+          "location": "Saline"
+        },
         {
           "time": "10:00–10:30 a.m.",
           "event": "Project review",
@@ -141,88 +141,24 @@
   },
   "operations_details": [
     {
-      "title": "Restart timeline",
+      "title": "An explicitly requested incident check",
       "source": {
         "kind": "tool",
-        "label": "Live Kubernetes read",
-        "refs": ["k8s_mcp_server"]
-      },
-      "blocks": [
-        {
-          "type": "paragraph",
-          "text": "The stream worker restarted three times while its backend dependency was still starting. The backend restarted once, then remained Ready. Restart counters stayed unchanged during the verification window."
-        },
-        {
-          "type": "table",
-          "columns": ["Workload", "Recent restarts", "Current state"],
-          "rows": [
-            ["Stream worker", "3", "Ready"],
-            ["Backend", "1", "Ready"],
-            ["Autonomous agent", "2", "Ready"]
-          ]
-        }
-      ]
-    },
-    {
-      "title": "GPU stack",
-      "source": {
-        "kind": "tool",
-        "label": "Live Kubernetes GPU resources",
-        "refs": ["k8s_mcp_server"]
-      },
-      "blocks": [
-        {
-          "type": "paragraph",
-          "text": "The device plugin is available on all four GPU nodes. Six accelerators are allocatable and two are assigned to retrieval services."
-        },
-        {
-          "type": "list",
-          "items": [
-            "No pending GPU workloads",
-            "DCGM exporters available",
-            "One node remains on an older driver branch"
-          ]
-        }
-      ]
-    },
-    {
-      "title": "GitOps and network",
-      "source": {
-        "kind": "tool",
-        "label": "Live Kubernetes and UniFi reads",
+        "label": "Synthetic connected-tool evidence",
         "refs": ["k8s_mcp_server", "unifi_mcp_server"]
       },
       "blocks": [
         {
           "type": "paragraph",
-          "text": "Flux controllers are available and the checked resources report no active drift. All five adopted network devices are online, both WAN paths are active, and no adoption request is pending."
-        },
-        { "type": "subhead", "text": "Next check" },
-        {
-          "type": "paragraph",
-          "text": "Confirm the older driver node before scheduling the next compatibility-sensitive inference deployment."
-        }
-      ]
-    },
-    {
-      "title": "Storage mirror",
-      "source": {
-        "kind": "tool",
-        "label": "Live network inventory",
-        "refs": ["unifi_mcp_server"]
-      },
-      "blocks": [
-        {
-          "type": "paragraph",
-          "text": "The storage appliance is visible on the network. Array health and mirror progress require a dedicated storage read and are therefore marked unavailable rather than inferred."
+          "text": "Synthetic exception for layout testing: one service is degraded as of October 2, 2026 at 8:00 a.m. EDT. This brief represents a requested bounded check, not a routine fleet survey."
         }
       ]
     }
   ],
   "departments": [
     {
-      "desk_key": "ai-inference",
-      "title": "AI & Inference",
+      "desk_key": "technology",
+      "title": "Technology",
       "stories": [
         {
           "headline": "Faster Recovery Moves Into the Serving Layer",
@@ -293,11 +229,65 @@
       ]
     },
     {
-      "desk_key": "science-technology",
-      "title": "Science & Technology",
+      "desk_key": "business",
+      "title": "Business",
       "stories": [
         {
-          "headline": "Small Harness Changes Produce Large Agent Gains",
+          "headline": "The market comparison needs the same closing bell",
+          "source": {
+            "kind": "web",
+            "label": "Synthetic evidence",
+            "url": "https://example.org/market-fixture"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Synthetic prices for October 1, 2026: the example company closed at $100.25, up 1.25%; its industry benchmark gained 0.75% and the broad market 0.40%. These values test decimal preservation and are not actual security prices."
+            }
+          ]
+        },
+        {
+          "headline": "A financing commitment is not a powered data center",
+          "source": {
+            "kind": "web",
+            "label": "Synthetic evidence",
+            "url": "https://example.org/financing-fixture"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "This fictional report separates announced borrowing from drawn debt, purchased equipment and connected power. Counterparty concentration matters when several projects depend on the same customer’s future spending."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "desk_key": "health",
+      "title": "Health",
+      "stories": [
+        {
+          "headline": "Study size and absolute risk change the headline",
+          "source": {
+            "kind": "web",
+            "label": "Synthetic evidence",
+            "url": "https://example.org/health-fixture"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "Synthetic randomized study, October 2, 2026: events occurred in 10 of 1,000 participants versus 20 of 1,000 over one year. The absolute reduction is 1 percentage point; the relative reduction is 50%. This invented example tests presentation only and supports no medical conclusion."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "desk_key": "science",
+      "title": "Science",
+      "stories": [
+        {
+          "headline": "A lithography result needs an explanation of the optical tradeoff",
           "source": {
             "kind": "web",
             "label": "Microsoft Research",
@@ -306,7 +296,7 @@
           "blocks": [
             {
               "type": "paragraph",
-              "text": "A practical research line is isolating the orchestration layer from the model so production traces can improve training without rebuilding the deployed agent loop."
+              "text": "This synthetic research brief preserves the mechanism: a hypothetical experiment changes the collection angle of an optical system, then compares resolution and depth of focus. A production claim would also need yield, throughput, resist behavior and process-window evidence. An instrument specification alone would not establish factory adoption."
             }
           ]
         }
@@ -337,16 +327,45 @@
       "title": "Sports",
       "stories": [
         {
-          "headline": "Yankees Continue the Homestand Tonight",
+          "headline": "Sunday decisions depend on practice trends and lineup locks",
+          "dek": "Two synthetic leagues illustrate why a weekly bye and an open starting slot require different decisions.",
           "source": {
-            "kind": "web",
-            "label": "MLB Yankees schedule",
-            "url": "https://www.mlb.com/yankees/schedule"
+            "kind": "tool",
+            "label": "Synthetic fantasy and practice-report evidence",
+            "refs": ["espn_fantasy_mcp"],
+            "detail": "Fixture only · October 2, 2026, 8:00 a.m. EDT"
           },
           "blocks": [
             {
               "type": "paragraph",
-              "text": "First pitch is scheduled for 7:05 p.m. Eastern. The standings race remains close enough that the next series has direct wild-card consequence."
+              "text": "In Example League A, the team has a weekly bye; Example League B has an unfilled running-back slot. These are invented test scenarios, not the reader’s leagues or current rosters. An illustrative candidate participated fully on Friday after limited work Thursday. A practice trend still requires a separate official game designation."
+            },
+            {
+              "type": "table",
+              "columns": [
+                "Fixture player · week 4",
+                "Snaps",
+                "Targets",
+                "Decision context"
+              ],
+              "rows": [
+                [
+                  "Example starter",
+                  "42 of 60 (70%)",
+                  "6 of 30 (20%)",
+                  "Sunday lock; verify game status"
+                ],
+                [
+                  "Example reserve",
+                  "18 of 60 (30%)",
+                  "2 of 30 (6.67%)",
+                  "Check ownership before waiver advice"
+                ]
+              ]
+            },
+            {
+              "type": "paragraph",
+              "text": "Correction example, October 2: the final fixture total is 42 snaps, superseding the earlier live estimate of 40. The table uses the final number; no real player statistic is asserted."
             }
           ]
         },
@@ -413,13 +432,77 @@
           ]
         }
       ]
+    },
+    {
+      "desk_key": "opinion",
+      "title": "Opinion",
+      "stories": [
+        {
+          "headline": "Opinion: the useful question is who carries the financing risk",
+          "source": {
+            "kind": "web",
+            "label": "Synthetic evidence",
+            "url": "https://example.org/opinion-fixture"
+          },
+          "blocks": [
+            {
+              "type": "paragraph",
+              "text": "By Example Analyst. This synthetic argument links concentrated buyers to financing exposure; it does not establish a default forecast. Contract duration, customer diversification and cash flow would be material counterevidence."
+            }
+          ]
+        }
+      ]
     }
   ],
-  "editors_note": "The immediate priority is a calm final day before travel: finish the two account checks, keep the evening calendar intact, and leave the recovered cluster alone unless restart counters move again.",
+  "editors_note": "Layout proof only. All content is synthetic test data; no current market, medical, fantasy or operational claim has been verified. The production edition replaces this fixture with dated source reporting.",
   "coverage": [
     {
-      "desk_key": "cluster-infrastructure",
+      "desk_key": "technology",
       "status": "covered"
+    },
+    {
+      "desk_key": "business",
+      "status": "covered"
+    },
+    {
+      "desk_key": "health",
+      "status": "covered"
+    },
+    {
+      "desk_key": "sports",
+      "status": "covered"
+    },
+    {
+      "desk_key": "world",
+      "status": "quiet"
+    },
+    {
+      "desk_key": "us",
+      "status": "quiet"
+    },
+    {
+      "desk_key": "science",
+      "status": "covered"
+    },
+    {
+      "desk_key": "opinion",
+      "status": "covered"
+    },
+    {
+      "desk_key": "arts",
+      "status": "quiet"
+    },
+    {
+      "desk_key": "style",
+      "status": "quiet"
+    },
+    {
+      "desk_key": "travel",
+      "status": "quiet"
+    },
+    {
+      "desk_key": "michigan-region",
+      "status": "quiet"
     },
     {
       "desk_key": "weather",
@@ -430,23 +513,11 @@
       "status": "covered"
     },
     {
-      "desk_key": "ai-inference",
+      "desk_key": "cluster-infrastructure",
       "status": "covered"
-    },
-    {
-      "desk_key": "science-technology",
-      "status": "covered"
-    },
-    {
-      "desk_key": "markets-finance",
-      "status": "quiet"
     },
     {
       "desk_key": "outdoors-field",
-      "status": "covered"
-    },
-    {
-      "desk_key": "sports",
       "status": "covered"
     },
     {

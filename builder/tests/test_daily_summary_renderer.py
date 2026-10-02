@@ -57,9 +57,9 @@ def test_renderer_builds_v4_split_layout_and_derived_manifest():
     assert 'id="operations-continuation" data-lead-continuation' in document
     assert "More on today’s agenda" in document
     assert "Three-day look-ahead" in document
-    assert len(manifest["desks"]) == 9
-    assert manifest["lead_desk"] == "cluster-infrastructure"
-    assert metrics["departments"] == 5
+    assert len(manifest["desks"]) == len(_policy()["desks"])
+    assert manifest["lead_desk"] == "technology"
+    assert metrics["departments"] == 8
 
 
 def test_renderer_omits_sources_and_ledger_with_compact_internal_coverage():
@@ -73,8 +73,8 @@ def test_renderer_omits_sources_and_ledger_with_compact_internal_coverage():
     assert 'class="ledger"' not in document
     assert "Markets &amp; Finance" not in document
     assert manifest["desks"][0] == {
-        "key": "cluster-infrastructure",
-        "label": "Cluster & Infrastructure",
+        "key": "technology",
+        "label": "Technology",
         "status": "covered",
     }
     story = edition["departments"][0]["stories"][0]
@@ -86,17 +86,17 @@ def test_renderer_omits_sources_and_ledger_with_compact_internal_coverage():
 def test_renderer_accepts_additional_desk_without_ledger_copy():
     edition = _edition()
     edition["coverage"].append(
-        {"desk_key": "travel", "label": "Travel", "status": "quiet"}
+        {"desk_key": "books", "label": "Books", "status": "quiet"}
     )
 
     document, manifest, _ = _render(edition)
 
     assert manifest["desks"][-1] == {
-        "key": "travel",
-        "label": "Travel",
+        "key": "books",
+        "label": "Books",
         "status": "quiet",
     }
-    assert 'data-desk-key="travel"' not in document
+    assert 'data-desk-key="books"' not in document
 
 
 def test_renderer_requires_reporting_for_a_covered_desk():
@@ -104,7 +104,7 @@ def test_renderer_requires_reporting_for_a_covered_desk():
     edition["departments"].pop()
 
     with pytest.raises(
-        renderer.RenderError, match="covered desk culture-leisure must have reporting"
+        renderer.RenderError, match="covered desk opinion must have reporting"
     ):
         _render(edition)
 
@@ -148,7 +148,11 @@ def test_renderer_rejects_unsafe_source_urls_and_tool_refs():
         _render(unsafe_url)
 
     unsafe_ref = _edition()
-    unsafe_ref["lead"]["source"]["refs"] = ["k8s; rm -rf data"]
+    unsafe_ref["lead"]["source"] = {
+        "kind": "tool",
+        "label": "Bad refs",
+        "refs": ["k8s; rm -rf data"],
+    }
     with pytest.raises(renderer.RenderError, match=r"refs\[0\] is invalid"):
         _render(unsafe_ref)
 
@@ -158,6 +162,7 @@ def test_renderer_emits_complete_source_figure_provenance():
     edition["departments"][0]["stories"][0]["blocks"].append(
         {
             "type": "figure",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
             "url": "https://images.example/recovery.jpg",
             "source_page": "https://primary.example/recovery",
             "credit": "Example Research Lab",
@@ -178,7 +183,7 @@ def test_renderer_emits_complete_source_figure_provenance():
         )
         in document
     )
-    assert metrics["sources"] == 19
+    assert metrics["sources"] == _render()[2]["sources"] + 1
 
 
 def test_renderer_handles_unavailable_front_sources_without_filler():
@@ -208,4 +213,43 @@ def test_renderer_rejects_coverage_and_department_drift():
     with pytest.raises(
         renderer.RenderError, match="department sports must have covered"
     ):
+        _render(edition)
+
+
+@pytest.mark.parametrize(
+    "desk", ["technology", "business", "health", "sports", "world", "us"]
+)
+def test_editor_selects_lead_and_omits_routine_operations(desk):
+    edition = _edition()
+    edition["lead"]["desk_key"] = desk
+    edition["operations_details"] = []
+    for item in edition["coverage"]:
+        if item["desk_key"] == desk:
+            item["status"] = "covered"
+        if item["desk_key"] == "cluster-infrastructure":
+            item["status"] = "quiet"
+    document, manifest, _ = _render(edition)
+    assert manifest["lead_desk"] == desk
+    assert 'id="operations-continuation"' not in document
+    assert ">Operations</a>" not in document
+    assert "verdict-" not in document.split("</style>")[1]
+    assert "<link" not in document
+
+
+@pytest.mark.parametrize("desk", ["opinion", "unknown", "email-calendar"])
+def test_non_news_lead_is_rejected(desk):
+    edition = _edition()
+    edition["lead"]["desk_key"] = desk
+    with pytest.raises(renderer.RenderError, match="policy news desk"):
+        _render(edition)
+
+
+def test_operations_cannot_claim_a_quiet_desk():
+    edition = _edition()
+    next(
+        item
+        for item in edition["coverage"]
+        if item["desk_key"] == "cluster-infrastructure"
+    )["status"] = "quiet"
+    with pytest.raises(renderer.RenderError, match="requires covered"):
         _render(edition)
