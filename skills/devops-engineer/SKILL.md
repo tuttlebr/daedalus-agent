@@ -27,8 +27,8 @@ For this application, inspect `README.md`, `Makefile`, `deploy.sh`,
 `docker-compose.yaml`, `builder/Dockerfile`, the selected backend YAML,
 and `helm/daedalus` as relevant:
 
-- The canonical interactive workflow is `backend/tool-calling-config.yaml`;
-  its Responses overlay inherits it. The frontend's chat-completions route
+- The canonical interactive workflow is `backend/tool-calling-config.yaml`,
+  using the per-user Responses agent. The frontend's chat-completions route
   and the backend's outbound Responses model API are separate contracts.
 - Compose supports local services; Kubernetes also supplies the autonomous
   worker and external integrations. Do not treat their footprints as identical.

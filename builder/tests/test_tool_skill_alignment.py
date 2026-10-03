@@ -86,6 +86,20 @@ def test_all_skill_tool_references_resolve_to_exposed_capabilities():
         assert references <= available, (path, references - available)
 
 
+def test_qualified_skill_mcp_calls_resolve_to_allowlisted_leaves():
+    groups = configuration()["function_groups"]
+    for path in (ROOT / "skills").rglob("*.md"):
+        for group, leaf in re.findall(
+            r"\b([a-z_]+_mcp_server)\.([A-Za-z_][A-Za-z_0-9]*)",
+            path.read_text(),
+        ):
+            assert group in groups, (path, group)
+            included = groups[group].get("include")
+            if included:
+                assert leaf in included, (path, group, leaf)
+            assert leaf not in groups[group].get("exclude", []), (path, group, leaf)
+
+
 def test_registered_native_factories_have_exactly_one_yield():
     class FactoryYields(ast.NodeVisitor):
         def __init__(self, root):

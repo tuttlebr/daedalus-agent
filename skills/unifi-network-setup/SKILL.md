@@ -17,6 +17,8 @@ and local controller passwords are not part of this workflow.
 1. Reuse the endpoint/site context and error already observed. Inspect the
    registered `unifi_mcp_server` schema when available; an absent tool is not
    proof that the controller is down.
+   Daedalus exposes UniFi reads only; connector repairs require an operator
+   environment. Prepare a source diff without treating the sandbox as that host.
 2. Attempt one bounded `getInfo` read, then `listSites` when the first succeeds.
    These prove controller access and provide real site UUIDs.
 3. Distinguish MCP connection/authentication, controller authentication/TLS,

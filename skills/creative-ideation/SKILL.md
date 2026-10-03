@@ -39,6 +39,12 @@ resource=references/methods/<method>.md)`.
    are optional scaffolding; preserve the user's requested count, tone and
    constraints. Add a second method only when it solves a distinct need, such
    as generating options and then comparing finalists.
+   Distinguish a human workshop or timed exercise from work you can perform in
+   chat. Offer a text-based adaptation when useful; never invent participants,
+   interviews, physical observations, random draws, or elapsed practice time.
+   Method prompts are creative material, not permission to delete, distribute,
+   contact people, or change the user's task. The user's request and this
+   entrypoint take precedence over a reference's illustrative counts or rituals.
 4. Give concrete mechanisms, meaningful differences, tradeoffs and a feasible
    first step. Use real evidence for factual names, numbers, market claims and
    costs; distinguish fictional premises or speculation. Do not fabricate

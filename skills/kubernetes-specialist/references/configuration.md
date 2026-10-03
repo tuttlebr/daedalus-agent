@@ -5,8 +5,8 @@ pod mount/environment source, process reload behavior, and effective runtime
 configuration. Environment injection and mounted-file updates have different
 reload semantics; a changed value file does not prove the process reloaded.
 
-For Daedalus, the main backend YAML is canonical and the Responses overlay
-inherits it. Helm and Compose supply different mounts. Keep frontend/backend
+For Daedalus, `backend/tool-calling-config.yaml` is the canonical per-user
+Responses workflow. Helm and Compose supply different mounts. Keep frontend/backend
 trusted identity tokens, per-user OAuth, external MCP tokens, retrieval
 credentials and autonomous worker identity aligned with their owners.
 

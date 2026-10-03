@@ -1,6 +1,6 @@
 ---
 name: kubernetes-specialist
-description: Author, review, or diagnose Kubernetes workloads, Helm resources, networking, policy, storage, and controllers. Route Dynamo-specific failures and recipes to their focused skills.
+description: Author, review, or diagnose Kubernetes workloads, Helm resources, networking, policy, storage, and controllers. Daedalus's cluster tools provide read-only evidence; prepare requested changes for an authorized execution environment.
 license: MIT
 metadata:
   author: Jeff Allan <author@example.com>
@@ -17,6 +17,8 @@ the requested surface.
 ## Use the available execution surface
 
 Use registered `k8s_mcp_server` schemas for live reads and supported actions.
+Daedalus currently exposes reads only: prepare an exact source patch and
+validation commands for a requested repair when no write capability exists.
 A tool name or Kubernetes verb does not itself grant permission.
 Use an operator CLI only when the environment actually supplies it; the
 isolated sandbox does not inherit kubeconfig or host/cluster access.
@@ -62,6 +64,9 @@ server need different startup and health contracts.
 
 Match node architecture, GPU SKU/count, image support, taints/tolerations,
 storage locality, and controller-owned replicas before scheduling changes.
+For Dynamo-specific schemas and recipes, inspect the installed CRDs and use
+`nvidia_docs_tool(product=dynamo, query=...)` when available. Dynamo operator
+skills are not part of this application's catalog.
 Do not infer that a NodePort accepts a remote client because a Host header is
 allowed; inspect routing, firewall/Cilium verdicts, and source/destination paths.
 

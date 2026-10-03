@@ -11,16 +11,16 @@ upstream CLI/plugin. It preserves intent classification, entity disambiguation,
 query planning, recent community research, theme-based synthesis, comparisons,
 prompting guidance, and explicit partial-coverage handling.
 
-| Upstream mechanism                                           | Daedalus adaptation                                                                       |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| Slash-command/plugin installation                            | Directory discovery and `agent_skills_tool` list/load                                     |
-| Host clock and CLI date flags                                | `current_datetime_tool` and publication-date search filters                               |
-| Python engine and provider-specific collectors               | Existing `perplexity_search_tool` plus `webscrape_tool`; public indexed coverage only     |
-| Social enrichment and transcript collectors                  | Use only data actually returned by available tools; never assume native platform access   |
-| Engine evidence clusters and footer totals                   | Working evidence ledger and cited themes; counts only when measured                       |
-| Mandatory badge, formatting laws, and invitations            | User-requested format and Daedalus communication style                                    |
-| File writes and public hosted publishing                     | Requested artifacts through `bubblewrap-agent-workflow`; no automatic external publishing |
-| Watchlists, scheduling, saved research library, doctor/setup | Not included; requires a separate integration if requested                                |
+| Upstream mechanism                                           | Daedalus adaptation                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Slash-command/plugin installation                            | Directory discovery and `agent_skills_tool` list/load                                      |
+| Host clock and CLI date flags                                | `current_datetime_tool` and publication-date search filters                                |
+| Python engine and provider-specific collectors               | Existing search/fetch tools; enabled read-only X/GitHub tools for relevant native evidence |
+| Social enrichment and transcript collectors                  | Only returned fields from exposed native reads or public pages; no assumed full coverage   |
+| Engine evidence clusters and footer totals                   | Working evidence ledger and cited themes; counts only when measured                        |
+| Mandatory badge, formatting laws, and invitations            | User-requested format and Daedalus communication style                                     |
+| File writes and public hosted publishing                     | Requested artifacts through `bubblewrap-agent-workflow`; no automatic external publishing  |
+| Watchlists, scheduling, saved research library, doctor/setup | Not included; requires a separate integration if requested                                 |
 
 No upstream scripts, plugin manifests, provider dependencies, browser-cookie
 access, API credentials, persistent caches, or automatic updates are added.

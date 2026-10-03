@@ -45,7 +45,7 @@ design; let evidence, rather than dramatic phrasing, establish significance.
 
 This skill owns the complete interactive edition. Load a specialist only when
 its procedure is needed: `kubernetes-specialist` for cluster interpretation,
-`network-health-check` for UniFi evidence, or `espn-fantasy-football` for a
+`network-health-check` for UniFi evidence, or `espn-fantasy-football` for an
 in-season fantasy beat. Pass the desk scope, as-of time and completed reads;
 incorporate their findings into this renderer's schema. Do not let a handoff
 start repairs, widen research, generate imagery or replace the output format.
@@ -277,7 +277,8 @@ only when confirmed or explicitly proposed. Before rendering, check that the
 conclusion, evidence, material uncertainty, and any next action are clear
 without reconstructing the research. Target a focused five-to-ten-minute
 read, but prefer a shorter accurate edition over padding.
-Escape all externally sourced text before inserting it into HTML.
+Supply unescaped plain text in edition fields; the renderer escapes it when
+producing HTML. Pre-escaping fields would display entity syntax to the reader.
 
 ### 6. Render and validate
 

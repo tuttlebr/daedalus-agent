@@ -27,8 +27,11 @@ Use `current_datetime_tool`, `perplexity_search_tool`, and `webscrape_tool`.
 This adaptation uses the configured Perplexity Search API and accessible public
 pages. Indexed Reddit, X, YouTube, or other social links do not establish full
 platform access, comment coverage, engagement metrics, or transcript access.
-Use an additional connected source only when its actual tools and permissions
-are available. Honor the session's enabled and disabled sources.
+For requested X discussion, use the read-only `x_mcp_server` when that source
+is enabled, following the actual leaf schemas and returned dates. Native reads
+can support retrieved posts and metrics, not comprehensive platform coverage.
+Use read-only `github_mcp_server` for relevant releases/issues when available.
+Honor the session's enabled and disabled sources and the requested time window.
 
 The upstream Python engine, CLI setup/doctor, browser cookies, watchlists,
 scheduled runs, local research database, and hosted publishing are not bundled.

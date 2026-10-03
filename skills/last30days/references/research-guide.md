@@ -67,6 +67,18 @@ topic, search its original spelling and verified aliases rather than forcing
 an English-only community sample. A common-name entity needs its company,
 location, role, or category in every relevant query.
 
+When X discussion is requested and its source is enabled, prefer the exposed
+`x_mcp_server` read tools for the relevant posts. Use the actual schema's query,
+date, ID and pagination fields; do not invent a recent-search leaf or assume
+full-archive access from an allowlisted name. Bound follow-up pages to the
+question, preserve returned post timestamps, and use engagement only when
+actually returned. Missing authentication, an unsupported endpoint or rate
+limit is a coverage gap, not evidence that nobody discussed the topic.
+
+For a GitHub change, use available `github_mcp_server` release, commit, issue
+and repository reads to distinguish a reported problem from shipped behavior.
+Neither source authorizes posting, contacting users or editing a repository.
+
 Never promise an upstream platform merely because it is in this table.
 Report the actual sources retrieved and the limits encountered. If the user
 requires comprehensive platform data that available tools cannot provide,

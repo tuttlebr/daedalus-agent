@@ -12,8 +12,7 @@ signal checks. Keep default source families enabled unless a reader directive
 excludes one. Use the returned tool order as a plan, not as permission to call
 unrelated tools. Use `research_question` for the dated manifest and `depth=quick`.
 Pass the needed source IDs in `selected_sources_json`: public families
-`curated_feeds`, `perplexity_search`, `known_url_scrape`, `nvidia_docs`,
-`curated_domains`, and `x_mcp`, plus `workspace_data` and relevant
+`curated_feeds`, `perplexity_search`, and `known_url_scrape`, plus `workspace_data` and relevant
 `repository_data`. Include `fantasy_data` for the in-season Sports beat. Add
 `cluster_state` or `network_state` only for an explicit check or a current
 material incident signal; do not run routine health reads. Preserve explicit source
@@ -24,6 +23,13 @@ If explicit source policy and exclusions already establish which baseline reads
 are allowed, run those reads in parallel with this deterministic planning call.
 Never schedule an excluded source, and wait for the plan when eligibility or
 conditional source choice is unclear.
+
+The interactive briefing uses a restricted catalog. `nvidia_docs_tool`,
+`domain_retriever_tool`, and `x_mcp_server` are available in general chat,
+but are not exposed in this mode. Use official public pages through the
+available search/fetch tools instead; do not select their unavailable source
+families or treat skill loading as a way to widen the catalog. The final
+synthesis phase retains only `briefing_renderer_tool`.
 
 Date-stamp queries about current health, today, tonight, this week, latest
 results, releases, or schedules. A search snippet is discovery evidence, not
@@ -56,7 +62,9 @@ when the target context is genuinely ambiguous. Then inspect only the live
 resources needed to explain anomalies.
 
 - Cover current node conditions, unavailable or crash-looping workloads,
-  failed or pending pods, and incomplete rollouts across all live namespaces.
+  failed or pending pods, and incomplete rollouts in the requested or affected
+  scope. Inspect all namespaces only for an explicit fleet-wide check or when
+  current evidence indicates a shared cluster failure.
 - For job health, separate currently failed or active Jobs from cumulative
   historical failure counts. Never repeat an old failure percentage as current
   state without recomputing it.
@@ -151,8 +159,8 @@ prompt, surface it and wait. Resume without repeating completed public calls.
   Deepen only the
   changes that affect inference engineering, the NVIDIA stack, Kubernetes GPU
   scheduling, NVIDIA NeMo Agent Toolkit, or the Daedalus project.
-- For official NVIDIA product behavior, use `nvidia_docs_tool`. For stable
-  technical context, use `domain_retriever_tool` or the relevant official page.
+- For official NVIDIA product behavior and stable technical context, fetch the
+  relevant official page through the briefing's available search/fetch tools.
 - For GitHub projects, use read-only `github_mcp_server` release, commit, issue,
   or pull-request operations. A release page or merged change is stronger than
   an aggregator's summary.
@@ -164,9 +172,7 @@ prompt, surface it and wait. Resume without repeating completed public calls.
   that alter the technical or strategic landscape.
 
 Use `perplexity_search_tool` for dated discovery outside the curated feeds, then
-`webscrape_tool` on the selected primary or authoritative page. Use
-`nvidia_docs_tool` for official NVIDIA product behavior and
-`domain_retriever_tool` for stable reference context.
+`webscrape_tool` on the selected primary or authoritative page.
 
 ## Outdoors, sports, finance, and culture
 

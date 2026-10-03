@@ -1,6 +1,6 @@
 ---
 name: unifi-network
-description: Query or change UniFi Network devices, clients, Wi-Fi, networks, firewall, routing, and VPN through the connected integration-API MCP. Use network-health-check for a health report and unifi-network-setup for connection failures.
+description: Inspect UniFi devices, clients, networks, Wi-Fi, and WAN inventory through Daedalus's read-only integration-API MCP. Prepare requested changes for an authorized operator; use network-health-check for health reports and unifi-network-setup for access failures.
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
   version: 2.0.0
@@ -11,6 +11,10 @@ metadata:
 Use the registered `unifi_mcp_server` leaf tools. Daedalus connects to the
 integration-API server maintained in daedalus-context. It does not use the
 legacy plugin's lazy index/execute/batch interface.
+
+The Daedalus allowlist currently exposes eleven read operations. The remote
+server's larger catalog does not make its other reads or writes available here.
+Use only the registered leaves; the reference lists this application's surface.
 
 ## Resolve the target
 
@@ -44,13 +48,19 @@ For a health report, hand off to
 completed reads. For a connector failure, use
 [unifi-network-setup](../unifi-network-setup/SKILL.md).
 
-## Make a requested change
+## Prepare a requested change
 
-Read the current target and the exact mutation schema first. Build a concrete
-change with its affected IDs, requested fields, and a verification read. Honor
-the user's existing authorization and Daedalus's runtime approval gate.
-Calling a mutation is an execution attempt, not a preview: this server does
-not supply the old plugin's `confirm=true` protocol or category policy flags.
+Read the target through the available tools and prepare the intended change,
+affected IDs, and verification read. When current reads omit the needed
+configuration, obtain a supplied nonsecret export or explain the evidence gap.
+Do not invent firewall, VPN-session, detail, or mutation tools from the remote
+server's documentation. Execution requires a separately available authorized
+write capability; provide the proposal and say which action remains unexecuted.
+
+If such a capability is explicitly supplied, inspect its actual mutation schema
+and honor the existing task scope and runtime gate. Calling a mutation is an
+execution attempt, not a preview. The integration server does not supply the
+legacy plugin's `confirm=true` protocol or category policy flags.
 
 For PATCH, send only intended fields. For PUT, preserve required unchanged
 fields according to its full replacement schema. Never copy a redacted secret

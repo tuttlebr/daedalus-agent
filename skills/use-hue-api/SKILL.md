@@ -1,6 +1,6 @@
 ---
 name: use-hue-api
-description: Use the Philips Hue Bridge CLIP API v2 to inspect resources, construct REST or native MCP requests, convert RGB/xy colors, and carry out authorized lighting or configuration changes. Contains standalone transport, operation, payload, color-conversion, and verification guidance.
+description: Inspect and control Philips Hue lighting through the connected Hue MCP, with verified targets, RGB/xy conversion, and bounded readback. Also provides self-contained CLIP API v2 REST guidance for an explicitly supplied operator environment.
 ---
 
 # Use the Hue CLIP API
@@ -15,6 +15,23 @@ not prerequisites for the workflows described here.
 The operation map reflects the supplied Hue resource contract reviewed on
 2026-09-19: 155 REST operations across 45 service types. A documented operation
 does not prove support on a particular bridge model, firmware, or device.
+
+## Daedalus integration
+
+In Daedalus, use the registered `hue_mcp_server` leaf tools and their schemas.
+The runtime supplies the service token, handles the approval boundary, and
+derives user context; do not initialize a second client, read a key, pair the
+bridge, or route around the gate through sandbox HTTP requests. Read operations
+are available without mutation approval; writes follow the existing runtime
+gate and the user's established scope. Background runs retain their read-only,
+non-interactive restrictions.
+
+Prefer a convenience lighting call when it expresses the requested change;
+use native tools for Hue fields or resources it cannot represent. Load no
+maintenance JSON for an ordinary lighting request. Recover relevant omitted
+compacted inventory rows with `tool_output_retriever_tool` before claiming
+complete membership or absence. Direct REST guidance below applies only when
+the user separately supplies an authorized operator execution environment.
 
 ## Choose the transport and credentials
 

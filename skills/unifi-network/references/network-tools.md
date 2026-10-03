@@ -1,24 +1,19 @@
 # UniFi integration-API operations
 
 Use exact registered `unifi_mcp_server` schemas. The current daedalus-context
-server exposes integration-API leaf operations with typed path/query parameters
-and mutation bodies. This is a source contract snapshot; runtime discovery
-controls availability. There is no lazy index/execute/batch wrapper.
+server has a larger integration-API catalog, but Daedalus exposes only these
+eleven reads through `backend/tool-calling-config.yaml`. Runtime schemas control
+arguments and response fields. There is no lazy index/execute/batch wrapper.
 
-| Need                  | Read operations                                                                                                                                     |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Access and site       | `getInfo`, `listSites`                                                                                                                              |
-| Adopted devices       | `listAdoptedDevices`, `getAdoptedDeviceDetails`, `getAdoptedDeviceLatestStatistics`                                                                 |
-| Adoption inventory    | `listPendingDevices`                                                                                                                                |
-| Connected clients     | `listConnectedClients`, `getConnectedClientDetails`                                                                                                 |
-| Networks              | `listNetworks`, `getNetworkDetails`, `getNetworkReferences`                                                                                         |
-| Wi-Fi                 | `listWifiBroadcasts`, `getWifiBroadcastDetails`                                                                                                     |
-| Firewall              | `listFirewallZones`, `getFirewallZone`, `listFirewallPolicies`, `getFirewallPolicy`, `getFirewallPolicyOrdering`                                    |
-| ACL                   | `listAclRules`, `getAclRule`, `getAclRuleOrdering`                                                                                                  |
-| Switching             | `listSwitchStacks`, `getSwitchStack`, `listMcLagDomains`, `getMcLagDomain`, `listLags`, `getLagDetails`                                             |
-| DNS/traffic selectors | `listDnsPolicies`, `getDnsPolicy`, `listTrafficMatchingLists`, `getTrafficMatchingList`                                                             |
-| WAN/VPN               | `listWanInterfaces`, `listSiteToSiteVpnTunnels`, `listVpnServers`                                                                                   |
-| Other inventories     | `listVouchers`, `getVoucherDetails`, `listRadiusProfiles`, `listDeviceTags`, `listDpiApplicationCategories`, `listDpiApplications`, `listCountries` |
+| Need               | Read operations                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Access and site    | `getInfo`, `listSites`                                                              |
+| Adopted devices    | `listAdoptedDevices`, `getAdoptedDeviceDetails`, `getAdoptedDeviceLatestStatistics` |
+| Adoption inventory | `listPendingDevices`                                                                |
+| Connected clients  | `listConnectedClients`, `getConnectedClientDetails`                                 |
+| Networks           | `listNetworks`                                                                      |
+| Wi-Fi              | `listWifiBroadcasts`                                                                |
+| WAN                | `listWanInterfaces`                                                                 |
 
 Resolve `siteId` from `listSites`; do not use a legacy site slug such as
 `default` in a UUID field. Resolve other path IDs from their list operations.
@@ -27,9 +22,10 @@ Advance by returned count and detect a stalled/empty page before totalCount;
 report partial results rather than looping indefinitely. Follow each schema's
 filter support and limit, reducing pages if the response-size cap is hit.
 
-Mutations are direct actions, including operations such as
-`patchFirewallPolicy` with `siteId`, `firewallPolicyId`, and a typed `body`.
-Inspect the actual schema and semantics before any requested write. PATCH and
+Additional controller reads and mutations are unavailable in this application.
+Prepare requested changes from supported reads or supplied configuration.
+If a separate authorized write capability is provided, inspect its actual
+schema and semantics before execution. PATCH and
 PUT differ; preserving unspecified fields is not automatic for a replacement.
 MCP annotations inform the runtime gate but are not an independent permission
 system. There is no application-level preview/confirm parameter on this server.

@@ -963,6 +963,7 @@ def test_daily_summary_uses_a_narrow_catalog_and_reserved_synthesis_phase():
         "briefing_renderer_tool",
         "calendar_mcp_server",
         "current_datetime_tool",
+        "espn_mcp_server",
         "get_memory",
         "gmail_mcp_server",
         "k8s_mcp_server",
@@ -975,6 +976,7 @@ def test_daily_summary_uses_a_narrow_catalog_and_reserved_synthesis_phase():
         "user_document_tool",
         "user_interaction_tool",
         "x_mcp_server",
+        "visual_media_tool",
     }.isdisjoint(daily_tools)
     assert workflow["daily_summary_final_nat_tools"] == ["briefing_renderer_tool"]
     assert (
@@ -1959,13 +1961,11 @@ def test_daily_briefing_routes_to_validated_source_image_html_response():
         assert "exactly one Markdown code block labeled `html`" in " ".join(
             daily_skill.split()
         ), path
-        assert "operation=analyze only" in visual_media_desc, path
-        assert "loaded daily-summary skill directs it" in visual_media_desc, path
-        assert (
-            "Never use operation=generate or operation=edit" in visual_media_desc
-        ), path
-        assert "Never call `visual_media_tool`" in sourcing, path
-        assert "Never use `/api/generated-image/` assets" in sourcing, path
+        assert "briefing renderer" in visual_media_desc, path
+        assert "visual_media_tool" not in config["workflow"]["daily_summary_nat_tools"]
+        normalized_sourcing = " ".join(sourcing.split())
+        assert "without passing bytes through the model" in normalized_sourcing, path
+        assert "Never use generated-image assets" in normalized_sourcing, path
         assert "loaded daily-summary skill directs" in sandbox_desc, path
         assert "must not publish the generated edition" in sandbox_desc, path
 
