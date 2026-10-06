@@ -4,7 +4,7 @@ The registered function exposes one explicit ``operation`` dispatcher for
 clarification, exact action approval, research-plan approval, option
 presentation, and guarded memory deletion. A toolkit function builder must
 yield exactly one runtime function, so these related behaviors share one typed
-schema rather than attempting to yield multiple ``FunctionInfo`` objects.
+schema rather than attempting to yield multiple ``ToolDefinition`` objects.
 
 Inspired by Claude Code's AskUserQuestion tool and the principle that
 structured interaction dramatically improves user satisfaction and
@@ -15,10 +15,12 @@ import json
 import logging
 from typing import Any, Literal
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from pydantic import BaseModel, ConfigDict, Field
 from user_interaction.approval_tokens import make_redis_client, validate_approval_token
 
@@ -95,7 +97,7 @@ def _is_action_confirmation_clarification(
     )
 
 
-class UserInteractionConfig(FunctionBaseConfig, name="user_interaction"):
+class UserInteractionConfig(ToolConfig, name="user_interaction"):
     """Configuration for the user_interaction function."""
 
     max_options: int = Field(
@@ -223,8 +225,10 @@ def _authenticated_user_or_fallback(fallback_user_id: str = "") -> str:
     return authenticated_user_id_from_context_or_fallback(fallback_user_id)
 
 
-@register_function(config_type=UserInteractionConfig)
-async def user_interaction_function(config: UserInteractionConfig, builder: Builder):
+@register_tool(config_type=UserInteractionConfig)
+async def user_interaction_function(
+    config: UserInteractionConfig, builder: ToolRegistry
+):
     _redis_client: Any | None = None
     enabled = set(
         _ALL_OPERATIONS
@@ -713,13 +717,13 @@ async def user_interaction_function(config: UserInteractionConfig, builder: Buil
         raise AssertionError(f"Unhandled user-interaction operation: {op}")
 
     # A registered toolkit function builder is an async context manager and
-    # must yield exactly one FunctionInfo. The old implementation yielded one
-    # FunctionInfo per operation; production therefore exposed only the first
+    # must yield exactly one ToolDefinition. The old implementation yielded one
+    # ToolDefinition per operation; production therefore exposed only the first
     # (clarify) schema and confirm_action could never be called. Keep one typed
     # dispatcher so every enabled operation is present in the actual tool
     # contract.
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             user_interaction,
             input_schema=UserInteractionInput,
             description=config.description,

@@ -6,7 +6,6 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "smart_milvus"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "nat_helpers",
   "langchain-core",
   "pydantic>=2,<2.14",
@@ -14,11 +13,8 @@ dependencies = [
   "requests>=2.31.0",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Custom NeMo Agent Toolkit Workflow"
+description = "Custom Daedalus Workflow"
 classifiers = ["Programming Language :: Python"]
-
-[project.entry-points.'nat.components']
-smart_milvus = "smart_milvus.register"
 
 [tool.setuptools]
 packages = ["smart_milvus"]

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from nat.retriever.models import Document
+from daedalus_runtime.retrieval import Document
 from smart_milvus.register import _format_domain_results
 from smart_milvus.smart_milvus_function import (
     CollectionNotFoundError,

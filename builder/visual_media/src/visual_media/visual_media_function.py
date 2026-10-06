@@ -5,10 +5,12 @@ from typing import Any, Literal
 
 import httpx
 import redis
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
 from nat_helpers.content_credentials import ContentCredentialsError
 from nat_helpers.identity import resolve_authenticated_user_id
@@ -46,7 +48,7 @@ IMAGE_GUIDANCE_DESCRIPTION = (
 )
 
 
-class VisualMediaFunctionConfig(FunctionBaseConfig, name="visual_media"):
+class VisualMediaFunctionConfig(ToolConfig, name="visual_media"):
     """Unified image generation, image editing, and media analysis tool."""
 
     description: str = Field(
@@ -242,8 +244,10 @@ def _validated_user_id(
     return (expected or None, None)
 
 
-@register_function(config_type=VisualMediaFunctionConfig)
-async def visual_media_function(config: VisualMediaFunctionConfig, builder: Builder):  # noqa: ARG001
+@register_tool(config_type=VisualMediaFunctionConfig)
+async def visual_media_function(
+    config: VisualMediaFunctionConfig, builder: ToolRegistry
+):  # noqa: ARG001
     redis_client = redis.from_url(config.redis_url, decode_responses=False)
     image_clients: dict[str, AsyncOpenAI] = {}
     vlm_client: httpx.AsyncClient | None = None
@@ -643,7 +647,7 @@ async def visual_media_function(config: VisualMediaFunctionConfig, builder: Buil
             return "Error: visual media operation failed."
 
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             visual_media,
             description=config.description + " " + IMAGE_GUIDANCE_DESCRIPTION,
             input_schema=VisualMediaInput,

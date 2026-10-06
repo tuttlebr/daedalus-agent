@@ -4,11 +4,8 @@ import pytest
 import verify_uv_pip_check
 
 EXPECTED_OUTPUT = """Checked 241 packages in 60ms
-Found 4 incompatibilities
-The package `langchain-litellm` requires `cryptography>=46.0.5,<49.0.0`, but `50.0.0` is installed
+Found 1 incompatibility
 The package `nv-ingest-client` requires `urllib3==2.6.3`, but `2.8.0` is installed
-The package `nvidia-nat-core` requires `cryptography>=48.0,<49`, but `50.0.0` is installed
-The package `oci` requires `cryptography>=3.2.1,<50.0.0`, but `50.0.0` is installed
 """
 
 
@@ -19,8 +16,8 @@ def test_allows_only_documented_security_overrides():
 def test_rejects_additional_dependency_conflict():
     output = (
         EXPECTED_OUTPUT.replace(
-            "Found 4 incompatibilities",
-            "Found 5 incompatibilities",
+            "Found 1 incompatibility",
+            "Found 2 incompatibilities",
         )
         + "The package `example` requires `other<1`, but `2` is installed\n"
     )

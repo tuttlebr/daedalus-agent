@@ -9,12 +9,25 @@ import types
 import pytest
 from nat_helpers import front_end
 from nat_helpers.front_end import (
-    DaedalusFastApiFrontEndPluginWorker,
     McpApprovalTerminalMiddleware,
     _approval_marker_from_sse_line,
     _terminalize_mcp_approval_stream,
     attach_daedalus_routes,
 )
+
+
+@pytest.fixture
+def runtime_mcp(monkeypatch):
+    from daedalus_runtime import approval
+
+    monkeypatch.setattr(approval, "_approval_policy_configured", True)
+    return types.SimpleNamespace(
+        capability_status=lambda: {
+            "available": [],
+            "missing_required": [],
+            "unavailable_optional": [],
+        }
+    )
 
 
 class _FakeApp:
@@ -44,8 +57,8 @@ def test_daedalus_routes_attach_to_only_the_selected_app():
     unrelated_app = _FakeApp()
 
     assert attach_daedalus_routes(app) is app
-    assert len(app.included_routers) == 5
-    assert len(app.middleware) == 2
+    assert len(app.included_routers) == 6
+    assert len(app.middleware) == 1
     assert [path for path, _endpoint, _kwargs in app.routes] == [
         "/health/ready",
         "/v1/google-workspace/connections/{service_id}",
@@ -62,20 +75,9 @@ def test_daedalus_routes_attach_only_once():
     attach_daedalus_routes(app)
     attach_daedalus_routes(app)
 
-    assert len(app.included_routers) == 5
-    assert len(app.middleware) == 2
+    assert len(app.included_routers) == 6
+    assert len(app.middleware) == 1
     assert len(app.routes) == 2
-
-
-def test_runner_composes_superclass_app():
-    app = _FakeApp()
-    worker = DaedalusFastApiFrontEndPluginWorker.__new__(
-        DaedalusFastApiFrontEndPluginWorker
-    )
-    worker._test_app = app
-
-    assert worker.build_app() is app
-    assert app._daedalus_routes_attached is True
 
 
 def test_daedalus_route_import_failure_is_fatal(monkeypatch):
@@ -228,31 +230,14 @@ def test_approval_asgi_middleware_allows_clean_backend_unwind():
     assert b"continued" not in body
 
 
-def test_agent_graph_treats_approval_marker_as_terminal_tool_result():
-    messages = [
-        types.SimpleNamespace(type="ai", content=""),
-        types.SimpleNamespace(
-            type="tool",
-            content=_approval_marker(escaped=True),
-            name="docs_mcp_server__update_doc",
-        ),
-    ]
-
-    assert front_end._has_terminal_mcp_approval(messages)
-    assert not front_end._has_terminal_mcp_approval(
-        [types.SimpleNamespace(type="tool", content="ordinary result")]
-    )
-
-
-def test_readiness_fails_when_required_mcp_capability_is_missing(monkeypatch):
-    import mcp_patches
-
+def test_readiness_fails_when_required_mcp_capability_is_missing(
+    monkeypatch, runtime_mcp
+):
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
     monkeypatch.setattr(
-        mcp_patches,
-        "mcp_capability_status",
+        runtime_mcp,
+        "capability_status",
         lambda: {
             "state": "unready",
             "available": [],
@@ -262,7 +247,13 @@ def test_readiness_fails_when_required_mcp_capability_is_missing(monkeypatch):
         },
     )
 
-    response = asyncio.run(front_end.readiness_response())
+    response = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
 
     assert response.status_code == 503
     assert json.loads(response.body)["reason"] == (
@@ -270,9 +261,7 @@ def test_readiness_fails_when_required_mcp_capability_is_missing(monkeypatch):
     )
 
 
-def test_readiness_reports_optional_mcp_degradation(monkeypatch):
-    import mcp_patches
-
+def test_readiness_reports_optional_mcp_degradation(monkeypatch, runtime_mcp):
     class _ReadyRedis:
         closed = False
 
@@ -291,10 +280,9 @@ def test_readiness_reports_optional_mcp_degradation(monkeypatch):
     monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
     monkeypatch.setattr(
-        mcp_patches,
-        "mcp_capability_status",
+        runtime_mcp,
+        "capability_status",
         lambda: {
             "state": "degraded",
             "available": ["healthy_mcp"],
@@ -303,7 +291,13 @@ def test_readiness_reports_optional_mcp_degradation(monkeypatch):
             "unavailable_optional": ["optional_mcp"],
         },
     )
-    response = asyncio.run(front_end.readiness_response())
+    response = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
     payload = json.loads(response.body)
 
     assert response.status_code == 200
@@ -312,8 +306,9 @@ def test_readiness_reports_optional_mcp_degradation(monkeypatch):
     assert client.closed is True
 
 
-def test_readiness_degrades_rather_than_failing_on_hindsight_outage(monkeypatch):
-    import mcp_patches
+def test_readiness_degrades_rather_than_failing_on_hindsight_outage(
+    monkeypatch, runtime_mcp
+):
     from nat_helpers import hindsight_client
 
     class _ReadyRedis:
@@ -340,10 +335,9 @@ def test_readiness_degrades_rather_than_failing_on_hindsight_outage(monkeypatch)
     )
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
     monkeypatch.setattr(
-        mcp_patches,
-        "mcp_capability_status",
+        runtime_mcp,
+        "capability_status",
         lambda: {
             "state": "ready",
             "available": [],
@@ -356,7 +350,13 @@ def test_readiness_degrades_rather_than_failing_on_hindsight_outage(monkeypatch)
     # Default policy: chat completes without Hindsight (automatic recall is
     # best-effort), so an outage must not eject the pod from its Service.
     monkeypatch.delenv("DAEDALUS_MEMORY_READINESS_MODE", raising=False)
-    response = asyncio.run(front_end.readiness_response())
+    response = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
 
     assert response.status_code == 200
     body = json.loads(response.body)
@@ -365,7 +365,13 @@ def test_readiness_degrades_rather_than_failing_on_hindsight_outage(monkeypatch)
 
     # Operators who genuinely need memory can still opt into a hard dependency.
     monkeypatch.setenv("DAEDALUS_MEMORY_READINESS_MODE", "required")
-    strict = asyncio.run(front_end.readiness_response())
+    strict = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
 
     assert strict.status_code == 503
     assert json.loads(strict.body) == {
@@ -375,15 +381,13 @@ def test_readiness_degrades_rather_than_failing_on_hindsight_outage(monkeypatch)
     }
 
 
-def test_readiness_rejects_invalid_memory_readiness_mode(monkeypatch):
+def test_readiness_rejects_invalid_memory_readiness_mode(monkeypatch, runtime_mcp):
     monkeypatch.setenv("DAEDALUS_MEMORY_READINESS_MODE", "sometimes")
     with pytest.raises(ValueError):
         front_end._memory_readiness_mode()
 
 
-def test_readiness_reports_authenticated_milvus_failure(monkeypatch):
-    import mcp_patches
-
+def test_readiness_reports_authenticated_milvus_failure(monkeypatch, runtime_mcp):
     class _ReadyRedis:
         async def ping(self):
             return True
@@ -406,10 +410,9 @@ def test_readiness_reports_authenticated_milvus_failure(monkeypatch):
     monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "required")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
     monkeypatch.setattr(
-        mcp_patches,
-        "mcp_capability_status",
+        runtime_mcp,
+        "capability_status",
         lambda: {
             "state": "ready",
             "available": [],
@@ -419,7 +422,13 @@ def test_readiness_reports_authenticated_milvus_failure(monkeypatch):
         },
     )
 
-    response = asyncio.run(front_end.readiness_response())
+    response = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
 
     assert response.status_code == 503
     assert json.loads(response.body) == {
@@ -429,9 +438,9 @@ def test_readiness_reports_authenticated_milvus_failure(monkeypatch):
     }
 
 
-def test_readiness_degrades_instead_of_restarting_when_milvus_is_optional(monkeypatch):
-    import mcp_patches
-
+def test_readiness_degrades_instead_of_restarting_when_milvus_is_optional(
+    monkeypatch, runtime_mcp
+):
     class _ReadyRedis:
         async def ping(self):
             return True
@@ -454,10 +463,9 @@ def test_readiness_degrades_instead_of_restarting_when_milvus_is_optional(monkey
     monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "degraded")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
     monkeypatch.setattr(
-        mcp_patches,
-        "mcp_capability_status",
+        runtime_mcp,
+        "capability_status",
         lambda: {
             "state": "ready",
             "available": [],
@@ -467,7 +475,13 @@ def test_readiness_degrades_instead_of_restarting_when_milvus_is_optional(monkey
         },
     )
 
-    response = asyncio.run(front_end.readiness_response())
+    response = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
     payload = json.loads(response.body)
 
     assert response.status_code == 200
@@ -478,9 +492,9 @@ def test_readiness_degrades_instead_of_restarting_when_milvus_is_optional(monkey
     }
 
 
-def test_readiness_degrades_when_required_collection_is_missing(monkeypatch):
-    import mcp_patches
-
+def test_readiness_degrades_when_required_collection_is_missing(
+    monkeypatch, runtime_mcp
+):
     class _ReadyRedis:
         async def ping(self):
             return True
@@ -504,10 +518,9 @@ def test_readiness_degrades_when_required_collection_is_missing(monkeypatch):
     monkeypatch.setenv("DAEDALUS_REQUIRED_COLLECTIONS", "nvidia kubernetes")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
     monkeypatch.setattr(
-        mcp_patches,
-        "mcp_capability_status",
+        runtime_mcp,
+        "capability_status",
         lambda: {
             "state": "ready",
             "available": [],
@@ -517,7 +530,13 @@ def test_readiness_degrades_when_required_collection_is_missing(monkeypatch):
         },
     )
 
-    response = asyncio.run(front_end.readiness_response())
+    response = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
     payload = json.loads(response.body)
 
     assert response.status_code == 200
@@ -525,9 +544,7 @@ def test_readiness_degrades_when_required_collection_is_missing(monkeypatch):
     assert payload["rag"]["missingRequiredCollections"] == ["kubernetes"]
 
 
-def test_readiness_fails_when_required_collection_is_missing(monkeypatch):
-    import mcp_patches
-
+def test_readiness_fails_when_required_collection_is_missing(monkeypatch, runtime_mcp):
     class _ReadyRedis:
         async def ping(self):
             return True
@@ -551,10 +568,9 @@ def test_readiness_fails_when_required_collection_is_missing(monkeypatch):
     monkeypatch.setenv("DAEDALUS_REQUIRED_COLLECTIONS", "nvidia,kubernetes")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
     monkeypatch.setattr(
-        mcp_patches,
-        "mcp_capability_status",
+        runtime_mcp,
+        "capability_status",
         lambda: {
             "state": "ready",
             "available": [],
@@ -564,7 +580,13 @@ def test_readiness_fails_when_required_collection_is_missing(monkeypatch):
         },
     )
 
-    response = asyncio.run(front_end.readiness_response())
+    response = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
     payload = json.loads(response.body)
 
     assert response.status_code == 503
@@ -572,9 +594,7 @@ def test_readiness_fails_when_required_collection_is_missing(monkeypatch):
     assert payload["rag"]["missingRequiredCollections"] == ["kubernetes"]
 
 
-def test_readiness_reports_milvus_collection_count(monkeypatch):
-    import mcp_patches
-
+def test_readiness_reports_milvus_collection_count(monkeypatch, runtime_mcp):
     class _ReadyRedis:
         async def ping(self):
             return True
@@ -597,10 +617,9 @@ def test_readiness_reports_milvus_collection_count(monkeypatch):
     monkeypatch.setenv("DAEDALUS_RAG_READINESS_MODE", "required")
     monkeypatch.setattr(front_end, "JSONResponse", _Response)
     monkeypatch.setattr(front_end.os.path, "exists", lambda _path: False)
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", True)
     monkeypatch.setattr(
-        mcp_patches,
-        "mcp_capability_status",
+        runtime_mcp,
+        "capability_status",
         lambda: {
             "state": "ready",
             "available": [],
@@ -610,7 +629,13 @@ def test_readiness_reports_milvus_collection_count(monkeypatch):
         },
     )
 
-    response = asyncio.run(front_end.readiness_response())
+    response = asyncio.run(
+        front_end.readiness_response(
+            types.SimpleNamespace(
+                app=types.SimpleNamespace(state=types.SimpleNamespace(mcp=runtime_mcp))
+            )
+        )
+    )
     payload = json.loads(response.body)
 
     assert response.status_code == 200

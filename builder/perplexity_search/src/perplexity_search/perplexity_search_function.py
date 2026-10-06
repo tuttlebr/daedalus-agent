@@ -10,10 +10,12 @@ from typing import Annotated, Literal
 from urllib.parse import urlparse
 
 import httpx
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
@@ -65,7 +67,7 @@ SearchQuery = Annotated[
 ]
 
 
-class PerplexitySearchConfig(FunctionBaseConfig, name="perplexity_search"):
+class PerplexitySearchConfig(ToolConfig, name="perplexity_search"):
     """Configuration for the Perplexity Search API function."""
 
     description: str | None = None
@@ -431,8 +433,10 @@ def _http_error_for_user(response) -> str:
     )
 
 
-@register_function(config_type=PerplexitySearchConfig)
-async def perplexity_search_function(config: PerplexitySearchConfig, builder: Builder):
+@register_tool(config_type=PerplexitySearchConfig)
+async def perplexity_search_function(
+    config: PerplexitySearchConfig, builder: ToolRegistry
+):
     api_key = config.api_key or os.environ.get("PERPLEXITY_SEARCH_API_KEY", "")
 
     async def _search(
@@ -551,7 +555,7 @@ async def perplexity_search_function(config: PerplexitySearchConfig, builder: Bu
         return f"{summary}\n\n{search_tag}"
 
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             _search,
             description=config.description
             or (

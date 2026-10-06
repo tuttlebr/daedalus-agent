@@ -40,7 +40,7 @@ authentication:
   gmail_mcp_server:
     _type: mcp_oauth2
     # Gmail's protected-resource metadata advertises /mcp, while the
-    # Streamable HTTP transport endpoint is /mcp/v1. NAT uses this field
+    # Streamable HTTP transport endpoint is /mcp/v1. The runtime uses this field
     # as the OAuth resource indicator, so keep it aligned with metadata.
     server_url: https://gmailmcp.googleapis.com/mcp
     client_id: ${GOOGLE_MCP_CLIENT_ID}
@@ -87,9 +87,9 @@ authentication:
     allow_default_user_id_for_tool_calls: false
     token_storage_object_store: docs_mcp_oauth_tokens
 object_stores:
-  # OAuth access and refresh tokens are user-isolated by NAT and durable across
+  # OAuth access and refresh tokens are user-isolated by the application and durable across
   # backend restarts and replicas. Separate buckets prevent provider collisions
-  # because NAT derives each token key only from the authenticated user id.
+  # because the persisted key derives only from the authenticated user id.
   gmail_mcp_oauth_tokens:
     _type: daedalus_redis_object_store
     redis_url: ${REDIS_URL}
@@ -198,7 +198,7 @@ function_groups:
       - get_users_timeline
       - get_users_posts
     # For this explicitly allowlisted group, Daedalus consumes approval_policy
-    # from the raw workflow YAML before NAT builds the MCP client. Only exact
+    # from the raw workflow YAML before connecting the MCP client. Only exact
     # read_only entries bypass the execution gate; omitted or
     # approval_required tools remain fail-closed.
     tool_overrides:
@@ -581,7 +581,7 @@ functions:
     verbose: false
   current_datetime_tool:
     _type: current_datetime
-    # NAT's native schema requires unused="" and returns time with UTC offset.
+    # The clock uses the authenticated request timezone and includes its UTC offset.
     # This upstream component owns its description; it has no description field.
     verbose: false
   get_memory:
@@ -1026,42 +1026,10 @@ functions:
       Revise once when passed=false. Returns stable JSON results; URL failures
       and unsupported exact claims fail closed.
     verbose: false
-general:
-  # Authenticated workflows, including their user-specific MCP schemas and
-  # OAuth sessions, are reused briefly and then deterministically reclaimed.
-  per_user_workflow_timeout: 600
-  per_user_workflow_cleanup_interval: 60
-  enable_per_user_monitoring: false
-  front_end:
-    _type: fastapi
-    runner_class: nat_helpers.front_end.DaedalusFastApiFrontEndPluginWorker
-    enable_interactive_extensions: true
-    step_adaptor:
-      mode: custom
-      custom_event_types:
-        - LLM_START
-        - LLM_END
-        - TOOL_START
-        - TOOL_END
-        - WORKFLOW_START
-        - WORKFLOW_END
-        - TASK_START
-        - TASK_END
-        - TTC_START
-        - TTC_END
-        - FUNCTION_START
-        - FUNCTION_END
-        - SPAN_START
-        - SPAN_END
-  telemetry:
-    tracing:
-      phoenix:
-        _type: daedalus_phoenix
-        endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
-        project: ${PHOENIX_PROJECT_NAME}
-        timeout: 3
-        shutdown_timeout: 2
-        drop_on_overflow: true
+telemetry:
+  endpoint: ${DAEDALUS_PHOENIX_ENDPOINT}
+  project: ${PHOENIX_PROJECT_NAME}
+  timeout: 3
 llms:
   tool_calling_llm:
     _type: openai
@@ -1073,7 +1041,7 @@ llms:
     request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60.0}
     truncation: auto
 workflow:
-  _type: daedalus_per_user_responses_api_agent
+  _type: daedalus_rust_agent
   llm_name: tool_calling_llm
   model_routes:
     deep: ${DAEDALUS_LLM_DEEP_MODEL:-daedalus/deep}
@@ -1108,7 +1076,7 @@ workflow:
   # outer request still has time remaining.
   daily_summary_research_budget_seconds: 300
   daily_summary_synthesis_retry_timeout_seconds: 75
-  daily_summary_nat_tools:
+  daily_summary_tools:
     - agent_skills_tool
     - briefing_renderer_tool
     - calendar_mcp_server
@@ -1126,7 +1094,7 @@ workflow:
     - tool_output_retriever_tool
     - unifi_mcp_server
     - webscrape_tool
-  daily_summary_final_nat_tools:
+  daily_summary_final_tools:
     - briefing_renderer_tool
   handle_tool_errors: true
   parallel_tool_calls: true
@@ -1201,7 +1169,7 @@ workflow:
 
     Files: Verify and publish deliverable files, then return the exact sandbox link. Never offer relative paths or claim failed publication succeeded.
 
-  nat_tools:
+  tools:
     - add_memory
     - agent_skills_tool
     - briefing_renderer_tool

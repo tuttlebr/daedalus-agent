@@ -1,142 +1,72 @@
-"""Tests for direct button-approved MCP execution."""
+"""Direct approved calls retain their exact arguments and honest outcome."""
 
 import asyncio
-import hashlib
-import json
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
-from mcp_approval_api import ExecuteMcpApprovalRequest, _run_exact_mcp_call
+from daedalus_runtime.executions import Executions
 
 
-class _Store:
-    def __init__(self):
-        self.record = None
+@pytest.mark.parametrize("failed", [True, False])
+def test_direct_execution_is_exact_and_does_not_expose_remote_content(failed):
+    async def run():
+        observed = []
 
-    async def create_execution(self):
-        self.record = SimpleNamespace(
-            execution_id="execution-1",
-            status="running",
-            result=None,
-            error=None,
-            pending_oauth=None,
-            first_outcome=asyncio.Event(),
-            task=None,
+        class MCP:
+            async def call(self, name, arguments, user, _emit):
+                observed.append((name, arguments, user))
+                return {"content": "private document", "is_error": failed}
+
+        executions = Executions(MCP())
+        body = SimpleNamespace(
+            server_name="docs", tool_name="update_doc", arguments_sha256="a" * 64
         )
-        return self.record
-
-    async def set_completed(self, _execution_id, result):
-        self.record.status = "completed"
-        self.record.result = result
-        self.record.first_outcome.set()
-
-    async def set_failed(self, _execution_id, error):
-        self.record.status = "failed"
-        self.record.error = error
-        self.record.first_outcome.set()
-
-
-class _FlowHandler:
-    cleared = False
-
-    @staticmethod
-    def set_execution_context(*_args):
-        return None
-
-    @staticmethod
-    async def authenticate(*_args):
-        raise AssertionError("authentication should not be needed")
-
-    def clear_execution_context(self):
-        self.cleared = True
-
-
-@pytest.mark.parametrize(
-    "result, expected_status",
-    [
-        ("updated", "completed"),
-        ({"isError": True}, "failed"),
-        ('{"isError":true}', "failed"),
-        ("MCPToolClient tool call failed: rejected", "failed"),
-        *[
+        record = executions.start(
+            "alice", body, {"documentId": "document", "content": "exact text"}
+        )
+        await record.task
+        assert observed == [
             (
-                json.dumps(
+                "docs__update_doc",
+                {"documentId": "document", "content": "exact text"},
+                "alice",
+            )
+        ]
+        assert record.status == ("failed" if failed else "completed")
+        assert "private document" not in str(record.payload())
+        await executions.close()
+
+    asyncio.run(run())
+
+
+def test_direct_execution_oauth_handoff_remains_pending_until_completion():
+    async def run():
+        proceed = asyncio.Event()
+
+        class MCP:
+            async def call(self, _name, _arguments, _user, emit):
+                await emit(
+                    "oauth_required",
                     {
-                        "error": error,
-                        "server": "docs_mcp_server",
-                        "tool": "update_doc",
-                        "retryable": False,
-                    }
-                ),
-                "failed",
-            )
-            for error in (
-                "mcp_tool_failed",
-                "google_workspace_refresh_unavailable",
-                "mcp_user_authentication_required",
-            )
-        ],
-    ],
-)
-def test_direct_executor_invokes_exact_cached_mcp_function(
-    monkeypatch, result, expected_status
-):
-    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "internal-token")
-    observed = {}
+                        "auth_url": "https://accounts.google.com/fixture",
+                        "oauth_state": "fixture-state",
+                    },
+                )
+                await proceed.wait()
+                return {"content": "done"}
 
-    class _Function:
-        async def ainvoke(self, arguments):
-            observed.update(arguments)
-            return result
-
-    class _Group:
-        async def get_accessible_functions(self):
-            return {"docs_mcp_server__update_doc": _Function()}
-
-    class _Builder:
-        async def get_function_group(self, name):
-            assert name == "docs_mcp_server"
-            return _Group()
-
-    manager = SimpleNamespace(
-        _is_workflow_per_user=True,
-        _per_user_builders={"opaque-user": SimpleNamespace(builder=_Builder())},
-    )
-
-    @asynccontextmanager
-    async def session(**_kwargs):
-        yield SimpleNamespace(user_id="opaque-user")
-
-    manager.session = session
-    store = _Store()
-    flow_handler = _FlowHandler()
-    canonical_arguments = '{"documentId":"doc-1","requests":[]}'
-    digest = hashlib.sha256(canonical_arguments.encode()).hexdigest()
-    request = SimpleNamespace()
-
-    record = asyncio.run(store.create_execution())
-    asyncio.run(
-        _run_exact_mcp_call(
-            manager=manager,
-            request=request,
-            body=ExecuteMcpApprovalRequest(
-                server_name="docs_mcp_server",
-                tool_name="update_doc",
-                canonical_arguments=canonical_arguments,
-                arguments_sha256=digest,
-            ),
-            record=record,
-            execution_store=store,
-            http_flow_handler=flow_handler,
-            request_id="request-123456",
-            user_id="alice",
+        executions = Executions(MCP())
+        body = SimpleNamespace(
+            server_name="docs", tool_name="update_doc", arguments_sha256="a" * 64
         )
-    )
+        record = executions.start("alice", body, {})
+        await record.first_outcome.wait()
+        assert record.payload(initial=True)["oauthState"] == "fixture-state"
+        assert record.status == "oauth_required"
+        proceed.set()
+        await record.task
+        assert record.status == "completed"
+        assert "auth_url" not in record.payload()
+        await executions.close()
 
-    assert record.status == expected_status
-    if expected_status == "failed":
-        assert record.result is None
-        assert record.error == "The approved MCP operation failed"
-    assert observed == {"documentId": "doc-1", "requests": []}
-    assert flow_handler.cleared is True
+    asyncio.run(run())

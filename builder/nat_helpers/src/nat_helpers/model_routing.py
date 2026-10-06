@@ -113,7 +113,7 @@ def validate_skill_mappings(config: ModelRoutingConfig, builder) -> None:
     from agent_skills.agent_skills_function import AgentSkillsConfig
 
     names: set[str] = set()
-    for tool_name in config.nat_tools:
+    for tool_name in config.tools:
         try:
             tool_config = builder.get_function_config(tool_name)
         except (KeyError, ValueError):

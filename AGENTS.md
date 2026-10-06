@@ -2,12 +2,13 @@
 
 ## Project Structure & Module Organization
 
-Daedalus is a self-hosted assistant with a Next.js/TypeScript frontend and Python
-NeMo Agent Toolkit backend.
+Daedalus is a self-hosted assistant with a Next.js/TypeScript frontend, a Rust
+agent runtime, and a Python tool service.
 
 - `frontend/`: UI components, hooks, API routes, stream worker, and WebSocket server;
   static assets live in `public/`, unit tests in `__tests__/`, browser tests in `e2e/`.
-- `builder/`: Python tools, toolkit adapters, runtime image, and `tests/`.
+- `builder/`: Rust agent runtime in `runtime/`, Python tools and API adapters,
+  runtime image, and `tests/`.
 - `backend/`: workflow YAML; `local-chat-config.yaml` provides the starting configuration.
 - `protocol/`: shared schemas; regenerate types with `python3 scripts/generate_protocol_types.py`.
 - `skills/`: runtime agent instructions; follow its local `AGENTS.md` when editing.
@@ -15,11 +16,12 @@ NeMo Agent Toolkit backend.
 
 ## Build, Test, and Development Commands
 
-Use Node.js 22 and Python 3.12 with `uv`, matching CI. Run from the repository root
-unless shown otherwise.
+Use Node.js 22, Python 3.12 with `uv`, and Rust 1.95, matching CI. Run from the
+repository root unless shown otherwise.
 
 - `uv venv builder/.venv --python 3.12`: initialize the Python test environment.
 - `make builder`: install test dependencies and run pytest with coverage.
+- `make runtime`: check Rust, build the backend image, and exercise it over HTTP.
 - `cd frontend && npm ci --legacy-peer-deps && npm run dev`: install dependencies
   and start Next.js on port 5000. Follow `frontend/README.md` for backing services.
 - `make frontend`: install dependencies, lint, typecheck, run coverage, and build.
@@ -41,7 +43,7 @@ Run `pre-commit run --files <changed-files>` before submitting.
 Name pytest files `test_*.py`, Vitest tests `*.test.ts`/`*.test.tsx`, and Playwright
 specs `*.spec.ts`. Preserve the 65% Python coverage floor and frontend thresholds
 in `frontend/vitest.config.ts`. Add regression tests for behavior changes.
-Toolkit registration/provider changes also require a request against the built
+Tool registration/provider changes also require a request against the built
 backend image; stub-based tests alone do not validate runtime integration.
 
 ## Commit & Pull Request Guidelines

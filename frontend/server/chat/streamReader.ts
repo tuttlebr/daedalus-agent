@@ -21,6 +21,7 @@ import {
   STREAM_READ_IDLE_TIMEOUT_MS,
   STREAM_STATUS_FLUSH_INTERVAL_MS,
   STREAM_STEPS_FLUSH_INTERVAL_MS,
+  JOB_EXPIRY_SECONDS,
 } from './constants';
 import {
   DEBUG_REPLAY_ENABLED,
@@ -46,7 +47,12 @@ import {
 } from './types';
 
 import { saveOAuthCallbackTarget } from '@/server/mcpOAuth';
-import { getPublisher, jsonGet, sessionKey } from '@/server/session/redis';
+import {
+  getPublisher,
+  jsonGet,
+  jsonSetWithExpiry,
+  sessionKey,
+} from '@/server/session/redis';
 
 const logger = new Logger('AsyncJob');
 
@@ -568,6 +574,63 @@ export async function startBackgroundStreamReader(
           } catch {
             // Non-JSON data line — skip. Processing and persistence failures
             // must escape this block so the job fails instead of hanging.
+            continue;
+          }
+          if (currentSseEvent === 'steering') {
+            const commandId = parsed?.command_id;
+            const status = parsed?.status;
+            if (
+              typeof commandId !== 'string' ||
+              !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                commandId,
+              ) ||
+              !['received', 'applied', 'cancelled'].includes(status)
+            ) {
+              throw new Error('Backend sent an invalid steering event');
+            }
+            const existing = jobRequest.messages.find(
+              (message: any) =>
+                message?.metadata?.steeringCommandId === commandId,
+            );
+            if (status === 'received') {
+              if (
+                typeof parsed.instruction !== 'string' ||
+                new TextEncoder().encode(parsed.instruction).length > 16_000
+              ) {
+                throw new Error('Backend sent an invalid direction');
+              }
+              if (!existing)
+                jobRequest.messages.push({
+                  id: commandId,
+                  role: 'user',
+                  content: parsed.instruction,
+                  metadata: {
+                    steeringCommandId: commandId,
+                    steeringStatus: status,
+                    jobId,
+                  },
+                });
+            } else if (existing) {
+              existing.metadata.steeringStatus = status;
+            }
+            await jsonSetWithExpiry(
+              sessionKey(['async-job-request', jobId]),
+              jobRequest,
+              JOB_EXPIRY_SECONDS,
+            );
+            if (tokenChannel)
+              await publisher.publish(
+                tokenChannel,
+                JSON.stringify({
+                  type: 'steering_status',
+                  jobId,
+                  conversationId,
+                  commandId,
+                  status,
+                  assistantMessageId: jobRequest.assistantMessageId,
+                  instruction: parsed.instruction || existing?.content,
+                }),
+              );
             continue;
           }
           if (currentSseEvent === 'mcp_approval_required') {

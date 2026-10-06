@@ -1,4 +1,4 @@
-"""Offline checks of the model-facing native catalog in the installed NAT runtime.
+"""Offline checks of the model-facing native catalog in the installed application runtime.
 
 With --config, also compare production configuration and bundled skill tool
 references. No provider, storage, MCP, or mutation calls are made.
@@ -9,6 +9,7 @@ import asyncio
 import importlib
 import json
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -32,8 +33,8 @@ FACTORIES = {
         "daedalus_add_memory",
     ),
     "current_datetime_tool": (
-        "nat.tool.datetime_tools",
-        "CurrentTimeToolConfig",
+        "daedalus_runtime.datetime_tool",
+        "DateTimeConfig",
         "current_datetime",
     ),
     "get_memory": (
@@ -111,7 +112,7 @@ SAMPLES = {
     ],
     "briefing_renderer_tool": [{"edition": {"schema": "daily-daedalus/v1"}}],
     "add_memory": [{"memory": "A user-requested preference."}],
-    "current_datetime_tool": [{"unused": ""}],
+    "current_datetime_tool": [{}],
     "get_memory": [{"query": "daily summary preferences"}],
     "visual_media_tool": [
         {"operation": "generate", "prompt": "A tree"},
@@ -208,11 +209,11 @@ def require(condition, message):
 
 
 def check_configuration(config):
-    from mcp_patches import _parse_mcp_group_approval_policy
+    from daedalus_runtime.approval import _parse_mcp_group_approval_policy
 
     functions = config["functions"]
     groups = config["function_groups"]
-    available = set(config["workflow"]["nat_tools"])
+    available = set(config["workflow"]["tools"])
     require(
         set(functions) == set(FACTORIES),
         "Native catalog changed: update runtime fixtures",
@@ -357,7 +358,7 @@ async def check_catalog(config=None, skills_directory=None):
         builder = SimpleNamespace(
             get_function=AsyncMock(
                 return_value=SimpleNamespace(
-                    acall_invoke=AsyncMock(
+                    ainvoke=AsyncMock(
                         side_effect=AssertionError("Unexpected sandbox execution")
                     )
                 )
@@ -365,20 +366,13 @@ async def check_catalog(config=None, skills_directory=None):
         )
         # The real async context manager catches zero/multiple yields, unlike
         # direct async-generator iteration in unit-test NAT stubs.
-        async with factory(tool_config, builder) as info:
+        async with asynccontextmanager(factory)(tool_config, builder) as info:
             schema = info.input_schema.model_json_schema()
             properties = schema.get("properties", {})
             if name == "briefing_renderer_tool":
-                from langchain_core.utils.function_calling import convert_to_openai_tool
-                from nat.builder.function import LambdaFunction
-                from nat.plugins.langchain.tool_wrapper import langchain_tool_wrapper
                 from nat_helpers.agent_loop_guard import agent_run_scope
 
-                function = LambdaFunction.from_info(
-                    config=tool_config, info=info, instance_name=name
-                )
-                wrapped = langchain_tool_wrapper(name, function, builder)
-                serialized = convert_to_openai_tool(wrapped)
+                serialized = {"function": info.schema(name)}
                 edition_schema = serialized["function"]["parameters"]["properties"][
                     "edition"
                 ]
@@ -397,16 +391,10 @@ async def check_catalog(config=None, skills_directory=None):
                     and '"$ref"' not in json.dumps(edition_schema),
                     "Canonical briefing block constraints did not reach the model schema",
                 )
-                require(
-                    function.input_type is info.input_schema,
-                    "NAT renderer input type must match its dynamic schema exactly",
-                )
-                # Exercise the same dict -> LangChain -> NAT conversion as an
-                # actual model call. Canonical validation must receive the
-                # complete input model and return all structural corrections.
+                # Exercise the real typed invocation used by the Python service.
                 sandbox = await builder.get_function(tool_config.sandbox_tool)
-                sandbox.acall_invoke.side_effect = None
-                sandbox.acall_invoke.return_value = (
+                sandbox.ainvoke.side_effect = None
+                sandbox.ainvoke.return_value = (
                     "## Sandbox Capabilities\n"
                     'Isolation: "bubblewrap"\nStateless: true\n'
                     'Conversation workspaces: true\nCommands (JSON): ["true"]\n'
@@ -414,7 +402,7 @@ async def check_catalog(config=None, skills_directory=None):
                 )
                 submitted = {"format": "daily-daedalus/v1", "editors_note": []}
                 with agent_run_scope():
-                    result = json.loads(await wrapped.ainvoke({"edition": submitted}))
+                    result = json.loads(await info.ainvoke({"edition": submitted}))
                 require(
                     result.get("passed") is False
                     and result.get("failure_type") == "validation"
@@ -467,9 +455,7 @@ async def check_catalog(config=None, skills_directory=None):
                 ):
                     outputs = [
                         json.loads(
-                            await info.single_fn(
-                                info.input_schema.model_validate(sample)
-                            )
+                            await info.ainvoke(info.input_schema.model_validate(sample))
                         )
                         for sample in SAMPLES[name]
                     ]
@@ -490,7 +476,7 @@ async def check_catalog(config=None, skills_directory=None):
         parser = SkillParser(str(skills_directory))
         skills = parser.discover_skills()
         resource_count = 0
-        async with agent_skills_function(
+        async with asynccontextmanager(agent_skills_function)(
             AgentSkillsConfig(
                 skills_directory=str(skills_directory),
                 enabled_operations=["list_skills", "load_skill"],
@@ -498,11 +484,11 @@ async def check_catalog(config=None, skills_directory=None):
             SimpleNamespace(),
         ) as info:
             listed = json.loads(
-                await info.single_fn(AgentSkillsInput(operation="list_skills"))
+                await info.ainvoke(AgentSkillsInput(operation="list_skills"))
             )
             require(len(listed["skills"]) == len(skills), "Skill discovery mismatch")
             for skill in skills:
-                loaded = await info.single_fn(
+                loaded = await info.ainvoke(
                     AgentSkillsInput(operation="load_skill", skill_name=skill.name)
                 )
                 require(
@@ -510,7 +496,7 @@ async def check_catalog(config=None, skills_directory=None):
                     f"Cannot load {skill.name}",
                 )
                 for resource in parser.list_skill_resources(skill.name):
-                    loaded = await info.single_fn(
+                    loaded = await info.ainvoke(
                         AgentSkillsInput(
                             operation="load_skill",
                             skill_name=skill.name,
@@ -523,7 +509,7 @@ async def check_catalog(config=None, skills_directory=None):
                     )
                     resource_count += 1
         print(
-            f"Loaded {len(skills)} skills and {resource_count} resources through NAT."
+            f"Loaded {len(skills)} skills and {resource_count} resources through the tool registry."
         )
     print(
         f"Validated {len(catalog)} native tool schemas, routing descriptions, and registration lifecycles."

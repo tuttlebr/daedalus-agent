@@ -78,7 +78,7 @@ def test_source_ids_agree_across_verifier_chat_and_autonomous_runs():
 
 
 def test_all_skill_tool_references_resolve_to_exposed_capabilities():
-    available = set(configuration()["workflow"]["nat_tools"])
+    available = set(configuration()["workflow"]["tools"])
     for path in (ROOT / "skills").rglob("*.md"):
         # The only similarly named bundled helper is a Python operator script.
         text = path.read_text().replace("recipe_tool.py", "")
@@ -125,7 +125,7 @@ def test_registered_native_factories_have_exactly_one_yield():
             if not any(
                 isinstance(d, ast.Call)
                 and isinstance(d.func, ast.Name)
-                and d.func.id == "register_function"
+                and d.func.id == "register_tool"
                 for d in node.decorator_list
             ):
                 continue
@@ -167,7 +167,11 @@ def test_verifier_combined_registration_executes_all_operations(monkeypatch):
 
     async def run():
         config = mod.SourceVerifierConfig(
-            **configuration()["functions"]["source_verifier_tool"]
+            **{
+                k: v
+                for k, v in configuration()["functions"]["source_verifier_tool"].items()
+                if k != "_type"
+            }
         )
         infos = [
             info async for info in mod.source_verifier_function(config, MagicMock())

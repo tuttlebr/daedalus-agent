@@ -15,10 +15,12 @@ from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 logger = logging.getLogger(__name__)
@@ -119,7 +121,7 @@ def _validate_artifact_publish_url(value: str) -> str:
     return normalized
 
 
-class LlmSandboxConfig(FunctionBaseConfig, name="llm_sandbox"):
+class LlmSandboxConfig(ToolConfig, name="llm_sandbox"):
     """Configuration for the LLM sandbox function."""
 
     description: str | None = None
@@ -347,14 +349,9 @@ def _trusted_scope_from_headers(headers: Any) -> tuple[str, str] | None:
 
 
 def _trusted_scope_from_context() -> tuple[str, str] | None:
-    try:
-        from nat.builder.context import Context
+    from nat_helpers.identity import _request_headers
 
-        nat_context = Context.get()
-    except Exception:
-        return None
-    headers = getattr(getattr(nat_context, "metadata", None), "headers", None)
-    return _trusted_scope_from_headers(headers)
+    return _trusted_scope_from_headers(_request_headers())
 
 
 def _workspace_id_from_scope(scope: tuple[str, str] | None) -> str | None:
@@ -770,8 +767,8 @@ async def _publish_artifact(
     )
 
 
-@register_function(config_type=LlmSandboxConfig)
-async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # noqa: ARG001
+@register_tool(config_type=LlmSandboxConfig)
+async def llm_sandbox_function(config: LlmSandboxConfig, builder: ToolRegistry):  # noqa: ARG001
     api_key = config.api_key.get_secret_value()
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     cached_capabilities: dict[str, Any] | None = None
@@ -1090,7 +1087,7 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: Builder):  # n
             return _error(f"LLM sandbox returned an invalid response: {exc}.")
 
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             _sandbox,
             input_schema=LlmSandboxInput,
             description=config.description

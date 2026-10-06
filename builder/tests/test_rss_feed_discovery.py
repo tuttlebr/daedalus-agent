@@ -168,7 +168,7 @@ def test_schema_uses_only_configured_scopes():
 
 def _runtime_available():
     try:
-        for name in ("nvidia-nat", "markitdown", "fastfeedparser"):
+        for name in ("markitdown", "fastfeedparser"):
             distribution(name)
     except PackageNotFoundError:
         return False
@@ -178,18 +178,20 @@ def _runtime_available():
 @pytest.mark.skipif(
     not _runtime_available(), reason="Requires installed backend runtime dependencies"
 )
-def test_real_nat_registration_preserves_schema_and_nested_batch_models():
-    """Subprocess intentionally avoids conftest's FunctionInfo stub."""
+def test_real_owned_registration_preserves_schema_and_nested_batch_models():
+    """Subprocess uses real dependencies and the public typed invocation."""
     root = Path(__file__).resolve().parents[2]
     code = """
-import asyncio, json
+import asyncio, json, sys
+from contextlib import asynccontextmanager
+sys.path.insert(0, "builder")
 from rss_feed.rss_feed_function import rss_feed_function, RssFeedFunctionConfig
 
 async def main():
     config = RssFeedFunctionConfig()
-    async with rss_feed_function(config, object()) as info:
+    async with asynccontextmanager(rss_feed_function)(config, object()) as info:
         request = info.input_schema(mode="discover", queries=[{"query":"GPU", "feed_scope":"auto"}])
-        result = json.loads(await info.single_fn(request))
+        result = json.loads(await info.ainvoke(request))
         assert result["mode"] == "discover"
         assert result["results"][0]["status"] == "unavailable"
         assert "not configured" in result["results"][0]["error"]

@@ -6,16 +6,12 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "agent_skills"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "pydantic>=2,<2.14",
   "pyyaml>=6.0",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Agent Skills loader for NeMo Agent Toolkit — discovers, loads, and executes Anthropic-style SKILL.md skill directories."
+description = "Agent Skills loader for Daedalus — discovers, loads, and executes Anthropic-style SKILL.md skill directories."
 classifiers = ["Programming Language :: Python"]
-
-[project.entry-points.'nat.components']
-agent_skills = "agent_skills.register"
 
 [tool.setuptools]
 packages = ["agent_skills"]

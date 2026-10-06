@@ -23,8 +23,9 @@ fixes and documentation improvements can go straight to a pull request.
 
 ## Development and checks
 
-Use Node.js 22 for the frontend and Python 3.12 with `uv` for Python work, matching
-CI. Run commands from the repository root unless a command changes directory.
+Use Node.js 22 for the frontend, Python 3.12 with `uv` for Python work, and Rust
+1.95 for the agent runtime, matching CI. Run commands from the repository root
+unless a command changes directory.
 
 For the Python test environment:
 
@@ -35,11 +36,12 @@ uv pip install --python .venv/bin/python -e ".[test]"
 .venv/bin/python -m pytest -q
 ```
 
-This installs the lightweight test dependencies. Most builder tests use
-framework stubs; passing them does not prove that a toolkit plugin loads in the
-runtime image. Workflow and toolkit adapter changes also need a request against
-the backend image built from the pinned runtime dependencies in
-[`builder/Dockerfile`](builder/Dockerfile).
+This installs the lightweight test dependencies. Builder tests use stubs for
+external services; passing them does not prove that a tool loads and works in
+the runtime image. Runtime, registration, and provider changes also need a
+request against the backend image built from the pinned dependencies in
+[`builder/Dockerfile`](builder/Dockerfile). `make runtime` checks Rust, builds that
+image, and exercises it over HTTP with local scripted peers.
 
 For the frontend:
 

@@ -6,7 +6,6 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "visual_media"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "nat_helpers",
   "httpx>=0.28",
   "openai>=1.0",
@@ -14,11 +13,8 @@ dependencies = [
   "redis>=4.3.6,<6"
 ]
 requires-python = ">=3.11,<3.14"
-description = "Custom NeMo Agent Toolkit Workflow"
+description = "Custom Daedalus Workflow"
 classifiers = ["Programming Language :: Python"]
-
-[project.entry-points.'nat.components']
-visual_media = "visual_media.register"
 
 [tool.setuptools]
 packages = ["visual_media"]

@@ -131,7 +131,7 @@ class Sandbox:
                 ),
                 object(),
             )
-            self.adapter = (await self.generator.__anext__()).single_fn
+            self.adapter = (await self.generator.__anext__()).fn
         real_client = httpx.AsyncClient
 
         def client(*args, **kwargs):
@@ -512,7 +512,7 @@ def test_registered_tool_exposes_configured_canonical_nested_schema(tmp_path):
         generator = briefing_renderer(config, builder)
         info = await generator.__anext__()
         try:
-            parameters = inspect.signature(info.single_fn).parameters
+            parameters = inspect.signature(info.fn).parameters
             assert len(parameters) == 1
             assert parameters["input_data"].annotation is info.input_schema
             schema = info.input_schema.model_json_schema()

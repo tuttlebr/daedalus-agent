@@ -1,0 +1,25 @@
+# Minimal Rust agent: one model endpoint and the native clock tool.
+functions:
+  current_datetime_tool:
+    _type: current_datetime
+llms:
+  main:
+    _type: openai
+    api_type: responses
+    base_url: ${TOOL_CALLING_LLM_MODEL_BASE_URL}
+    api_key: ${TOOL_CALLING_LLM_MODEL_API_KEY}
+    model_name: ${TOOL_CALLING_LLM_MODEL_MODEL}
+    max_retries: ${DAEDALUS_LLM_MAX_RETRIES:-3}
+    request_timeout: ${DAEDALUS_LLM_TIMEOUT:-60}
+workflow:
+  _type: daedalus_rust_agent
+  llm_name: main
+  tools: [current_datetime_tool]
+  parallel_tool_calls: true
+  max_iterations: 32
+  max_history: 50
+  max_history_tokens: 32000
+  tool_output_compaction_enabled: false
+  instructions: >-
+    You are Daedalus, a helpful assistant. Follow the user's current directions,
+    keep answers clear, and use the clock when the current date or time matters.

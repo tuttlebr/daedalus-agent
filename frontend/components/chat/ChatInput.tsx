@@ -88,6 +88,7 @@ function describeUploadError(err: unknown, status?: number): string {
 interface ChatInputProps {
   onSend: (message: Message) => void;
   onStop?: () => void;
+  onSteer?: (instruction: string) => Promise<void>;
   isStreaming?: boolean;
 }
 
@@ -107,8 +108,9 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export const ChatInput = memo(
-  ({ onSend, onStop, isStreaming = false }: ChatInputProps) => {
+  ({ onSend, onStop, onSteer, isStreaming = false }: ChatInputProps) => {
     const [content, setContent] = useState('');
+    const [isSteering, setIsSteering] = useState(false);
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const pendingImage = useImageChatDraftStore((state) => state.pending);
     useEffect(() => {
@@ -151,8 +153,10 @@ export const ChatInput = memo(
     const isUploading = uploading.some((u) => u.progress < 100 && !u.error);
     const canSend =
       (content.trim() || attachments.length > 0) &&
-      !isStreaming &&
-      !isUploading;
+      (!isStreaming ||
+        (!!onSteer && !!content.trim() && attachments.length === 0)) &&
+      !isUploading &&
+      !isSteering;
     const hasComposerExtras =
       uploading.length > 0 || attachments.length > 0 || showCollections;
     let maxTextareaRows = isMobile ? 4 : 6;
@@ -528,6 +532,27 @@ export const ChatInput = memo(
 
     const handleSend = useCallback(async () => {
       if (!canSend) return;
+      if (isStreaming && onSteer) {
+        if (new TextEncoder().encode(content.trim()).length > 16_000) {
+          toast.error('Keep this direction under 16 KB.');
+          return;
+        }
+        setIsSteering(true);
+        try {
+          await onSteer(content.trim());
+          setContent((current) => (current === content ? '' : current));
+          toast.success('Direction received');
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : 'Direction could not be sent',
+          );
+        } finally {
+          setIsSteering(false);
+        }
+        return;
+      }
 
       // Build message content with routing hints for the backend
       let messageContent = content.trim();
@@ -654,6 +679,8 @@ export const ChatInput = memo(
       attachments,
       canSend,
       onSend,
+      onSteer,
+      isStreaming,
       hasDocumentAttachment,
       selectedCollection,
     ]);
@@ -891,7 +918,9 @@ export const ChatInput = memo(
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={
-                    hasDocumentAttachment
+                    isStreaming && onSteer
+                      ? 'Add a direction while Daedalus works...'
+                      : hasDocumentAttachment
                       ? 'Add instructions or send to ingest...'
                       : attachments.some((a) => a.type === 'image')
                       ? 'Ask about this image...'
@@ -903,7 +932,7 @@ export const ChatInput = memo(
                 />
               </div>
 
-              {isStreaming ? (
+              {isStreaming && (
                 <IconButton
                   icon={<IconSquare />}
                   aria-label="Stop generating"
@@ -912,10 +941,11 @@ export const ChatInput = memo(
                   onClick={onStop}
                   className="chat-input-action mb-0.5 flex-shrink-0"
                 />
-              ) : (
+              )}
+              {(!isStreaming || !!onSteer) && (
                 <IconButton
                   icon={<IconSend />}
-                  aria-label="Send message"
+                  aria-label={isStreaming ? 'Steer response' : 'Send message'}
                   variant={canSend ? 'accent' : 'ghost'}
                   size="md"
                   onClick={handleSend}

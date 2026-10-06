@@ -1,12 +1,9 @@
 """Autonomy provider configuration and trusted selection boundaries."""
 
-import asyncio
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
 from nat_helpers.autonomous_llm import (
-    autonomous_llm,
     autonomous_llm_config,
     is_authenticated_autonomy_request,
 )
@@ -97,30 +94,3 @@ def test_untrusted_scope_cannot_select_autonomy_provider(monkeypatch):
         "nat_helpers.identity.trusted_request_header_from_context", reject
     )
     assert not is_authenticated_autonomy_request()
-
-
-def test_registered_client_lifecycle_closes_without_changing_default(monkeypatch):
-    configured(monkeypatch)
-    events = []
-    original = SimpleNamespace(max_retries=3, request_timeout=60, model_name="chat")
-    builder = SimpleNamespace(get_llm_config=lambda _: original)
-
-    @asynccontextmanager
-    async def build(config, received_builder):
-        assert received_builder is builder
-        events.append("opened")
-        try:
-            yield config
-        finally:
-            events.append("closed")
-
-    monkeypatch.setattr("nat_helpers.autonomous_llm._registered_client", build)
-
-    async def scenario():
-        async with autonomous_llm(builder, "tool_calling_llm") as client:
-            assert client.model_name == "daedalus/cheap"
-            assert events == ["opened"]
-        assert events == ["opened", "closed"]
-        assert original.model_name == "chat"
-
-    asyncio.run(scenario())

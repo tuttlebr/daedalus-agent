@@ -13,10 +13,12 @@ from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.phase_timing import phase_timing
 from nat_helpers.public_content import AnonymousPublicClient, _cache_ttl
 from nat_helpers.safe_http import PublicAsyncHTTPTransport
@@ -26,7 +28,7 @@ from pydantic import BaseModel, Field
 _NWS_BASE = "https://api.weather.gov"
 
 
-class NwsWeatherFunctionConfig(FunctionBaseConfig, name="nws_weather"):
+class NwsWeatherFunctionConfig(ToolConfig, name="nws_weather"):
     description: str | None = None
     user_agent: str = "daedalus-weather/1.0"
     timeout: float = Field(default=20, ge=5, le=60)
@@ -376,8 +378,8 @@ class NwsWeatherClient:
         return result
 
 
-@register_function(config_type=NwsWeatherFunctionConfig)
-async def nws_weather_function(config: NwsWeatherFunctionConfig, builder: Builder):
+@register_tool(config_type=NwsWeatherFunctionConfig)
+async def nws_weather_function(config: NwsWeatherFunctionConfig, builder: ToolRegistry):
     async with AnonymousPublicClient(
         headers={"User-Agent": config.user_agent, "Accept": "application/geo+json"},
         transport=PublicAsyncHTTPTransport(max_response_bytes=2 * 1024 * 1024),
@@ -401,7 +403,7 @@ async def nws_weather_function(config: NwsWeatherFunctionConfig, builder: Builde
             return json.dumps(result, ensure_ascii=False)
 
         try:
-            yield FunctionInfo.from_fn(
+            yield ToolDefinition.from_fn(
                 _response_fn,
                 input_schema=WeatherInput,
                 description=config.description

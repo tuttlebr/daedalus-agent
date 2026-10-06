@@ -1,16 +1,13 @@
 """Tests for MCP destructive-action approval helpers."""
 
-import asyncio
 import base64
 import hashlib
 import json
-import sys
-import types
 from pathlib import Path
 
-import mcp_patches
 import pytest
 import yaml
+from daedalus_runtime import approval as mcp_patches
 
 CONFIG_PATH = Path(__file__).parents[2] / "backend" / "tool-calling-config.yaml"
 mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
@@ -104,148 +101,6 @@ def test_mcp_success_receipt_mismatch_is_consumed():
         tool_name="scale_deployment",
         arguments_sha256=arguments_hash,
     )
-
-
-@pytest.mark.parametrize(
-    "result,raised,receipt_expected",
-    [
-        ("scaled", None, True),
-        ("MCPToolClient tool call failed: rejected", None, False),
-        (None, TimeoutError("tool timed out"), False),
-    ],
-)
-@pytest.mark.parametrize("approval_reason", ["approved", "auto-approved"])
-def test_gate_records_receipt_only_for_successful_approved_result(
-    monkeypatch, result, raised, receipt_expected, approval_reason
-):
-    calls = {"tool": 0, "receipts": []}
-
-    class FakeMCPToolClient:
-        _tool_name = "scale_deployment"
-        input_schema = None
-
-        def __init__(self):
-            self._parent_client = types.SimpleNamespace(
-                server_name="k8s_mcp_server",
-                _reconnect_enabled=True,
-            )
-
-        async def acall(self, tool_args):
-            calls["tool"] += 1
-            if raised is not None:
-                raise raised
-            return result
-
-    fake_module = types.ModuleType("nat.plugins.mcp.client.client_base")
-    fake_module.MCPToolClient = FakeMCPToolClient
-    for module_name in (
-        "nat",
-        "nat.plugins",
-        "nat.plugins.mcp",
-        "nat.plugins.mcp.client",
-    ):
-        module = types.ModuleType(module_name)
-        module.__path__ = []
-        monkeypatch.setitem(sys.modules, module_name, module)
-    monkeypatch.setitem(
-        sys.modules,
-        "nat.plugins.mcp.client.client_base",
-        fake_module,
-    )
-    from nat_helpers import identity
-
-    monkeypatch.setattr(identity, "approval_token_from_context", lambda: "secret")
-
-    def approve(*args, **_kwargs):
-        args[-1].update(
-            {
-                "user_id": "alice",
-                "action_type": "mcp_mutation",
-                "target": "production/api",
-                "server_name": "k8s_mcp_server",
-                "tool_name": "scale_deployment",
-                "arguments_sha256": "a" * 64,
-            }
-        )
-        return True, approval_reason
-
-    monkeypatch.setattr(mcp_patches, "_validate_mcp_approval", approve)
-    monkeypatch.setattr(
-        mcp_patches,
-        "_record_approved_mcp_receipt",
-        lambda **kwargs: calls["receipts"].append(kwargs) or True,
-    )
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
-    mcp_patches._patch_tool_client()
-
-    wrapped_result = asyncio.run(
-        FakeMCPToolClient().acall({"name": "api", "replicas": 3})
-    )
-
-    assert calls["tool"] == 1
-    receipt_expected = receipt_expected and approval_reason == "approved"
-    assert bool(calls["receipts"]) is receipt_expected
-    if receipt_expected:
-        assert calls["receipts"][0]["approval_token"] == "secret"
-        assert calls["receipts"][0]["validated_binding"]["tool_name"] == (
-            "scale_deployment"
-        )
-    if raised is not None:
-        assert "mcp_tool_failed" in wrapped_result
-
-
-@pytest.mark.parametrize("approval_reason", ["approved", "auto-approved"])
-def test_approved_mutation_disables_automatic_replay(monkeypatch, approval_reason):
-    reconnect_values = []
-
-    class FakeMCPToolClient:
-        _tool_name = "delete_resource"
-        input_schema = None
-
-        def __init__(self):
-            self._parent_client = types.SimpleNamespace(
-                server_name="k8s_mcp_server",
-                _reconnect_enabled=True,
-            )
-
-        async def acall(self, tool_args):
-            del tool_args
-            reconnect_values.append(self._parent_client._reconnect_enabled)
-            return "deleted"
-
-    fake_module = types.ModuleType("nat.plugins.mcp.client.client_base")
-    fake_module.MCPToolClient = FakeMCPToolClient
-    for module_name in (
-        "nat",
-        "nat.plugins",
-        "nat.plugins.mcp",
-        "nat.plugins.mcp.client",
-    ):
-        module = types.ModuleType(module_name)
-        module.__path__ = []
-        monkeypatch.setitem(sys.modules, module_name, module)
-    monkeypatch.setitem(
-        sys.modules,
-        "nat.plugins.mcp.client.client_base",
-        fake_module,
-    )
-    monkeypatch.setattr(
-        mcp_patches,
-        "_validate_mcp_approval",
-        lambda *_args, **_kwargs: (True, approval_reason),
-    )
-    monkeypatch.setattr(
-        mcp_patches,
-        "_record_approved_mcp_receipt",
-        lambda **_kwargs: True,
-    )
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
-    mcp_patches._patch_tool_client()
-
-    client = FakeMCPToolClient()
-    assert asyncio.run(client.acall({"name": "stale-resource"})) == "deleted"
-    assert reconnect_values == [False]
-    assert client._parent_client._reconnect_enabled is True
 
 
 def test_read_only_mcp_call_does_not_need_token():
@@ -513,14 +368,6 @@ def test_calendar_creation_approval_exception_is_exact(server_name, tool_name):
     assert "execution credential" in reason
 
 
-def test_strip_approval_token_removes_nested_values():
-    args = ({"arguments": {"approval_token": "secret", "name": "api"}},)
-    kwargs = {"approval_token": "secret2"}
-    mcp_patches._strip_approval_token(args, kwargs)
-    assert "approval_token" not in args[0]["arguments"]
-    assert "approval_token" not in kwargs
-
-
 @pytest.mark.parametrize(
     "tool_name",
     [
@@ -664,35 +511,6 @@ def test_infrastructure_mutations_require_exact_approval(server_name):
     )
     assert ok is False
     assert "execution credential" in reason
-
-
-def test_api_key_environment_configuration_log_is_presence_only(monkeypatch, caplog):
-    secret = "do-not-log-this-api-key"
-    monkeypatch.setenv("KUBERNETES_MCP_TOKEN", secret)
-    monkeypatch.delenv("X_MCP_BEARER_TOKEN", raising=False)
-    monkeypatch.delenv("GITHUB_PAT", raising=False)
-    monkeypatch.delenv("UNIFI_MCP_TOKEN", raising=False)
-
-    with caplog.at_level("INFO", logger="daedalus.mcp_patches"):
-        mcp_patches._log_static_mcp_api_key_configuration()
-
-    assert (
-        "server=k8s_mcp_server environment=KUBERNETES_MCP_TOKEN configured=True"
-        in caplog.text
-    )
-    assert (
-        "server=x_mcp_server environment=X_MCP_BEARER_TOKEN configured=False"
-        in caplog.text
-    )
-    assert (
-        "server=github_mcp_server environment=GITHUB_PAT configured=False"
-        in caplog.text
-    )
-    assert (
-        "server=unifi_mcp_server environment=UNIFI_MCP_TOKEN configured=False"
-        in caplog.text
-    )
-    assert secret not in caplog.text
 
 
 class _Annotations:
@@ -1113,7 +931,9 @@ def test_discovery_does_not_grant_approval_by_default(tmp_path, filter_config):
         ({"include": ["new_tool"], "exclude": ["new_tool"]}, True),
     ],
 )
-def test_group_approval_respects_nat_exposure_filters(tmp_path, filters, allowed):
+def test_group_approval_respects_configured_exposure_filters(
+    tmp_path, filters, allowed
+):
     config_path = tmp_path / "group.yaml"
     config_path.write_text(
         yaml.safe_dump(
@@ -1235,65 +1055,6 @@ def test_infrastructure_read_prefixed_unknown_tool_fails_closed():
     assert "execution credential" in reason
 
 
-def test_physical_server_is_bound_to_logical_function_group(monkeypatch):
-    physical = "streamable-http:https://mcp.example.test/mcp"
-    monkeypatch.setattr(mcp_patches, "_mcp_server_group_names", {})
-    monkeypatch.setattr(mcp_patches, "_ambiguous_mcp_servers", set())
-    client = type(
-        "Client",
-        (),
-        {
-            "server_name": "streamable-http",
-            "_transport": "streamable-http",
-            "_url": "https://mcp.example.test/mcp",
-        },
-    )()
-    group = type("Group", (), {"mcp_client": client})()
-    mcp_patches._register_mcp_group_identity("k8s_mcp_server", group)
-    assert mcp_patches._mcp_server_group_names[physical] == "k8s_mcp_server"
-
-    parent = client
-    assert mcp_patches._canonical_mcp_server_name(parent) == "k8s_mcp_server"
-
-    ok, reason = mcp_patches._validate_mcp_approval(
-        "reconcile",
-        {},
-        annotations=_Annotations(readOnlyHint=True),
-        server_name=physical,
-    )
-    assert ok is False
-    assert "execution credential" in reason
-
-
-def test_streamable_mcp_groups_with_distinct_urls_do_not_collide(monkeypatch):
-    monkeypatch.setattr(mcp_patches, "_mcp_server_group_names", {})
-    monkeypatch.setattr(mcp_patches, "_ambiguous_mcp_servers", set())
-
-    def client(url):
-        return type(
-            "Client",
-            (),
-            {
-                "server_name": "streamable-http",
-                "_transport": "streamable-http",
-                "_url": url,
-            },
-        )()
-
-    k8s_client = client("https://k8s.example.test/mcp")
-    unifi_client = client("https://unifi.example.test/mcp")
-    mcp_patches._register_mcp_group_identity(
-        "k8s_mcp_server", type("Group", (), {"mcp_client": k8s_client})()
-    )
-    mcp_patches._register_mcp_group_identity(
-        "unifi_mcp_server", type("Group", (), {"mcp_client": unifi_client})()
-    )
-
-    assert not mcp_patches._ambiguous_mcp_servers
-    assert mcp_patches._canonical_mcp_server_name(k8s_client) == "k8s_mcp_server"
-    assert mcp_patches._canonical_mcp_server_name(unifi_client) == "unifi_mcp_server"
-
-
 def test_destructive_hint_wins_over_read_only_hint():
     # If both hints are set True (malformed), fail closed: treat as mutating.
     ok, _ = mcp_patches._validate_mcp_approval(
@@ -1321,37 +1082,3 @@ def test_non_bool_hint_does_not_override_exact_local_registry():
     )
     assert ok is True
     assert reason == "read-only"
-
-
-def test_extract_tool_annotations_from_tool_def():
-    # The wrapper reads annotations off the underlying MCP Tool definition.
-    class _Tool:
-        annotations = _Annotations(destructiveHint=True)
-
-    class _Client:
-        _tool = _Tool()
-
-    ann = mcp_patches._extract_tool_annotations(_Client())
-    assert mcp_patches._annotation_hint(ann, "destructiveHint") is True
-
-
-def test_extract_tool_annotations_returns_none_when_absent():
-    class _Client:
-        pass
-
-    assert mcp_patches._extract_tool_annotations(_Client()) is None
-    assert mcp_patches._extract_tool_annotations(None) is None
-
-
-def test_verify_approval_gate_fails_closed(monkeypatch):
-    # F-006 regression: a missing gate always refuses startup.
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
-    with pytest.raises(RuntimeError):
-        mcp_patches._verify_approval_gate_installed()
-
-
-def test_verify_approval_gate_has_no_environment_optout(monkeypatch):
-    monkeypatch.setattr(mcp_patches, "_approval_gate_installed", False)
-    monkeypatch.setenv("MCP_APPROVAL_GATE_OPTIONAL", "1")
-    with pytest.raises(RuntimeError):
-        mcp_patches._verify_approval_gate_installed()

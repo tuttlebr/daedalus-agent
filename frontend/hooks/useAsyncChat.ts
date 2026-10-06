@@ -8,6 +8,8 @@ import { shouldRunExpensiveOperation } from '@/utils/app/visibilityAwareTimer';
 import { fetchWithTimeout, FetchTimeoutError } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
 
+import { v4 as uuidv4 } from 'uuid';
+
 const logger = new Logger('AsyncChat');
 
 const isMobile = (): boolean => {
@@ -181,6 +183,7 @@ interface UseAsyncChatReturn {
   ) => Promise<string>;
   jobStatusByConversationId: Record<string, AsyncJobStatus>;
   cancelJob: (conversationId?: string) => Promise<void>;
+  steerJob: (conversationId: string, instruction: string) => Promise<void>;
 }
 
 // Helper functions for job persistence
@@ -250,6 +253,30 @@ export const useAsyncChat = (
     Record<string, ReturnType<typeof setTimeout> | null>
   >({});
   const activeJobsRef = useRef<Record<string, PersistedJob>>({});
+  const steeringRetryRef = useRef<
+    Record<string, { jobId: string; instruction: string; commandId: string }>
+  >({});
+  const steerJob = useCallback(
+    async (conversationId: string, instruction: string) => {
+      const job = Object.values(activeJobsRef.current).find(
+        (candidate) => candidate.conversationId === conversationId,
+      );
+      if (!job) throw new Error('No active response to steer');
+      const previous = steeringRetryRef.current[conversationId];
+      const command =
+        previous?.jobId === job.jobId && previous.instruction === instruction
+          ? previous
+          : { jobId: job.jobId, instruction, commandId: uuidv4() };
+      steeringRetryRef.current[conversationId] = command;
+      await getWebSocketManager().steerJob(
+        command.jobId,
+        instruction,
+        command.commandId,
+      );
+      delete steeringRetryRef.current[conversationId];
+    },
+    [],
+  );
   const pollCountByJobRef = useRef<Record<string, number>>({});
   const pollErrorCountRef = useRef<Record<string, number>>({});
   const lastStatusHashByJobRef = useRef<Record<string, string>>({});
@@ -1464,5 +1491,6 @@ export const useAsyncChat = (
     startAsyncJob,
     jobStatusByConversationId,
     cancelJob,
+    steerJob,
   };
 };

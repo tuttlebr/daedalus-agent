@@ -6,7 +6,6 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "source_verifier"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "httpx>=0.28",
   "langchain-core",
   "nat_helpers",
@@ -14,11 +13,8 @@ dependencies = [
   "webscrape",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Source citation verification for NeMo Agent Toolkit. Validates that claimed sources actually support stored findings before they enter memory."
+description = "Source citation verification for Daedalus. Validates that claimed sources actually support stored findings before they enter memory."
 classifiers = ["Programming Language :: Python"]
-
-[project.entry-points.'nat.components']
-source_verifier = "source_verifier.register"
 
 [tool.setuptools]
 packages = ["source_verifier"]

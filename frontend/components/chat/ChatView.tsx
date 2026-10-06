@@ -13,6 +13,8 @@ import toast from 'react-hot-toast';
 
 import { useAsyncChat } from '@/hooks/useAsyncChat';
 
+import { getWebSocketManager } from '@/services/websocket';
+
 import { saveConversation } from '@/utils/app/conversation';
 import { sanitizeMessageContentFromPriorAssistant } from '@/utils/app/conversationReplay';
 import { buildMessageError } from '@/utils/app/errorCategory';
@@ -170,6 +172,49 @@ export const ChatView = memo(() => {
   const updateMessage = useConversationStore((s) => s.updateMessage);
   const updateLastMessage = useConversationStore((s) => s.updateLastMessage);
   const setStreaming = useConversationStore((s) => s.setStreaming);
+
+  useEffect(
+    () =>
+      getWebSocketManager().on('steering_status', (event: any) => {
+        if (
+          !event?.conversationId ||
+          typeof event.instruction !== 'string' ||
+          typeof event.commandId !== 'string'
+        )
+          return;
+        const conversation = useConversationStore
+          .getState()
+          .conversations.find((item) => item.id === event.conversationId);
+        if (!conversation) return;
+        const messages = [...conversation.messages];
+        const existing = messages.findIndex(
+          (message) => message.id === event.commandId,
+        );
+        const direction: Message = {
+          id: event.commandId,
+          role: 'user',
+          content: event.instruction,
+          metadata: {
+            steeringCommandId: event.commandId,
+            steeringStatus: event.status,
+            jobId: event.jobId,
+          },
+        };
+        if (existing >= 0) messages[existing] = direction;
+        else {
+          const assistant = messages.findIndex(
+            (message) => message.id === event.assistantMessageId,
+          );
+          messages.splice(
+            assistant < 0 ? messages.length : assistant,
+            0,
+            direction,
+          );
+        }
+        updateConversation(conversation.id, { messages });
+      }),
+    [updateConversation],
+  );
 
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
   const setShowChatbar = useUISettingsStore((s) => s.setShowChatbar);
@@ -655,312 +700,316 @@ export const ChatView = memo(() => {
   }, [selectedConversationId]);
 
   // Async chat hook - handles job submission, WebSocket streaming, polling fallback
-  const { startAsyncJob, cancelJob, jobStatusByConversationId } = useAsyncChat({
-    userId,
-    onToken: useCallback(
-      (event: {
-        conversationId?: string;
-        jobId?: string;
-        content?: string;
-        responseStart?: number;
-        assistantMessageId?: string;
-        intermediateSteps?: IntermediateStep[];
-      }) => {
-        const convId = event.conversationId || selectedIdRef.current;
-        if (!convId || !event.content) return;
+  const { startAsyncJob, cancelJob, steerJob, jobStatusByConversationId } =
+    useAsyncChat({
+      userId,
+      onToken: useCallback(
+        (event: {
+          conversationId?: string;
+          jobId?: string;
+          content?: string;
+          responseStart?: number;
+          assistantMessageId?: string;
+          intermediateSteps?: IntermediateStep[];
+        }) => {
+          const convId = event.conversationId || selectedIdRef.current;
+          if (!convId || !event.content) return;
 
-        const store = useConversationStore.getState();
-        if (!store.streamingConversationIds.has(convId)) return;
+          const store = useConversationStore.getState();
+          if (!store.streamingConversationIds.has(convId)) return;
 
-        queueStreamingUpdate(
-          convId,
-          event.assistantMessageId,
-          {
-            content: event.content,
-            responseStart: event.responseStart,
-          },
-          event.intermediateSteps,
-        );
-        setActivityText('Generating response');
-        finishOAuthPromptsForJob(convId, event.jobId, true, true);
-      },
-      [finishOAuthPromptsForJob, queueStreamingUpdate],
-    ),
-
-    onIntermediateStep: useCallback(
-      (event: {
-        conversationId?: string;
-        step?: IntermediateStep;
-        assistantMessageId?: string;
-      }) => {
-        const convId = event.conversationId || selectedIdRef.current;
-        if (!convId) return;
-        setStreaming(convId, true);
-        appendStreamingStep(
-          convId,
-          event.step as IntermediateStep,
-          event.assistantMessageId,
-        );
-        scrollToBottomSoon();
-      },
-      [appendStreamingStep, scrollToBottomSoon, setStreaming],
-    ),
-
-    onProgress: useCallback(
-      (status: any) => {
-        const convId = status.conversationId || selectedIdRef.current;
-        if (!convId) return;
-
-        if (
-          status.status === 'oauth_required' &&
-          (status.authUrl || status.oauthRequests?.length)
-        ) {
-          const prompts = oauthPromptsFromStatus(status, convId).filter(
-            (prompt) =>
-              !succeededOAuthServiceKeysRef.current.has(
-                oauthPromptServiceKey(prompt),
-              ),
+          queueStreamingUpdate(
+            convId,
+            event.assistantMessageId,
+            {
+              content: event.content,
+              responseStart: event.responseStart,
+            },
+            event.intermediateSteps,
           );
+          setActivityText('Generating response');
+          finishOAuthPromptsForJob(convId, event.jobId, true, true);
+        },
+        [finishOAuthPromptsForJob, queueStreamingUpdate],
+      ),
+
+      onIntermediateStep: useCallback(
+        (event: {
+          conversationId?: string;
+          step?: IntermediateStep;
+          assistantMessageId?: string;
+        }) => {
+          const convId = event.conversationId || selectedIdRef.current;
+          if (!convId) return;
           setStreaming(convId, true);
-          setActivityText('Authorization check');
-          if (prompts.length === 0) {
+          appendStreamingStep(
+            convId,
+            event.step as IntermediateStep,
+            event.assistantMessageId,
+          );
+          scrollToBottomSoon();
+        },
+        [appendStreamingStep, scrollToBottomSoon, setStreaming],
+      ),
+
+      onProgress: useCallback(
+        (status: any) => {
+          const convId = status.conversationId || selectedIdRef.current;
+          if (!convId) return;
+
+          if (
+            status.status === 'oauth_required' &&
+            (status.authUrl || status.oauthRequests?.length)
+          ) {
+            const prompts = oauthPromptsFromStatus(status, convId).filter(
+              (prompt) =>
+                !succeededOAuthServiceKeysRef.current.has(
+                  oauthPromptServiceKey(prompt),
+                ),
+            );
+            setStreaming(convId, true);
+            setActivityText('Authorization check');
+            if (prompts.length === 0) {
+              return;
+            }
+            setOauthPrompts((current) => {
+              const incomingKeys = new Set(prompts.map(oauthPromptKey));
+              const next = current.filter((prompt) => {
+                if (prompt.conversationId !== convId) return true;
+                if (!status.jobId) return false;
+                if (prompt.jobId && prompt.jobId !== status.jobId) return true;
+                if (incomingKeys.has(oauthPromptKey(prompt))) return false;
+                return !prompts.some((incoming) =>
+                  isSameOAuthServicePrompt(prompt, incoming),
+                );
+              });
+              return [
+                ...next,
+                ...prompts.flatMap((prompt) => {
+                  const key = oauthPromptKey(prompt);
+                  const existing = current.find(
+                    (candidate) => oauthPromptKey(candidate) === key,
+                  );
+                  const related = current.find((candidate) =>
+                    isSameOAuthServicePrompt(candidate, prompt),
+                  );
+                  if (related?.succeeded) return [related];
+                  return {
+                    ...prompt,
+                    opened:
+                      existing?.opened ||
+                      related?.opened ||
+                      openedOAuthPromptKeysRef.current.has(key),
+                    succeeded: false,
+                  };
+                }),
+              ];
+            });
+            scrollToBottomSoon();
             return;
           }
-          setOauthPrompts((current) => {
-            const incomingKeys = new Set(prompts.map(oauthPromptKey));
-            const next = current.filter((prompt) => {
-              if (prompt.conversationId !== convId) return true;
-              if (!status.jobId) return false;
-              if (prompt.jobId && prompt.jobId !== status.jobId) return true;
-              if (incomingKeys.has(oauthPromptKey(prompt))) return false;
-              return !prompts.some((incoming) =>
-                isSameOAuthServicePrompt(prompt, incoming),
-              );
-            });
-            return [
-              ...next,
-              ...prompts.flatMap((prompt) => {
-                const key = oauthPromptKey(prompt);
-                const existing = current.find(
-                  (candidate) => oauthPromptKey(candidate) === key,
-                );
-                const related = current.find((candidate) =>
-                  isSameOAuthServicePrompt(candidate, prompt),
-                );
-                if (related?.succeeded) return [related];
-                return {
-                  ...prompt,
-                  opened:
-                    existing?.opened ||
-                    related?.opened ||
-                    openedOAuthPromptKeysRef.current.has(key),
-                  succeeded: false,
-                };
-              }),
-            ];
-          });
-          scrollToBottomSoon();
-          return;
-        }
 
-        // Detect completion in onProgress as a safety net
-        // (onComplete may not fire if fullResponse is empty)
-        if (status.status === 'completed' || status.status === 'error') {
-          flushPendingStreamingUpdates(convId);
-          const store = useConversationStore.getState();
-          finishOAuthPromptsForJob(
-            convId,
-            status.jobId,
-            status.status === 'completed',
-          );
-          if (store.streamingConversationIds.has(convId)) {
-            // Final update with whatever content we have
-            const conv = store.conversations.find((c) => c.id === convId);
-            if (conv && conv.messages.length > 0) {
-              updateAssistantMessage(
-                convId,
-                {
-                  ...(status.fullResponse || status.partialResponse
-                    ? { content: status.fullResponse || status.partialResponse }
-                    : {}),
-                  intermediateSteps: status.intermediateSteps,
-                  ...(status.status === 'error'
-                    ? {
-                        errorMessages: buildMessageError(
-                          status.error || 'Response interrupted',
-                        ),
-                      }
-                    : {}),
-                },
-                status.assistantMessageId,
-              );
-            }
-            setStreaming(convId, false);
-            setActivityText('');
-            setStepCategories([]);
-            setStreamAnnouncement(
-              status.status === 'completed'
-                ? 'Response complete'
-                : 'Response interrupted',
+          // Detect completion in onProgress as a safety net
+          // (onComplete may not fire if fullResponse is empty)
+          if (status.status === 'completed' || status.status === 'error') {
+            flushPendingStreamingUpdates(convId);
+            const store = useConversationStore.getState();
+            finishOAuthPromptsForJob(
+              convId,
+              status.jobId,
+              status.status === 'completed',
             );
-            // Persist
-            const updatedConv = useConversationStore
-              .getState()
-              .conversations.find((c) => c.id === convId);
-            if (updatedConv) {
-              saveConversation({ ...updatedConv, updatedAt: Date.now() });
+            if (store.streamingConversationIds.has(convId)) {
+              // Final update with whatever content we have
+              const conv = store.conversations.find((c) => c.id === convId);
+              if (conv && conv.messages.length > 0) {
+                updateAssistantMessage(
+                  convId,
+                  {
+                    ...(status.fullResponse || status.partialResponse
+                      ? {
+                          content:
+                            status.fullResponse || status.partialResponse,
+                        }
+                      : {}),
+                    intermediateSteps: status.intermediateSteps,
+                    ...(status.status === 'error'
+                      ? {
+                          errorMessages: buildMessageError(
+                            status.error || 'Response interrupted',
+                          ),
+                        }
+                      : {}),
+                  },
+                  status.assistantMessageId,
+                );
+              }
+              setStreaming(convId, false);
+              setActivityText('');
+              setStepCategories([]);
+              setStreamAnnouncement(
+                status.status === 'completed'
+                  ? 'Response complete'
+                  : 'Response interrupted',
+              );
+              // Persist
+              const updatedConv = useConversationStore
+                .getState()
+                .conversations.find((c) => c.id === convId);
+              if (updatedConv) {
+                saveConversation({ ...updatedConv, updatedAt: Date.now() });
+              }
             }
+            return;
           }
-          return;
-        }
 
-        // Mark conversation as streaming
-        setStreaming(convId, true);
-        if (status.status === 'streaming') {
-          finishOAuthPromptsForJob(convId, status.jobId, true, true);
-        }
+          // Mark conversation as streaming
+          setStreaming(convId, true);
+          if (status.status === 'streaming') {
+            finishOAuthPromptsForJob(convId, status.jobId, true, true);
+          }
 
-        // Update activity text from intermediate steps
-        if (status.intermediateSteps && status.intermediateSteps.length > 0) {
-          updateStreamingSteps(
-            convId,
-            status.intermediateSteps,
-            status.assistantMessageId,
-          );
-        }
+          // Update activity text from intermediate steps
+          if (status.intermediateSteps && status.intermediateSteps.length > 0) {
+            updateStreamingSteps(
+              convId,
+              status.intermediateSteps,
+              status.assistantMessageId,
+            );
+          }
 
-        if (status.partialResponse) {
-          queueStreamingUpdate(convId, status.assistantMessageId, {
-            content: status.partialResponse,
-            replace: true,
-          });
-          setActivityText('Generating response');
-        }
-      },
-      [
-        setStreaming,
-        updateAssistantMessage,
-        updateStreamingSteps,
-        scrollToBottomSoon,
-        finishOAuthPromptsForJob,
-        flushPendingStreamingUpdates,
-        queueStreamingUpdate,
-      ],
-    ),
-
-    onComplete: useCallback(
-      (
-        fullResponse: string,
-        intermediateSteps?: any[],
-        _finalizedAt?: number,
-        conversationId?: string,
-        meta?: { assistantMessageId?: string; jobId?: string },
-      ) => {
-        const convId = conversationId || selectedIdRef.current;
-        if (!convId) return;
-        flushPendingStreamingUpdates(convId);
-
-        // Update final message
-        const conv = useConversationStore
-          .getState()
-          .conversations.find((c) => c.id === convId);
-        if (conv && conv.messages.length > 0) {
-          updateAssistantMessage(
-            convId,
-            {
-              content: fullResponse,
-              intermediateSteps,
-            },
-            meta?.assistantMessageId,
-          );
-        }
-
-        // Stop streaming
-        setStreaming(convId, false);
-        setActivityText('');
-        setStepCategories([]);
-        setStreamAnnouncement('Response complete');
-        finishOAuthPromptsForJob(convId, meta?.jobId, true);
-
-        // Save to Redis
-        const updatedConv = useConversationStore
-          .getState()
-          .conversations.find((c) => c.id === convId);
-        if (updatedConv) {
-          saveConversation({ ...updatedConv, updatedAt: Date.now() });
-        }
-      },
-      [
-        setStreaming,
-        updateAssistantMessage,
-        finishOAuthPromptsForJob,
-        flushPendingStreamingUpdates,
-      ],
-    ),
-
-    onError: useCallback(
-      (
-        error: string,
-        context?: {
-          partialResponse?: string;
-          intermediateSteps?: any[];
-          jobId?: string;
-          conversationId?: string;
-          assistantMessageId?: string;
+          if (status.partialResponse) {
+            queueStreamingUpdate(convId, status.assistantMessageId, {
+              content: status.partialResponse,
+              replace: true,
+            });
+            setActivityText('Generating response');
+          }
         },
-      ) => {
-        const convId = context?.conversationId || selectedIdRef.current;
-        if (!convId) return;
-        flushPendingStreamingUpdates(convId);
+        [
+          setStreaming,
+          updateAssistantMessage,
+          updateStreamingSteps,
+          scrollToBottomSoon,
+          finishOAuthPromptsForJob,
+          flushPendingStreamingUpdates,
+          queueStreamingUpdate,
+        ],
+      ),
 
-        console.error('Chat error:', error);
+      onComplete: useCallback(
+        (
+          fullResponse: string,
+          intermediateSteps?: any[],
+          _finalizedAt?: number,
+          conversationId?: string,
+          meta?: { assistantMessageId?: string; jobId?: string },
+        ) => {
+          const convId = conversationId || selectedIdRef.current;
+          if (!convId) return;
+          flushPendingStreamingUpdates(convId);
 
-        const errorMessages = buildMessageError(error);
+          // Update final message
+          const conv = useConversationStore
+            .getState()
+            .conversations.find((c) => c.id === convId);
+          if (conv && conv.messages.length > 0) {
+            updateAssistantMessage(
+              convId,
+              {
+                content: fullResponse,
+                intermediateSteps,
+              },
+              meta?.assistantMessageId,
+            );
+          }
 
-        const conv = useConversationStore
-          .getState()
-          .conversations.find((c) => c.id === convId);
-        if (conv && conv.messages.length > 0) {
-          updateAssistantMessage(
-            convId,
-            {
-              // A transport error may carry no server snapshot. Keep the
-              // text already received, including the just-flushed UI buffer.
-              ...(context?.partialResponse
-                ? { content: context.partialResponse }
-                : {}),
+          // Stop streaming
+          setStreaming(convId, false);
+          setActivityText('');
+          setStepCategories([]);
+          setStreamAnnouncement('Response complete');
+          finishOAuthPromptsForJob(convId, meta?.jobId, true);
+
+          // Save to Redis
+          const updatedConv = useConversationStore
+            .getState()
+            .conversations.find((c) => c.id === convId);
+          if (updatedConv) {
+            saveConversation({ ...updatedConv, updatedAt: Date.now() });
+          }
+        },
+        [
+          setStreaming,
+          updateAssistantMessage,
+          finishOAuthPromptsForJob,
+          flushPendingStreamingUpdates,
+        ],
+      ),
+
+      onError: useCallback(
+        (
+          error: string,
+          context?: {
+            partialResponse?: string;
+            intermediateSteps?: any[];
+            jobId?: string;
+            conversationId?: string;
+            assistantMessageId?: string;
+          },
+        ) => {
+          const convId = context?.conversationId || selectedIdRef.current;
+          if (!convId) return;
+          flushPendingStreamingUpdates(convId);
+
+          console.error('Chat error:', error);
+
+          const errorMessages = buildMessageError(error);
+
+          const conv = useConversationStore
+            .getState()
+            .conversations.find((c) => c.id === convId);
+          if (conv && conv.messages.length > 0) {
+            updateAssistantMessage(
+              convId,
+              {
+                // A transport error may carry no server snapshot. Keep the
+                // text already received, including the just-flushed UI buffer.
+                ...(context?.partialResponse
+                  ? { content: context.partialResponse }
+                  : {}),
+                intermediateSteps: context?.intermediateSteps,
+                errorMessages,
+              },
+              context?.assistantMessageId,
+            );
+          } else {
+            addMessage(convId, {
+              role: 'assistant',
+              content: context?.partialResponse || '',
               intermediateSteps: context?.intermediateSteps,
               errorMessages,
-            },
-            context?.assistantMessageId,
-          );
-        } else {
-          addMessage(convId, {
-            role: 'assistant',
-            content: context?.partialResponse || '',
-            intermediateSteps: context?.intermediateSteps,
-            errorMessages,
-          });
-        }
+            });
+          }
 
-        setStreaming(convId, false);
-        setActivityText('');
-        setStepCategories([]);
-        setStreamAnnouncement('Response interrupted');
-        clearOpenedOAuthPromptsForConversation(convId);
-        setOauthPrompts((current) =>
-          withoutOAuthPromptsForConversation(current, convId),
-        );
-      },
-      [
-        setStreaming,
-        updateAssistantMessage,
-        addMessage,
-        clearOpenedOAuthPromptsForConversation,
-        flushPendingStreamingUpdates,
-      ],
-    ),
-  });
+          setStreaming(convId, false);
+          setActivityText('');
+          setStepCategories([]);
+          setStreamAnnouncement('Response interrupted');
+          clearOpenedOAuthPromptsForConversation(convId);
+          setOauthPrompts((current) =>
+            withoutOAuthPromptsForConversation(current, convId),
+          );
+        },
+        [
+          setStreaming,
+          updateAssistantMessage,
+          addMessage,
+          clearOpenedOAuthPromptsForConversation,
+          flushPendingStreamingUpdates,
+        ],
+      ),
+    });
 
   // Handle message send
   const handleSend = useCallback(
@@ -1366,6 +1415,11 @@ export const ChatView = memo(() => {
         <ChatInput
           onSend={handleSend}
           onStop={handleStop}
+          onSteer={
+            selectedConversationId
+              ? (instruction) => steerJob(selectedConversationId, instruction)
+              : undefined
+          }
           isStreaming={isStreaming}
         />
       )}

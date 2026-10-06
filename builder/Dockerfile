@@ -7,6 +7,15 @@ ARG UV_IMAGE_DIGEST=sha256:4c1ad814fe658851f50ff95ecd6948673fffddb0d7994bdb019dc
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION}@${UV_IMAGE_DIGEST} AS uv_base
 
+FROM rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082 AS rust_build
+WORKDIR /runtime
+COPY runtime/Cargo.toml runtime/Cargo.lock ./
+COPY runtime/src ./src
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/runtime/target,sharing=locked \
+    cargo test --locked && cargo build --release --locked && \
+    cp target/release/daedalus-runtime /daedalus-runtime
+
 FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG}@${BASE_IMAGE_DIGEST} AS runtime_base
 
 ENV TZ=America/New_York
@@ -55,7 +64,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
 
-ARG BUILDER_PACKAGES="nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed agent_skills perplexity_search content_distiller source_verifier user_interaction autonomous_agent llm_sandbox"
+ARG BUILDER_PACKAGES="autonomous_agent nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed agent_skills perplexity_search content_distiller source_verifier user_interaction llm_sandbox"
 
 COPY requirements-runtime.in /workspace/requirements-runtime.in
 COPY verify_uv_pip_check.py /workspace/verify_uv_pip_check.py
@@ -64,6 +73,7 @@ COPY pylock.runtime-linux-arm64.toml /workspace/pylock.runtime-linux-arm64.toml
 
 # Copy dependency metadata first so source-only edits retain the expensive
 # hash-verified dependency installation layer.
+COPY autonomous_agent/pyproject.toml /workspace/autonomous_agent/
 COPY nat_helpers/pyproject.toml /workspace/nat_helpers/
 COPY visual_media/pyproject.toml /workspace/visual_media/
 COPY nat_nv_ingest/pyproject.toml /workspace/nat_nv_ingest/
@@ -75,7 +85,6 @@ COPY perplexity_search/pyproject.toml /workspace/perplexity_search/
 COPY content_distiller/pyproject.toml /workspace/content_distiller/
 COPY source_verifier/pyproject.toml /workspace/source_verifier/
 COPY user_interaction/pyproject.toml /workspace/user_interaction/
-COPY autonomous_agent/pyproject.toml /workspace/autonomous_agent/
 COPY llm_sandbox/pyproject.toml /workspace/llm_sandbox/
 
 RUN for package in ${BUILDER_PACKAGES}; do \
@@ -83,8 +92,8 @@ RUN for package in ${BUILDER_PACKAGES}; do \
     touch "/workspace/${package}/src/${package}/__init__.py"; \
     done
 
-# PEP 751 locks carry SHA-256 hashes for registry artifacts, the exact NAT Git
-# commit, and every local editable package. Fail closed on unsupported targets.
+# PEP 751 locks verify registry artifacts and every local editable package.
+# Fail closed on unsupported targets.
 RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     case "${TARGETARCH}" in \
       amd64) runtime_lock=/workspace/pylock.runtime-linux-amd64.toml ;; \
@@ -95,9 +104,8 @@ RUN --mount=type=cache,id=uv_cache,target=/root/.cache/uv,sharing=locked \
     uv pip install --python /workspace/.venv/bin/python \
       --require-hashes -r "${runtime_lock}"
 
-# NAT 1.9 and two of its provider dependencies cap cryptography below its fixed
-# upstream wheel; NV-Ingest 26.3 pins urllib3 below its fixed release. Permit
-# only those exact, tested metadata boundaries and fail every other conflict.
+# NV-Ingest pins an older urllib3. Permit only that documented metadata
+# boundary and reject every other dependency conflict.
 RUN set +e; \
     pip_check_output="$(uv pip check --python /workspace/.venv/bin/python 2>&1)"; \
     pip_check_status=$?; \
@@ -106,6 +114,7 @@ RUN set +e; \
     printf '%s\n' "${pip_check_output}" \
       | python /workspace/verify_uv_pip_check.py "${pip_check_status}"
 
+COPY autonomous_agent /workspace/autonomous_agent
 COPY nat_helpers /workspace/nat_helpers
 COPY visual_media /workspace/visual_media
 COPY nat_nv_ingest /workspace/nat_nv_ingest
@@ -117,7 +126,6 @@ COPY perplexity_search /workspace/perplexity_search
 COPY content_distiller /workspace/content_distiller
 COPY source_verifier /workspace/source_verifier
 COPY user_interaction /workspace/user_interaction
-COPY autonomous_agent /workspace/autonomous_agent
 COPY llm_sandbox /workspace/llm_sandbox
 
 # Setuptools creates source-tree metadata while preparing editable installs.
@@ -125,14 +133,11 @@ COPY llm_sandbox /workspace/llm_sandbox
 RUN find /workspace -mindepth 3 -maxdepth 3 -type d -name '*.egg-info' \
     -exec rm -rf -- {} +
 
+COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
+COPY daedalus_runtime /workspace/daedalus_runtime
 COPY entrypoint.py /workspace/entrypoint.py
-COPY mcp_patches.py /workspace/mcp_patches.py
 COPY runtime_contract_check.py /workspace/runtime_contract_check.py
-COPY agent_loop_contract_check.py /workspace/agent_loop_contract_check.py
-COPY model_routing_http_check.py /workspace/model_routing_http_check.py
 COPY tool_catalog_contract_check.py /workspace/tool_catalog_contract_check.py
-COPY google_workspace_oauth_contract_check.py /workspace/google_workspace_oauth_contract_check.py
-COPY mcp_lifecycle_contract_check.py /workspace/mcp_lifecycle_contract_check.py
 COPY milvus_collection_migration.py /workspace/milvus_collection_migration.py
 COPY image_api.py /workspace/image_api.py
 COPY collection_metadata_api.py /workspace/collection_metadata_api.py
@@ -141,8 +146,7 @@ COPY memory_api.py /workspace/memory_api.py
 COPY mcp_approval_api.py /workspace/mcp_approval_api.py
 COPY profile_import_api.py /workspace/profile_import_api.py
 
-# Exercise the installed NAT ABI and all local plugin registrations before the
-# runtime stage is assembled.
+# Verify the installed tool registry, security floors, and the absence of NAT.
 RUN --mount=type=bind,from=skills,target=/skills,readonly \
     python /workspace/runtime_contract_check.py
 
@@ -168,8 +172,7 @@ RUN runtime_site_packages=/workspace/.venv/lib/python3.12/site-packages && \
     /workspace/pylock.runtime-linux-amd64.toml \
     /workspace/pylock.runtime-linux-arm64.toml \
     /workspace/runtime_contract_check.py \
-    /workspace/mcp_lifecycle_contract_check.py \
-    /workspace/google_workspace_oauth_contract_check.py && \
+    /workspace/tool_catalog_contract_check.py && \
     test ! -e "$runtime_site_packages/pip" && \
     test ! -e "$runtime_site_packages/setuptools"
 

@@ -555,7 +555,7 @@ def test_backend_enables_reversible_compaction_contract():
     assert config["functions"]["tool_output_retriever_tool"]["_type"] == (
         "tool_output_retriever"
     )
-    assert "tool_output_retriever_tool" in workflow["nat_tools"]
+    assert "tool_output_retriever_tool" in workflow["tools"]
     assert workflow["tool_output_compaction_enabled"] is True
     assert workflow["tool_output_compaction_min_chars"] >= 1_000
     assert workflow["tool_output_compaction_max_items"] >= 5

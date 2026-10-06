@@ -5,10 +5,12 @@ import logging
 import uuid
 from typing import Any
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.identity import (
     authenticated_user_id_from_context,
     execution_id_from_context_or_none,
@@ -42,7 +44,7 @@ DAILY_BRIEFING_TRIGGERS = (
 )
 
 
-class DaedalusAddMemoryConfig(FunctionBaseConfig, name="daedalus_add_memory"):
+class DaedalusAddMemoryConfig(ToolConfig, name="daedalus_add_memory"):
     """Add memory using the authenticated request identity."""
 
     description: str = Field(
@@ -51,7 +53,7 @@ class DaedalusAddMemoryConfig(FunctionBaseConfig, name="daedalus_add_memory"):
     )
 
 
-class DaedalusGetMemoryConfig(FunctionBaseConfig, name="daedalus_get_memory"):
+class DaedalusGetMemoryConfig(ToolConfig, name="daedalus_get_memory"):
     """Search memory using the authenticated request identity."""
 
     description: str = Field(
@@ -140,8 +142,8 @@ def _expand_memory_search(query: str, top_k: int) -> tuple[str, int]:
     )
 
 
-@register_function(config_type=DaedalusAddMemoryConfig)
-async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder):
+@register_tool(config_type=DaedalusAddMemoryConfig)
+async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: ToolRegistry):
     """Register a memory-add tool that ignores model-supplied user identity."""
 
     async def _arun(input_data: AddMemoryInput) -> str:
@@ -224,15 +226,15 @@ async def daedalus_add_memory(config: DaedalusAddMemoryConfig, builder: Builder)
                 )
         return result
 
-    yield FunctionInfo.from_fn(
+    yield ToolDefinition.from_fn(
         _arun,
         description=config.description,
         input_schema=AddMemoryInput,
     )
 
 
-@register_function(config_type=DaedalusGetMemoryConfig)
-async def daedalus_get_memory(config: DaedalusGetMemoryConfig, builder: Builder):
+@register_tool(config_type=DaedalusGetMemoryConfig)
+async def daedalus_get_memory(config: DaedalusGetMemoryConfig, builder: ToolRegistry):
     """Register a memory-search tool that ignores model-supplied user identity."""
 
     async def _arun(input_data: GetMemoryInput) -> str:
@@ -277,7 +279,7 @@ async def daedalus_get_memory(config: DaedalusGetMemoryConfig, builder: Builder)
         memory_payload = [_memory_to_jsonable(memory) for memory in memories]
         return f"Memories as a JSON: \n{json.dumps(memory_payload)}"
 
-    yield FunctionInfo.from_fn(
+    yield ToolDefinition.from_fn(
         _arun,
         description=config.description,
         input_schema=GetMemoryInput,

@@ -6,17 +6,13 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "user_interaction"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "nat_helpers",
   "pydantic>=2,<2.14",
   "redis>=4.3.6,<6",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Structured user interaction tools for NeMo Agent Toolkit. Provides frameworks for clarification, confirmation, and preference gathering."
+description = "Structured user interaction tools for Daedalus. Provides frameworks for clarification, confirmation, and preference gathering."
 classifiers = ["Programming Language :: Python"]
-
-[project.entry-points.'nat.components']
-user_interaction = "user_interaction.register"
 
 [tool.setuptools]
 packages = ["user_interaction"]

@@ -143,9 +143,9 @@ def test_registration_uses_complete_explicit_input_schema():
 
     async def _run():
         with patch.object(
-            mod.FunctionInfo,
+            mod.ToolDefinition,
             "from_fn",
-            wraps=mod.FunctionInfo.from_fn,
+            wraps=mod.ToolDefinition.from_fn,
         ) as from_fn:
             async for _item in mod.llm_sandbox_function(sandbox_config(), MagicMock()):
                 pass

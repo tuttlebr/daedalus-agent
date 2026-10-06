@@ -1,122 +1,97 @@
 #!/usr/bin/env python3
-"""
-NAT 1.9 entrypoint with Daedalus routes, authentication, and MCP policy.
-Runs NAT in-process so that the scoped MCP adapters survive.
-
-Replaces: nat serve --config_file=/workspace/config.yaml --host 0.0.0.0 --port 8000
-"""
+"""Supervise the Rust agent and its loopback-only Python tool service."""
 
 import logging
 import os
+import signal
+import subprocess  # nosec B404 - fixed executable argv, no shell
 import sys
-from importlib.metadata import PackageNotFoundError, version
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
 
-from packaging.version import Version
-
-EXPECTED_NAT_VERSION = "1.9.0"
-
-
-def _patch_request_metadata_redaction() -> None:
-    """Keep transport credentials out of NAT tools and telemetry exports."""
-
-    from nat.runtime.user_metadata import RequestAttributes
-
-    original_to_dict = RequestAttributes.to_dict
-    if getattr(original_to_dict, "_daedalus_secret_redaction", False):
-        return
-
-    def redacted_to_dict(self):
-        result = original_to_dict(self)
-        # NAT injects this serialized object into every tracing span. Header and
-        # cookie collections can contain internal, approval, OAuth, API-key,
-        # and session credentials; none are needed for Phoenix correlation.
-        result.pop("headers", None)
-        result.pop("cookies", None)
-        return result
-
-    redacted_to_dict._daedalus_secret_redaction = True
-    RequestAttributes.to_dict = redacted_to_dict
-
-
-def _assert_runtime_versions() -> None:
-    """Fail startup when private compatibility code meets an unknown ABI."""
-
-    for distribution in ("nvidia-nat-core", "nvidia-nat-mcp"):
-        try:
-            installed = version(distribution)
-        except PackageNotFoundError as exc:
-            raise RuntimeError(
-                f"Required runtime package {distribution} is missing"
-            ) from exc
-        if installed != EXPECTED_NAT_VERSION:
-            raise RuntimeError(
-                f"Unsupported {distribution} version {installed}; "
-                f"Daedalus patches require {EXPECTED_NAT_VERSION}"
-            )
-
-    starlette_version = Version(version("starlette"))
-    if not Version("1.3.1") <= starlette_version < Version("2"):
-        raise RuntimeError(
-            f"Unsupported starlette version {starlette_version}; "
-            "require starlette>=1.3.1,<2"
-        )
-
-
-def _configure_phoenix_auth_env(logger):
-    """Derive OTLP/Phoenix auth headers from PHOENIX_API_KEY when provided."""
-    phoenix_api_key = os.environ.get("PHOENIX_API_KEY", "").strip()
-    if not phoenix_api_key:
-        return
-
-    header = f"api_key={phoenix_api_key}"
-    if not os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "").strip():
-        os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = header
-        logger.info("Configured OTLP exporter headers from PHOENIX_API_KEY")
-    if not os.environ.get("PHOENIX_CLIENT_HEADERS", "").strip():
-        os.environ["PHOENIX_CLIENT_HEADERS"] = header
+logger = logging.getLogger("daedalus.runtime")
 
 
 def main():
-    # Configure root logging (NAT will reconfigure its own loggers, but this
-    # ensures our daedalus.* diagnostic messages are visible)
-    log_level = os.environ.get(
-        "LOG_LEVEL", os.environ.get("NAT_LOG_LEVEL", "INFO")
-    ).upper()
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(levelname)-8s - %(name)s:%(lineno)d - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
+    binary = Path(
+        os.getenv(
+            "DAEDALUS_RUNTIME_BINARY", str(Path(__file__).with_name("daedalus-runtime"))
+        )
+    ).resolve()
+    if not binary.is_file():
+        raise RuntimeError("The Daedalus Rust runtime binary is missing")
+    children = []
+    stopping = False
 
-    _assert_runtime_versions()
-    from nat_helpers.identity import preserve_request_headers_in_workflow_runner
+    def stop(_signal, _frame):
+        nonlocal stopping
+        stopping = True
+        for child in children:
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGTERM)
 
-    preserve_request_headers_in_workflow_runner()
-    _patch_request_metadata_redaction()
-    _configure_phoenix_auth_env(logging.getLogger("daedalus.phoenix"))
-
-    # Apply MCP policy and resilience adapters before NAT imports build clients.
-    import mcp_patches
-
-    config = os.environ.get("NAT_CONFIG_FILE", "/workspace/config.yaml")
-    mcp_patches.patch(config_path=config)
-
-    # Build sys.argv to simulate: nat serve --config_file=... --host=... --port=...
-    host = os.environ.get("NAT_HOST", "0.0.0.0")  # nosec B104 — container requires all-interface bind
-    port = os.environ.get("NAT_PORT", "8000")
-
-    sys.argv = [
-        "nat",
-        "serve",
-        f"--config_file={config}",
-        f"--host={host}",
-        f"--port={port}",
-    ]
-
-    # Run NAT CLI in-process so our patches remain active
-    from nat.cli.main import run_cli
-
-    run_cli()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    tools_port = int(os.getenv("DAEDALUS_TOOLS_PORT", "8001"))
+    env = os.environ.copy()
+    env["DAEDALUS_TOOLS_URL"] = f"http://127.0.0.1:{tools_port}"
+    try:
+        children.append(
+            subprocess.Popen(  # nosec B603 - fixed server command
+                [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "daedalus_runtime.service:create_app",
+                    "--factory",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(tools_port),
+                    "--no-access-log",
+                    "--timeout-graceful-shutdown",
+                    "25",
+                ],
+                env=env,
+                start_new_session=True,
+            )
+        )
+        deadline = time.monotonic() + 120
+        while not stopping:
+            if children[0].poll() is not None:
+                raise RuntimeError("The Python tool service failed to start")
+            try:
+                with urllib.request.urlopen(
+                    env["DAEDALUS_TOOLS_URL"] + "/health", timeout=1
+                ) as response:  # nosec B310 - fixed loopback URL
+                    if response.status == 200:
+                        break
+            except (OSError, urllib.error.URLError):
+                pass
+            if time.monotonic() > deadline:
+                raise RuntimeError("The Python tool service did not become healthy")
+            time.sleep(0.1)
+        if stopping:
+            return
+        children.append(
+            subprocess.Popen([str(binary)], env=env, start_new_session=True)  # nosec B603 - operator-selected runtime executable
+        )
+        while not stopping:
+            if any(child.poll() is not None for child in children):
+                raise RuntimeError("A Daedalus runtime process exited unexpectedly")
+            time.sleep(0.2)
+    finally:
+        stop(None, None)
+        deadline = time.monotonic() + 30
+        for child in children:
+            try:
+                child.wait(timeout=max(0.1, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
 
 
 if __name__ == "__main__":

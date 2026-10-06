@@ -1,4 +1,4 @@
-"""Daedalus-owned composition for NAT's supported FastAPI runner hook."""
+"""Daedalus HTTP routers and dependency readiness."""
 
 from __future__ import annotations
 
@@ -14,9 +14,6 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import (
-    FastApiFrontEndPluginWorker,
-)
 from nat_helpers.approval_context import (
     approval_marker_scope,
     is_trusted_approval_marker,
@@ -269,16 +266,16 @@ def _required_collections() -> set[str]:
     return {item for item in configured.replace(",", " ").split() if item}
 
 
-async def readiness_response() -> JSONResponse:
+async def readiness_response(request: Request) -> JSONResponse:
     """Report whether the security gate and durable dependencies are ready."""
-    import mcp_patches
+    from daedalus_runtime import approval
 
     if os.path.exists(DRAINING_MARKER_PATH):
         return JSONResponse({"status": "draining"}, status_code=503)
-    if not getattr(mcp_patches, "_approval_gate_installed", False):
+    if not approval._approval_policy_configured:
         return JSONResponse({"status": "unready"}, status_code=503)
 
-    capabilities = mcp_patches.mcp_capability_status()
+    capabilities = request.app.state.mcp.capability_status()
     if capabilities["missing_required"]:
         return JSONResponse(
             {
@@ -411,47 +408,27 @@ async def readiness_response() -> JSONResponse:
     )
 
 
-def attach_daedalus_routes(
-    app: FastAPI,
-    *,
-    session_managers: list[object] | None = None,
-    execution_store: object | None = None,
-    http_flow_handler: object | None = None,
-) -> FastAPI:
-    """Attach the repository-owned API surface to one NAT application."""
+def attach_daedalus_routes(app: FastAPI) -> FastAPI:
+    """Attach authenticated application APIs to the Python tool service."""
     if getattr(app, "_daedalus_routes_attached", False):
         return app
-
-    # Import eagerly while NAT constructs the application. A broken router is
-    # a startup failure, never a silently missing production endpoint.
     from collection_metadata_api import router as collection_metadata_router
     from document_ingest_api import router as document_ingest_router
     from image_api import router as image_router
     from mcp_approval_api import create_mcp_approval_router
     from memory_api import router as memory_router
-    from nat_helpers.google_workspace_auth import reset_google_workspace_authorization
+    from nat_helpers.identity import authenticated_user_id_from_context
     from nat_helpers.internal_auth import DaedalusInternalAuthMiddleware
     from profile_import_api import router as profile_import_router
 
-    active_session_managers = session_managers if session_managers is not None else []
-
-    async def reset_google_workspace_connection(
-        service_id: str,
-        request: Request,
-    ):
-        return await reset_google_workspace_authorization(
-            service_id,
-            request,
-            active_session_managers,
+    async def reset_google_workspace_connection(service_id: str, request: Request):
+        return await request.app.state.mcp.reset(
+            service_id, authenticated_user_id_from_context()
         )
 
     app.add_middleware(DaedalusInternalAuthMiddleware)
-    app.add_middleware(McpApprovalTerminalMiddleware)
     app.add_api_route(
-        "/health/ready",
-        readiness_response,
-        methods=["GET"],
-        include_in_schema=False,
+        "/health/ready", readiness_response, methods=["GET"], include_in_schema=False
     )
     app.add_api_route(
         "/v1/google-workspace/connections/{service_id}",
@@ -459,31 +436,14 @@ def attach_daedalus_routes(
         methods=["DELETE"],
         include_in_schema=False,
     )
-    app.include_router(image_router)
-    app.include_router(collection_metadata_router)
-    app.include_router(document_ingest_router)
-    app.include_router(profile_import_router)
-    app.include_router(memory_router)
-    if execution_store is not None and http_flow_handler is not None:
-        app.include_router(
-            create_mcp_approval_router(
-                session_managers=active_session_managers,
-                execution_store=execution_store,
-                http_flow_handler=http_flow_handler,
-            )
-        )
+    for router in (
+        image_router,
+        collection_metadata_router,
+        document_ingest_router,
+        profile_import_router,
+        memory_router,
+        create_mcp_approval_router(),
+    ):
+        app.include_router(router)
     app._daedalus_routes_attached = True
-    logger.info("Attached Daedalus HTTP routers to NAT FastAPI app")
     return app
-
-
-class DaedalusFastApiFrontEndPluginWorker(FastApiFrontEndPluginWorker):
-    """NAT FastAPI worker composed through ``runner_class`` configuration."""
-
-    def build_app(self) -> FastAPI:
-        return attach_daedalus_routes(
-            super().build_app(),
-            session_managers=getattr(self, "_session_managers", []),
-            execution_store=getattr(self, "_execution_store", None),
-            http_flow_handler=getattr(self, "_http_flow_handler", None),
-        )

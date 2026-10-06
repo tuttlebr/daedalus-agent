@@ -1,7 +1,6 @@
 """Optional server-owned Responses transport for autonomous main-agent calls."""
 
 import os
-from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, SecretStr
@@ -67,30 +66,3 @@ def is_authenticated_autonomy_request() -> bool:
         )
     except (ValueError, AttributeError, RuntimeError):
         return False
-
-
-@asynccontextmanager
-async def _registered_client(settings, builder):
-    from nat.builder.framework_enum import LLMFrameworkEnum
-    from nat.cli.type_registry import GlobalTypeRegistry
-    from nat.llm.openai_llm import OpenAIModelConfig
-
-    config = OpenAIModelConfig(**settings.model_dump())
-    # Use the same registered client and metadata injection as builder.get_llm.
-    # Its HTTP pool belongs to this per-user workflow and closes with it. The
-    # shared provider config and interactive client's sockets remain untouched.
-    client = GlobalTypeRegistry.get().get_llm_client(
-        config_type=type(config), wrapper_type=LLMFrameworkEnum.LANGCHAIN
-    )
-    async with client.build_fn(config, builder) as llm:
-        yield llm
-
-
-@asynccontextmanager
-async def autonomous_llm(builder, default_llm_name):
-    if not any(os.getenv(name, "").strip() for name in _ENV_FIELDS.values()):
-        yield None
-        return
-    config = autonomous_llm_config(builder.get_llm_config(default_llm_name))
-    async with _registered_client(config, builder) as llm:
-        yield llm

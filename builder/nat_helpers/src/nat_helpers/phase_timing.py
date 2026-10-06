@@ -1,4 +1,4 @@
-"""Duration spans in NAT's active trace, without request or source content."""
+"""OpenTelemetry duration spans, without request or source content."""
 
 import asyncio
 import logging
@@ -48,22 +48,13 @@ class PhaseTiming:
     def start(self) -> None:
         self._started = time.perf_counter()
         try:
-            from nat.builder.context import Context
-            from nat.data_models.intermediate_step import (
-                IntermediateStepPayload,
-                IntermediateStepType,
-            )
+            from opentelemetry import trace
 
-            self._manager = Context.get().intermediate_step_manager
-            self._start = IntermediateStepPayload(
-                event_type=IntermediateStepType.CUSTOM_START,
-                name=self.name,
-                metadata=dict(self.metadata),
+            self._start = trace.get_tracer("daedalus.tools").start_span(
+                self.name, attributes=self.metadata
             )
-            self._manager.push_intermediate_step(self._start)
         except Exception:
-            self._manager = None
-            logger.debug("Phase start unavailable: %s", self.name, exc_info=True)
+            self._start = None
 
     def finish(self, error: BaseException | None = None) -> None:
         self.metadata["duration_ms"] = (time.perf_counter() - self._started) * 1000
@@ -75,27 +66,13 @@ class PhaseTiming:
             else "success"
         )
         if error is not None:
-            self.metadata["error_type"] = type(error).__name__[:128]
-        if self._manager is None or self._start is None:
-            return
-        try:
-            from nat.data_models.intermediate_step import (
-                IntermediateStepPayload,
-                IntermediateStepType,
-                StreamEventData,
-            )
-
-            self._manager.push_intermediate_step(
-                IntermediateStepPayload(
-                    event_type=IntermediateStepType.CUSTOM_END,
-                    UUID=self._start.UUID,
-                    name=self.name,
-                    metadata=dict(self.metadata),
-                    data=StreamEventData(output=dict(self.metadata)),
-                )
-            )
-        except Exception:
-            logger.debug("Phase end unavailable: %s", self.name, exc_info=True)
+            self.metadata["error_type"] = type(error).__name__
+        if self._start is not None:
+            try:
+                self._start.set_attributes(self.metadata)
+                self._start.end()
+            except Exception:
+                logger.debug("Tracing unavailable during span completion")
 
 
 @contextmanager
@@ -111,23 +88,3 @@ def phase_timing(name: str, metadata: dict[str, Any] | None = None):
         raise
     finally:
         phase.finish(error)
-
-
-def timed_model_runnable(binding, metadata: dict[str, Any]):
-    """Delegate streaming unchanged while timing the complete model response.
-
-    RunnableLambda aggregates chunks only for ainvoke. During astream it yields
-    each original chunk immediately, retaining the model's callback context and
-    LangGraph message events. Closing a partial stream closes the provider too.
-    """
-    from contextlib import aclosing
-
-    from langchain_core.runnables import RunnableConfig, RunnableLambda
-
-    async def stream(messages, config: RunnableConfig):
-        with phase_timing("daedalus.agent.model", metadata):
-            async with aclosing(binding.astream(messages, config=config)) as chunks:
-                async for chunk in chunks:
-                    yield chunk
-
-    return RunnableLambda(stream, name="TimedModelResponse")

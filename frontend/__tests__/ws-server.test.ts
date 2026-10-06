@@ -236,6 +236,59 @@ describe('authenticated WebSocket initialization', () => {
     vi.restoreAllMocks();
   });
 
+  it('revalidates steering sessions and forwards only the saved owner job', async () => {
+    const socket = new FakeWebSocket();
+    const fetcher = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetcher);
+    const getSession = vi.fn().mockResolvedValue({ username: 'alice' });
+    const getJobRequest = vi.fn().mockResolvedValue({
+      jobId: 'run-1',
+      userId: 'bob',
+      executionMode: 'stream',
+      natBaseUrl: 'http://backend:8000',
+    });
+    await initializeAuthenticatedConnection(
+      socket as unknown as WebSocket,
+      'alice',
+      'session-1',
+      connectionDependencies({ getSession, getJobRequest }),
+    );
+    const command = {
+      type: 'steer_job',
+      jobId: 'run-1',
+      commandId: '41d0f5b2-c091-4b90-8a3a-d552fbc5d990',
+      instruction: 'Finish with available evidence',
+    };
+    socket.emit('message', Buffer.from(JSON.stringify(command)));
+    await vi.waitFor(() =>
+      expect(socket.sent.map((raw) => JSON.parse(raw))).toContainEqual(
+        expect.objectContaining({ type: 'steering_ack', accepted: false }),
+      ),
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    getJobRequest.mockResolvedValue({
+      jobId: 'run-1',
+      userId: 'alice',
+      executionMode: 'stream',
+      natBaseUrl: 'http://backend:8000',
+    });
+    socket.emit('message', Buffer.from(JSON.stringify(command)));
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'http://backend:8000/v1/runs/run-1/control',
+    );
+    getSession.mockResolvedValue(null);
+    socket.emit('message', Buffer.from(JSON.stringify(command)));
+    await vi.waitFor(() =>
+      expect(socket.closeCalls).toContainEqual({
+        code: 4003,
+        reason: 'Session expired',
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+
   it('installs lifecycle handlers and releases the user channel when subscribe rejects', async () => {
     const socket = new FakeWebSocket();
     const unsubscribe = vi.fn();

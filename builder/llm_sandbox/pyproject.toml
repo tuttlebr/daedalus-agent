@@ -6,16 +6,12 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "llm_sandbox"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "httpx>=0.28",
   "pydantic>=2,<2.14",
 ]
 requires-python = ">=3.11,<3.14"
-description = "NeMo Agent Toolkit function for the Daedalus LLM sandbox"
+description = "Daedalus function for the Daedalus LLM sandbox"
 classifiers = ["Programming Language :: Python"]
-
-[project.entry-points.'nat.components']
-llm_sandbox = "llm_sandbox.register"
 
 [tool.setuptools]
 packages = ["llm_sandbox"]

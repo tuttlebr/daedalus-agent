@@ -8,9 +8,8 @@ from functools import partial
 from typing import Any
 
 import requests
+from daedalus_runtime.retrieval import Document, RetrieverError, RetrieverOutput
 from langchain_core.embeddings import Embeddings
-from nat.retriever.interface import Retriever
-from nat.retriever.models import Document, RetrieverError, RetrieverOutput
 from nat_helpers.vllm_reranker import (
     build_vllm_rerank_payload,
     parse_vllm_rerank_response,
@@ -28,7 +27,7 @@ class CollectionNotFoundError(RetrieverError):
     pass
 
 
-class MilvusRetriever(Retriever):
+class MilvusRetriever:
     """
     Client for retrieving document chunks from a Milvus vectorstore.
 

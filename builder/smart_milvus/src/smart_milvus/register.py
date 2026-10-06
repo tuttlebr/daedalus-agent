@@ -4,10 +4,13 @@ import logging
 import os
 from typing import Annotated
 
-from nat.builder.builder import Builder, LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    LLMFramework,
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.milvus import owned_milvus_connection_args
 from pydantic import Field, HttpUrl
 
@@ -51,7 +54,7 @@ def _milvus_connection_args_from_env() -> dict[str, str]:
     return connection_args
 
 
-class DomainRetrieverConfig(FunctionBaseConfig, name="domain_retriever"):
+class DomainRetrieverConfig(ToolConfig, name="domain_retriever"):
     """Configuration for one routed Milvus retriever over curated domains."""
 
     description: str | None = None
@@ -170,8 +173,10 @@ def _format_domain_results(output: object, domain: str) -> str:
     )
 
 
-@register_function(config_type=DomainRetrieverConfig)
-async def domain_retriever_function(config: DomainRetrieverConfig, builder: Builder):
+@register_tool(config_type=DomainRetrieverConfig)
+async def domain_retriever_function(
+    config: DomainRetrieverConfig, builder: ToolRegistry
+):
     """Register one routed tool for all curated Milvus knowledge domains."""
 
     from pymilvus import MilvusClient
@@ -193,7 +198,7 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
 
             embedder = await builder.get_embedder(
                 embedder_name=config.embedding_model,
-                wrapper_type=LLMFrameworkEnum.LANGCHAIN,
+                wrapper_type=LLMFramework.LANGCHAIN,
             )
             # pymilvus constructs channels and may perform connection setup in
             # its synchronous constructor. Keep that work off the event loop.
@@ -276,7 +281,7 @@ async def domain_retriever_function(config: DomainRetrieverConfig, builder: Buil
         return _format_domain_results(output, normalized_domain)
 
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             search_domain,
             description=config.description
             or (

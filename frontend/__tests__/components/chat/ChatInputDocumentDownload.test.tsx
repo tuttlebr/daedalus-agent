@@ -268,4 +268,51 @@ describe('ChatInput inline document download', () => {
 
     act(() => root.unmount());
   });
+  it('steers the active response and keeps the draft if delivery fails', async () => {
+    const onSend = vi.fn();
+    const onStop = vi.fn();
+    const onSteer = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Try again'))
+      .mockResolvedValueOnce(undefined);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <ChatInput
+          onSend={onSend}
+          onStop={onStop}
+          onSteer={onSteer}
+          isStreaming
+        />,
+      ),
+    );
+    const textarea = container.querySelector('textarea')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!;
+      setter.call(textarea, 'Use the results already collected');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const steer = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Steer response"]',
+    )!;
+    expect(steer.disabled).toBe(false);
+    await act(async () => steer.click());
+    expect(onSteer).toHaveBeenCalledWith('Use the results already collected');
+    expect(textarea.value).toBe('Use the results already collected');
+    expect(onSend).not.toHaveBeenCalled();
+    await act(async () => steer.click());
+    expect(textarea.value).toBe('');
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Stop generating"]')!
+        .click(),
+    );
+    expect(onStop).toHaveBeenCalledOnce();
+    act(() => root.unmount());
+  });
 });

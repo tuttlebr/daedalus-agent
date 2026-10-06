@@ -15,10 +15,13 @@ import json
 import logging
 from typing import Annotated, Literal
 
-from nat.builder.builder import Builder, LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    LLMFramework,
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.communication_style import SOURCE_SUMMARY_GUIDANCE
 from pydantic import Field
 
@@ -36,7 +39,7 @@ DistillMaxWords = Annotated[int, Field(ge=50, le=2000)]
 DistillOutputFormat = Literal["prose", "bullets", "tldr"]
 
 
-class ContentDistillerConfig(FunctionBaseConfig, name="content_distiller"):
+class ContentDistillerConfig(ToolConfig, name="content_distiller"):
     """Configuration for the content_distiller function.
 
     Uses a fast/cheap model for distillation with a configurable fallback.
@@ -81,7 +84,7 @@ class ContentDistillerConfig(FunctionBaseConfig, name="content_distiller"):
 
 
 async def _call_llm(
-    builder: Builder,
+    builder: ToolRegistry,
     config: ContentDistillerConfig,
     system_prompt: str,
     user_prompt: str,
@@ -96,9 +99,9 @@ async def _call_llm(
     use_langchain = config.wrapper_type.upper() == "LANGCHAIN"
 
     try:
-        wrapper = LLMFrameworkEnum(config.wrapper_type)
+        wrapper = LLMFramework(config.wrapper_type)
     except (ValueError, TypeError):
-        wrapper = LLMFrameworkEnum.LANGCHAIN
+        wrapper = LLMFramework.LANGCHAIN
 
     llm_kwargs = {"max_tokens": config.max_output_tokens}
 
@@ -172,8 +175,10 @@ def _truncate_content(content: str, max_chars: int) -> tuple[str, bool]:
     return content[:max_chars] + "\n\n[Content truncated]", True
 
 
-@register_function(config_type=ContentDistillerConfig)
-async def content_distiller_function(config: ContentDistillerConfig, builder: Builder):
+@register_tool(config_type=ContentDistillerConfig)
+async def content_distiller_function(
+    config: ContentDistillerConfig, builder: ToolRegistry
+):
     enabled = set(config.enabled_operations or [])
 
     def _enabled(operation: str) -> bool:
@@ -268,7 +273,7 @@ async def content_distiller_function(config: ContentDistillerConfig, builder: Bu
     # ------------------------------------------------------------------
     try:
         if _enabled("distill_content"):
-            yield FunctionInfo.from_fn(
+            yield ToolDefinition.from_fn(
                 distill_content,
                 description=config.description
                 or (

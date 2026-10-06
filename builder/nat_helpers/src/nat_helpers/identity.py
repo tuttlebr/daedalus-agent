@@ -1,4 +1,4 @@
-"""Request identity helpers for Daedalus NAT tools."""
+"""Request identity helpers for Daedalus tools."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import os
 from collections.abc import Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from functools import wraps
 from typing import Any
 
 _http_request_headers: ContextVar[Any] = ContextVar(
@@ -17,7 +16,7 @@ _http_request_headers: ContextVar[Any] = ContextVar(
 
 @contextmanager
 def authenticated_request_headers_scope(headers):
-    """Snapshot the authenticated ASGI request independently of NAT's cache."""
+    """Snapshot the authenticated ASGI request for tool execution."""
     token = _http_request_headers.set(dict(headers))
     try:
         yield
@@ -26,36 +25,7 @@ def authenticated_request_headers_scope(headers):
 
 
 def _request_headers():
-    current = _http_request_headers.get()
-    if current is not None:
-        return current
-    from nat.builder.context import Context
-
-    nat_context = Context.get()
-    return getattr(getattr(nat_context, "metadata", None), "headers", None)
-
-
-def preserve_request_headers_in_workflow_runner() -> None:
-    """Keep live HTTP identity when pinned NAT restores its build context."""
-    from nat.runtime.runner import Runner
-
-    original = Runner.__aenter__
-    if getattr(original, "_daedalus_request_headers", False):
-        return
-
-    @wraps(original)
-    async def enter_with_request_headers(self):
-        current_headers = _http_request_headers.get()
-        try:
-            return await original(self)
-        finally:
-            # NAT 1.9 restores the cached workflow's entire construction-time
-            # context. Its first request must never overwrite this caller's
-            # authenticated scope, identity, or approval credential.
-            _http_request_headers.set(current_headers)
-
-    enter_with_request_headers._daedalus_request_headers = True
-    Runner.__aenter__ = enter_with_request_headers
+    return _http_request_headers.get()
 
 
 def _configured_internal_token() -> str:
@@ -127,7 +97,7 @@ def authenticated_user_id_from_headers(headers: Any) -> str:
 
 
 def authenticated_user_id_from_context() -> str:
-    """Resolve the authenticated end user from the current NAT request context."""
+    """Resolve the authenticated end user from the current authenticated request context."""
 
     return authenticated_user_id_from_headers(_request_headers())
 
@@ -176,7 +146,7 @@ def execution_scope_from_context_or_none() -> str | None:
     An HTTP request with no scope header returns the empty string. This lets
     consequential tools distinguish ordinary interactive chat from the
     dedicated autonomy worker, while preserving direct-call/test behavior when
-    no NAT request metadata exists at all.
+    no request metadata exists at all.
     """
 
     try:
@@ -229,7 +199,7 @@ def resolve_authenticated_user_id(asserted_user_id: str | None = None) -> str:
 
     ``asserted_user_id`` is never an authority source in an HTTP request. It is
     retained only so direct callers using an older signature get an explicit
-    mismatch error during migration. When NAT has no HTTP request context at
+    mismatch error during migration. When there is no HTTP request context at
     all, the assertion is accepted as the direct-call/test fallback.
     """
 

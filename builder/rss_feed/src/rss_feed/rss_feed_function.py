@@ -15,11 +15,13 @@ from urllib.parse import urlparse
 import fastfeedparser
 import httpx
 from cachetools import TTLCache
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from markitdown import MarkItDown
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.phase_timing import phase_timing
 from nat_helpers.public_content import AnonymousPublicClient, public_content_session
 from nat_helpers.safe_http import (
@@ -60,7 +62,7 @@ class RssEntry(BaseModel):
     feed_url: str | None = None
 
 
-class RssFeedFunctionConfig(FunctionBaseConfig, name="rss_feed"):
+class RssFeedFunctionConfig(ToolConfig, name="rss_feed"):
     """
     Configuration for RSS feed function with reranking support.
 
@@ -523,8 +525,8 @@ def _rss_input_schema(feeds: dict[str, str], max_batch_queries: int) -> type[Bas
     )
 
 
-@register_function(config_type=RssFeedFunctionConfig)
-async def rss_feed_function(config: RssFeedFunctionConfig, builder: Builder):
+@register_tool(config_type=RssFeedFunctionConfig)
+async def rss_feed_function(config: RssFeedFunctionConfig, builder: ToolRegistry):
     """Search feeds with bounded discovery batches and optional article retrieval."""
     feeds = {key: value for key, value in config.feeds.items() if key and value}
     if not feeds and config.feed_url:
@@ -870,7 +872,7 @@ async def rss_feed_function(config: RssFeedFunctionConfig, builder: Builder):
             )
 
         try:
-            yield FunctionInfo.from_fn(
+            yield ToolDefinition.from_fn(
                 search_rss,
                 input_schema=input_schema,
                 description=(

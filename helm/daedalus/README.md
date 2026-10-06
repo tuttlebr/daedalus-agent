@@ -1,5 +1,11 @@
 # Daedalus Helm Chart
 
+The backend now runs the Rust Rig/Tokio agent with a supervised, loopback-only
+Python tool service. `make deploy` still builds and publishes both application
+images and performs the existing preflights. Helm supplies `DAEDALUS_CONFIG_FILE`
+and `DAEDALUS_PORT`; the Python tool port must not be exposed. Existing Redis
+records and Google grants retain their keys. See [runtime migration settings](../../docs/operations.md).
+
 This chart deploys the full Kubernetes form of Daedalus rather than just a simple frontend and backend pair.
 
 ## What The Chart Deploys
@@ -208,7 +214,7 @@ for chart linting and rendering, but are not a supported application deployment
 path because they bypass the repository preflight and Secret synchronization.
 
 The canonical config uses the OpenAI-compatible Responses API. Overlay configs
-that inherit it through NAT `base:` support are also honored by the backend's
+that inherit it through application `base:` support are also honored by the backend's
 MCP authorization policy loader, which resolves the same `base:` chain.
 
 The repo-level [`../../custom-values.yaml`](../../custom-values.yaml) is the opinionated example for production-style deployments. RedisInsight isn't shipped. Use an authenticated, time-bounded local client through `kubectl port-forward` when interactive Redis inspection is required.

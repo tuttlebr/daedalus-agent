@@ -20,11 +20,27 @@ export type ClientMessage =
   | { type: 'ping' }
   | { type: 'subscribe_job'; jobId: string }
   | { type: 'unsubscribe_job'; jobId: string }
+  | { type: 'steer_job'; jobId: string; commandId: string; instruction: string }
   | { type: 'subscribe_chat'; conversationId: string }
   | { type: 'unsubscribe_chat'; conversationId: string };
 
 // Server → Client
 export type ServerMessage =
+  | {
+      type: 'steering_ack';
+      jobId: string;
+      commandId: string;
+      accepted: boolean;
+      message?: string;
+    }
+  | {
+      type: 'steering_status';
+      jobId: string;
+      conversationId: string;
+      commandId: string;
+      instruction?: string;
+      status: string;
+    }
   | { type: 'pong'; ts: number }
   | { type: 'connected'; userId: string; streamingStates: Record<string, any> }
   | {
@@ -251,6 +267,41 @@ export class WebSocketManager {
   }
 
   // ---------- Private ----------
+
+  steerJob(
+    jobId: string,
+    instruction: string,
+    commandId: string,
+  ): Promise<void> {
+    if (!this._isConnected)
+      return Promise.reject(new Error('Reconnect before sending a direction'));
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        offAck();
+        offDisconnect();
+      };
+      const offAck = this.on('steering_ack', (message: any) => {
+        if (message.jobId !== jobId || message.commandId !== commandId) return;
+        cleanup();
+        if (message.accepted) resolve();
+        else reject(new Error(message.message || 'Direction rejected'));
+      });
+      const offDisconnect = this.on('disconnected', () => {
+        cleanup();
+        reject(
+          new Error(
+            'Delivery was not confirmed. Reconnect and retry this direction.',
+          ),
+        );
+      });
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('Delivery was not confirmed. Retry this direction.'));
+      }, 10_000);
+      this.send({ type: 'steer_job', jobId, instruction, commandId });
+    });
+  }
 
   private send(msg: ClientMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {

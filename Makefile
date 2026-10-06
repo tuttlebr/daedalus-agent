@@ -25,12 +25,14 @@ TRIVY ?= trivy
 TRIVY_RESULTS ?= /tmp/daedalus-trivy-results.sarif
 TRIVY_INVENTORY ?= /tmp/daedalus-trivy-inventory.json
 TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES := /workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/create_azure_data_lake_storage_connection_details.py,/workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/update_azure_data_lake_storage_connection_details.py
+RUNTIME_IMAGE ?= daedalus:runtime-check
+RUNTIME_REDIS_IMAGE ?=
 DEPLOY_ARGS ?=
 DEPLOY_IMAGE_ARGS ?= --allow-unsigned-images
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deploy ci builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
+.PHONY: help deploy ci runtime builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
 
 help: ## show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -39,6 +41,12 @@ deploy: ## build, verify, and deploy through the canonical development path
 	./deploy.sh $(DEPLOY_IMAGE_ARGS) $(DEPLOY_ARGS)
 
 ci: tools-check builder test-integration frontend frontend-e2e helm redis-upgrade docker security ## run every CI job sequentially
+
+runtime: ## build Rust and exercise the deployable backend over HTTP
+	cargo fmt --manifest-path builder/runtime/Cargo.toml --check
+	cargo clippy --locked --manifest-path builder/runtime/Cargo.toml --all-targets -- -D warnings
+	docker buildx build --load --target backend --build-context skills=./skills -t $(RUNTIME_IMAGE) ./builder
+	python3 builder/runtime_http_check.py --image $(RUNTIME_IMAGE) $(if $(RUNTIME_REDIS_IMAGE),--redis-image $(RUNTIME_REDIS_IMAGE))
 
 builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"
@@ -92,6 +100,7 @@ docker: ## validate all shipped image references, build and scan runtime images
 		trap 'if [ "$$created_env" = 1 ]; then rm -f .env; fi' EXIT; \
 		docker compose config --quiet; \
 		docker compose build --provenance=mode=max --sbom=true backend frontend redis; \
+		python3 builder/runtime_http_check.py --image "$$(docker compose config --format json | jq -r .services.backend.image)" --redis-image "$$(docker compose config --format json | jq -r .services.redis.image)"; \
 		for service in backend frontend redis; do \
 			image=$$(docker compose config --format json | jq -r ".services.\"$$service\".image"); \
 			$(TRIVY) image --severity CRITICAL,HIGH --exit-code 1 \

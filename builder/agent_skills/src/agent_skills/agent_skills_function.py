@@ -15,10 +15,12 @@ from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agent_skills.skill_parser import SkillParser
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 logger = logging.getLogger(__name__)
@@ -113,7 +115,7 @@ def _terminate_process_group(proc) -> None:
 # Standalone operation helpers
 #
 # The three tool operations live here as module-level functions (rather than
-# closures inside the @register_function generator) so they can be unit-tested
+# closures inside the @register_tool generator) so they can be unit-tested
 # in isolation. The generator's inner functions are thin delegators.
 # ----------------------------------------------------------------------
 async def _list_skills(parser: "SkillParser", query: str | None = None) -> str:
@@ -335,7 +337,7 @@ async def _run_skill_script(
     return "\n".join(output_parts) if output_parts else "(no output)"
 
 
-class AgentSkillsConfig(FunctionBaseConfig, name="agent_skills"):
+class AgentSkillsConfig(ToolConfig, name="agent_skills"):
     """Configuration for the agent_skills function."""
 
     _parser: SkillParser | None = PrivateAttr(default=None)
@@ -424,8 +426,8 @@ class AgentSkillsInput(BaseModel):
     )
 
 
-@register_function(config_type=AgentSkillsConfig)
-async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
+@register_tool(config_type=AgentSkillsConfig)
+async def agent_skills_function(config: AgentSkillsConfig, builder: ToolRegistry):
     parser = config.get_parser()
 
     enabled = set(
@@ -482,7 +484,7 @@ async def agent_skills_function(config: AgentSkillsConfig, builder: Builder):
         )
 
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             agent_skills,
             input_schema=AgentSkillsInput,
             description=config.description,

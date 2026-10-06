@@ -237,6 +237,14 @@ jobs:
           --metadata-file "${RUNNER_TEMP}/bake-metadata.json"
           -f docker-compose.yaml backend frontend redis
 
+      - name: Exercise backend runtime and exact approvals over HTTP
+        run: |
+          python3 -m venv "$RUNNER_TEMP/runtime-check"
+          "$RUNNER_TEMP/runtime-check/bin/pip" install httpx pyyaml
+          "$RUNNER_TEMP/runtime-check/bin/python" builder/runtime_http_check.py \
+            --image docker.io/your-user/daedalus:backend-0.1.0 \
+            --redis-image docker.io/your-user/daedalus:redis-0.1.0
+
       - name: Export runtime image digests
         id: image_digests
         env:

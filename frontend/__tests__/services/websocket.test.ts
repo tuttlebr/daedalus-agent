@@ -134,6 +134,56 @@ afterEach(() => {
 });
 
 describe('WebSocketManager', () => {
+  it('waits for the matching steering acknowledgement and propagates delivery failures', async () => {
+    const manager = new WebSocketManager('/ws');
+    manager.connect();
+    const socket = wsInstances[0];
+    socket.simulateOpen();
+    const pending = manager.steerJob('job-a', 'Focus on storage', 'command-a');
+    let resolved = false;
+    void pending.then(() => {
+      resolved = true;
+    });
+    socket.simulateMessage({
+      type: 'steering_ack',
+      jobId: 'other',
+      commandId: 'command-a',
+      accepted: true,
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    socket.simulateMessage({
+      type: 'steering_ack',
+      jobId: 'job-a',
+      commandId: 'command-a',
+      accepted: true,
+    });
+    await pending;
+    const rejected = manager.steerJob(
+      'job-a',
+      'Another direction',
+      'command-b',
+    );
+    socket.simulateMessage({
+      type: 'steering_ack',
+      jobId: 'job-a',
+      commandId: 'command-b',
+      accepted: false,
+      message: 'Response finished',
+    });
+    await expect(rejected).rejects.toThrow('Response finished');
+    manager.disconnect();
+  });
+
+  it('keeps unconfirmed steering retryable after a disconnect', async () => {
+    const manager = new WebSocketManager('/ws');
+    manager.connect();
+    wsInstances[0].simulateOpen();
+    const pending = manager.steerJob('job-a', 'Focus on storage', 'command-a');
+    wsInstances[0].simulateClose();
+    await expect(pending).rejects.toThrow('not confirmed');
+    manager.disconnect();
+  });
   // ---------- connect() ----------
 
   describe('connect()', () => {

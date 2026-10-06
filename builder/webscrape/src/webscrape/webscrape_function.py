@@ -10,11 +10,13 @@ from urllib.parse import ParseResult, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from markitdown import MarkItDown
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
 from nat_helpers.phase_timing import phase_timing
 from nat_helpers.public_content import AnonymousPublicClient
 from nat_helpers.public_content import is_challenge_page as _is_challenge_page
@@ -88,7 +90,7 @@ _RETRYABLE_HTTPX_EXCEPTIONS = tuple(
 )
 
 
-class WebscrapeFunctionConfig(FunctionBaseConfig, name="webscrape"):
+class WebscrapeFunctionConfig(ToolConfig, name="webscrape"):
     """Configuration for the webscrape function."""
 
     description: str | None = None
@@ -619,8 +621,8 @@ def _validate_url(
 # ---------------------------------------------------------------------------
 
 
-@register_function(config_type=WebscrapeFunctionConfig)
-async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
+@register_tool(config_type=WebscrapeFunctionConfig)
+async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegistry):
     async with public_content_session(builder) as content_session:
         async with AnonymousPublicClient(
             headers={"User-Agent": config.user_agent},
@@ -696,7 +698,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: Builder):
                         "JavaScript or is blocking automated access."
                     )
 
-            yield FunctionInfo.from_fn(
+            yield ToolDefinition.from_fn(
                 _response_fn,
                 description=config.description
                 or (

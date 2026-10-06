@@ -183,18 +183,18 @@ def test_user_interaction_confirm_research_plan_operation_can_be_exposed_alone()
     )
 
 
-def test_rss_feed_enabled_operations_filters_registration():
-    async def _run():
+def test_rss_registration_exposes_its_single_validated_search_tool():
+    async def scenario():
         from rss_feed.rss_feed_function import RssFeedFunctionConfig, rss_feed_function
 
-        return await _names(
-            rss_feed_function(
-                RssFeedFunctionConfig(
-                    feed_url="https://example.com/feed.xml",
-                    enabled_operations=["search_rss"],
-                ),
+        items = [
+            item
+            async for item in rss_feed_function(
+                RssFeedFunctionConfig(feed_url="https://example.com/feed.xml"),
                 MagicMock(),
             )
-        )
+        ]
+        assert len(items) == 1
+        assert "query" in items[0].input_schema.model_json_schema()["properties"]
 
-    assert run(_run()) == ["search_rss"]
+    run(scenario())

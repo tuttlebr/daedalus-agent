@@ -10,8 +10,14 @@ project. Our two-person household is the use case that guides its design.
 
 I'm sharing the code so other developers can understand it, run their own
 version, adapt individual tools, and contribute useful improvements. It combines
-a Next.js chat application with a Python backend built on
-[NVIDIA NeMo Agent Toolkit](https://github.com/NVIDIA/NeMo-Agent-Toolkit).
+a Next.js chat application with a Rust agent runtime using Rig, Tokio, and Axum.
+An application-owned Python service runs the existing tools and MCP integrations.
+NeMo Agent Toolkit is no longer installed or used.
+
+While a response is running, type a direction in the composer and send it.
+The runtime interrupts model generation, retains results from started tool calls,
+skips queued calls, and continues with your direction. Delivery uses the existing
+WebSocket connection; it requires no WebRTC media server.
 
 The app includes chat history and streaming, image creation, document retrieval,
 durable memory, tool integrations, and scheduled background work. Those
@@ -67,8 +73,8 @@ Edit `.env` and fill in:
 
 The example selects [`backend/local-chat-config.yaml`](backend/local-chat-config.yaml),
 which contains text chat and a clock tool. It has no MCP servers, retrieval,
-Hindsight memory, or tracing configured. A Chat Completions-only model endpoint
-will not work with this agent; the backend uses `/responses` for model requests.
+Hindsight memory, or tracing configured. The default backend uses `/responses` for model requests. Set the model
+configuration's `api_type: chat` for a Chat Completions endpoint.
 Inside a container, `localhost` refers to that container, so use a URL reachable
 from Docker for a model you host yourself.
 

@@ -12,3 +12,6 @@
 coverage.xml
 htmlcov/
 tests/
+
+runtime/target/
+runtime_tests/

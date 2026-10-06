@@ -2114,6 +2114,42 @@ async function startBlockedStreamTurn(chunks: string[] = []) {
 const TOKEN_CHANNEL = 'user:testuser:chat:conv-1:tokens';
 
 describe('chat/async streaming + finalize (characterization)', () => {
+  it('persists steering exactly once and carries it into the finalized conversation', async () => {
+    const commandId = '00000000-0000-4000-8000-000000000002';
+    const received = `event: steering\ndata: ${JSON.stringify({
+      command_id: commandId,
+      status: 'received',
+      instruction: 'Focus on storage.',
+    })}\n\n`;
+    const { store, jobId, statusKey } = await runStreamTurn([
+      received,
+      received,
+      `event: steering\ndata: ${JSON.stringify({
+        command_id: commandId,
+        status: 'applied',
+      })}\n\n`,
+      'event: message\ndata: {"choices":[{"delta":{"content":"Storage findings."}}]}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+    const request = store.get(`daedalus:async-job-request:${jobId}`);
+    expect(
+      request.messages.filter((message: any) => message.id === commandId),
+    ).toHaveLength(1);
+    expect(
+      request.messages.find((message: any) => message.id === commandId),
+    ).toMatchObject({
+      role: 'user',
+      content: 'Focus on storage.',
+      metadata: { steeringStatus: 'applied' },
+    });
+    expect(store.get(statusKey).status).toBe('completed');
+    expect(eventsOfType('steering_status').at(-1)).toMatchObject({
+      commandId,
+      status: 'applied',
+      instruction: 'Focus on storage.',
+    });
+  });
+
   it.each(['default', 'deep', 'deep_max', undefined])(
     'preserves profile %s through submission, stored job and backend forwarding',
     async (profile) => {

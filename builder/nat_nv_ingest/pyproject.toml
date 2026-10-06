@@ -6,7 +6,6 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "nat_nv_ingest"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   # NV-Ingest imports pymilvus.bulk_writer during pipeline construction, and
   # that module eagerly imports Azure's BlobServiceClient.
   "azure-storage-blob",
@@ -26,11 +25,8 @@ dependencies = [
   "urllib3>=2.7,<3",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Custom NeMo Agent Toolkit Workflow"
+description = "Custom Daedalus Workflow"
 classifiers = ["Programming Language :: Python"]
-
-[project.entry-points.'nat.components']
-nat_nv_ingest = "nat_nv_ingest.register"
 
 [tool.setuptools]
 packages = ["nat_nv_ingest"]

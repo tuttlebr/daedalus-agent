@@ -3,7 +3,8 @@ source =
     document_ingest_api
     entrypoint
     image_api
-    mcp_patches
+    daedalus_runtime
+    mcp_approval_api
     milvus_collection_migration
     profile_import_api
     agent_skills/src

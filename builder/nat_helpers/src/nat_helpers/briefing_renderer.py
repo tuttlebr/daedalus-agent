@@ -12,11 +12,12 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.agent_loop_guard import current_agent_run
 from nat_helpers.briefing_images import embed_article_photos
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
@@ -33,8 +34,8 @@ _RESOURCES = {
 }
 
 
-class BriefingRendererConfig(FunctionBaseConfig, name="briefing_renderer"):
-    sandbox_tool: FunctionRef = "llm_sandbox_tool"
+class BriefingRendererConfig(ToolConfig, name="briefing_renderer"):
+    sandbox_tool: str = "llm_sandbox_tool"
     skill_directory: str = "/skills/daily-summary"
     timeout_seconds: float = Field(default=60, ge=5, le=180)
     max_edition_bytes: int = Field(default=200_000, ge=10_000, le=1_000_000)
@@ -449,19 +450,21 @@ def _build_briefing_runner(config: BriefingRendererConfig, sandbox):
     return render
 
 
-@register_function(config_type=BriefingRendererConfig)
-async def briefing_renderer(config: BriefingRendererConfig, builder: Builder):
+@register_tool(config_type=BriefingRendererConfig)
+async def briefing_renderer(config: BriefingRendererConfig, builder: ToolRegistry):
     sandbox = await builder.get_function(config.sandbox_tool)
     input_schema = briefing_input_schema(config.skill_directory)
-    render = _build_briefing_runner(config, sandbox.acall_invoke)
 
-    # NAT compares the callable's input type with its schema by identity. Using
-    # the base class here makes NAT unwrap the edition field instead of passing
-    # the complete input model when a LangChain tool invokes it with a dict.
+    async def invoke_sandbox(**arguments):
+        return await sandbox.ainvoke(arguments)
+
+    render = _build_briefing_runner(config, invoke_sandbox)
+
+    # Preserve the exact validated input model, including the edition schema.
     async def render_edition(input_data: input_schema) -> str:
         return await render(input_data)
 
-    yield FunctionInfo.from_fn(
+    yield ToolDefinition.from_fn(
         render_edition,
         input_schema=input_schema,
         description=config.description,

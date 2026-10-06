@@ -9,6 +9,11 @@
  */
 import { isConfiguredUsername } from './utils/auth/config';
 
+import {
+  forwardSteeringCommand,
+  validateSteeringCommand,
+} from './server/chat/steering';
+import type { AsyncJobRequest } from './server/chat/types';
 import { positiveIntegerFromEnv } from './server/config/env';
 import { primeDns } from './server/session/dns-cache';
 import {
@@ -393,6 +398,7 @@ interface ClientConnection {
   releaseUserChannel: (() => void) | null;
   initialized: boolean;
   closed: boolean;
+  steeringInFlight: number;
 }
 
 // userId → Set<ClientConnection>
@@ -775,6 +781,7 @@ export async function initializeAuthenticatedConnection(
     releaseUserChannel: null,
     initialized: false,
     closed: false,
+    steeringInFlight: 0,
   };
 
   const resetTimeout = () => {
@@ -812,6 +819,53 @@ export async function initializeAuthenticatedConnection(
       const msg = JSON.parse(raw.toString());
 
       switch (msg.type) {
+        case 'steer_job': {
+          if (conn.steeringInFlight >= 4) {
+            sendToConnection(conn, {
+              type: 'steering_ack',
+              jobId: msg.jobId,
+              commandId: msg.commandId,
+              accepted: false,
+              message: 'Wait for the previous direction to be acknowledged',
+            });
+            break;
+          }
+          conn.steeringInFlight += 1;
+          try {
+            const command = validateSteeringCommand(msg);
+            const session = await dependencies.getSession(conn.sid);
+            if (!session || session.username !== conn.userId) {
+              closeSocketSafely(ws, 4003, 'Session expired');
+              return;
+            }
+            const job = await dependencies.getJobRequest(command.jobId);
+            await forwardSteeringCommand(
+              conn.userId,
+              command,
+              job as AsyncJobRequest | null,
+            );
+            sendToConnection(conn, {
+              type: 'steering_ack',
+              jobId: command.jobId,
+              commandId: command.commandId,
+              accepted: true,
+            });
+          } catch (error) {
+            sendToConnection(conn, {
+              type: 'steering_ack',
+              jobId: msg.jobId,
+              commandId: msg.commandId,
+              accepted: false,
+              message:
+                error instanceof Error && error.name !== 'TimeoutError'
+                  ? error.message
+                  : 'Steering delivery was not confirmed; retry this direction',
+            });
+          } finally {
+            conn.steeringInFlight -= 1;
+          }
+          break;
+        }
         case 'ping':
           conn.lastPing = Date.now();
           resetTimeout();

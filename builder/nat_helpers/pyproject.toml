@@ -7,28 +7,27 @@ name = "nat_helpers"
 dynamic = ["version"]
 dependencies = [
   "c2pa-python==0.37.10",
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "fastapi>=0.115,<1",
   "httpx>=0.28",
   "httpcore>=1.0,<2",
   "langchain-core>=1.4.0,<2.0.0",
   "langchain-openai>=1.3.5,<2.0.0",
-  "langgraph>=1.0.5,<2.0.0",
   "openai>=1.0",
+  "mcp>=1.26,<2",
+  "opentelemetry-sdk>=1.36,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.36,<2",
   "pydantic>=2,<2.14",
+  "pillow>=12.2,<13",
   "redis>=4.3.6,<6",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Shared helper library for NeMo Agent Toolkit functions"
+description = "Shared helper library for Daedalus functions"
 classifiers = ["Programming Language :: Python"]
 
 [project.optional-dependencies]
 # Tool packages already supply these; standalone helpers retain their caller's
 # converter when this optional HTML optimization is unavailable.
 html-conversion = ["markitdown>=0.1.6,<0.2", "charset-normalizer>=3,<4"]
-
-[project.entry-points.'nat.components']
-nat_helpers = "nat_helpers.register"
 
 [tool.setuptools]
 packages = ["nat_helpers"]

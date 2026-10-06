@@ -4,10 +4,12 @@ import json
 import logging
 import re
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.identity import authenticated_user_id_from_context
 from nat_helpers.tool_output_compaction import REFERENCE_PATTERN, ToolOutputStore
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 logger = logging.getLogger(__name__)
 
 
-class ToolOutputRetrieverConfig(FunctionBaseConfig, name="tool_output_retriever"):
+class ToolOutputRetrieverConfig(ToolConfig, name="tool_output_retriever"):
     """Configure bounded exact retrieval from the short-lived output cache."""
 
     description: str = Field(
@@ -173,14 +175,14 @@ def _build_retriever_runner(config: ToolOutputRetrieverConfig, store: ToolOutput
     return _arun
 
 
-@register_function(config_type=ToolOutputRetrieverConfig)
+@register_tool(config_type=ToolOutputRetrieverConfig)
 async def tool_output_retriever(
     config: ToolOutputRetrieverConfig,
-    _builder: Builder,
+    _builder: ToolRegistry,
 ):
     store = ToolOutputStore()
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             _build_retriever_runner(config, store),
             description=config.description,
             input_schema=ToolOutputRetrieverInput,

@@ -168,9 +168,7 @@ def test_only_successful_main_load_notifies_and_output_is_preserved(
 
 def test_skill_mappings_validate_against_dispatcher_catalog(tmp_path):
     skills = AgentSkillsConfig(skills_directory=str(tmp_path))
-    config = SimpleNamespace(
-        nat_tools=["skills"], skill_model_profiles={"typo": "default"}
-    )
+    config = SimpleNamespace(tools=["skills"], skill_model_profiles={"typo": "default"})
     builder = SimpleNamespace(get_function_config=lambda _: skills)
     with pytest.raises(ValueError, match="typo"):
         validate_skill_mappings(config, builder)

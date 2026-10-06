@@ -203,8 +203,10 @@ def current_agent_run() -> AgentRun | None:
 
 
 @contextmanager
-def agent_run_scope(settings: LoopGuardSettings | None = None):
-    run = AgentRun(settings=settings or LoopGuardSettings())
+def agent_run_scope(
+    settings: LoopGuardSettings | None = None, *, run: AgentRun | None = None
+):
+    run = run or AgentRun(settings=settings or LoopGuardSettings())
     token = _CURRENT_RUN.set(run)
     try:
         with approval_marker_scope():

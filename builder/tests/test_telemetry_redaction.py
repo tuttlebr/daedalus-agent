@@ -1,28 +1,18 @@
-"""Unit contract for credentials excluded from NAT request metadata."""
+"""Only bounded operational labels enter tool telemetry."""
 
-import sys
-import types
-
-from entrypoint import _patch_request_metadata_redaction
+from nat_helpers.phase_timing import PhaseTiming
 
 
-def test_request_attribute_serialization_drops_headers_and_cookies(monkeypatch):
-    class RequestAttributes:
-        def to_dict(self):
-            return {
-                "method": "POST",
-                "headers": {"authorization": "Bearer secret"},
-                "cookies": {"nat-session": "secret"},
-            }
-
-    nat = types.ModuleType("nat")
-    runtime = types.ModuleType("nat.runtime")
-    user_metadata = types.ModuleType("nat.runtime.user_metadata")
-    user_metadata.RequestAttributes = RequestAttributes
-    monkeypatch.setitem(sys.modules, "nat", nat)
-    monkeypatch.setitem(sys.modules, "nat.runtime", runtime)
-    monkeypatch.setitem(sys.modules, "nat.runtime.user_metadata", user_metadata)
-
-    _patch_request_metadata_redaction()
-
-    assert RequestAttributes().to_dict() == {"method": "POST"}
+def test_span_metadata_excludes_credentials_requests_and_content():
+    timer = PhaseTiming(
+        "tool",
+        {
+            "tool": "safe-tool",
+            "headers": {"authorization": "Bearer secret"},
+            "cookies": "secret",
+            "query": "private query",
+            "url": "https://host/?token=secret",
+            "duration_ms": 12.0,
+        },
+    )
+    assert timer.metadata == {"tool": "safe-tool", "duration_ms": 12.0}

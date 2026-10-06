@@ -1,124 +1,145 @@
-"""Tests for user-scoped Google Workspace authorization resets."""
+"""Saved-grant compatibility and isolated OAuth flows without a toolkit."""
 
 import asyncio
-import hashlib
-import sys
-import types
+import base64
+import json
+import time
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
-from nat_helpers import google_workspace_auth
-from nat_helpers.google_workspace_auth import (
-    google_workspace_token_key,
-    reset_google_workspace_authorization,
-)
+from daedalus_runtime.oauth import GoogleOAuth, decode_grant, token_key
+
+CONFIG = {
+    "server_url": "https://docsmcp.googleapis.com/mcp/v1",
+    "client_id": "fixture-client",
+    "client_secret": "fixture-secret",
+    "redirect_uri": "https://app.test/api/auth/redirect",
+    "scopes": ["https://www.googleapis.com/auth/drive"],
+}
 
 
-def run(coro):
-    return asyncio.run(coro)
+class Redis:
+    def __init__(self):
+        self.values = {}
+        self.locks = {}
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def set(self, key, value):
+        self.values[key] = value
+
+    async def delete(self, key):
+        return self.values.pop(key, None) is not None
+
+    def lock(self, key, **_kwargs):
+        return self.locks.setdefault(key, asyncio.Lock())
 
 
-class FakeHTTPException(Exception):
-    def __init__(self, status_code, detail):
-        self.status_code = status_code
-        self.detail = detail
-        super().__init__(detail)
-
-
-def test_token_key_is_service_isolated_and_user_hashed():
-    user_id = "opaque-nat-user-id"
-    user_hash = hashlib.sha256(user_id.encode()).hexdigest()
-
-    assert google_workspace_token_key("docs", user_id) == (
-        f"nat/object_store/docs-mcp-oauth-drive/tokens/{user_hash}"
-    )
-    assert google_workspace_token_key("calendar", user_id) != (
-        google_workspace_token_key("docs", user_id)
-    )
-    with pytest.raises(ValueError, match="Unknown Google Workspace service"):
-        google_workspace_token_key("unknown", user_id)
-
-
-def test_reset_deletes_token_and_evicts_idle_cached_workflow(monkeypatch):
-    deleted_keys = []
-
-    class FakeRedisClient:
-        async def delete(self, key):
-            deleted_keys.append(key)
-            return 1
-
-        async def aclose(self):
-            return None
-
-    class FakeRedis:
-        @staticmethod
-        def from_url(*_args, **_kwargs):
-            return FakeRedisClient()
-
-    redis_asyncio = types.ModuleType("redis.asyncio")
-    redis_asyncio.Redis = FakeRedis
-    monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio)
-    monkeypatch.setattr(
-        google_workspace_auth,
-        "_request_user_id",
-        lambda _request: "opaque-nat-user-id",
-    )
-    monkeypatch.setattr(
-        google_workspace_auth,
-        "redis_url_from_env",
-        lambda: "redis://unused",
-    )
-
-    class FakeBuilder:
-        exited = False
-
-        async def __aexit__(self, *_args):
-            self.exited = True
-
-    builder = FakeBuilder()
-    info = types.SimpleNamespace(builder=builder, ref_count=0)
-    manager = types.SimpleNamespace(
-        _is_workflow_per_user=True,
-        _per_user_builders_lock=asyncio.Lock(),
-        _per_user_builders={"opaque-nat-user-id": info},
-    )
-
-    result = run(reset_google_workspace_authorization("docs", object(), [manager]))
-
-    assert result == {
-        "service": "docs",
-        "authorizationCleared": True,
-        "savedTokenDeleted": True,
-        "cachedWorkflowsInvalidated": 1,
+def test_legacy_grants_are_decoded_without_changing_identity_or_losing_refresh_token():
+    legacy = {
+        "credentials": [{"token": "saved-access"}],
+        "raw": {"refresh_token": "saved-refresh", "scope": "drive"},
+        "token_expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
     }
-    assert deleted_keys == [google_workspace_token_key("docs", "opaque-nat-user-id")]
-    assert manager._per_user_builders == {}
-    assert builder.exited is True
-
-
-def test_reset_refuses_while_cached_workflow_is_active(monkeypatch):
-    monkeypatch.setattr(google_workspace_auth, "HTTPException", FakeHTTPException)
-    monkeypatch.setattr(
-        google_workspace_auth,
-        "_request_user_id",
-        lambda _request: "opaque-nat-user-id",
+    stored = json.dumps(
+        {"data": base64.urlsafe_b64encode(json.dumps(legacy).encode()).decode()}
     )
-    info = types.SimpleNamespace(builder=object(), ref_count=1)
-    manager = types.SimpleNamespace(
-        _is_workflow_per_user=True,
-        _per_user_builders_lock=asyncio.Lock(),
-        _per_user_builders={"opaque-nat-user-id": info},
+    grant = decode_grant(stored)
+    assert grant["access_token"] == "saved-access"
+    assert grant["refresh_token"] == "saved-refresh"
+    assert grant["expires_at"] > time.time()
+    assert token_key("docs", "alice") != token_key("docs", "bob")
+    assert token_key("docs", "alice") != token_key("gmail", "alice")
+    assert token_key("docs", "alice").startswith(
+        "nat/object_store/docs-mcp-oauth-drive/tokens/"
     )
 
-    with pytest.raises(FakeHTTPException) as exc_info:
-        run(reset_google_workspace_authorization("docs", object(), [manager]))
 
-    assert exc_info.value.status_code == 409
-    assert manager._per_user_builders["opaque-nat-user-id"] is info
+def test_refresh_preserves_grants_through_transient_failure():
+    async def run():
+        store = Redis()
+        key = token_key("docs", "alice")
+        responses = [
+            httpx.Response(
+                200, json={"access_token": "new-access", "expires_in": 3600}
+            ),
+            httpx.Response(503, json={"error": "temporarily_unavailable"}),
+        ]
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: responses.pop(0))
+        ) as http:
+            oauth = GoogleOAuth(store, http)
+            await store.set(
+                key,
+                json.dumps(
+                    {
+                        "version": 2,
+                        "access_token": "old",
+                        "refresh_token": "saved-refresh",
+                        "expires_at": 0,
+                    }
+                ),
+            )
+            assert await oauth.access_token("alice", CONFIG) == "new-access"
+            saved = decode_grant(await store.get(key))
+            assert saved["refresh_token"] == "saved-refresh"
+            await oauth.invalidate_access("alice", CONFIG, "old")
+            assert decode_grant(await store.get(key))["expires_at"] > time.time()
+            await oauth.invalidate_access("alice", CONFIG, "new-access")
+            before = await store.get(key)
+            with pytest.raises(RuntimeError, match="temporarily unavailable"):
+                await oauth.access_token("alice", CONFIG)
+            assert await store.get(key) == before
+
+    asyncio.run(run())
 
 
-def test_reset_rejects_unknown_service_before_touching_identity(monkeypatch):
-    monkeypatch.setattr(google_workspace_auth, "HTTPException", FakeHTTPException)
-    with pytest.raises(FakeHTTPException) as exc_info:
-        run(reset_google_workspace_authorization("drive", object(), []))
+def test_browser_authorizations_have_independent_one_use_states_and_pkce():
+    async def run():
+        store = Redis()
+        emitted = asyncio.Queue()
 
-    assert exc_info.value.status_code == 404
+        def token_response(request):
+            data = parse_qs(request.content.decode())
+            assert data["code_verifier"][0]
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "access-" + data["code"][0],
+                    "refresh_token": "refresh-" + data["code"][0],
+                    "expires_in": 3600,
+                },
+            )
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(token_response)
+        ) as http:
+            oauth = GoogleOAuth(store, http)
+
+            async def emit(event, data):
+                assert event == "oauth_required"
+                await emitted.put(data)
+
+            first = asyncio.create_task(oauth.access_token("alice", CONFIG, emit))
+            alice = await emitted.get()
+            second = asyncio.create_task(oauth.access_token("bob", CONFIG, emit))
+            bob = await emitted.get()
+            assert alice["oauth_state"] != bob["oauth_state"]
+            params = parse_qs(urlsplit(alice["auth_url"]).query)
+            assert params["access_type"] == ["offline"]
+            assert params["code_challenge_method"] == ["S256"]
+            assert params["include_granted_scopes"] == ["true"]
+            oauth.callback(bob["oauth_state"], "bob-code")
+            assert await second == "access-bob-code"
+            assert not first.done()
+            oauth.callback(alice["oauth_state"], "alice-code")
+            assert await first == "access-alice-code"
+            assert not oauth.pending
+            assert await oauth.reset("docs", "alice")
+            assert await store.get(token_key("docs", "alice")) is None
+            assert await store.get(token_key("docs", "bob")) is not None
+
+    asyncio.run(run())

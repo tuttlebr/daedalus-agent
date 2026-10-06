@@ -6,7 +6,6 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "rss_feed"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "nat_helpers",
   "fastfeedparser>=0.5.10,<0.6",
   "httpx>=0.28",
@@ -16,11 +15,8 @@ dependencies = [
   "tiktoken>=0.5.0",
 ]
 requires-python = ">=3.11,<3.14"
-description = "RSS Feed function for NeMo Agent Toolkit with reranking support"
+description = "RSS Feed function for Daedalus with reranking support"
 classifiers = ["Programming Language :: Python"]
-
-[project.entry-points.'nat.components']
-rss_feed = "rss_feed.register"
 
 [tool.setuptools]
 packages = ["rss_feed"]

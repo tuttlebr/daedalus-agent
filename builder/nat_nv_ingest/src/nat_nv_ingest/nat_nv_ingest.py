@@ -13,11 +13,13 @@ from typing import Any, Literal, TypedDict
 
 import redis
 import urllib3
-from nat.builder.builder import Builder
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    LLMFramework,
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.identity import (
     execution_id_from_context_or_none,
     resolve_authenticated_user_id,
@@ -632,7 +634,7 @@ def format_user_document_search_results(output: object, collection_name: str) ->
     return "\n".join(parts)
 
 
-class NvIngestFunctionConfig(FunctionBaseConfig, name="nat_nv_ingest"):
+class NvIngestFunctionConfig(ToolConfig, name="nat_nv_ingest"):
     """Configuration for NvIngest document processing function."""
 
     description: str | None = None
@@ -2522,12 +2524,10 @@ class NvIngestDocumentProcessor:
 # --- Registration ------------------------------------------------------------
 
 
-@register_function(
-    config_type=NvIngestFunctionConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN]
-)
+@register_tool(config_type=NvIngestFunctionConfig)
 async def nv_ingest_function(
     config: NvIngestFunctionConfig,
-    builder: Builder,
+    builder: ToolRegistry,
 ):
     """Registers a document processing function using NvIngest.
 
@@ -2562,7 +2562,7 @@ async def nv_ingest_function(
 
                     embedder = await builder.get_embedder(
                         embedder_name=config.embedder_name,
-                        wrapper_type=LLMFrameworkEnum.LANGCHAIN,
+                        wrapper_type=LLMFramework.LANGCHAIN,
                     )
                     milvus_client = _retrieval_client_cache.get("milvus")
                     if milvus_client is None:
@@ -3018,7 +3018,7 @@ async def nv_ingest_function(
         raise AssertionError("validated operation was not handled")
 
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             user_document_tool,
             description=config.description
             or (

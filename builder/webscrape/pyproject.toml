@@ -6,7 +6,6 @@ requires = ["setuptools>=64.0.0", "wheel"]
 name = "webscrape"
 dynamic = ["version"]
 dependencies = [
-  "nvidia-nat[mcp,langchain,phoenix]==1.9.0",
   "nat_helpers",
   "httpx>=0.28",
   "markitdown[all]",
@@ -14,13 +13,10 @@ dependencies = [
   "tiktoken>=0.5.0",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Custom NeMo Agent Toolkit Workflow"
+description = "Custom Daedalus Workflow"
 classifiers = ["Programming Language :: Python"]
 
 
-
-[project.entry-points.'nat.components']
-webscrape = "webscrape.register"
 
 [tool.setuptools]
 packages = ["webscrape"]

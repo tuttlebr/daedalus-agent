@@ -1,5 +1,10 @@
 # Frozen routing workload
 
+This is historical evidence from the NeMo runtime. Reproduce these published
+results using the original image recorded in `provenance.json` and the archived
+runner in `legacy/`. It is not a benchmark of the current Rust runtime. Use
+`builder/runtime_http_check.py` for current runtime integration checks.
+
 Frozen before candidate comparison on 2026-09-16: 24 synthetic tasks covering
 routine lookups, daily-summary selection, fantasy finality and score arithmetic,
 infrastructure diagnosis, synthesis, reasoning and one image input. Each task
@@ -66,10 +71,10 @@ results after every completed sample:
 mkdir -p /tmp/routing-results
 docker run --rm --network host --entrypoint python \
   --user "$(id -u):$(id -g)" -e OPENAI_API_KEY \
-  -v "$PWD/scripts/evaluate_model_routing.py:/evaluation_runner.py:ro" \
+  -v "$PWD/evaluation/model-routing/legacy/evaluate_model_routing.py:/evaluation_runner.py:ro" \
   -v "$PWD/evaluation/model-routing:/evaluation:ro" \
   -v /tmp/routing-results:/results \
-  YOUR_BACKEND_IMAGE /evaluation_runner.py \
+  ORIGINAL_NEMO_BACKEND_IMAGE /evaluation_runner.py \
   --fixtures /evaluation \
   --baseline-url http://127.0.0.1:14000/v1 \
   --proposed-url http://127.0.0.1:14001/v1 \

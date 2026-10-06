@@ -3,13 +3,16 @@
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Literal
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
@@ -33,7 +36,7 @@ NVIDIA_DOCS_ENDPOINTS: dict[str, str] = {
 }
 
 
-class NvidiaDocsConfig(FunctionBaseConfig, name="nvidia_docs"):
+class NvidiaDocsConfig(ToolConfig, name="nvidia_docs"):
     """Configure the routed NVIDIA documentation search."""
 
     description: str = Field(
@@ -56,16 +59,23 @@ class NvidiaDocsInput(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
 
 
-def _build_mcp_client(endpoint: str, timeout: float):
-    from nat.plugins.mcp.client.client_base import MCPStreamableHTTPClient
+@asynccontextmanager
+async def _build_mcp_client(endpoint: str, timeout: float):
+    import httpx
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
 
-    call_timeout = timedelta(seconds=timeout)
-    return MCPStreamableHTTPClient(
-        endpoint,
-        tool_call_timeout=call_timeout,
-        auth_flow_timeout=call_timeout,
-        reconnect_enabled=False,
-    )
+    async with httpx.AsyncClient(timeout=timeout) as http:
+        async with streamable_http_client(endpoint, http_client=http) as (
+            read,
+            write,
+            _,
+        ):
+            async with ClientSession(
+                read, write, read_timeout_seconds=timedelta(seconds=timeout)
+            ) as session:
+                await session.initialize()
+                yield session
 
 
 def _result_payload(result) -> dict:
@@ -126,9 +136,7 @@ async def search_nvidia_docs(
 
 
 def _build_docs_runner(timeout: float):
-    # NAT reflects this callable while generating its streaming adapter.
-    # Keep these as concrete runtime annotations; postponed annotations turn
-    # NvidiaDocsInput into an unresolved forward reference in that adapter.
+    # Preserve the concrete typed input for schema generation and invocation.
     async def _arun(input_data: NvidiaDocsInput) -> str:
         return await search_nvidia_docs(
             input_data.product,
@@ -139,9 +147,9 @@ def _build_docs_runner(timeout: float):
     return _arun
 
 
-@register_function(config_type=NvidiaDocsConfig)
-async def nvidia_docs(config: NvidiaDocsConfig, _builder: Builder):
-    yield FunctionInfo.from_fn(
+@register_tool(config_type=NvidiaDocsConfig)
+async def nvidia_docs(config: NvidiaDocsConfig, _builder: ToolRegistry):
+    yield ToolDefinition.from_fn(
         _build_docs_runner(config.timeout),
         description=config.description,
         input_schema=NvidiaDocsInput,

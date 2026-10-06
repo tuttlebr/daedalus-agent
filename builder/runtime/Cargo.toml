@@ -1,0 +1,28 @@
+[package]
+name = "daedalus-runtime"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+bytes = "1"
+futures = "0.3"
+http = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
+rig-core = { version = "=0.43.0", default-features = false, features = ["reqwest", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[profile.release]
+lto = "thin"
+strip = true

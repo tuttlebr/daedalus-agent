@@ -1,7 +1,6 @@
 """Tests for Daedalus memory wrappers with authenticated identity."""
 
 import asyncio
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -97,76 +96,37 @@ def test_resolve_authenticated_user_rejects_legacy_identity_mismatch(monkeypatch
         identity.resolve_authenticated_user_id("mallory")
 
 
-def test_context_fallback_is_used_only_when_request_headers_are_absent(monkeypatch):
+def test_context_fallback_is_used_only_when_request_headers_are_absent():
     import nat_helpers.identity as identity
 
-    class _NoRequestContext:
-        @staticmethod
-        def get():
-            return SimpleNamespace(metadata=SimpleNamespace(headers=None))
-
-    monkeypatch.setitem(
-        sys.modules,
-        "nat.builder.context",
-        SimpleNamespace(Context=_NoRequestContext),
-    )
-
-    assert identity.resolve_authenticated_user_id("direct-test-user") == (
-        "direct-test-user"
+    assert (
+        identity.resolve_authenticated_user_id("direct-test-user") == "direct-test-user"
     )
 
 
-def test_execution_scope_distinguishes_direct_chat_and_autonomy(monkeypatch):
+def test_execution_scope_distinguishes_direct_chat_and_autonomy():
     import nat_helpers.identity as identity
 
-    class _Context:
-        metadata = SimpleNamespace(headers=None)
-
-        @staticmethod
-        def get():
-            return _Context
-
-    monkeypatch.setitem(
-        sys.modules,
-        "nat.builder.context",
-        SimpleNamespace(Context=_Context),
-    )
     assert identity.execution_scope_from_context_or_none() is None
+    with identity.authenticated_request_headers_scope(
+        {"x-daedalus-execution-scope": "Autonomy"}
+    ):
+        assert identity.execution_scope_from_context_or_none() == "autonomy"
+    with identity.authenticated_request_headers_scope({"x-user-id": "alice"}):
+        assert identity.execution_scope_from_context_or_none() == ""
 
-    _Context.metadata.headers = {"x-daedalus-execution-scope": "Autonomy"}
-    assert identity.execution_scope_from_context_or_none() == "autonomy"
 
-    _Context.metadata.headers = {"x-user-id": "alice"}
-    assert identity.execution_scope_from_context_or_none() == ""
-
-
-def test_execution_id_is_available_only_in_autonomy_scope(monkeypatch):
+def test_execution_id_is_available_only_in_autonomy_scope():
     import nat_helpers.identity as identity
 
-    class _Context:
-        metadata = SimpleNamespace(headers=None)
-
-        @staticmethod
-        def get():
-            return _Context
-
-    monkeypatch.setitem(
-        sys.modules,
-        "nat.builder.context",
-        SimpleNamespace(Context=_Context),
-    )
-
-    _Context.metadata.headers = {
-        "x-daedalus-execution-scope": "interactive",
-        "x-daedalus-execution-id": "request-1",
-    }
-    assert identity.execution_id_from_context_or_none() is None
-
-    _Context.metadata.headers = {
-        "x-daedalus-execution-scope": "autonomy",
-        "x-daedalus-execution-id": "request-1",
-    }
-    assert identity.execution_id_from_context_or_none() == "request-1"
+    for scope, expected in [("interactive", None), ("autonomy", "request-1")]:
+        with identity.authenticated_request_headers_scope(
+            {
+                "x-daedalus-execution-scope": scope,
+                "x-daedalus-execution-id": "request-1",
+            }
+        ):
+            assert identity.execution_id_from_context_or_none() == expected
 
 
 def test_add_memory_uses_authenticated_user_not_llm_supplied_user_id(monkeypatch):

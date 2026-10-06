@@ -32,12 +32,13 @@ from typing import Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
-from nat.builder.builder import Builder
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from daedalus_runtime.tools import (
+    LLMFramework,
+    ToolConfig,
+    ToolDefinition,
+    ToolRegistry,
+    register_tool,
+)
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import BaseModel, ConfigDict, Field
 from source_verifier.critic import CriticResponseError, LLMClaimCritic
@@ -325,10 +326,10 @@ class VerificationLLMError(RuntimeError):
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-class SourceVerifierConfig(FunctionBaseConfig, name="source_verifier"):
+class SourceVerifierConfig(ToolConfig, name="source_verifier"):
     """Configuration for the source_verifier function."""
 
-    llm_name: LLMRef = Field(
+    llm_name: str = Field(
         default="verifier_llm",
         description=(
             "Provider-neutral reference to the LLM used as the claim critic. "
@@ -375,7 +376,7 @@ class SourceVerifierConfig(FunctionBaseConfig, name="source_verifier"):
 # Provider-neutral NeMo Agent Toolkit LLM adapter
 # ---------------------------------------------------------------------------
 async def _call_llm(
-    builder: Builder,
+    builder: ToolRegistry,
     config: SourceVerifierConfig,
     system_prompt: str,
     user_prompt: str,
@@ -384,7 +385,7 @@ async def _call_llm(
     try:
         llm = await builder.get_llm(
             config.llm_name,
-            wrapper_type=LLMFrameworkEnum.LANGCHAIN,
+            wrapper_type=LLMFramework.LANGCHAIN,
         )
         from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -874,11 +875,10 @@ def _renumber_markdown_citations(
 # ---------------------------------------------------------------------------
 # Registered function
 # ---------------------------------------------------------------------------
-@register_function(
+@register_tool(
     config_type=SourceVerifierConfig,
-    framework_wrappers=[LLMFrameworkEnum.LANGCHAIN],
 )
-async def source_verifier_function(config: SourceVerifierConfig, builder: Builder):
+async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRegistry):
     enabled = set(
         _ALL_OPERATIONS
         if config.enabled_operations is None
@@ -1400,7 +1400,7 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: Builde
         )
 
     try:
-        yield FunctionInfo.from_fn(
+        yield ToolDefinition.from_fn(
             source_verifier,
             input_schema=SourceVerifierInput,
             description=config.description,

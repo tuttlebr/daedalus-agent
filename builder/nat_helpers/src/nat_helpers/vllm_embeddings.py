@@ -6,15 +6,7 @@ import asyncio
 from typing import Any, Literal
 
 import httpx
-from nat.builder.embedder import EmbedderProviderInfo
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.cli.register_workflow import (
-    register_embedder_client,
-    register_embedder_provider,
-)
-from nat.data_models.common import get_secret_value
-from nat.data_models.embedder import EmbedderBaseConfig
-from pydantic import AliasChoices, ConfigDict, Field, SecretStr
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SecretStr
 
 EmbeddingRole = Literal["query", "document"]
 
@@ -159,8 +151,7 @@ class DaedalusVLLMEmbeddings:
 
 
 class DaedalusVLLMEmbedderConfig(
-    EmbedderBaseConfig,
-    name="daedalus_vllm",
+    BaseModel,
 ):
     """Configuration for the role-aware vLLM embeddings provider."""
 
@@ -184,27 +175,9 @@ class DaedalusVLLMEmbedderConfig(
     verify_ssl: bool = True
 
 
-@register_embedder_provider(config_type=DaedalusVLLMEmbedderConfig)
-async def daedalus_vllm_embedder_provider(
-    config: DaedalusVLLMEmbedderConfig,
-    _builder: Any,
-):
-    yield EmbedderProviderInfo(
-        config=config,
-        description="Role-aware vLLM embeddings provider for retrieval models.",
-    )
-
-
-@register_embedder_client(
-    config_type=DaedalusVLLMEmbedderConfig,
-    wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-)
-async def daedalus_vllm_langchain_client(
-    config: DaedalusVLLMEmbedderConfig,
-    _builder: Any,
-):
-    client = DaedalusVLLMEmbeddings(
-        api_key=get_secret_value(config.api_key),
+def create_embeddings(config: DaedalusVLLMEmbedderConfig) -> DaedalusVLLMEmbeddings:
+    return DaedalusVLLMEmbeddings(
+        api_key=config.api_key.get_secret_value() if config.api_key else None,
         base_url=config.base_url,
         model=config.model_name,
         timeout_seconds=config.timeout_seconds,
@@ -212,7 +185,3 @@ async def daedalus_vllm_langchain_client(
         max_concurrency=config.max_concurrency,
         verify_ssl=config.verify_ssl,
     )
-    try:
-        yield client
-    finally:
-        await client.aclose()

@@ -470,7 +470,6 @@ class TestConfirmAction:
     def test_interactive_chat_creates_exact_mcp_mutation_intent(self):
         async def _run():
             fake_redis = FakeRedis()
-            import sys
             from types import SimpleNamespace
 
             import user_interaction.user_interaction_function as mod
@@ -494,9 +493,11 @@ class TestConfirmAction:
                     "_authenticated_user_or_fallback",
                     return_value="brandon",
                 ),
-                patch.dict(
-                    sys.modules,
-                    {"nat.builder.context": SimpleNamespace(Context=_ChatContext)},
+                __import__(
+                    "nat_helpers.identity",
+                    fromlist=["authenticated_request_headers_scope"],
+                ).authenticated_request_headers_scope(
+                    {"x-user-id": "brandon", "x-daedalus-execution-scope": ""}
                 ),
             ):
                 items = await _get_tools()
@@ -520,7 +521,6 @@ class TestConfirmAction:
     def test_autonomy_cannot_create_mcp_mutation_intent(self):
         async def _run():
             fake_redis = FakeRedis()
-            import sys
             from types import SimpleNamespace
 
             import user_interaction.user_interaction_function as mod
@@ -544,9 +544,11 @@ class TestConfirmAction:
                     "_authenticated_user_or_fallback",
                     return_value="brandon",
                 ),
-                patch.dict(
-                    sys.modules,
-                    {"nat.builder.context": SimpleNamespace(Context=_AutonomyContext)},
+                __import__(
+                    "nat_helpers.identity",
+                    fromlist=["authenticated_request_headers_scope"],
+                ).authenticated_request_headers_scope(
+                    {"x-user-id": "brandon", "x-daedalus-execution-scope": "autonomy"}
                 ),
             ):
                 items = await _get_tools()

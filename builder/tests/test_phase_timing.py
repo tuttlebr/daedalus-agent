@@ -3,7 +3,6 @@
 import asyncio
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 from nat_helpers.phase_timing import phase_timing
@@ -13,25 +12,28 @@ from nat_helpers.phase_timing import phase_timing
 def phase_events(monkeypatch):
     events = []
     clock = [10.0]
-    manager = SimpleNamespace(push_intermediate_step=events.append)
-    context = MagicMock()
-    context.get.return_value.intermediate_step_manager = manager
-    monkeypatch.setitem(
-        sys.modules, "nat.builder.context", SimpleNamespace(Context=context)
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "nat.data_models.intermediate_step",
-        SimpleNamespace(
-            IntermediateStepPayload=lambda **kwargs: SimpleNamespace(
-                **({"UUID": "fixture-span"} | kwargs)
-            ),
-            IntermediateStepType=SimpleNamespace(
-                CUSTOM_START="start", CUSTOM_END="end"
-            ),
-            StreamEventData=lambda **kwargs: SimpleNamespace(**kwargs),
-        ),
-    )
+    span = SimpleNamespace(attributes={})
+
+    def finish():
+        events.append(
+            SimpleNamespace(
+                event_type="end", UUID="fixture-span", metadata=dict(span.attributes)
+            )
+        )
+
+    span.set_attributes = span.attributes.update
+    span.end = finish
+
+    def start(name, attributes):
+        events.append(
+            SimpleNamespace(
+                event_type="start", UUID="fixture-span", metadata=dict(attributes)
+            )
+        )
+        return span
+
+    trace = SimpleNamespace(get_tracer=lambda _: SimpleNamespace(start_span=start))
+    monkeypatch.setitem(sys.modules, "opentelemetry", SimpleNamespace(trace=trace))
     monkeypatch.setattr("nat_helpers.phase_timing.time.perf_counter", lambda: clock[0])
     return events, clock
 
@@ -87,7 +89,7 @@ def test_failure_and_cancellation_close_span_and_propagate(
 
 
 def test_broken_tracing_does_not_break_the_operation(phase_events, monkeypatch):
-    monkeypatch.setitem(sys.modules, "nat.builder.context", None)
+    monkeypatch.setitem(sys.modules, "opentelemetry", None)
     with phase_timing("daedalus.fixture.fetch"):
         result = "completed"
     assert result == "completed"
