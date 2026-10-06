@@ -29,7 +29,7 @@ import {
   debugReplayLog,
 } from './debugReplay';
 import { finalizeError, finalizeSuccess } from './finalization';
-import { clearOAuthStatusFields, updateJobStatus } from './jobState';
+import { abortKey, clearOAuthStatusFields, updateJobStatus } from './jobState';
 import { validateModelProfile } from './modelProfile';
 import { buildNatRequestHeaders } from './natMessages';
 import { sanitizeSandboxArtifactStep } from './sandboxArtifacts';
@@ -848,7 +848,14 @@ export async function startBackgroundStreamReader(
         throw abortReason(control.signal);
       }
     } else {
-      logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
+      // The direct backend cancel can close SSE before the worker's Redis
+      // polling timer fires. Keep that outcome a user stop, not a backend error.
+      const cancelled = Boolean(
+        await jsonGet(abortKey(jobId)).catch(() => false),
+      );
+      if (cancelled)
+        logger.info(`Job ${jobId}: Backend acknowledged cancellation`);
+      else logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
       // A tool result is intermediate data, not an assistant answer. Preserve
       // any actual content tokens, but never promote lastToolOutput when the
       // backend reports an error.
@@ -856,7 +863,9 @@ export async function startBackgroundStreamReader(
       await finalizeError(
         jobId,
         jobRequest,
-        err.message || 'Backend stream reader failed',
+        cancelled
+          ? 'Job canceled by user'
+          : err.message || 'Backend stream reader failed',
         {
           response: partialResponse,
           pendingSteps,

@@ -15,7 +15,7 @@ import classNames from 'classnames';
 
 interface ImagesDockProps {
   onSubmit: () => void;
-  /** Stop waiting on the in-flight generation and unlock the panel */
+  /** Cancel the in-flight generation */
   onStop?: () => void;
 }
 
@@ -241,8 +241,8 @@ function StopButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      aria-label="Stop waiting for this generation"
-      title="Stop waiting (the panel unlocks; the job keeps running server-side)"
+      aria-label="Stop image generation"
+      title="Stop image generation"
       className={classNames(
         'inline-flex h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold touch-manipulation',
         'bg-nvidia-red/15 text-nvidia-red border border-nvidia-red/30',

@@ -119,6 +119,65 @@ describe('/api/images/jobs', () => {
     vi.stubGlobal('fetch', mocks.fetch);
   });
 
+  it('honors Stop before POST and scopes the submission to its owner', async () => {
+    const submissionId = '00000000-0000-4000-8000-000000000001';
+    const stop = createMockReqRes('DELETE', {}, { submissionId });
+    await handler(stop.req, stop.res);
+    expect(stop.res.json).toHaveBeenCalledWith({
+      cancelled: true,
+      status: 'cancelled',
+    });
+    const start = createMockReqRes('POST', { prompt: 'fixture', submissionId });
+    await handler(start.req, start.res);
+    expect(start.res.json.mock.calls[0][0].status).toBe('cancelled');
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(
+      [...mocks.store.keys()].some((key) => key.startsWith('image-job:')),
+    ).toBe(false);
+  });
+
+  it.each(['generate', 'edit'])(
+    'stops a running %s job, aborts HTTP, and rejects late completion',
+    async (mode) => {
+      let signal: AbortSignal;
+      let finish!: (response: Response) => void;
+      mocks.fetch.mockImplementation((_url, options) => {
+        signal = options.signal;
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      });
+      const start = createMockReqRes('POST', {
+        prompt: 'fixture',
+        mode,
+        imageRefs: [{ imageId: 'input', sessionId: 'session-1' }],
+      });
+      await handler(start.req, start.res);
+      const jobId = start.res.json.mock.calls[0][0].jobId;
+      await drainUntil(() => Boolean(finish));
+      mocks.requireAuthenticatedUser.mockResolvedValueOnce({ username: 'bob' });
+      const foreign = createMockReqRes('DELETE', {}, { jobId });
+      await handler(foreign.req, foreign.res);
+      expect(foreign.res.status).toHaveBeenCalledWith(404);
+      expect(signal!.aborted).toBe(false);
+      const stop = createMockReqRes('DELETE', {}, { jobId });
+      await handler(stop.req, stop.res);
+      expect(stop.res.json.mock.calls[0][0].cancelled).toBe(true);
+      await vi.waitFor(() => expect(signal!.aborted).toBe(true), {
+        timeout: 1500,
+      });
+      finish(
+        new Response(JSON.stringify({ imageIds: ['late'] }), { status: 200 }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(mocks.store.get(`image-job:${jobId}`).status).toBe('cancelled');
+      expect(mocks.store.has('user:alice:imagePanelHistory')).toBe(false);
+      const retry = createMockReqRes('DELETE', {}, { jobId });
+      await handler(retry.req, retry.res);
+      expect(retry.res.json.mock.calls[0][0].cancelled).toBe(true);
+    },
+  );
+
   it('releases admission capacity when legacy jobs are interrupted', async () => {
     for (const id of ['stale-one', 'stale-two']) {
       mocks.store.set(`image-job:${id}`, {

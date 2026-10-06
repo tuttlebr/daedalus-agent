@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import select
 import shutil
 import socket
 import subprocess  # nosec B404 - disposable local fixture, explicit argv
@@ -34,6 +35,9 @@ class Peers:
         self.tool_waiting = threading.Event()
         self.release_model = threading.Event()
         self.release_tool = threading.Event()
+        self.tool_disconnected = threading.Event()
+        self.image_waiting = threading.Event()
+        self.image_disconnected = threading.Event()
 
     def handler(self):
         peers = self
@@ -70,10 +74,37 @@ class Peers:
                 self.wfile.write(("data: " + json.dumps(value) + "\n\n").encode())
                 self.wfile.flush()
 
+            def wait_for_disconnect(self, closed, release=None):
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    if release and release.is_set():
+                        return False
+                    readable, _, _ = select.select([self.connection], [], [], 0.05)
+                    if readable:
+                        try:
+                            disconnected = not self.connection.recv(1, socket.MSG_PEEK)
+                        except ConnectionResetError:
+                            disconnected = True
+                        if disconnected:
+                            closed.set()
+                            self.close_connection = True
+                            return True
+                return False
+
             def do_POST(self):
                 body = json.loads(
                     self.rfile.read(int(self.headers.get("Content-Length", 0)))
                 )
+                if self.path == "/v1/images/generations":
+                    if body.get("stream"):
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/event-stream")
+                        self.end_headers()
+                        self.wfile.write(b": image provider waiting\n\n")
+                        self.wfile.flush()
+                    peers.image_waiting.set()
+                    self.wait_for_disconnect(peers.image_disconnected)
+                    return
                 if self.path == "/mcp":
                     method = body["method"]
                     if "id" not in body:
@@ -105,7 +136,10 @@ class Peers:
                         peers.calls.append(name)
                         if name == "slow_read":
                             peers.tool_waiting.set()
-                            peers.release_tool.wait(15)
+                            if self.wait_for_disconnect(
+                                peers.tool_disconnected, peers.release_tool
+                            ):
+                                return
                         result = {
                             "content": [{"type": "text", "text": "RETAINED_EVIDENCE"}],
                             "isError": False,
@@ -513,6 +547,10 @@ def check(image=None, binary=None, redis_image=None):
             "DAEDALUS_PORT": str(runtime_port),
             "DAEDALUS_TOOLS_PORT": str(tools_port),
             "REDIS_URL": "redis://127.0.0.1:1",
+            "IMAGE_GENERATION_API_KEY": "PRIVATE_IMAGE_CREDENTIAL",
+            "IMAGE_GENERATION_MODEL": "gpt-image-2.5-sunburst",
+            "IMAGE_GENERATION_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
+            "C2PA_SIGNING_MODE": "off",
         }
         log = (root / "runtime.log").open("w+")
         try:
@@ -799,6 +837,62 @@ def check(image=None, binary=None, redis_image=None):
                     assert "The real datetime tool completed" in chat(  # nosec B101 - executable contract check
                         "BASIC", "cancel-run"
                     )
+                    # Stop must cancel the in-flight MCP transport and discard
+                    # queued tools, rather than just abandoning the UI stream.
+                    peers.release_tool.clear()
+                    peers.tool_waiting.clear()
+                    peers.tool_disconnected.clear()
+                    peers.calls.clear()
+                    cancelled = pool.submit(chat, "TOOL_STEER", "cancel-tool-run")
+                    assert peers.tool_waiting.wait(15)  # nosec B101 - executable contract check
+                    response = client.post(
+                        base + "/v1/runs/cancel-tool-run/control",
+                        headers=headers,
+                        json={"type": "cancel", "command_id": str(uuid.uuid4())},
+                    )
+                    assert response.is_success  # nosec B101 - executable contract check
+                    assert "Run cancelled by user" in cancelled.result(timeout=5)  # nosec B101 - executable contract check
+                    assert peers.tool_disconnected.wait(5), "MCP request survived Stop"  # nosec B101 - executable contract check
+                    assert peers.calls == ["slow_read"], peers.calls  # nosec B101 - executable contract check
+                    peers.release_tool.set()
+                    # Create travels through the Rust HTTP proxy to the real
+                    # Python route and SDK. Cover silent streams and requests
+                    # still waiting for headers (including batches).
+                    for stream, count in ((True, 1), (False, 2)):
+                        peers.image_waiting.clear()
+                        peers.image_disconnected.clear()
+                        body = json.dumps(
+                            {
+                                "prompt": "fixture",
+                                "guidance": "exact",
+                                "stream": stream,
+                                "n": count,
+                            }
+                        ).encode()
+                        with socket.create_connection(
+                            ("127.0.0.1", runtime_port), timeout=5
+                        ) as connection:
+                            raw_headers = {
+                                **headers,
+                                "Host": f"127.0.0.1:{runtime_port}",
+                                "Content-Type": "application/json",
+                                "Content-Length": str(len(body)),
+                            }
+                            request = (
+                                "POST /v1/images/generate HTTP/1.1\r\n"
+                                + "".join(
+                                    f"{name}: {value}\r\n"
+                                    for name, value in raw_headers.items()
+                                )
+                                + "\r\n"
+                            )
+                            connection.sendall(request.encode() + body)
+                            assert peers.image_waiting.wait(
+                                10
+                            ), "Image provider was not reached"  # nosec B101 - executable contract check
+                        assert peers.image_disconnected.wait(
+                            5
+                        ), f"Image request survived disconnect: stream={stream}"  # nosec B101 - executable contract check
                     if redis_image:
                         peers.release_tool.clear()
                         peers.tool_waiting.clear()

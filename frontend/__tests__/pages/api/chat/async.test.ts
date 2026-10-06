@@ -1838,6 +1838,15 @@ function wireRedisStore(initial: Record<string, any> = {}) {
   });
   mocks.redisEval.mockImplementation(async (...args: any[]) => {
     const script = args[0] as string;
+    if (script.includes("local reply = redis.call('TYPE'")) {
+      const current = store.get(args[2]);
+      const kind = current === undefined ? 'none' : 'string';
+      const raw = current === undefined ? '' : JSON.stringify(current);
+      if (script.includes('return {kind, raw}')) return [kind, raw];
+      if (kind !== args[3] || raw !== args[4]) return 0;
+      store.set(args[2], JSON.parse(args[5]));
+      return 1;
+    }
     if (script.includes('INCREMENT_EXPIRING_COUNTER')) return [1, 60];
     if (script.includes('READ_OWNED_CONVERSATION')) {
       const value = store.get(args[2]);
@@ -2114,6 +2123,72 @@ async function startBlockedStreamTurn(chunks: string[] = []) {
 const TOKEN_CHANNEL = 'user:testuser:chat:conv-1:tokens';
 
 describe('chat/async streaming + finalize (characterization)', () => {
+  it('persists Stop before POST arrives without scheduling a model request', async () => {
+    const store = wireRedisStore();
+    const submissionId = '00000000-0000-4000-8000-000000000011';
+    const stop = makeRes();
+    await handler({ method: 'DELETE', query: { submissionId } } as any, stop);
+    expect(stop.json).toHaveBeenCalledWith({ success: true, canceled: true });
+    const start = makeRes();
+    await handler(
+      {
+        method: 'POST',
+        headers: {},
+        body: {
+          submissionId,
+          messages: [{ role: 'user', content: 'fixture' }],
+        },
+      } as any,
+      start,
+    );
+    expect(start.json.mock.calls[0][0].status).toBe('cancelled');
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+    expect(
+      [...store.keys()].some((key) => key.includes('async-job-request')),
+    ).toBe(false);
+  });
+
+  it('records a worker abort when Stop arrives before POST has stored the job', async () => {
+    const submissionId = '00000000-0000-4000-8000-000000000012';
+    const store = wireRedisStore({
+      [`daedalus:job-submission:chat:testuser:${submissionId}`]: {
+        jobId: 'initializing',
+        cancelled: false,
+      },
+    });
+    const stop = makeRes();
+    await handler({ method: 'DELETE', query: { submissionId } } as any, stop);
+    expect(stop.json).toHaveBeenCalledWith({ success: true, canceled: true });
+    expect(store.get('daedalus:async-job-abort:initializing')).toBe(true);
+  });
+
+  it('preserves buffered output when backend Stop arrives before the worker abort timer', async () => {
+    let store!: Map<string, any>;
+    const result = await runStreamTurn([], {
+      configureStore: (value) => {
+        store = value;
+      },
+      fetchImpl: async () => {
+        const job = [...store.values()].find(
+          (value) => value?.executionMode === 'stream',
+        );
+        store.set(`daedalus:async-job-abort:${job.jobId}`, true);
+        return makeSseResponse([
+          'data: {"choices":[{"delta":{"content":"Preserved output."}}]}\n\n',
+          'event: error\ndata: {"error":{"message":"Run cancelled by user"}}\n\n',
+        ]);
+      },
+    });
+    expect(result.store.get(result.statusKey)).toMatchObject({
+      status: 'error',
+      error: 'Job canceled by user',
+      partialResponse: 'Preserved output.',
+    });
+    expect(result.store.get(result.statusKey).finalizedAt).toEqual(
+      expect.any(Number),
+    );
+  });
+
   it('persists steering exactly once and carries it into the finalized conversation', async () => {
     const commandId = '00000000-0000-4000-8000-000000000002';
     const received = `event: steering\ndata: ${JSON.stringify({

@@ -10,7 +10,7 @@ const processOwner = randomUUID();
 export interface RecoverableImageJob {
   jobId: string;
   userId: string;
-  status: 'queued' | 'running' | 'completed' | 'error';
+  status: 'queued' | 'running' | 'completed' | 'error' | 'cancelled';
   updatedAt: number;
   executionOwner?: string;
   leaseExpiresAt?: number;
@@ -100,6 +100,51 @@ export async function loadRecoverableImageJob<T extends RecoverableImageJob>(
     },
     IMAGE_JOB_TTL_SECONDS,
   );
+}
+
+export async function cancelImageJob<T extends RecoverableImageJob>(
+  jobId: string,
+  userId: string,
+): Promise<T | null> {
+  return updateJsonAtomically<T>(
+    imageJobKey(jobId),
+    (current) => {
+      if (!current || current.userId !== userId) return null;
+      if (!active(current)) return current;
+      return {
+        ...current,
+        status: 'cancelled',
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    },
+    IMAGE_JOB_TTL_SECONDS,
+  );
+}
+
+export function watchImageJobCancellation(
+  jobId: string,
+  onCancelled: () => void,
+): () => void {
+  let pending = false;
+  let stopped = false;
+  const timer = setInterval(async () => {
+    if (pending || stopped) return;
+    pending = true;
+    try {
+      const job = await jsonGet(imageJobKey(jobId));
+      if (!stopped && job?.status === 'cancelled') onCancelled();
+    } catch {
+      // Lease renewal handles Redis outages; retry cancellation observation.
+    } finally {
+      pending = false;
+    }
+  }, 250);
+  timer.unref?.();
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 }
 
 export function heartbeatImageJob(

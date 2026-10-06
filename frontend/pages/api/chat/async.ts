@@ -35,6 +35,7 @@ import {
   buildNatSessionId,
 } from '@/server/chat/natMessages';
 import { buildSourcePolicyMessage } from '@/server/chat/sourcePolicy';
+import { forwardCancellation } from '@/server/chat/steering';
 import { enqueueStreamJob, streamPayloadKey } from '@/server/chat/streamQueue';
 import { getStreamResponse, getStreamSteps } from '@/server/chat/streamState';
 import {
@@ -43,6 +44,12 @@ import {
   type AsyncJobStatus,
   type DocumentIngestProgress,
 } from '@/server/chat/types';
+import {
+  cancelSubmission,
+  registerSubmission,
+  submissionCancelled,
+  validSubmissionId,
+} from '@/server/jobSubmission';
 import { getMilvusMetadata } from '@/server/milvusMetadata';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import { getOrSetSessionId } from '@/server/session/_utils';
@@ -298,6 +305,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       conversationName,
       turnId,
       assistantMessageId,
+      submissionId,
     } = req.body;
 
     // SECURITY: Derive user identity from the server-side session,
@@ -332,7 +340,20 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ error: 'Invalid conversation ID' });
     }
 
+    if (submissionId !== undefined && !validSubmissionId(submissionId)) {
+      return res.status(400).json({ error: 'Invalid submission ID' });
+    }
     const jobId = uuidv4();
+    if (submissionId) {
+      const submission = await registerSubmission(
+        'chat',
+        verifiedUsername,
+        submissionId,
+        jobId,
+      );
+      if (submission.cancelled)
+        return res.status(200).json({ jobId, status: 'cancelled' });
+    }
     createdJobId = jobId;
     const createdAt = Date.now();
     const storedMessages = await loadStoredConversationMessages(
@@ -556,6 +577,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         : []),
     ]);
 
+    if (await submissionCancelled('chat', verifiedUsername, submissionId)) {
+      await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
+    }
     await enqueueStreamJob(jobId, {
       messagesForNat: messagesWithIdentity,
       verifiedUsername,
@@ -704,11 +728,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 // ── DELETE: Cancel job ───────────────────────────────────────────────
 
 async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
-  const { jobId } = req.query;
-
-  if (!jobId || typeof jobId !== 'string') {
-    return res.status(400).json({ error: 'Invalid job ID' });
-  }
+  let jobId = req.query.jobId;
+  const { submissionId } = req.query;
 
   try {
     const session = await getSession(req, res);
@@ -716,9 +737,28 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
+    if (submissionId !== undefined) {
+      if (!validSubmissionId(submissionId))
+        return res.status(400).json({ error: 'Invalid submission ID' });
+      const submission = await cancelSubmission(
+        'chat',
+        session.username,
+        submissionId,
+      );
+      jobId = submission.jobId;
+      if (!jobId)
+        return res.status(200).json({ success: true, canceled: true });
+      // This mapping is scoped to the authenticated user. Persist the abort
+      // even when POST has not written the request/status yet.
+      await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
+    }
+    if (!jobId || typeof jobId !== 'string')
+      return res.status(400).json({ error: 'Invalid job ID' });
     const requestKey = sessionKey(['async-job-request', jobId]);
     const statusKey = sessionKey(['async-job-status', jobId]);
     const jobRequest = (await jsonGet(requestKey)) as AsyncJobRequest | null;
+    if (!jobRequest && submissionId)
+      return res.status(200).json({ success: true, canceled: true });
     if (!jobRequest || jobRequest.userId !== session.username) {
       return res.status(404).json({ error: 'Job not found' });
     }
@@ -726,7 +766,7 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
 
     let canceled = false;
     const workerOwnsFinalization =
-      jobRequest.executionMode === 'stream' &&
+      ['stream', 'document_ingest'].includes(jobRequest.executionMode ?? '') &&
       (currentStatus?.status === 'pending' ||
         currentStatus?.status === 'streaming');
     if (currentStatus && !isTerminalJobStatus(currentStatus.status)) {
@@ -736,6 +776,15 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
         // worker replacement; keep its request/payload available until then.
         await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
         canceled = true;
+        // The durable abort remains authoritative if the run is queued or the
+        // backend is unreachable. Active runs also get an immediate signal.
+        if (jobRequest.executionMode === 'stream')
+          await forwardCancellation(jobRequest).catch(() => {
+            logger.warn(
+              'Backend cancellation unavailable; worker abort remains active',
+              { jobId },
+            );
+          });
       } else {
         canceled = await finalizeError(
           jobId,
@@ -752,7 +801,11 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
       ]);
     }
 
-    return res.status(200).json({ success: true, canceled });
+    return res.status(200).json({
+      success: true,
+      canceled,
+      ...(submissionId ? { status: currentStatus?.status } : {}),
+    });
   } catch (error) {
     logger.error('Error canceling job', error);
     return res.status(500).json({ error: 'Failed to cancel job' });

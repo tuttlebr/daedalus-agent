@@ -128,6 +128,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         sender: commands,
         commands: Mutex::new(HashMap::new()),
         finished: std::sync::atomic::AtomicBool::new(false),
+        cancellation: tokio::sync::watch::channel(false).0,
         metrics: control::Metrics::default(),
     });
     {
@@ -154,6 +155,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     let cleanup_http = app.http.clone();
     let cleanup_url = format!("{}/runtime/run", app.tools_url);
     let metrics_handle = handle.clone();
+    let mut cancellation = handle.cancellation.subscribe();
     let agent = Agent {
         http: app.http.clone(),
         tools_url: app.tools_url.clone(),
@@ -173,8 +175,17 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         async move {
             let started = Instant::now();
             tracing::info!(event = "run_started", streaming, message_count);
-            let result = tokio::time::timeout(Duration::from_secs(1800), agent.run(body)).await;
-            let result = result.unwrap_or_else(|_| Err(anyhow::anyhow!("Agent run timed out")));
+            let result = tokio::select! {
+                biased;
+                _ = cancellation.wait_for(|cancelled| *cancelled) => {
+                    tracing::info!(event = "cancellation_received");
+                    Err(anyhow::anyhow!("Run cancelled by user"))
+                },
+                _ = events.sender.closed() => Err(anyhow::anyhow!("Client disconnected")),
+                result = tokio::time::timeout(Duration::from_secs(1800), agent.run(body)) => {
+                    result.unwrap_or_else(|_| Err(anyhow::anyhow!("Agent run timed out")))
+                },
+            };
             let outcome = if result.is_ok() {
                 "completed"
             } else {
@@ -213,10 +224,12 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
                         reason = message
                     );
                 }
-                let _ = events
-                    .event("error", json!({"error":{"message":message}}))
-                    .await;
-                let _ = events.finish("error").await;
+                // A stopped or disconnected consumer must not block cleanup
+                // on a full output channel.
+                let _ = tokio::time::timeout(Duration::from_secs(1), async {
+                    let _ = events.event("error", json!({"error":{"message":message}})).await;
+                    let _ = events.finish("error").await;
+                }).await;
             }
             let metrics = metrics_handle.metrics.snapshot();
             tracing::info!(

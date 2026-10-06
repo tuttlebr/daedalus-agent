@@ -179,3 +179,36 @@ def test_image_stream_error_does_not_promote_a_partial_to_success():
         assert len(events) == 1 and events[0].partial is True
 
     asyncio.run(collect())
+
+
+def test_abandoning_image_stream_closes_provider_connection():
+    async def check():
+        class Stream(_Stream):
+            closed = False
+
+            async def close(self):
+                self.closed = True
+
+        for mode in ("generate", "edit"):
+            stream = Stream([_Event("image_generation.partial_image", "partial", 0)])
+            client = _Client([])
+
+            async def create(**kwargs):
+                return stream
+
+            setattr(client.images, mode, create)
+            options = (
+                {"image": ("input.png", b"image", "image/png")}
+                if mode == "edit"
+                else {}
+            )
+            function = stream_edit_images if mode == "edit" else stream_generate_images
+            events = function(
+                client, model="gpt-image-2.5-sunburst", prompt="fixture", **options
+            )
+            await events.__anext__()
+            assert not stream.closed
+            await events.aclose()
+            assert stream.closed
+
+    _run(check())

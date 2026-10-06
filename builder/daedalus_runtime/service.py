@@ -17,6 +17,7 @@ from typing import Literal
 
 import httpx
 from daedalus_runtime.approval import configure_mcp_approval_policy
+from daedalus_runtime.cancellation import CancelOnDisconnect
 from daedalus_runtime.config import (
     describe_validation_error,
     load_config,
@@ -407,6 +408,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     from nat_helpers.front_end import attach_daedalus_routes
 
     attach_daedalus_routes(app)
+    app.add_middleware(CancelOnDisconnect)
 
     @app.get("/health")
     async def health():

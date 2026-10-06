@@ -459,6 +459,11 @@ async def _stream_stored_images(
             {"type": "error", "error": "Image generation stream failed"},
         )
 
+    finally:
+        close = getattr(events, "aclose", None)
+        if close is not None:
+            await close()
+
 
 # ---------------------------------------------------------------------------
 # Routes

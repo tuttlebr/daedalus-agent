@@ -75,3 +75,27 @@ export async function forwardSteeringCommand(
     );
   }
 }
+
+export async function forwardCancellation(job: AsyncJobRequest): Promise<void> {
+  const response = await fetch(
+    buildBackendUrlFromBase(
+      job.natBaseUrl,
+      `/v1/runs/${encodeURIComponent(job.jobId)}/control`,
+    ),
+    {
+      method: 'POST',
+      headers: buildNatRequestHeaders(
+        job.userId,
+        { 'Content-Type': 'application/json' },
+        job.natSessionId,
+        job.timezone,
+        job.conversationId,
+      ),
+      body: JSON.stringify({ type: 'cancel', command_id: crypto.randomUUID() }),
+      signal: AbortSignal.timeout(2000),
+    },
+  );
+  if (!response.ok && response.status !== 404 && response.status !== 409) {
+    throw new Error('Backend cancellation failed');
+  }
+}

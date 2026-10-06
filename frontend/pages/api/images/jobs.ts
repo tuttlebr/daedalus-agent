@@ -19,17 +19,25 @@ import type { ImageContext } from '@/types/imageBrief';
 
 import { updateJsonAtomically } from '@/server/atomicJson';
 import {
+  cancelImageJob,
   createRecoverableImageJob,
   heartbeatImageJob,
   imageJobKey,
   loadRecoverableImageJob,
   updateOwnedImageJob,
+  watchImageJobCancellation,
   type RecoverableImageJob,
 } from '@/server/images/jobRecovery';
 import {
   imageHistoryKey,
   removeUnsafeBrowserKeys,
 } from '@/server/images/requestHelpers';
+import {
+  cancelSubmission,
+  registerSubmission,
+  submissionCancelled,
+  validSubmissionId,
+} from '@/server/jobSubmission';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
@@ -75,7 +83,8 @@ type ImageJobState = RecoverableImageJob & {
   userId: string;
   sessionId: string;
   mode: ImageMode;
-  status: 'queued' | 'running' | 'completed' | 'error';
+  status: 'queued' | 'running' | 'completed' | 'error' | 'cancelled';
+  submissionId?: string;
   prompt: string;
   model: string;
   params: ImageParams;
@@ -446,9 +455,21 @@ async function runImageJob(
 ): Promise<void> {
   const controller = new AbortController();
   let stopHeartbeat = () => {};
+  let stopCancellationWatch = () => {};
   try {
+    const queued = (await jsonGet(jobKey(jobId))) as ImageJobState | null;
+    if (!queued) return;
+    if (
+      await submissionCancelled('image', queued.userId, queued.submissionId)
+    ) {
+      await cancelImageJob(jobId, queued.userId);
+      return;
+    }
     const started = await updateJobStatus(jobId, { status: 'running' });
     if (!started) return;
+    stopCancellationWatch = watchImageJobCancellation(jobId, () =>
+      controller.abort(),
+    );
     stopHeartbeat = heartbeatImageJob(jobId, (error) =>
       controller.abort(error),
     );
@@ -503,6 +524,10 @@ async function runImageJob(
       console.warn('images/jobs history save failed:', error);
     }
   } catch (error) {
+    const current = (await jsonGet(jobKey(jobId)).catch(
+      () => null,
+    )) as ImageJobState | null;
+    if (current?.status === 'cancelled') return;
     console.error('images/jobs background error:', error);
     try {
       await updateJobStatus(jobId, {
@@ -518,6 +543,7 @@ async function runImageJob(
     }
   } finally {
     stopHeartbeat();
+    stopCancellationWatch();
   }
 }
 
@@ -535,6 +561,7 @@ function buildPayload(
   maskImage: unknown | null;
 } {
   const safeBody = removeUnsafeBrowserKeys(body);
+  delete safeBody.submissionId;
   const model = resolveImageModel(safeBody.model);
   const prompt = safeBody.prompt;
   if (typeof prompt !== 'string' || !prompt.trim()) {
@@ -600,6 +627,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   const sessionId = getOrSetSessionId(req, res);
   const userId = session.username;
+  const submissionId = body.submissionId;
+  if (submissionId !== undefined && !validSubmissionId(submissionId)) {
+    return res.status(400).json({ error: 'Invalid submission ID' });
+  }
   const backendUrl = buildBackendUrl({
     backendHost: getBackendHost(),
     pathOverride:
@@ -619,11 +650,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const jobId = randomUUID();
+    if (submissionId) {
+      const submission = await registerSubmission(
+        'image',
+        userId,
+        submissionId,
+        jobId,
+      );
+      if (submission.cancelled)
+        return res.status(200).json({ jobId, status: 'cancelled' });
+    }
     const now = Date.now();
     const status: ImageJobState = {
       jobId,
       userId,
       sessionId,
+      ...(submissionId ? { submissionId } : {}),
       mode,
       status: 'queued',
       prompt: built.prompt,
@@ -674,6 +716,41 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
+async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
+  const session = await requireAuthenticatedUser(req, res);
+  if (!session) return;
+  try {
+    const { submissionId } = req.query;
+    let jobId = req.query.jobId;
+    if (submissionId !== undefined) {
+      if (!validSubmissionId(submissionId))
+        return res.status(400).json({ error: 'Invalid submission ID' });
+      const submission = await cancelSubmission(
+        'image',
+        session.username,
+        submissionId,
+      );
+      jobId = submission.jobId;
+      if (!jobId)
+        return res.status(200).json({ cancelled: true, status: 'cancelled' });
+    }
+    if (typeof jobId !== 'string' || !jobId || jobId.length > 128)
+      return res.status(400).json({ error: 'Invalid job ID' });
+    const job = await cancelImageJob<ImageJobState>(jobId, session.username);
+    // POST may still be preparing this user's registered submission.
+    if (!job && submissionId)
+      return res.status(200).json({ cancelled: true, status: 'cancelled' });
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    return res
+      .status(200)
+      .json({ cancelled: job.status === 'cancelled', ...publicJobState(job) });
+  } catch {
+    return res
+      .status(503)
+      .json({ error: 'Could not stop image generation. Please try again.' });
+  }
+}
+
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
@@ -702,6 +779,7 @@ export default async function handler(
 ) {
   if (req.method === 'POST') return handlePost(req, res);
   if (req.method === 'GET') return handleGet(req, res);
-  res.setHeader('Allow', ['POST', 'GET']);
+  if (req.method === 'DELETE') return handleDelete(req, res);
+  res.setHeader('Allow', ['POST', 'GET', 'DELETE']);
   return res.status(405).json({ error: 'Method not allowed' });
 }

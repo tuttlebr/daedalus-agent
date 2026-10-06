@@ -60,6 +60,40 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         });
       });
     }
+    it('cancels across processes and rejects a late provider completion', async () => {
+      const id = `stop-image-${process.pid}-${Date.now()}`;
+      const user = `user-${id}`;
+      keys.push(recovery.imageJobKey(id));
+      const { child } = await run('watch', id, user);
+      const stopped = new Promise((resolve) => child.once('message', resolve));
+      expect(await recovery.cancelImageJob(id, 'other-user')).toBeNull();
+      expect((await recovery.cancelImageJob(id, user))?.status).toBe(
+        'cancelled',
+      );
+      expect(await stopped).toEqual({ cancelled: true, completed: null });
+      expect((await recovery.loadRecoverableImageJob(id, user))?.status).toBe(
+        'cancelled',
+      );
+    }, 10000);
+
+    it('preserves cancellation regardless of registration order with real Redis', async () => {
+      const { cancelSubmission, registerSubmission, submissionCancelled } =
+        await import('@/server/jobSubmission');
+      for (const kind of ['image', 'chat'] as const) {
+        for (let index = 0; index < 10; index++) {
+          const id = crypto.randomUUID();
+          const user = `submission-${process.pid}`;
+          keys.push(redis.sessionKey(['job-submission', kind, user, id]));
+          await Promise.all([
+            cancelSubmission(kind, user, id),
+            registerSubmission(kind, user, id, `job-${index}`),
+          ]);
+          expect(await submissionCancelled(kind, user, id)).toBe(true);
+          expect(await submissionCancelled(kind, 'other-user', id)).toBe(false);
+        }
+      }
+    });
+
     it('classifies a killed owner after its real lease expires, without replaying work', async () => {
       const id = `image-process-${process.pid}-${Date.now()}`;
       const user = `user-${id}`;

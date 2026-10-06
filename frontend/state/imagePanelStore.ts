@@ -41,7 +41,8 @@ export type GenerationStatus =
   | 'queued'
   | 'submitting'
   | 'generating'
-  | 'finalizing';
+  | 'finalizing'
+  | 'stopping';
 
 export interface ImageRef {
   imageId: string;

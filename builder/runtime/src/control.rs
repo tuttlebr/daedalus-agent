@@ -7,7 +7,7 @@ use std::sync::{
 };
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, watch};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -66,6 +66,7 @@ pub struct RunHandle {
     pub sender: mpsc::Sender<Command>,
     pub commands: Mutex<HashMap<Uuid, Command>>,
     pub finished: AtomicBool,
+    pub cancellation: watch::Sender<bool>,
     pub metrics: Metrics,
 }
 
@@ -90,6 +91,19 @@ impl RunHandle {
         if self.finished.load(Ordering::Relaxed) {
             return Err(409);
         }
+        // Stop bypasses both steering limits and wakes the run supervisor,
+        // including when the agent is blocked sending output to a slow client.
+        if matches!(command, Command::Cancel { .. }) {
+            if *self.cancellation.borrow() {
+                return Ok(false);
+            }
+            self.cancellation.send_replace(true);
+            commands.insert(command.id(), command);
+            return Ok(true);
+        }
+        if *self.cancellation.borrow() {
+            return Err(409);
+        }
         if commands.len() >= 256 {
             return Err(429);
         }
@@ -106,7 +120,7 @@ impl RunHandle {
 
     pub async fn finish_if_idle(&self, inbox: &mpsc::Receiver<Command>) -> bool {
         let _guard = self.commands.lock().await;
-        if !inbox.is_empty() {
+        if !inbox.is_empty() || *self.cancellation.borrow() {
             return false;
         }
         self.finished.store(true, Ordering::Relaxed);
@@ -119,6 +133,66 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn cancellation_bypasses_exhausted_command_history_and_is_sticky() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let run = RunHandle {
+            user: "alice".into(),
+            conversation: "chat".into(),
+            sender,
+            commands: Mutex::new(HashMap::new()),
+            finished: AtomicBool::new(false),
+            cancellation: watch::channel(false).0,
+            metrics: Metrics::default(),
+        };
+        for _ in 0..256 {
+            assert_eq!(
+                run.submit(
+                    "alice",
+                    Command::Steer {
+                        command_id: Uuid::new_v4(),
+                        instruction: "fixture".into()
+                    }
+                )
+                .await,
+                Ok(true)
+            );
+            receiver.recv().await.unwrap();
+        }
+        assert_eq!(
+            run.submit(
+                "alice",
+                Command::Cancel {
+                    command_id: Uuid::new_v4()
+                }
+            )
+            .await,
+            Ok(true)
+        );
+        assert_eq!(
+            run.submit(
+                "alice",
+                Command::Cancel {
+                    command_id: Uuid::new_v4()
+                }
+            )
+            .await,
+            Ok(false)
+        );
+        assert!(!run.finish_if_idle(&receiver).await);
+        assert_eq!(
+            run.submit(
+                "alice",
+                Command::Steer {
+                    command_id: Uuid::new_v4(),
+                    instruction: "late".into()
+                }
+            )
+            .await,
+            Err(409)
+        );
+    }
+
+    #[tokio::test]
     async fn commands_are_scoped_idempotent_and_bounded() {
         let (sender, mut receiver) = mpsc::channel(1);
         let run = RunHandle {
@@ -127,6 +201,7 @@ mod tests {
             sender,
             commands: Mutex::new(HashMap::new()),
             finished: AtomicBool::new(false),
+            cancellation: watch::channel(false).0,
             metrics: Metrics::default(),
         };
         let command = Command::Steer {
@@ -154,8 +229,9 @@ mod tests {
                 }
             )
             .await,
-            Err(429)
+            Ok(true)
         );
+        assert!(*run.cancellation.borrow());
         assert_eq!(receiver.recv().await, Some(command));
     }
 
@@ -168,6 +244,7 @@ mod tests {
             sender,
             commands: Mutex::new(HashMap::new()),
             finished: AtomicBool::new(false),
+            cancellation: watch::channel(false).0,
             metrics: Metrics::default(),
         };
         let command = Command::Steer {

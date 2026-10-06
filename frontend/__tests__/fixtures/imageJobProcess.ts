@@ -3,13 +3,14 @@ import {
   heartbeatImageJob,
   loadRecoverableImageJob,
   updateOwnedImageJob,
+  watchImageJobCancellation,
 } from '@/server/images/jobRecovery';
 import { getRedis } from '@/server/session/redis';
 
 async function main() {
   const [mode, jobId, userId] = process.argv.slice(2);
   if (!process.env.REDIS_URL) throw new Error('Disposable REDIS_URL required');
-  if (mode === 'start') {
+  if (mode === 'start' || mode === 'watch') {
     await createRecoverableImageJob({
       jobId,
       userId,
@@ -17,11 +18,23 @@ async function main() {
       updatedAt: Date.now(),
     });
     const job = await updateOwnedImageJob(jobId, { status: 'running' });
-    heartbeatImageJob(jobId, (error) => {
+    const stopHeartbeat = heartbeatImageJob(jobId, (error) => {
       throw error;
     });
     process.send?.(job);
-    setInterval(() => {}, 1000);
+    if (mode === 'watch') {
+      const stopWatch = watchImageJobCancellation(jobId, () => {
+        stopWatch();
+        stopHeartbeat();
+        void updateOwnedImageJob(jobId, { status: 'completed' }).then(
+          (completed) => {
+            process.send?.({ cancelled: true, completed });
+            getRedis().disconnect();
+            process.disconnect?.();
+          },
+        );
+      });
+    } else setInterval(() => {}, 1000);
   } else {
     process.send?.(await loadRecoverableImageJob(jobId, userId));
     getRedis().disconnect();

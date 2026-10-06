@@ -49,10 +49,18 @@ import {
   type ImageRef,
 } from '@/state/imagePanelStore';
 import classNames from 'classnames';
+import { v4 as uuidv4 } from 'uuid';
 
 const GENERATED_SESSION_ID = 'generated';
 const ACTIVE_IMAGE_JOBS_KEY = 'daedalus:active-image-jobs';
 const IMAGE_JOB_STATUS_ATTEMPTS = 3;
+
+interface ImageOperation {
+  controller?: AbortController;
+  submissionId?: string;
+  jobId?: string;
+  cancelRequested: boolean;
+}
 
 interface ImagePanelProps {
   onSendToChat?: (imageId: string) => void;
@@ -63,7 +71,7 @@ interface ImageJobStatus {
   jobId: string;
   sessionId: string;
   mode: 'generate' | 'edit';
-  status: 'queued' | 'running' | 'completed' | 'error';
+  status: 'queued' | 'running' | 'completed' | 'error' | 'cancelled';
   prompt: string;
   model: string;
   params: Record<string, unknown>;
@@ -171,12 +179,16 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function startImageJob(body: Record<string, unknown>): Promise<string> {
+async function startImageJob(
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<string> {
   const res = await fetch('/api/images/jobs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     credentials: 'include',
+    signal,
   });
   if (!res.ok) throw new Error(await imageApiErrorMessage(res));
   const data = (await res.json()) as { jobId?: string };
@@ -304,7 +316,8 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const { data: historyData } = useImageHistory();
   const invalidateImageHistory = useInvalidateImageHistory();
   const elapsedMs = useElapsedMs(loading, generationStartedAt);
-  const activeJobIdRef = useRef<string | null>(null);
+  const operationRef = useRef<ImageOperation | null>(null);
+  const stoppingRef = useRef(false);
   const isDesktop = useIsDesktop();
   const [outputActionsOpen, setOutputActionsOpen] = useState(false);
   const [recoverableJobId, setRecoverableJobId] = useState<string | null>(null);
@@ -339,8 +352,13 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   );
 
   const pollImageJob = useCallback(
-    async (jobId: string, initialStatus?: ImageJobStatus | null) => {
-      activeJobIdRef.current = jobId;
+    async (
+      jobId: string,
+      initialStatus?: ImageJobStatus | null,
+      operation: ImageOperation = { jobId, cancelRequested: false },
+    ) => {
+      operation.jobId = jobId;
+      operationRef.current = operation;
       rememberActiveImageJob(jobId);
       const { setError, setLoading, setGenerationStatus, setPartialGallery } =
         useImagePanelStore.getState();
@@ -351,8 +369,9 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       let status = initialStatus ?? null;
       let shouldForgetJob = false;
       try {
-        while (activeJobIdRef.current === jobId) {
+        while (operationRef.current === operation) {
           status = status ?? (await fetchImageJobWithRetry(jobId));
+          if (operationRef.current !== operation) return;
           if (!status) {
             shouldForgetJob = true;
             setError(
@@ -376,6 +395,10 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
             applyCompletedJob(status);
             shouldForgetJob = true;
             return;
+          } else if (status.status === 'cancelled') {
+            shouldForgetJob = true;
+            setPartialGallery([]);
+            return;
           } else if (status.status === 'error') {
             setError(status.error ?? 'Image generation failed.');
             shouldForgetJob = true;
@@ -386,14 +409,15 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
           status = null;
         }
       } catch (e) {
+        if (operationRef.current !== operation) return;
         console.error(e);
         setRecoverableJobId(jobId);
         setError(
           'Unable to refresh image progress. Your job is saved and will reconnect when you are online.',
         );
       } finally {
-        if (activeJobIdRef.current === jobId) {
-          activeJobIdRef.current = null;
+        if (operationRef.current === operation) {
+          operationRef.current = null;
           setLoading(false);
           setGenerationStatus('idle', null);
           if (shouldForgetJob) {
@@ -410,7 +434,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     let cancelled = false;
 
     const resume = async () => {
-      if (activeJobIdRef.current) return;
+      if (operationRef.current || stoppingRef.current) return;
       const jobs = await fetchActiveImageJobs().catch(() => []);
       const byId = new Map(jobs.map((job) => [job.jobId, job]));
 
@@ -431,12 +455,12 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
         }),
       );
 
-      if (cancelled || activeJobIdRef.current) return;
+      if (cancelled || operationRef.current || stoppingRef.current) return;
       const latest = Array.from(byId.values()).sort(
         (a, b) => b.createdAt - a.createdAt,
       )[0];
       if (!latest) return;
-      if (latest.status === 'error') {
+      if (latest.status === 'error' || latest.status === 'cancelled') {
         forgetActiveImageJob(latest.jobId);
         return;
       }
@@ -450,11 +474,13 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     window.addEventListener('online', resumeWhenOnline);
     return () => {
       cancelled = true;
+      operationRef.current = null;
       window.removeEventListener('online', resumeWhenOnline);
     };
   }, [pollImageJob]);
 
   const submit = useCallback(async () => {
+    if (useImagePanelStore.getState().loading) return;
     if (recoverableJobId) {
       void pollImageJob(recoverableJobId);
       return;
@@ -490,6 +516,12 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       return;
     }
 
+    const operation: ImageOperation = {
+      submissionId: uuidv4(),
+      controller: new AbortController(),
+      cancelRequested: false,
+    };
+    operationRef.current = operation;
     setError(null);
     setLoading(true);
     setPartialGallery([]);
@@ -498,6 +530,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       const cleanedParams = cleanImageParamsForModel(params, model, mode);
 
       const body: Record<string, unknown> = {
+        submissionId: operation.submissionId,
         mode,
         prompt,
         preserve: preserveList,
@@ -511,33 +544,70 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       }
 
       setGenerationStatus('submitting');
-      const jobId = await startImageJob(body);
-      await pollImageJob(jobId);
+      const jobId = await startImageJob(body, operation.controller?.signal);
+      operation.jobId = jobId;
+      if (operation.cancelRequested || operationRef.current !== operation)
+        return;
+      await pollImageJob(jobId, null, operation);
     } catch (e) {
+      if (operationRef.current !== operation) return;
       console.error(e);
       setError(e instanceof Error ? e.message : 'Request failed');
     } finally {
-      setLoading(false);
-      setGenerationStatus('idle', null);
+      if (operationRef.current === operation) {
+        operationRef.current = null;
+        setLoading(false);
+        setGenerationStatus('idle', null);
+      }
     }
   }, [pollImageJob, recoverableJobId]);
 
-  // Stop waiting on the in-flight job and unlock the panel. The job keeps
-  // running server-side (there is no abort API yet), so it stays resumable.
-  const stopWaiting = useCallback(() => {
-    const jobId = activeJobIdRef.current;
-    activeJobIdRef.current = null;
+  const stopGeneration = useCallback(async () => {
+    const operation = operationRef.current;
+    if (!operation || operation.cancelRequested) return;
+    operation.cancelRequested = true;
+    stoppingRef.current = true;
+    // Detach the old poll before awaiting cancellation, so late responses
+    // cannot publish output or clear the loading state of a later request.
+    operationRef.current = null;
     const { setLoading, setGenerationStatus, setPartialGallery, setError } =
       useImagePanelStore.getState();
-    setLoading(false);
-    setGenerationStatus('idle', null);
-    setPartialGallery([]);
+    setGenerationStatus('stopping');
     setError(null);
-    if (jobId) {
-      forgetActiveImageJob(jobId);
+    try {
+      const query = operation.submissionId
+        ? `submissionId=${encodeURIComponent(operation.submissionId)}`
+        : `jobId=${encodeURIComponent(operation.jobId!)}`;
+      const response = await fetch(`/api/images/jobs?${query}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok)
+        throw new Error('Could not stop image generation. Please try again.');
+      const status = await response.json();
+      if (
+        !status.cancelled &&
+        !['completed', 'error', 'cancelled'].includes(status.status)
+      ) {
+        throw new Error('Cancellation was not confirmed. Please try again.');
+      }
+      operation.controller?.abort();
+      if (operation.jobId) forgetActiveImageJob(operation.jobId);
       setRecoverableJobId(null);
+      setLoading(false);
+      setGenerationStatus('idle', null);
+      setPartialGallery([]);
+    } catch {
+      operation.cancelRequested = false;
+      operationRef.current = operation;
+      setGenerationStatus(operation.jobId ? 'generating' : 'submitting');
+      if (operation.jobId) void pollImageJob(operation.jobId, null, operation);
+      setError('Could not stop image generation. Please try Stop again.');
+    } finally {
+      stoppingRef.current = false;
     }
-  }, []);
+  }, [pollImageJob]);
 
   const reuseRef = useCallback(
     (ref: ImageRef) => reuseOutputAsInput(ref),
@@ -606,7 +676,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
             </div>
           )}
 
-          <ImagesDock onSubmit={submit} onStop={stopWaiting} />
+          <ImagesDock onSubmit={submit} onStop={stopGeneration} />
         </div>
 
         <aside className="hidden w-[360px] flex-none flex-col border-l border-separator/70 bg-app/90 lg:flex">

@@ -202,6 +202,78 @@ describe('useAsyncChat streaming callbacks', () => {
     document.body.innerHTML = '';
   });
 
+  it('stops during submission and ignores the late job ID', async () => {
+    let resolvePost!: (value: any) => void;
+    mocks.fetchWithTimeoutMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePost = resolve;
+        }),
+    );
+    const stop = vi
+      .fn()
+      .mockResolvedValue(response({ success: true, canceled: true }));
+    vi.stubGlobal('fetch', stop);
+    const onProgress = vi.fn();
+    const probe = renderProbe({ userId: 'alice', onProgress });
+    let pending!: Promise<string>;
+    await act(async () => {
+      pending = probe.api.startAsyncJob([], {}, 'alice', 'conv-1', 'fixture');
+    });
+    const body = JSON.parse(mocks.fetchWithTimeoutMock.mock.calls[0][1].body);
+    await act(async () => {
+      await probe.api.cancelJob('conv-1');
+    });
+    expect(stop.mock.calls[0][0]).toBe(
+      `/api/chat/async?submissionId=${body.submissionId}`,
+    );
+    await act(async () => {
+      resolvePost(response({ jobId: 'late', status: 'pending' }));
+      await pending;
+    });
+    expect(mocks.manager.subscribeToJob).not.toHaveBeenCalled();
+    expect(mocks.fetchWithTimeoutMock).toHaveBeenCalledTimes(1);
+    expect(onProgress).not.toHaveBeenCalled();
+    act(() => probe.root.unmount());
+  });
+
+  it('ignores a stale poll that arrives after confirmed Stop', async () => {
+    let resolveStatus!: (value: any) => void;
+    mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) => {
+      if (url === '/api/chat/async')
+        return response({ jobId: 'job-1', status: 'pending' });
+      return new Promise((resolve) => {
+        resolveStatus = resolve;
+      });
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(response({ success: true, canceled: true })),
+    );
+    const onProgress = vi.fn();
+    const probe = renderProbe({ userId: 'alice', onProgress });
+    let pending!: Promise<string>;
+    await act(async () => {
+      pending = probe.api.startAsyncJob([], {}, 'alice', 'conv-1', 'fixture');
+    });
+    await act(async () => {
+      await probe.api.cancelJob('conv-1');
+    });
+    await act(async () => {
+      resolveStatus(
+        response({
+          jobId: 'job-1',
+          status: 'streaming',
+          conversationId: 'conv-1',
+          partialResponse: 'late output',
+        }),
+      );
+      await pending;
+    });
+    expect(onProgress).not.toHaveBeenCalled();
+    act(() => probe.root.unmount());
+  });
+
   it('preserves tracking after failed cancellation and permits retry', async () => {
     const onToken = vi.fn();
     const { root, api } = renderProbe({ userId: 'user-1', onToken });

@@ -252,6 +252,18 @@ export const useAsyncChat = (
   const pollingTimersRef = useRef<
     Record<string, ReturnType<typeof setTimeout> | null>
   >({});
+  const pendingSubmissionsRef = useRef<
+    Record<
+      string,
+      {
+        submissionId: string;
+        controller: AbortController;
+        conversationId: string;
+        cancelled: boolean;
+        jobId?: string;
+      }
+    >
+  >({});
   const activeJobsRef = useRef<Record<string, PersistedJob>>({});
   const steeringRetryRef = useRef<
     Record<string, { jobId: string; instruction: string; commandId: string }>
@@ -518,6 +530,7 @@ export const useAsyncChat = (
       if (!isComponentMountedRef.current) return;
 
       const jobId = status.jobId;
+      if (!activeJobsRef.current[jobId]) return;
       const conversationId =
         status.conversationId || activeJobsRef.current[jobId]?.conversationId;
 
@@ -854,6 +867,7 @@ export const useAsyncChat = (
         }
 
         const status: AsyncJobStatus = await response.json();
+        if (!activeJobsRef.current[jobId]) return null;
         const conversationId =
           status.conversationId || activeJobsRef.current[jobId]?.conversationId;
 
@@ -1004,6 +1018,7 @@ export const useAsyncChat = (
 
         return status;
       } catch (error: unknown) {
+        if (!activeJobsRef.current[jobId]) return null;
         logger.error('Error polling job status', error);
         const conversationId = activeJobsRef.current[jobId]?.conversationId;
 
@@ -1058,24 +1073,51 @@ export const useAsyncChat = (
   );
 
   const cancelJob = useCallback(
-    async (conversationId?: string) => {
+    async (conversationId?: string, exceptSubmissionId?: string) => {
       const jobsToCancel = conversationId
         ? Object.values(activeJobsRef.current).filter(
             (job) => job.conversationId === conversationId,
           )
         : Object.values(activeJobsRef.current);
 
-      if (jobsToCancel.length === 0) {
-        return;
-      }
-
+      const submissions = Object.values(pendingSubmissionsRef.current).filter(
+        (submission) =>
+          submission.submissionId !== exceptSubmissionId &&
+          (!conversationId || submission.conversationId === conversationId),
+      );
       try {
-        await Promise.all(
-          jobsToCancel.map(async (job) => {
+        await Promise.all([
+          ...submissions.map(async (submission) => {
+            const response = await fetch(
+              `/api/chat/async?submissionId=${encodeURIComponent(
+                submission.submissionId,
+              )}`,
+              {
+                method: 'DELETE',
+                credentials: 'include',
+                signal: AbortSignal.timeout(10000),
+              },
+            );
+            const outcome = response.ok ? await response.json() : null;
+            if (
+              !outcome ||
+              (outcome.canceled !== true &&
+                !['completed', 'error'].includes(outcome.status))
+            ) {
+              throw new Error('Could not stop the response. Please try again.');
+            }
+            submission.cancelled = true;
+            submission.controller.abort();
+            if (submission.jobId)
+              removeActiveJob(submission.jobId, submission.conversationId);
+            clearPersistedJobs(userId, submission.conversationId);
+          }),
+          ...jobsToCancel.map(async (job) => {
             // Delete job on server
             const response = await fetch(`/api/chat/async?jobId=${job.jobId}`, {
               method: 'DELETE',
               credentials: 'include',
+              signal: AbortSignal.timeout(10000),
             });
             if (!response.ok) {
               throw new Error(
@@ -1103,7 +1145,7 @@ export const useAsyncChat = (
             clearPersistedJobs(userId, job.conversationId);
             removeActiveJob(job.jobId, job.conversationId);
           }),
-        );
+        ]);
       } catch (error) {
         logger.error('Error canceling job', error);
         throw error;
@@ -1123,13 +1165,21 @@ export const useAsyncChat = (
       turnId?: string,
       assistantMessageId?: string,
     ): Promise<string> => {
+      const submission = {
+        submissionId: uuidv4(),
+        controller: new AbortController(),
+        conversationId,
+        cancelled: false,
+        jobId: undefined as string | undefined,
+      };
+      pendingSubmissionsRef.current[submission.submissionId] = submission;
       try {
         // Cancel any existing job for this conversation
         const existingJobs = Object.values(activeJobsRef.current).filter(
           (job) => job.conversationId === conversationId,
         );
         if (existingJobs.length > 0) {
-          await cancelJob(conversationId);
+          await cancelJob(conversationId, submission.submissionId);
         }
 
         let response: Response;
@@ -1140,7 +1190,9 @@ export const useAsyncChat = (
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
+              signal: submission.controller.signal,
               body: JSON.stringify({
+                submissionId: submission.submissionId,
                 messages,
                 additionalProps,
                 userId: jobUserId,
@@ -1170,7 +1222,9 @@ export const useAsyncChat = (
           );
         }
 
-        const { jobId } = await response.json();
+        const { jobId, status } = await response.json();
+        submission.jobId = jobId;
+        if (submission.cancelled || status === 'cancelled') return jobId;
         const job: PersistedJob = {
           jobId,
           conversationId,
@@ -1209,19 +1263,24 @@ export const useAsyncChat = (
             if (initialResponse.ok) {
               const initialStatus: AsyncJobStatus =
                 await initialResponse.json();
-              handleWsJobStatus(initialStatus);
+              if (activeJobsRef.current[jobId])
+                handleWsJobStatus(initialStatus);
             }
           } catch {
             // Initial status fetch failed, WebSocket will deliver updates
           }
           // Start safety-net polling alongside WebSocket
-          if (!completedJobsRef.current.has(jobId)) {
+          if (
+            activeJobsRef.current[jobId] &&
+            !completedJobsRef.current.has(jobId)
+          ) {
             startWsFallbackPolling(jobId);
           }
         }
 
         return jobId;
       } catch (error: any) {
+        if (submission.cancelled) return submission.jobId ?? '';
         logger.error('Error starting async job', error);
         if (onError) {
           onError(error.message, {
@@ -1231,6 +1290,8 @@ export const useAsyncChat = (
           });
         }
         throw error;
+      } finally {
+        delete pendingSubmissionsRef.current[submission.submissionId];
       }
     },
     [

@@ -32,6 +32,22 @@ describe('mobile Create dock', () => {
     vi.clearAllMocks();
   });
 
+  it('keeps Stop enabled even when the draft is not valid for submission', () => {
+    useImagePanelStore.setState({ loading: true, prompt: '', inputImages: [] });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onStop = vi.fn();
+    act(() => root.render(<ImagesDock onSubmit={vi.fn()} onStop={onStop} />));
+    const stop = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Stop image generation"]',
+    );
+    expect(stop?.disabled).toBe(false);
+    act(() => stop!.click());
+    expect(onStop).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+  });
+
   it('keeps edit assets in a dedicated row and consolidates adjustments', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

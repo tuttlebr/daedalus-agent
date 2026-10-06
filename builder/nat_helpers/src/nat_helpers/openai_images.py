@@ -225,10 +225,15 @@ async def stream_generate_images(
     )
     check_signing_configuration()
     stream = await client.images.generate(**kwargs)
-    async for event in _stream_image_events(
-        stream, _mime_for_output_format(kwargs.get("output_format"))
-    ):
-        yield event
+    try:
+        async for event in _stream_image_events(
+            stream, _mime_for_output_format(kwargs.get("output_format"))
+        ):
+            yield event
+    finally:
+        close = getattr(stream, "close", None)
+        if close is not None:
+            await close()
 
 
 async def edit_images(
@@ -307,7 +312,12 @@ async def stream_edit_images(
     )
     check_signing_configuration()
     stream = await client.images.edit(**kwargs)
-    async for event in _stream_image_events(
-        stream, _mime_for_output_format(kwargs.get("output_format"))
-    ):
-        yield event
+    try:
+        async for event in _stream_image_events(
+            stream, _mime_for_output_format(kwargs.get("output_format"))
+        ):
+            yield event
+    finally:
+        close = getattr(stream, "close", None)
+        if close is not None:
+            await close()

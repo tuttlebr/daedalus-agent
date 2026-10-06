@@ -5,10 +5,12 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from daedalus_runtime import mcp
 
 
-def test_mcp_transport_is_closed_in_its_owning_task(monkeypatch):
+@pytest.mark.parametrize("abort", [False, True])
+def test_mcp_transport_is_closed_in_its_owning_task(monkeypatch, abort):
     events = []
     tools = [
         SimpleNamespace(name="read", description="Read", inputSchema={"type": "object"})
@@ -50,7 +52,11 @@ def test_mcp_transport_is_closed_in_its_owning_task(monkeypatch):
         connection = mcp.Connection("https://fixture.invalid/mcp", {}, 1)
         await connection.session()
         assert list(connection.tools) == ["read"]
-        await connection.close()
+        if abort:
+            connection.abort()
+            await connection.task
+        else:
+            await connection.close()
         assert connection.task.done()
 
     asyncio.run(scenario())

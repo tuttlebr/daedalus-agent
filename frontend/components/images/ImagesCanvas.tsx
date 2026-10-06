@@ -130,6 +130,8 @@ function LoadingCell({
   const label =
     status === 'queued'
       ? 'Queued'
+      : status === 'stopping'
+      ? 'Stopping…'
       : status === 'submitting'
       ? 'Submitting'
       : status === 'finalizing'

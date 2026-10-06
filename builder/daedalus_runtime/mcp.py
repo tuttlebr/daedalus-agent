@@ -73,6 +73,16 @@ class Connection:
             raise RuntimeError("MCP connection has closed")
         return await asyncio.wait_for(asyncio.shield(self.ready), timeout=15)
 
+    def abort(self):
+        # The SDK owns HTTP requests in its transport task, independently of
+        # session.call_tool's waiter. Cancel that owner as well. It unwinds its
+        # own AnyIO scopes and closes its HTTP client, without waiting in the
+        # already-cancelled request scope.
+        self.ready.add_done_callback(
+            lambda ready: None if ready.cancelled() else ready.exception()
+        )
+        self.task.cancel()
+
     async def close(self):
         self.stop.set()
         try:
@@ -146,6 +156,10 @@ class MCPManager:
             connection = cached[1]
         try:
             await connection.session()
+        except asyncio.CancelledError:
+            self.connections.pop(key, None)
+            connection.abort()
+            raise
         except BaseException:
             self.connections.pop(key, None)
             await connection.close()
@@ -268,6 +282,13 @@ class MCPManager:
                     float(self.groups[name].get("tool_call_timeout", 120))
                 ):
                     result = await session.call_tool(tool_name, arguments)
+            except asyncio.CancelledError:
+                # The per-(server, user) lock guarantees this connection has
+                # only this call in flight. Other users/groups are unaffected.
+                self.connections.pop(self._key(name, user), None)
+                connection.abort()
+                log_event("mcp_call_cancelled", group=name, tool=full_name)
+                raise
             except Exception as exc:
                 log_event(
                     "mcp_call_unconfirmed",
