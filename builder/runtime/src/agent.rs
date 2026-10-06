@@ -217,6 +217,7 @@ impl Agent {
         let mut repeated_errors = 0;
         let mut iterations = 0;
         let mut retry_attempt = 0;
+        let mut resume_text = false;
         while iterations < prepared.max_iterations {
             self.drain().await?;
             self.apply(&mut history).await?;
@@ -239,6 +240,11 @@ impl Agent {
                 .tools(tools)
                 .additional_params(params);
             request.chat_history = history.clone();
+            if resume_text {
+                request.chat_history.push(Message::user(
+                    "The previous model stream was interrupted. Continue from the assistant text already delivered without repeating it. Use the completed tool results in the conversation; do not repeat completed tool actions. Tool calls from the interrupted response were not executed.",
+                ));
+            }
             if final_synthesis {
                 request.chat_history.push(Message::user("Finish using the evidence already collected. Render the briefing or return the sourced findings and any explicit gaps."));
             }
@@ -324,23 +330,37 @@ impl Agent {
             let completed = match completion {
                 Ok(completed) => completed,
                 Err(error)
-                    if !received_item
-                        && error.is_retryable()
+                    if crate::provider::retryable(&error)
                         && retry_attempt < prepared.model.max_retries =>
                 {
                     retry_attempt += 1;
                     iterations -= 1;
+                    // Tools only execute after a complete model response. Keep
+                    // prior results and visible text, but discard every tool
+                    // proposal from this failed attempt, even a finished item.
+                    let output_bytes = partial.len();
+                    if !partial.is_empty() {
+                        history.push(Message::assistant(partial));
+                        resume_text = true;
+                    }
                     let delay = Duration::from_millis(250 * (1 << retry_attempt.min(5)));
                     tracing::warn!(
                         event = "model_retry_scheduled",
                         model_call,
                         retry_attempt,
                         delay_ms = delay.as_millis() as u64,
-                        error_kind = error.kind().code(),
+                        error_kind = if crate::provider::is_gateway_transport_error(&error) {
+                            "upstream_transport"
+                        } else {
+                            error.kind().code()
+                        },
                         http_status = error
                             .provider_response_status()
                             .map(|status| status.as_u16()),
-                        elapsed_ms = model_started.elapsed().as_millis() as u64
+                        elapsed_ms = model_started.elapsed().as_millis() as u64,
+                        received_item,
+                        output_bytes,
+                        resuming = resume_text
                     );
                     tokio::select! {
                         biased;
@@ -353,6 +373,7 @@ impl Agent {
                 Err(error) => return Err(anyhow::Error::new(error).context(Phase("model_stream"))),
             };
             retry_attempt = 0;
+            resume_text = false;
             if completed.usage.is_reported() {
                 self.handle
                     .metrics

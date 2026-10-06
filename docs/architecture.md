@@ -16,6 +16,14 @@ runtime supplies missing sequence numbers and an unknown timestamp, and reuses
 message IDs previously observed at the same output index. Content, tool call
 identities, output indices, and completion status still pass Rig's validation.
 
+Transient model stream failures use the configured bounded retry budget,
+including Switchyard's in-stream upstream transport errors. Recovery retains
+completed tool results and any answer text already streamed, asks the model to
+continue without repeating that text, and discards tool proposals from the
+failed response. A tool only runs after the whole model response completes.
+Invalid requests, malformed responses, and explicit incomplete responses keep
+their failure status. Exhausted retries return an explicit stream interruption.
+
 Backend application logs are JSON lines on stdout. They record run start/end,
 preparation, model attempts and retries, time to the first model event, tool
 execution, steering, cancellation, approval waits, and process lifecycle. A final

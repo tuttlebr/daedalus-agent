@@ -184,6 +184,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
             if let Err(failure) = result {
                 // Provider exceptions can contain full requests or credentials.
                 // Only application-owned diagnostics cross the logging/UI boundary.
+                let details = logging::failure(&failure);
                 let message = match failure.root_cause().to_string().as_str() {
                     "Run cancelled by user" => "Run cancelled by user",
                     "Agent run timed out" => "Agent run timed out",
@@ -192,9 +193,11 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
                     "Model response did not complete" => "Model response did not complete",
                     "Model request timed out" => "Model request timed out",
                     "Client disconnected" => "Client disconnected",
+                    _ if details.phase == "model_stream" && details.retryable => {
+                        "Model stream interrupted after retry limit; completed output has been preserved"
+                    }
                     _ => "Agent execution failed; completed output has been preserved",
                 };
-                let details = logging::failure(&failure);
                 log_outcome = match message {
                     "Run cancelled by user" => "cancelled",
                     "Client disconnected" => "disconnected",

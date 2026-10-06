@@ -172,12 +172,23 @@ class Peers:
                             "APPROVAL",
                             "SKILL_ROUTE",
                             "INCOMPLETE",
+                            "STREAM_RECOVER",
+                            "STREAM_TRUNCATED",
+                            "STREAM_TOOL_CUT",
+                            "STREAM_ALWAYS_FAIL",
+                            "STREAM_PERMANENT",
                         )
                         if name in serialized
                     ),
                     "BASIC",
                 )
                 outputs = []
+                attempt = sum(
+                    scenario in json.dumps(old.get("input", []))
+                    and ("function_call_output" in json.dumps(old.get("input", [])))
+                    == has_result
+                    for old in peers.requests
+                )
                 if redirected:
                     if scenario == "TOOL_STEER":
                         assert "RETAINED_EVIDENCE" in serialized  # nosec B101 - executable contract check
@@ -224,6 +235,8 @@ class Peers:
                         if scenario == "APPROVAL"
                         else ["fixture_mcp__slow_read", "fixture_mcp__next_read"]
                         if scenario == "TOOL_STEER"
+                        else ["fixture_mcp__next_read"]
+                        if scenario == "STREAM_TOOL_CUT" and attempt == 1
                         else ["current_datetime_tool"]
                     )
                     for index, name in enumerate(names):
@@ -286,7 +299,11 @@ class Peers:
                         outputs.append(item)
                     text = None
                 else:
-                    text = "The real datetime tool completed"
+                    text = (
+                        ("First part. " if attempt == 1 else "Recovered final answer.")
+                        if scenario in ("STREAM_RECOVER", "STREAM_TRUNCATED")
+                        else ("The real datetime tool completed")
+                    )
                 if text:
                     item = {
                         "type": "message",
@@ -338,6 +355,36 @@ class Peers:
                         }
                     )
                     outputs = [item]
+                if (
+                    (
+                        scenario in ("STREAM_RECOVER", "STREAM_TRUNCATED")
+                        and has_result
+                        and attempt == 1
+                    )
+                    or (
+                        scenario == "STREAM_TOOL_CUT"
+                        and not has_result
+                        and attempt == 1
+                    )
+                    or scenario in ("STREAM_ALWAYS_FAIL", "STREAM_PERMANENT")
+                ):
+                    if scenario != "STREAM_TRUNCATED":
+                        # Exact Switchyard SSE failure shape. A completed item
+                        # is not a completed response and must never run tools.
+                        self.event(
+                            {
+                                "type": "error",
+                                "error": {
+                                    "type": "SwitchyardError",
+                                    "message": (
+                                        "upstream transport error: error decoding response body"
+                                        if scenario != "STREAM_PERMANENT"
+                                        else "failed to translate invalid request PRIVATE_PROVIDER_ERROR"
+                                    ),
+                                },
+                            }
+                        )
+                    return
                 incomplete = scenario == "INCOMPLETE"
                 response = {
                     "id": "resp_fixture",
@@ -537,7 +584,7 @@ def check(image=None, binary=None, redis_image=None):
                     "-v",
                     f"{path}:/workspace/config.yaml:ro",
                     "-v",
-                    f'{root / "skills"}:/fixture-skills:ro',
+                    f"{root / 'skills'}:/fixture-skills:ro",
                 ]
                 for key, value in env.items():
                     command += ["-e", f"{key}={value}"]
@@ -650,6 +697,44 @@ def check(image=None, binary=None, redis_image=None):
                 failed = chat("PROVIDER_FAILURE", "provider-failure-run")
                 assert "Agent execution failed" in failed  # nosec B101 - executable contract check
                 assert "PRIVATE_PROVIDER_ERROR" not in failed  # nosec B101 - executable contract check
+                for scenario in ("STREAM_RECOVER", "STREAM_TRUNCATED"):
+                    before = len(peers.requests)
+                    recovered = chat("GATEWAY_" + scenario, scenario.lower())
+                    assert recovered.count("First part. ") == 1, recovered  # nosec B101 - executable contract check
+                    assert recovered.count("Recovered final answer.") == 1, recovered  # nosec B101 - executable contract check
+                    assert '"finish_reason":"stop"' in recovered, recovered  # nosec B101 - executable contract check
+                    assert "event: error" not in recovered, recovered  # nosec B101 - executable contract check
+                    assert recovered.count("Function Start: current_datetime_tool") == 1  # nosec B101 - executable contract check
+                    attempts = peers.requests[before:]
+                    assert len(attempts) == 3, attempts  # nosec B101 - executable contract check
+
+                    # A retry retains the exact completed tool results and the
+                    # text already sent to the browser, without replaying tools.
+                    def results(request):
+                        return [
+                            item
+                            for item in request["input"]
+                            if item.get("type") == "function_call_output"
+                        ]
+
+                    assert results(attempts[1]) == results(attempts[2])  # nosec B101 - executable contract check
+                    assert "First part. " in json.dumps(attempts[2]["input"])  # nosec B101 - executable contract check
+                peers.calls.clear()
+                cut = chat("GATEWAY_STREAM_TOOL_CUT", "stream-tool-cut")
+                assert not peers.calls, peers.calls  # nosec B101 - executable contract check
+                assert "Function Start: fixture_mcp__next_read" not in cut  # nosec B101 - executable contract check
+                assert '"finish_reason":"stop"' in cut, cut  # nosec B101 - executable contract check
+                for scenario, attempts in (
+                    ("STREAM_ALWAYS_FAIL", 4),
+                    ("STREAM_PERMANENT", 1),
+                ):
+                    before = len(peers.requests)
+                    failed = chat("GATEWAY_" + scenario, scenario.lower())
+                    assert '"finish_reason":"error"' in failed, failed  # nosec B101 - executable contract check
+                    assert "Function Start:" not in failed, failed  # nosec B101 - executable contract check
+                    assert len(peers.requests) == before + attempts  # nosec B101 - executable contract check
+                    if scenario == "STREAM_ALWAYS_FAIL":
+                        assert "Model stream interrupted after retry limit" in failed  # nosec B101 - executable contract check
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     for scenario, run, waiting in [
                         ("MODEL_STEER", "model-run", peers.model_waiting),
@@ -875,6 +960,13 @@ def check(image=None, binary=None, redis_image=None):
                     for event in events
                 )
                 assert any(
+                    event.get("event") == "model_retry_scheduled"
+                    and event.get("error_kind") == "upstream_transport"
+                    and event.get("resuming") is True
+                    and event.get("output_bytes") == len("First part. ")
+                    for event in events
+                )  # nosec B101 - executable contract check
+                assert any(
                     event.get("event") == "run_failed"
                     and event.get("phase") == "model_stream"  # nosec B101 - executable contract check
                     and event.get("http_status") == 400
@@ -894,6 +986,8 @@ def check(image=None, binary=None, redis_image=None):
                     "PRIVATE_TOOL_ARGUMENT",
                     "RETAINED_EVIDENCE",
                     "The real datetime tool completed",
+                    "First part. ",
+                    "Recovered final answer.",
                     "NEW_DIRECTION: use retained results and answer now",
                 ):
                     assert (

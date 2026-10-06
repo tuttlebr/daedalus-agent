@@ -14,6 +14,29 @@ use rig_core::providers::openai::wire::OpenAiWire;
 use rig_core::wire::{Decoder, Descriptor, Encoded, Flow, Mode, Out, Wire, WireEvent, WireFrame};
 use serde_json::{Value, json};
 
+/// Switchyard relays upstream transport failures as an SSE error inside HTTP
+/// 200, without a status or retry hint. Recognize only its transport envelope;
+/// translation failures and other provider errors must keep their own policy.
+pub fn is_gateway_transport_error(error: &ProviderError) -> bool {
+    if error
+        .provider_response_status()
+        .is_some_and(|status| !status.is_success())
+    {
+        return false;
+    }
+    let Ok(Some(body)) = error.provider_response_json() else {
+        return false;
+    };
+    body["error"]["type"].as_str() == Some("SwitchyardError")
+        && body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.starts_with("upstream transport error: "))
+}
+
+pub fn retryable(error: &ProviderError) -> bool {
+    error.is_retryable() || is_gateway_transport_error(error)
+}
+
 #[derive(Clone)]
 pub struct CompatibleOpenAi(pub OpenAiWire);
 
@@ -144,6 +167,38 @@ mod tests {
             OpenAIConfig::new("fixture").with_route(Route::Responses),
             "fixture",
         ))
+    }
+
+    #[test]
+    fn gateway_transport_errors_are_retryable_without_retrying_permanent_errors() {
+        let transport = json!({"type":"error","error":{
+            "type":"SwitchyardError",
+            "message":"upstream transport error: error decoding response body"
+        }});
+        assert!(retryable(&ProviderError::from_provider_body(
+            transport.to_string()
+        )));
+        assert!(retryable(&ProviderError::Truncated));
+        assert!(!retryable(&ProviderError::from_http_response(
+            http::StatusCode::BAD_REQUEST,
+            transport.to_string()
+        )));
+        for body in [
+            json!({"type":"error","error":{
+                "type":"SwitchyardError","message":"failed to translate request"
+            }}),
+            json!({"error":{
+                "type":"invalid_request_error","message":"upstream transport error: invalid input"
+            }}),
+            json!({"error":{"type":"SwitchyardError","message":"unknown"}}),
+            json!({"type":"response.failed","response":{"error":{
+                "code":"invalid_prompt","message":"invalid prompt"
+            }}}),
+        ] {
+            assert!(!retryable(&ProviderError::from_provider_body(
+                body.to_string()
+            )));
+        }
     }
 
     #[test]
