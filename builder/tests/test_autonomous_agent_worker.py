@@ -155,6 +155,8 @@ def test_feed_items_from_output_limits_and_normalizes():
                 "source_url": "https://example.com",
                 "thread_key": "example-thread",
                 "is_update": True,
+                "update_of": "prior-item",
+                "change_summary": "The topology now has a second region; previously it had one.",
                 "confidence": "High",
                 "confidence_reason": "Primary source.",
             }
@@ -168,6 +170,8 @@ def test_feed_items_from_output_limits_and_normalizes():
     assert items[0]["sourceUrl"] == "https://example.com"
     assert items[0]["threadKey"] == "example-thread"
     assert items[0]["isUpdate"] is True
+    assert items[0]["updateOfFeedItemId"] == "prior-item"
+    assert items[0]["changeSummary"] == output["feed_items"][0]["change_summary"]
 
 
 def test_apply_workspace_updates_only_allows_known_mutable_sections():
@@ -850,6 +854,54 @@ def test_run_once_dedupes_feed_items_already_surfaced():
     assert second["feedItemIds"] == []
     # The feed did not grow — no redundant item was appended.
     assert len(store.feed) == 1
+
+
+def test_run_once_finishes_quietly_when_a_rewritten_story_claims_to_be_an_update():
+    store = FakeStore()
+    old = {
+        "id": "feed_prior",
+        "title": "Atlas Robot SDK 5.0 released",
+        "bluf": "The vendor announced new tracking capabilities.",
+        "body": "Reusable robotics skills are available.",
+        "sourceUrl": "https://example.com/release",
+        "threadKey": "atlas-robot-sdk-5-0",
+        "createdAt": now_ms() - 40 * 86_400_000,
+    }
+    store.feed = [old]
+    backend = FakeBackend(
+        json.dumps(
+            {
+                "summary": "Revisited a previously covered release.",
+                "feed_items": [
+                    {
+                        "title": "Tracking speedup remains unverified",
+                        "bluf": "Another publisher cautions against vendor estimates.",
+                        "body": "Independent measurements are still unavailable.",
+                        "source_url": "https://another.example/commentary",
+                        "thread_key": "atlas-robot-sdk-5-0-tracking-claim",
+                        "is_update": True,
+                    }
+                ],
+            }
+        )
+    )
+
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "scheduled"},
+    )
+
+    runtime = json.loads(
+        backend.messages[-1]["content"].split("Runtime input:\n", 1)[1]
+    )
+    assert runtime["already_surfaced"][0]["id"] == "feed_prior"
+    assert run["status"] == "completed"
+    assert run["feedItemIds"] == []
+    assert run["metrics"]["feedItemsStored"] == 0
+    assert run["metrics"]["feedItemsDeduped"] == 1
+    assert store.feed == [old]
 
 
 def test_run_once_rejects_backend_approval_request():

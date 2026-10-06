@@ -102,6 +102,8 @@ def new_feed_item(
     source_url: str = "",
     thread_key: str = "",
     is_update: bool = False,
+    update_of: str = "",
+    change_summary: str = "",
     confidence: str = "medium",
     confidence_reason: str = "",
 ) -> dict[str, Any]:
@@ -122,4 +124,8 @@ def new_feed_item(
         item["threadKey"] = thread_key
     if is_update:
         item["isUpdate"] = True
+    if update_of:
+        item["updateOfFeedItemId"] = update_of
+    if change_summary:
+        item["changeSummary"] = change_summary
     return item

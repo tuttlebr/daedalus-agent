@@ -22,18 +22,10 @@ import time
 from typing import Any, Literal
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-# Redundancy is judged from title + body token overlap. A shared source URL is
-# strong corroboration, so for same-URL items EITHER the title or the body
-# overlapping is enough to call it a re-report; only when BOTH have materially
-# diverged do we treat it as a genuine update (e.g. benchmarks added to a prior
-# announcement) and let it through. For different/missing URLs we require BOTH
-# to overlap, so distinct findings — and same-title/different-body fallbacks —
-# stay separate. (Token Jaccard cannot separate near-paraphrases of one event
-# from two same-phrased-but-distinct events; real items carry URLs, where the
-# URL disambiguates, so we accept that the URL-less path errs toward merging.)
+# Wording overlap can reject a repeat, but low overlap is not evidence of news.
+# Repeated sources/threads also need an explicit prior item and a sourced change.
 TITLE_SIMILARITY = 0.6
 CONTENT_SIMILARITY = 0.5
-RELATED_TITLE_SIMILARITY = 0.6
 
 DEFAULT_WINDOW_DAYS = 14
 MIN_WINDOW_DAYS = 1
@@ -217,17 +209,49 @@ def _similarities(
 def _same_thread(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
     candidate_thread = feed_thread_key(candidate)
     existing_thread = feed_thread_key(existing)
-    return bool(candidate_thread and candidate_thread == existing_thread)
+    if not candidate_thread or not existing_thread:
+        return False
+    if candidate_thread == existing_thread:
+        return True
+    if not all(
+        key.startswith("thread:") for key in (candidate_thread, existing_thread)
+    ):
+        return False
+    # Appending an angle ("benchmark claim") to an event key is still the same
+    # story. Preserve distinct versions, dates, and numbered events, including
+    # a patch release appended to a version key.
+    candidate_parts = candidate_thread.removeprefix("thread:").split()
+    existing_parts = existing_thread.removeprefix("thread:").split()
+    shorter, longer = sorted((candidate_parts, existing_parts), key=len)
+    return (
+        len(shorter) >= 3
+        and longer[: len(shorter)] == shorter
+        and [part for part in shorter if any(char.isdigit() for char in part)]
+        == [part for part in longer if any(char.isdigit() for char in part)]
+    )
 
 
-def _same_explicit_thread(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
-    candidate_thread = normalize_thread_key(
-        candidate.get("threadKey") or candidate.get("thread_key")
+def _update_target(item: dict[str, Any]) -> str:
+    return str(item.get("updateOfFeedItemId") or item.get("update_of") or "").strip()
+
+
+def _change_summary(item: dict[str, Any]) -> str:
+    return str(item.get("changeSummary") or item.get("change_summary") or "").strip()
+
+
+def _has_update_details(item: dict[str, Any]) -> bool:
+    """Require reviewable change details; an update flag alone proves nothing.
+
+    This is a publication contract, not semantic verification of a source. The
+    research step must verify the change; lexical distance cannot do that.
+    """
+
+    return bool(
+        (item.get("isUpdate") is True or item.get("is_update") is True)
+        and _update_target(item)
+        and len(normalize_text(_change_summary(item))) >= 20
+        and normalize_url(_source_url(item))
     )
-    existing_thread = normalize_thread_key(
-        existing.get("threadKey") or existing.get("thread_key")
-    )
-    return bool(candidate_thread and candidate_thread == existing_thread)
 
 
 def _same_source(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
@@ -255,15 +279,9 @@ def feed_fingerprint(item: dict[str, Any]) -> str:
 def is_duplicate(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
     """True when ``candidate`` is a redundant re-report of ``existing``.
 
-    Explicit ``threadKey``: the model asserted this is the same story, so a
-    second take on it is redundant unless the model also claims an update.
-
-    Same source URL, or a thread derived from one: redundant when the body still
-    overlaps. The title alone does not condemn the item, because a recurring
-    source — a status page, a weekly report, a live scoreboard — keeps a stable
-    headline while its substance changes every run. Requiring the title to
-    diverge as well suppressed those sources permanently after their first entry
-    no matter how much new material each visit carried.
+    A known source/thread needs explicit change details. Even then, overlapping
+    content or a repeated change summary is redundant. A stable title alone is
+    allowed for a documented change on recurring status pages or weekly reports.
 
     Different or missing URLs: redundant only when BOTH the title and the body
     overlap, so distinct findings — and same-title/different-body fallbacks —
@@ -272,43 +290,24 @@ def is_duplicate(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
 
     title_sim, content_sim = _similarities(candidate, existing)
 
-    if _same_explicit_thread(candidate, existing):
-        is_update = (
-            candidate.get("isUpdate") is True or candidate.get("is_update") is True
+    if (
+        _same_source(candidate, existing)
+        or _same_thread(candidate, existing)
+        or (
+            _update_target(candidate)
+            and _update_target(candidate) == existing.get("id")
         )
+    ):
         return (
-            not is_update
-            or title_sim >= TITLE_SIMILARITY
+            not _has_update_details(candidate)
             or content_sim >= CONTENT_SIMILARITY
+            or bool(
+                _change_summary(candidate)
+                and normalize_text(_change_summary(candidate))
+                == normalize_text(_change_summary(existing))
+            )
         )
-    if _same_source(candidate, existing) or _same_thread(candidate, existing):
-        return content_sim >= CONTENT_SIMILARITY
     return title_sim >= TITLE_SIMILARITY and content_sim >= CONTENT_SIMILARITY
-
-
-def _is_probable_linked_update(
-    candidate: dict[str, Any],
-    existing: dict[str, Any],
-) -> bool:
-    """Conservatively identify material updates from a different source."""
-
-    if _same_thread(candidate, existing):
-        return not is_duplicate(candidate, existing)
-    candidate_url = normalize_url(_source_url(candidate))
-    existing_url = normalize_url(_source_url(existing))
-    if not candidate_url or not existing_url or candidate_url == existing_url:
-        return False
-    title_sim, content_sim = _similarities(candidate, existing)
-    return title_sim >= RELATED_TITLE_SIMILARITY and content_sim < CONTENT_SIMILARITY
-
-
-def _update_reason(
-    candidate: dict[str, Any],
-    existing: dict[str, Any],
-) -> str:
-    if _same_thread(candidate, existing):
-        return "Same source or thread, with materially different details."
-    return "Same topic from a different source, with new details."
 
 
 def classify_feed_item(
@@ -320,9 +319,10 @@ def classify_feed_item(
 ) -> tuple[FeedClassification, dict[str, Any] | None, str]:
     """Classify one candidate against retained feed history.
 
-    Exact source/thread matches are checked against the full retained history,
+    Source/thread matches are checked against the full retained history,
     regardless of the recency window. Fuzzy duplicate/update matching stays
-    bounded by ``window_ms``.
+    bounded by ``window_ms``. Check all duplicates before accepting an update:
+    an older announcement cannot excuse repeating a newer follow-up.
     """
 
     if not isinstance(candidate, dict):
@@ -330,23 +330,33 @@ def classify_feed_item(
 
     valid_existing = [item for item in existing_items if isinstance(item, dict)]
 
+    target = None
+    target_id = _update_target(candidate)
     for existing in valid_existing:
-        if not (_same_source(candidate, existing) or _same_thread(candidate, existing)):
-            continue
-        if is_duplicate(candidate, existing):
-            return "duplicate", existing, "Repeated source or thread."
-        return "linked_update", existing, _update_reason(candidate, existing)
+        if target_id and target_id == existing.get("id"):
+            target = existing
+        related = (
+            _same_source(candidate, existing)
+            or _same_thread(candidate, existing)
+            or (target_id and target_id == existing.get("id"))
+        )
+        if related or _within_window(existing, now=now, window_ms=window_ms):
+            if is_duplicate(candidate, existing):
+                return "duplicate", existing, "Repeated finding or undocumented change."
 
-    recent = [
-        item
-        for item in valid_existing
-        if _within_window(item, now=now, window_ms=window_ms)
-    ]
-    for existing in recent:
-        if is_duplicate(candidate, existing):
-            return "duplicate", existing, "Repeated recent finding."
-        if _is_probable_linked_update(candidate, existing):
-            return "linked_update", existing, _update_reason(candidate, existing)
+    if (
+        candidate.get("isUpdate") is True
+        or candidate.get("is_update") is True
+        or target_id
+        or _change_summary(candidate)
+    ):
+        if target is None or not _has_update_details(candidate):
+            return (
+                "duplicate",
+                target,
+                "Update needs a retained prior item and sourced change.",
+            )
+        return "linked_update", target, _change_summary(candidate)
 
     return "fresh", None, ""
 
@@ -359,7 +369,7 @@ def stamp_feed_item(
 ) -> dict[str, Any]:
     """Stamp a kept item with deterministic observability/linkage fields."""
 
-    thread_key = feed_thread_key(item)
+    thread_key = feed_thread_key(update_of or {}) or feed_thread_key(item)
     if thread_key:
         item["threadKey"] = thread_key
     item.setdefault("fingerprint", feed_fingerprint(item))
@@ -469,19 +479,20 @@ def summarize_recent_feed(
     bluf_chars: int = 180,
     source_chars: int = 80,
     thread_key_chars: int = 96,
+    include_older: bool = False,
 ) -> list[dict[str, str]]:
     """Compact digest of recently surfaced items for the prompt.
 
-    Returns at most ``limit`` rows within the window, most recent first, so the
-    agent can see what it already reported and skip redundant work at the
-    source.
+    Returns at most ``limit`` rows, most recent first. ``include_older`` keeps
+    retained coverage visible even after quiet weeks with no new cards; the
+    recency window is a fuzzy-match policy, not permission to rediscover news.
     """
 
     digest: list[dict[str, str]] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        if not _within_window(item, now=now, window_ms=window_ms):
+        if not include_older and not _within_window(item, now=now, window_ms=window_ms):
             continue
         title = str(item.get("title") or "").strip()
         if not title:
@@ -499,6 +510,7 @@ def summarize_recent_feed(
             thread_key = f"{thread_key[: thread_key_chars - 1].rstrip()}…"
         digest.append(
             {
+                "id": str(item.get("id") or "")[:128],
                 "date": _format_day(item.get("createdAt")),
                 "title": title,
                 "bluf": bluf,

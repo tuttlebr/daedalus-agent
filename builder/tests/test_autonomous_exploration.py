@@ -229,7 +229,7 @@ def test_prompt_separates_evergreen_discovery_from_time_sensitive_news_and_feed_
     assert "distinguish newly discovered from newly published" in prompt
     assert "verify its present applicability" in prompt
     assert "This exception does not apply to\ntime-sensitive claims" in prompt
-    assert "Return zero to four selective feed cards" in prompt
+    assert "Return zero or one selective feed card by default" in prompt
     assert "Never manufacture a card\nto fill a lane" in prompt
     assert "Feed bodies are plain text" in prompt
 
@@ -266,6 +266,36 @@ def test_displayed_output_example_satisfies_strict_parser_for_every_lane(
     assert parsed["feed_items"][0]["lane"] == preferred_lane
     assert parsed["feed_items"][0]["confidence"] == "medium"
     assert parsed["feed_items"][0]["is_update"] is False
+
+
+@pytest.mark.parametrize("count", [0, 1, 2, 3])
+def test_feed_contract_allows_quiet_runs_and_at_most_two_cards(count):
+    example, _literal_json = _displayed_output_contract("known")
+    example["feed_items"] *= count
+
+    if count > 2:
+        with pytest.raises(ValueError, match="invalid structured output"):
+            parse_structured_output(json.dumps(example))
+    else:
+        parsed = parse_structured_output(json.dumps(example))
+        assert len(parsed["feed_items"]) == count
+
+
+def test_update_contract_preserves_reviewable_change_details():
+    example, _literal_json = _displayed_output_contract("known")
+    example["feed_items"][0].update(
+        is_update=True,
+        update_of="feed_prior",
+        change_summary="The previously healthy region is now unavailable; failover is required.",
+    )
+
+    parsed = parse_structured_output(json.dumps(example))
+
+    assert parsed["feed_items"][0]["update_of"] == "feed_prior"
+    assert (
+        parsed["feed_items"][0]["change_summary"]
+        == example["feed_items"][0]["change_summary"]
+    )
 
 
 @pytest.mark.parametrize(

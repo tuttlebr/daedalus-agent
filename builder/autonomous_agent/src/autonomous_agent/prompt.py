@@ -148,6 +148,8 @@ class _AutonomousFeedItem(_StrictOutputModel):
     source_url: _SourceUrl = ""
     thread_key: _ThreadKey = ""
     is_update: bool = False
+    update_of: Annotated[str, StringConstraints(max_length=128)] = ""
+    change_summary: _Reason = ""
     confidence: Literal["high", "medium", "low"] = "medium"
     confidence_reason: _Reason = ""
 
@@ -163,7 +165,7 @@ class _WorkspaceUpdates(_StrictOutputModel):
 class _AutonomousOutput(_StrictOutputModel):
     summary: _Summary
     executive_summary: Annotated[str, StringConstraints(max_length=2_000)] = ""
-    feed_items: list[_AutonomousFeedItem] = Field(default_factory=list, max_length=4)
+    feed_items: list[_AutonomousFeedItem] = Field(default_factory=list, max_length=2)
     workspace_updates: _WorkspaceUpdates = Field(default_factory=_WorkspaceUpdates)
     self_reflection: Annotated[str, StringConstraints(max_length=2_000)] = ""
 
@@ -291,6 +293,7 @@ def build_messages(
         bluf_chars=_RECENT_FEED_BLUF_CHARS,
         source_chars=_RECENT_FEED_SOURCE_CHARS,
         thread_key_chars=_RECENT_FEED_THREAD_KEY_CHARS,
+        include_older=True,
     )
 
     bounded_workspace = {
@@ -322,6 +325,8 @@ def build_messages(
                 "source_url": "primary source URL when available",
                 "thread_key": "required canonical event/topic key, independent of publisher",
                 "is_update": False,
+                "update_of": "",
+                "change_summary": "",
                 "confidence": "medium",
                 "confidence_reason": "specific reason",
             }
@@ -468,21 +473,38 @@ a new release, or a changed current state. This exception does not apply to
 time-sensitive claims or to anything already surfaced.
 
 # Avoid redundancy
-The "already_surfaced" list in the runtime input is what you reported in recent
-runs, including short BLUF, source, and thread key. Do NOT emit a feed item that
+The "already_surfaced" list in the runtime input is retained prior coverage,
+including item id, date, short BLUF, source, and thread key. Old coverage remains
+covered even after a quiet period. Do NOT emit a feed item that
 repeats the same event, announcement, paper, release, or finding already on that
 list. The same fact from a different publisher is corroboration, not new
 content. Surface an item only for a verified first-time finding relevant to the
-user, or a materially changed fact or current state since a prior item. Use a canonical
-thread_key based on the event or tracked topic, never the publisher or URL. For
-an update, state plainly in the bluf what changed and reuse the prior thread_key.
+user, or a materially changed fact or current state since a prior item. Use a
+canonical thread_key based on the event or tracked topic, never the publisher,
+URL, research angle, or caveat. Do not append a suffix to make a known story new.
+For a follow-up, reuse the prior thread_key, use is_update=true, copy the prior
+item's exact id into update_of, and supply change_summary. In change_summary, state
+the previously reported fact, what has changed since that coverage, and why the
+change warrants the user's attention now. Verify this against the source_url;
+prefer dated primary evidence. Put the actual change in the bluf as well.
+Different wording and is_update=true alone do not establish a material update.
+Additional background, another benchmark table for the same release, renewed
+caveats about the same vendor claim, and the continued absence of evidence
+belong in private research notes unless a verified development changes the
+user's decision or action. Compare against every prior card on the story,
+including follow-ups, not just the original announcement. If you cannot identify
+a concrete new consequence, skip the card. For first-time findings, leave
+update_of and change_summary empty and use is_update=false.
 Do not refresh wording, framing, recommendations, or source location merely to
 make an old item look new. If a run
 turns up nothing beyond what is already surfaced, return an empty feed_items
 list rather than restating known items.
 
 # Output and stop rule
-Return zero to four selective feed cards, usually one or two. Each card needs a
+Less is more. Return zero or one selective feed card by default. A second card
+is allowed only for a separate, independently important finding. There is no
+minimum output or publishing quota; an empty feed_items list is a successful
+run when nothing merits an interruption. Each card needs a
 specific title, a one-sentence bluf containing the finding or actual change,
 and a short plain-text body explaining why it matters to this user. Use a
 primary source_url when available and state evidence limits in confidence_reason.
@@ -631,7 +653,7 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
         return []
 
     result: list[dict[str, Any]] = []
-    for item in items[:4]:
+    for item in items[:2]:
         if not isinstance(item, dict):
             continue
         title = str(item.get("title") or "").strip()
@@ -652,6 +674,12 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
                     item.get("thread_key") or item.get("threadKey") or ""
                 ).strip(),
                 is_update=item.get("is_update") is True or item.get("isUpdate") is True,
+                update_of=str(
+                    item.get("update_of") or item.get("updateOfFeedItemId") or ""
+                ).strip(),
+                change_summary=str(
+                    item.get("change_summary") or item.get("changeSummary") or ""
+                ).strip(),
                 confidence=str(item.get("confidence") or "medium").strip().lower(),
                 confidence_reason=str(
                     item.get("confidence_reason") or item.get("confidenceReason") or ""

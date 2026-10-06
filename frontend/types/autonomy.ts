@@ -100,6 +100,8 @@ export interface AutonomyFeedItem {
   threadKey?: string;
   /** Model assertion that this item materially changes an existing thread. */
   isUpdate?: boolean;
+  /** Sourced before/after change required before publishing a follow-up. */
+  changeSummary?: string;
   /** Prior feed item this entry materially updates, when applicable. */
   updateOfFeedItemId?: string;
   updateOfTitle?: string;

@@ -126,6 +126,8 @@ def test_stored_event_thread_keeps_material_update_and_stable_linkage():
         sourceUrl="https://example.com/benchmark",
         threadKey="dynamo-2-0-release",
         isUpdate=True,
+        updateOfFeedItemId="old",
+        changeSummary="The release now has reproducible independent measurements, previously unavailable.",
     )
 
     kept, dropped = dedupe_feed_items([update], [old], now=NOW)
@@ -164,8 +166,7 @@ def test_is_duplicate_same_url_rereport_is_dropped():
 
 
 def test_is_duplicate_same_url_material_update_is_kept():
-    # Same source URL, but the wording has materially diverged (a genuine
-    # follow-up) — it must NOT be suppressed.
+    # An explicit, sourced change can revisit a previously covered source.
     original = _item(
         title="NVIDIA announces Blackwell Ultra GPU",
         bluf="NVIDIA unveiled a new data center GPU today.",
@@ -177,6 +178,9 @@ def test_is_duplicate_same_url_material_update_is_kept():
         bluf="Independent MLPerf results show 2x H100 throughput.",
         body="Numbers posted for both training and inference runs.",
         sourceUrl="https://nvidia.com/x",
+        isUpdate=True,
+        updateOfFeedItemId=original["id"],
+        changeSummary="Independent measurements replace the announcement's projected availability.",
     )
     assert not is_duplicate(update, original)
 
@@ -311,6 +315,9 @@ def test_recurring_source_with_a_stable_title_is_not_suppressed_forever():
             bluf="Two regions degraded.",
             body="A storage partition failed twice and paging was delayed.",
             sourceUrl="https://status.example.com/weekly",
+            isUpdate=True,
+            updateOfFeedItemId="week-1",
+            changeSummary="Two regions are now degraded after last week's nominal status; paging needs repair.",
         )
     ]
 
@@ -366,6 +373,9 @@ def test_dedupe_keeps_material_same_source_update_as_linked_update():
             bluf="MLPerf results now show 2x H100 throughput.",
             body="Numbers were posted for training and inference runs.",
             sourceUrl="https://nvidia.com/gpu",
+            isUpdate=True,
+            updateOfFeedItemId="old",
+            changeSummary="Independent throughput measurements are now available to guide capacity planning.",
         )
     ]
     kept, dropped = dedupe_feed_items(new, existing, now=NOW, window_ms=14 * DAY_MS)
@@ -374,7 +384,7 @@ def test_dedupe_keeps_material_same_source_update_as_linked_update():
     assert kept[0]["threadKey"] == feed_thread_key(existing[0])
     assert kept[0]["updateOfFeedItemId"] == "old"
     assert kept[0]["updateOfTitle"] == "NVIDIA announces Blackwell Ultra GPU"
-    assert "materially different" in kept[0]["updateReason"]
+    assert kept[0]["updateReason"] == new[0]["changeSummary"]
 
 
 def test_dedupe_drops_repeated_material_update_within_same_batch():
@@ -394,6 +404,9 @@ def test_dedupe_drops_repeated_material_update_within_same_batch():
         bluf="MLPerf results now show 2x H100 throughput.",
         body="Numbers were posted for training and inference runs.",
         sourceUrl="https://nvidia.com/gpu",
+        isUpdate=True,
+        updateOfFeedItemId="old",
+        changeSummary="Independent throughput measurements are now available to guide capacity planning.",
     )
     repeat = dict(update, id="update-b")
 
@@ -445,7 +458,8 @@ def test_summarize_recent_feed_shape_window_and_limit():
     digest = summarize_recent_feed(items, now=NOW, window_ms=14 * DAY_MS, limit=40)
     assert len(digest) == 40
     assert all(
-        set(row) == {"date", "title", "bluf", "source", "threadKey"} for row in digest
+        set(row) == {"id", "date", "title", "bluf", "source", "threadKey"}
+        for row in digest
     )
     assert all(row["title"] != "Stale" for row in digest)
 
@@ -487,6 +501,9 @@ def test_classify_feed_item_reports_linked_update_for_explicit_thread_key():
         body="The new item covers the RC and compatibility notes.",
         threadKey="cuda-roadmap",
         isUpdate=True,
+        sourceUrl="https://example.com/cuda-rc",
+        updateOfFeedItemId="old",
+        changeSummary="The preview now has an installable release candidate with migration instructions.",
     )
 
     classification, matched, reason = classify_feed_item(
@@ -498,7 +515,7 @@ def test_classify_feed_item_reports_linked_update_for_explicit_thread_key():
 
     assert classification == "linked_update"
     assert matched == existing[0]
-    assert "Same source or thread" in reason
+    assert reason == candidate["changeSummary"]
 
 
 def test_dedupe_mixed_batch_url_and_text_only():
@@ -542,6 +559,186 @@ def test_dedupe_mixed_batch_url_and_text_only():
     kept, dropped = dedupe_feed_items(new, existing, now=NOW)
     assert [item["id"] for item in kept] == ["fresh"]
     assert {item["id"] for item in dropped} == {"dup-url", "dup-text"}
+
+
+@pytest.mark.parametrize("age_days", [1, 40])
+@pytest.mark.parametrize("is_update", [False, True])
+def test_release_revisit_cannot_escape_by_appending_a_research_angle(
+    age_days, is_update
+):
+    original = _item(
+        id="release",
+        title="Atlas Robot SDK 5.0 released",
+        bluf="New object tracking is available.",
+        body="The release adds reusable robotics skills.",
+        sourceUrl="https://example.com/releases/5.0",
+        threadKey="atlas-robot-sdk-5-0",
+        createdAt=NOW - age_days * DAY_MS,
+    )
+    caveat = _item(
+        id="caveat",
+        title="Object tracking speedup still lacks independent verification",
+        bluf="Capacity plans should treat vendor estimates with caution.",
+        body="A different publisher revisits the benchmark methodology.",
+        sourceUrl="https://another.example/benchmark-commentary",
+        threadKey="atlas-robot-sdk-5-0-tracking-claim",
+        isUpdate=is_update,
+    )
+
+    kept, dropped = dedupe_feed_items([caveat], [original], now=NOW)
+
+    assert kept == []
+    assert dropped == [caveat]
+
+
+@pytest.mark.parametrize("new_key", ["atlas-robot-sdk-5-1", "atlas-robot-sdk-5-0-1"])
+def test_story_matching_preserves_distinct_release_versions(new_key):
+    original = _item(
+        id="old", title="Original release", threadKey="atlas-robot-sdk-5-0"
+    )
+    candidate = _item(
+        id="new",
+        title="Maintenance patch available",
+        bluf="A critical crash is fixed.",
+        body="Deploy the new package to repair the startup failure.",
+        threadKey=new_key,
+    )
+
+    kept, dropped = dedupe_feed_items([candidate], [original], now=NOW)
+
+    assert dropped == []
+    assert kept == [candidate]
+
+
+@pytest.mark.parametrize(
+    "field", ["isUpdate", "updateOfFeedItemId", "changeSummary", "sourceUrl"]
+)
+def test_known_story_requires_complete_update_details(field):
+    original = _item(id="old", sourceUrl="https://example.com/status")
+    candidate = _item(
+        id="new",
+        title="Regional outage",
+        bluf="Two regions cannot serve requests.",
+        body="A failed storage partition needs operator attention.",
+        threadKey=feed_thread_key(original),
+        sourceUrl="https://example.com/status",
+        isUpdate=True,
+        updateOfFeedItemId="old",
+        changeSummary="Previously healthy regions are now unavailable; failover is required.",
+    )
+    candidate.pop(field)
+
+    kept, dropped = dedupe_feed_items([candidate], [original], now=NOW)
+
+    assert kept == []
+    assert dropped == [candidate]
+
+
+def test_orphan_update_is_not_published_as_a_fresh_finding():
+    candidate = _item(
+        isUpdate=True,
+        updateOfFeedItemId="missing",
+        changeSummary="Previously healthy regions are now unavailable; failover is required.",
+        sourceUrl="https://example.com/status",
+    )
+
+    kept, dropped = dedupe_feed_items([candidate], [], now=NOW)
+
+    assert kept == []
+    assert dropped == [candidate]
+
+
+@pytest.mark.parametrize("reverse_history", [False, True])
+def test_older_announcement_cannot_excuse_repeating_a_later_update(reverse_history):
+    original = _item(
+        id="original",
+        title="Database release announced",
+        bluf="Preview packages are ready for evaluation.",
+        body="A stable package will follow after testing.",
+        threadKey="database-release-roadmap",
+        sourceUrl="https://example.com/preview",
+        createdAt=NOW - 40 * DAY_MS,
+    )
+    update = _item(
+        id="stable",
+        title="Production packages now available",
+        bluf="The stable database package ships with a migration tool.",
+        body="Operators can use the supported migration path.",
+        threadKey="database-release-roadmap",
+        sourceUrl="https://example.com/stable",
+        isUpdate=True,
+        updateOfFeedItemId="original",
+        changeSummary="Preview packages have been replaced by a stable release with a supported migration tool.",
+        createdAt=NOW - 20 * DAY_MS,
+    )
+    history = [original, update]
+    if reverse_history:
+        history.reverse()
+    repeat = dict(update, id="repeat", createdAt=NOW)
+
+    kept, dropped = dedupe_feed_items([repeat], history, now=NOW)
+
+    assert kept == []
+    assert dropped == [repeat]
+
+
+def test_repeated_change_summary_is_redundant_despite_new_wording():
+    previous = _item(
+        id="previous",
+        threadKey="database-release-roadmap",
+        changeSummary="The preview has been replaced by a stable release with migration tools.",
+    )
+    candidate = _item(
+        title="Production migration guide",
+        bluf="Operators can now move to the supported version.",
+        body="The vendor describes how to upgrade a database installation.",
+        threadKey="database-release-roadmap",
+        sourceUrl="https://example.com/migration",
+        isUpdate=True,
+        updateOfFeedItemId="previous",
+        changeSummary=previous["changeSummary"],
+    )
+
+    kept, dropped = dedupe_feed_items([candidate], [previous], now=NOW)
+
+    assert kept == []
+    assert dropped == [candidate]
+
+
+def test_linked_update_inherits_canonical_thread_from_prior_item():
+    original = _item(
+        id="old",
+        threadKey="atlas-robot-sdk-5-0",
+        sourceUrl="https://example.com/release",
+    )
+    candidate = _item(
+        title="Tracking library withdrawn",
+        bluf="A memory corruption issue requires immediate rollback.",
+        body="The maintainer published a security advisory and removed the package.",
+        threadKey="atlas-robot-sdk-5-0-security-advisory",
+        sourceUrl="https://example.com/advisory",
+        isUpdate=True,
+        updateOfFeedItemId="old",
+        changeSummary="The previously available package is now withdrawn due to memory corruption; roll back.",
+    )
+
+    kept, dropped = dedupe_feed_items([candidate], [original], now=NOW)
+
+    assert dropped == []
+    assert kept[0]["threadKey"] == feed_thread_key(original)
+    assert kept[0]["updateReason"] == candidate["changeSummary"]
+
+
+def test_retained_digest_keeps_coverage_visible_after_a_quiet_period():
+    history = [
+        _item(id=f"old-{i}", createdAt=NOW - (40 + i) * DAY_MS) for i in range(70)
+    ]
+
+    digest = summarize_recent_feed(history, now=NOW, include_older=True)
+
+    assert len(digest) == 60
+    assert digest[0]["id"] == "old-0"
+    assert digest[-1]["id"] == "old-59"
 
 
 def test_dedupe_skips_non_dict_existing_entries():
