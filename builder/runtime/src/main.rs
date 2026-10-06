@@ -3,9 +3,15 @@
 mod agent;
 mod control;
 mod events;
+mod logging;
 mod provider;
 
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     Json, Router,
@@ -21,6 +27,7 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::sync::{Mutex, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use agent::Agent;
@@ -158,51 +165,87 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         revision: 0,
     };
     let streaming = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    let message_count = messages.len();
     let runs = app.runs.clone();
-    tokio::spawn(async move {
-        let result = tokio::time::timeout(Duration::from_secs(1800), agent.run(body)).await;
-        let result = result.unwrap_or_else(|_| Err(anyhow::anyhow!("Agent run timed out")));
-        let outcome = if result.is_ok() {
-            "completed"
-        } else {
-            "failed"
-        };
-        if let Err(failure) = result {
-            // Provider exceptions can contain full requests or credentials.
-            // Only application-owned diagnostics cross the logging/UI boundary.
-            let message = match failure.to_string().as_str() {
-                "Run cancelled by user" => "Run cancelled by user",
-                "Agent run timed out" => "Agent run timed out",
-                "Agent iteration limit reached" => "Agent iteration limit reached",
-                "Repeated identical tool failure" => "Repeated identical tool failure",
-                "Model response did not complete" => "Model response did not complete",
-                "Model request timed out" => "Model request timed out",
-                _ => "Agent execution failed; completed output has been preserved",
+    // Correlation must survive LOG_LEVEL=WARN/ERROR even when progress is off.
+    let span = tracing::error_span!("agent_run", run_id = %run_id);
+    tokio::spawn(
+        async move {
+            let started = Instant::now();
+            tracing::info!(event = "run_started", streaming, message_count);
+            let result = tokio::time::timeout(Duration::from_secs(1800), agent.run(body)).await;
+            let result = result.unwrap_or_else(|_| Err(anyhow::anyhow!("Agent run timed out")));
+            let outcome = if result.is_ok() {
+                "completed"
+            } else {
+                "failed"
             };
-            let provider_error = failure.downcast_ref::<rig_core::error::ProviderError>();
-            tracing::warn!(
-                run_id,
-                outcome = message,
-                provider_error_kind = provider_error.map(|error| error.kind().code()),
-                provider_status = provider_error
-                    .and_then(|error| error.provider_response_status())
-                    .map(|status| status.as_u16()),
-                "Agent run ended"
+            let mut log_outcome = outcome;
+            if let Err(failure) = result {
+                // Provider exceptions can contain full requests or credentials.
+                // Only application-owned diagnostics cross the logging/UI boundary.
+                let message = match failure.root_cause().to_string().as_str() {
+                    "Run cancelled by user" => "Run cancelled by user",
+                    "Agent run timed out" => "Agent run timed out",
+                    "Agent iteration limit reached" => "Agent iteration limit reached",
+                    "Repeated identical tool failure" => "Repeated identical tool failure",
+                    "Model response did not complete" => "Model response did not complete",
+                    "Model request timed out" => "Model request timed out",
+                    "Client disconnected" => "Client disconnected",
+                    _ => "Agent execution failed; completed output has been preserved",
+                };
+                let details = logging::failure(&failure);
+                log_outcome = match message {
+                    "Run cancelled by user" => "cancelled",
+                    "Client disconnected" => "disconnected",
+                    _ => "failed",
+                };
+                if log_outcome == "failed" {
+                    tracing::warn!(
+                        event = "run_failed",
+                        phase = details.phase,
+                        error_kind = details.kind,
+                        http_status = details.status,
+                        retryable = details.retryable,
+                        reason = message
+                    );
+                }
+                let _ = events
+                    .event("error", json!({"error":{"message":message}}))
+                    .await;
+                let _ = events.finish("error").await;
+            }
+            let metrics = metrics_handle.metrics.snapshot();
+            tracing::info!(
+                event = "run_finished",
+                outcome = log_outcome,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                model_calls = metrics["model_calls"].as_u64(),
+                tool_calls = metrics["tool_calls"].as_u64(),
+                input_tokens = metrics["input_tokens"].as_u64(),
+                output_tokens = metrics["output_tokens"].as_u64(),
+                reported_usage_calls = metrics["reported_usage_calls"].as_u64()
             );
-            let _ = events
-                .event("error", json!({"error":{"message":message}}))
-                .await;
-            let _ = events.finish("error").await;
+            let cleanup = cleanup_http
+                .delete(cleanup_url)
+                .headers(cleanup_headers)
+                .json(&json!({"outcome":outcome,"metrics":metrics}))
+                .timeout(Duration::from_secs(2))
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status);
+            if let Err(error) = cleanup {
+                let details = logging::failure(&error.into());
+                tracing::warn!(
+                    event = "run_cleanup_failed",
+                    error_kind = details.kind,
+                    http_status = details.status
+                );
+            }
+            runs.lock().await.remove(&run_id);
         }
-        let _ = cleanup_http
-            .delete(cleanup_url)
-            .headers(cleanup_headers)
-            .json(&json!({"outcome":outcome,"metrics":metrics_handle.metrics.snapshot()}))
-            .timeout(Duration::from_secs(2))
-            .send()
-            .await;
-        runs.lock().await.remove(&run_id);
-    });
+        .instrument(span),
+    );
     if streaming {
         let stream = ReceiverStream::new(receiver).map(Ok::<_, Infallible>);
         return (
@@ -255,9 +298,12 @@ async fn control(
         return error(404, "Active run not found");
     };
     let command_id = command.id();
-    match handle.submit(&user,command).await {
-        Ok(accepted)=>Json(json!({"run_id":run_id,"command_id":command_id,"accepted":accepted,"status":"received"})).into_response(),
-        Err(status)=>error(status,"Steering command rejected"),
+    match handle.submit(&user, command).await {
+        Ok(accepted) => {
+            tracing::info!(event = "control_accepted", run_id, %command_id, duplicate = !accepted);
+            Json(json!({"run_id":run_id,"command_id":command_id,"accepted":accepted,"status":"received"})).into_response()
+        }
+        Err(status) => error(status, "Steering command rejected"),
     }
 }
 
@@ -324,12 +370,7 @@ fn router(app: App) -> Router {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "daedalus_runtime=info".into()),
-        )
-        .init();
+    logging::init();
     let app = App {
         http: reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
@@ -354,13 +395,18 @@ async fn main() -> anyhow::Result<()> {
     let host = std::env::var("DAEDALUS_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = std::env::var("DAEDALUS_PORT").unwrap_or_else(|_| "8000".into());
     let listener = tokio::net::TcpListener::bind(format!("{host}:{port}")).await?;
-    tracing::info!("Daedalus Rust runtime listening");
+    tracing::info!(
+        event = "runtime_started",
+        component = "rust_agent",
+        port = listener.local_addr()?.port()
+    );
     axum::serve(listener, router(app))
         .with_graceful_shutdown(async {
             let mut terminate =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                     .expect("install SIGTERM handler");
             tokio::select! { _ = terminate.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+            tracing::info!(event = "runtime_stopping", component = "rust_agent");
         })
         .await?;
     Ok(())

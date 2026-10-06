@@ -15,8 +15,34 @@ Responses streams from compatible gateways may omit envelope metadata. The
 runtime supplies missing sequence numbers and an unknown timestamp, and reuses
 message IDs previously observed at the same output index. Content, tool call
 identities, output indices, and completion status still pass Rig's validation.
-Provider failure logs include the error category and HTTP status without
-recording request bodies, response bodies, or credentials.
+
+Backend application logs are JSON lines on stdout. They record run start/end,
+preparation, model attempts and retries, time to the first model event, tool
+execution, steering, cancellation, approval waits, and process lifecycle. A final
+run summary includes elapsed time, model/tool call counts, and reported token
+usage. Failures include their stage, category, and HTTP status when available.
+Prompts, answers, tool arguments/results, user identities, credentials, raw
+provider errors, and OAuth URLs are excluded from these application logs.
+
+`LOG_LEVEL=INFO` is the default for both processes; `DEBUG` also logs MCP
+discovery timings, and `WARN`/`ERROR` reduce progress output. Rust additionally
+honors `RUST_LOG` when set. Use `daedalus_runtime=debug` to scope Rust diagnostics
+to application events. Uvicorn and other dependencies retain their own log
+formats. No Phoenix collector is needed to see application logs.
+
+Follow the backend with:
+
+```bash
+kubectl -n daedalus logs -f deployment/daedalus-backend-default -c backend
+```
+
+The Rust `span.run_id` and Python `fields.run_id` identify the same frontend job.
+To inspect one run, filtering out non-JSON server messages:
+
+```bash
+kubectl -n daedalus logs deployment/daedalus-backend-default -c backend --since=30m |
+  jq -R 'fromjson? | select((.span.run_id // .fields.run_id) == "RUN_ID")'
+```
 
 `builder/daedalus_runtime` runs Python tools on loopback port 8001. The Rust
 process is the public backend on port 8000. The supervisor starts both, waits

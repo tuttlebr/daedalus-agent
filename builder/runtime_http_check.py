@@ -93,7 +93,7 @@ class Peers:
                                     "description": name,
                                     "inputSchema": {
                                         "type": "object",
-                                        "properties": {},
+                                        "properties": {"private": {"type": "string"}},
                                         "additionalProperties": False,
                                     },
                                 }
@@ -131,7 +131,10 @@ class Peers:
                     and sum("RETRY_MODEL" in json.dumps(old) for old in peers.requests)
                     == 1
                 ):
-                    self.reply({"error": {"message": "fixture busy"}}, 503)
+                    self.reply({"error": {"message": "PRIVATE_PROVIDER_ERROR"}}, 503)
+                    return
+                if "PROVIDER_FAILURE" in json.dumps(body):
+                    self.reply({"error": {"message": "PRIVATE_PROVIDER_ERROR"}}, 400)
                     return
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -253,6 +256,8 @@ class Peers:
                                     }
                                 )
                                 if name == "agent_skills_tool"
+                                else json.dumps({"private": "PRIVATE_TOOL_ARGUMENT"})
+                                if name.endswith("slow_read")
                                 else "{}",
                             }
                         )
@@ -265,6 +270,8 @@ class Peers:
                                 }
                             )
                             if name == "agent_skills_tool"
+                            else json.dumps({"private": "PRIVATE_TOOL_ARGUMENT"})
+                            if name.endswith("slow_read")
                             else "{}",
                             "status": "completed",
                         }
@@ -406,7 +413,7 @@ def check(image=None, binary=None, redis_image=None):
             "main": {
                 "_type": "openai",
                 "api_type": "responses",
-                "api_key": "fixture",
+                "api_key": "PRIVATE_MODEL_CREDENTIAL",
                 "base_url": f"http://127.0.0.1:{model_port}/v1",
                 "model_name": "fixture",
                 # Existing deployments configure a one-hour model timeout.
@@ -598,7 +605,7 @@ def check(image=None, binary=None, redis_image=None):
                     assert response.status_code == 200, response.status_code  # nosec B101 - executable contract check
                     return response.text
 
-                answer = chat("BASIC", "basic-run")
+                answer = chat("BASIC PRIVATE_PROMPT", "basic-run")
                 assert "The real datetime tool completed" in answer, answer  # nosec B101 - executable contract check
                 assert "Function Complete: current_datetime_tool" in answer  # nosec B101 - executable contract check
                 assert not peers.calls  # nosec B101 - executable contract check
@@ -640,6 +647,9 @@ def check(image=None, binary=None, redis_image=None):
                 assert "Model response did not complete" in incomplete, incomplete  # nosec B101 - executable contract check
                 assert "Function Start:" not in incomplete  # nosec B101 - executable contract check
                 assert len(peers.requests) == before + 1  # nosec B101 - executable contract check
+                failed = chat("PROVIDER_FAILURE", "provider-failure-run")
+                assert "Agent execution failed" in failed  # nosec B101 - executable contract check
+                assert "PRIVATE_PROVIDER_ERROR" not in failed  # nosec B101 - executable contract check
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     for scenario, run, waiting in [
                         ("MODEL_STEER", "model-run", peers.model_waiting),
@@ -800,8 +810,98 @@ def check(image=None, binary=None, redis_image=None):
                             ).status_code
                             == 404
                         )
+                # Read through a separate descriptor: seeking the child's shared
+                # stdout file would move its write position while it is logging.
+                records = []
+                for _ in range(50):
+                    raw_logs = Path(log.name).read_text()
+                    records = [
+                        json.loads(line)
+                        for line in raw_logs.splitlines()
+                        if line.startswith("{")
+                    ]
+                    if any(
+                        record.get("fields", {}).get("event") == "run_finished"
+                        and record.get("span", {}).get("run_id") == "cancel-run"
+                        for record in records
+                    ):
+                        break
+                    time.sleep(0.02)
+                events = [record.get("fields", {}) for record in records]
+                required_events = {
+                    "run_started",
+                    "prepare_finished",
+                    "model_call_started",
+                    "model_first_event",
+                    "model_call_finished",
+                    "model_retry_scheduled",
+                    "tool_call_started",
+                    "tool_call_finished",
+                    "steering_received",
+                    "steering_applied",
+                    "tool_call_skipped",
+                    "cancellation_received",
+                    "run_finished",
+                    "run_failed",
+                    "tool_prepare_finished",
+                    "tool_execution_started",
+                    "tool_execution_finished",
+                    "tool_run_released",
+                    "child_ready",
+                }
+                assert required_events <= {
+                    event.get("event") for event in events
+                }, events  # nosec B101 - executable contract check
+                for name in (
+                    "run_started",
+                    "prepare_finished",
+                    "model_call_finished",
+                    "tool_call_finished",
+                    "run_finished",
+                ):
+                    assert any(
+                        record.get("fields", {}).get("event") == name  # nosec B101 - executable contract check
+                        and record.get("span", {}).get("run_id") == "basic-run"
+                        for record in records
+                    ), name
+                assert any(
+                    event.get("event") == "tool_execution_finished"  # nosec B101 - executable contract check
+                    and event.get("run_id") == "basic-run"
+                    for event in events
+                )
+                assert any(
+                    event.get("event") == "model_retry_scheduled"  # nosec B101 - executable contract check
+                    and event.get("http_status") == 503
+                    for event in events
+                )
+                assert any(
+                    event.get("event") == "run_failed"
+                    and event.get("phase") == "model_stream"  # nosec B101 - executable contract check
+                    and event.get("http_status") == 400
+                    and event.get("error_kind") == "provider_response"
+                    for event in events
+                )
+                assert any(
+                    event.get("event") == "run_finished"
+                    and event.get("outcome") == "cancelled"
+                    for event in events
+                )  # nosec B101 - executable contract check
+                for private in (
+                    token,
+                    "PRIVATE_PROMPT",
+                    "PRIVATE_PROVIDER_ERROR",
+                    "PRIVATE_MODEL_CREDENTIAL",
+                    "PRIVATE_TOOL_ARGUMENT",
+                    "RETAINED_EVIDENCE",
+                    "The real datetime tool completed",
+                    "NEW_DIRECTION: use retained results and answer now",
+                ):
+                    assert (
+                        private not in raw_logs
+                    ), "Private content appeared in runtime logs"  # nosec B101 - executable contract check
                 print(
                     "HTTP contract passed: streaming, native tools, bounded provider retry, incomplete rejection, user isolation, idempotent steering during model/MCP calls, retained results, skipped queued calls, and cancellation."
+                    " Structured lifecycle logs, failure diagnostics, run correlation, and private-data exclusion passed."
                     + (
                         " Exact approvals and non-replay passed against real Redis."
                         if redis_image

@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 
 use crate::control::{Command, RunHandle};
 use crate::events::Events;
+use crate::logging::{Phase, label};
 
 #[derive(Deserialize)]
 pub struct ModelConfig {
@@ -111,12 +112,14 @@ impl Agent {
                 instruction,
             } => {
                 self.revision += 1;
+                tracing::info!(event = "steering_received", %command_id, revision = self.revision);
                 self.events.event("steering", json!({
                     "command_id":command_id,"status":"received","revision":self.revision,"instruction":instruction
                 })).await?;
                 self.pending.push((command_id.to_string(), instruction));
             }
             Command::Cancel { command_id } => {
+                tracing::info!(event = "cancellation_received", %command_id);
                 self.events
                     .event(
                         "steering",
@@ -138,6 +141,11 @@ impl Agent {
 
     async fn apply(&mut self, history: &mut Vec<Message>) -> Result<()> {
         for (id, instruction) in self.pending.drain(..) {
+            tracing::info!(
+                event = "steering_applied",
+                command_id = id,
+                revision = self.revision
+            );
             history.push(Message::user(instruction));
             self.events
                 .event(
@@ -150,6 +158,8 @@ impl Agent {
     }
 
     pub async fn run(mut self, body: Value) -> Result<()> {
+        let preparing = Instant::now();
+        tracing::info!(event = "prepare_started");
         let prepare = self
             .http
             .post(format!("{}/runtime/prepare", self.tools_url))
@@ -161,11 +171,26 @@ impl Agent {
             tokio::select! {
                 biased;
                 Some(command) = self.inbox.recv() => self.accept(command).await?,
-                response = &mut prepare => break response?,
+                response = &mut prepare => break response.context(Phase("prepare_request"))?,
                 _ = self.events.sender.closed() => bail!("Client disconnected"),
             }
         };
-        let mut prepared: PreparedRun = response.error_for_status()?.json().await?;
+        let mut prepared: PreparedRun = response
+            .error_for_status()
+            .context(Phase("prepare_request"))?
+            .json()
+            .await
+            .context(Phase("prepare_decode"))?;
+        tracing::info!(
+            event = "prepare_finished",
+            elapsed_ms = preparing.elapsed().as_millis() as u64,
+            model = label(&prepared.model.model_name),
+            api_type = label(&prepared.model.api_type),
+            tool_count = prepared.tools.len(),
+            message_count = prepared.messages.len(),
+            max_iterations = prepared.max_iterations,
+            parallel_tool_calls = prepared.parallel_tool_calls
+        );
         let route = if prepared.model.api_type == "responses" {
             Route::Responses
         } else {
@@ -198,7 +223,7 @@ impl Agent {
             iterations += 1;
             let final_synthesis = prepared.daily_summary
                 && started.elapsed().as_secs_f64() >= prepared.research_budget_seconds;
-            let tools = prepared
+            let tools: Vec<_> = prepared
                 .tools
                 .iter()
                 .filter(|tool| !final_synthesis || prepared.final_tools.contains(&tool.name))
@@ -209,6 +234,7 @@ impl Agent {
             if prepared.model.api_type == "responses" {
                 params["truncation"] = json!("auto");
             }
+            let tool_count = tools.len();
             let mut request = CompletionRequest::new("unused")
                 .tools(tools)
                 .additional_params(params);
@@ -216,16 +242,29 @@ impl Agent {
             if final_synthesis {
                 request.chat_history.push(Message::user("Finish using the evidence already collected. Render the briefing or return the sourced findings and any explicit gaps."));
             }
-            self.handle
+            let model_call = self
+                .handle
                 .metrics
                 .model_calls
-                .fetch_add(1, Ordering::Relaxed);
+                .fetch_add(1, Ordering::Relaxed)
+                + 1;
+            let model_started = Instant::now();
+            tracing::info!(
+                event = "model_call_started",
+                model_call,
+                iteration = iterations,
+                attempt = retry_attempt + 1,
+                model = label(&model_name),
+                tool_count,
+                timeout_seconds = prepared.model.request_timeout,
+                final_synthesis
+            );
             let model = provider.completion(&model_name);
             let model = rig_core::driver::Model::new(
                 crate::provider::CompatibleOpenAi(model.wire),
                 model.transport,
             );
-            let mut stream = model.stream(request)?;
+            let mut stream = model.stream(request).context(Phase("model_request"))?;
             let deadline = tokio::time::sleep(Duration::from_secs_f64(
                 prepared.model.request_timeout.max(1.0),
             ));
@@ -246,6 +285,10 @@ impl Agent {
                         None => break,
                         Some(Err(error)) => { stream_error = Some(error); break; },
                         Some(Ok(item)) => {
+                            if !received_item {
+                                tracing::info!(event = "model_first_event", model_call,
+                                    elapsed_ms = model_started.elapsed().as_millis() as u64);
+                            }
                             received_item = true;
                             if let Item::Event(StreamEvent::Text { text, .. }) = item {
                                 partial.push_str(&text);
@@ -253,11 +296,18 @@ impl Agent {
                             }
                         },
                     },
-                    _ = &mut deadline => bail!("Model request timed out"),
+                    _ = &mut deadline => return Err(anyhow::anyhow!("Model request timed out").context(Phase("model_stream"))),
                     _ = self.events.sender.closed() => bail!("Client disconnected"),
                 }
             }
             if interrupted {
+                tracing::info!(
+                    event = "model_call_interrupted",
+                    model_call,
+                    reason = "steering",
+                    elapsed_ms = model_started.elapsed().as_millis() as u64,
+                    output_bytes = partial.len()
+                );
                 // The incomplete provider response never contributes tool calls.
                 // Keep text already shown to the user in the next request.
                 drop(stream);
@@ -281,6 +331,17 @@ impl Agent {
                     retry_attempt += 1;
                     iterations -= 1;
                     let delay = Duration::from_millis(250 * (1 << retry_attempt.min(5)));
+                    tracing::warn!(
+                        event = "model_retry_scheduled",
+                        model_call,
+                        retry_attempt,
+                        delay_ms = delay.as_millis() as u64,
+                        error_kind = error.kind().code(),
+                        http_status = error
+                            .provider_response_status()
+                            .map(|status| status.as_u16()),
+                        elapsed_ms = model_started.elapsed().as_millis() as u64
+                    );
                     tokio::select! {
                         biased;
                         Some(command) = self.inbox.recv() => { self.accept(command).await?; retry_attempt = 0; },
@@ -289,7 +350,7 @@ impl Agent {
                     }
                     continue;
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(anyhow::Error::new(error).context(Phase("model_stream"))),
             };
             retry_attempt = 0;
             if completed.usage.is_reported() {
@@ -310,9 +371,20 @@ impl Agent {
                 completed.finish_reason(),
                 Some(FinishReason::Stop | FinishReason::ToolCalls)
             ) {
-                bail!("Model response did not complete");
+                return Err(anyhow::anyhow!("Model response did not complete")
+                    .context(Phase("model_finish")));
             }
             let calls: Vec<_> = completed.tool_calls().cloned().collect();
+            tracing::info!(
+                event = "model_call_finished",
+                model_call,
+                elapsed_ms = model_started.elapsed().as_millis() as u64,
+                output_bytes = partial.len(),
+                tool_calls = calls.len(),
+                usage_reported = completed.usage.is_reported(),
+                input_tokens = completed.usage.input_tokens,
+                output_tokens = completed.usage.output_tokens
+            );
             if let Some(message) = completed.message() {
                 history.push(message);
             }
@@ -357,12 +429,17 @@ impl Agent {
                         || !self.pending.is_empty()
                         || terminal.is_some()
                     {
+                        tracing::info!(
+                            event = "tool_call_skipped",
+                            reason = "redirected_or_terminal"
+                        );
                         history.push(Message::tool_result(call.id, call.function.name, "Not executed: this run was redirected or reached an approval boundary."));
                         continue;
                     }
                     if !prepared.tools.iter().any(|tool| tool.name == name)
                         || (final_synthesis && !prepared.final_tools.contains(&name))
                     {
+                        tracing::warn!(event = "tool_call_skipped", reason = "unavailable");
                         history.push(Message::tool_result(
                             call.id,
                             call.function.name,
@@ -370,10 +447,12 @@ impl Agent {
                         ));
                         continue;
                     }
-                    self.handle
+                    let tool_call = self
+                        .handle
                         .metrics
                         .tool_calls
-                        .fetch_add(1, Ordering::Relaxed);
+                        .fetch_add(1, Ordering::Relaxed)
+                        + 1;
                     active_groups.insert(name.split("__").next().unwrap_or_default().to_owned());
                     self.events
                         .tool(&id, &name, false, call.function.arguments.clone())
@@ -383,6 +462,8 @@ impl Agent {
                     let url = format!("{}/runtime/tools/call", self.tools_url);
                     let events = self.events.clone();
                     active.push(async move {
+                        let started = Instant::now();
+                        tracing::info!(event = "tool_call_started", tool_call, tool = label(&name));
                         let result = Self::tool_response(
                             http,
                             headers,
@@ -391,7 +472,32 @@ impl Agent {
                             &name,
                             &call.function.arguments,
                         )
-                        .await;
+                        .await
+                        .context(Phase("tool_request"));
+                        match &result {
+                            Ok(outcome) => tracing::info!(
+                                event = "tool_call_finished",
+                                tool_call,
+                                tool = label(&name),
+                                elapsed_ms = started.elapsed().as_millis() as u64,
+                                is_error = outcome.is_error,
+                                terminal = outcome.terminal,
+                                output_bytes = outcome.content.len(),
+                                approval_required =
+                                    outcome.terminal_reason == "mcp_approval_required"
+                            ),
+                            Err(error) => {
+                                let details = crate::logging::failure(error);
+                                tracing::warn!(
+                                    event = "tool_call_failed",
+                                    tool_call,
+                                    tool = label(&name),
+                                    elapsed_ms = started.elapsed().as_millis() as u64,
+                                    error_kind = details.kind,
+                                    http_status = details.status
+                                );
+                            }
+                        }
                         (call, result)
                     });
                 }
@@ -430,6 +536,13 @@ impl Agent {
                     && !prepared.explicit_model_profile
                     && let Some(alias) = prepared.model_routes.get(profile)
                 {
+                    if model_name != *alias {
+                        tracing::info!(
+                            event = "model_route_changed",
+                            model = label(alias),
+                            profile = label(profile)
+                        );
+                    }
                     model_name = alias.clone();
                 }
                 if outcome.is_error {
@@ -469,6 +582,7 @@ impl Agent {
                     continue;
                 }
                 if reason == "mcp_approval_required" {
+                    tracing::info!(event = "approval_required");
                     self.events
                         .event("mcp_approval_required", json!({"marker":content}))
                         .await?;
@@ -522,6 +636,7 @@ impl Agent {
                             .context("Invalid tool result");
                     }
                     Some("oauth_required") => {
+                        tracing::info!(event = "oauth_required");
                         events
                             .event("oauth_required", event["data"].clone())
                             .await?

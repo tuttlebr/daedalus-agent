@@ -28,7 +28,7 @@ services:
     env_file:
       - ${DAEDALUS_COMPOSE_ENV_FILE:-.env}
     environment:
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Explicit local-development opt-out. Non-Compose deployments fail closed
       # unless DAEDALUS_INTERNAL_API_TOKEN is configured.
       - ALLOW_INSECURE_INTERNAL=1

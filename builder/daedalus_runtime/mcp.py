@@ -15,12 +15,11 @@ from weakref import WeakValueDictionary
 import httpx
 import jsonschema
 from daedalus_runtime import approval
+from daedalus_runtime.logging import log_event
 from daedalus_runtime.oauth import GoogleOAuth
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from nat_helpers.identity import trusted_request_header_from_context
-
-logger = logging.getLogger(__name__)
 
 
 class Connection:
@@ -189,17 +188,28 @@ class MCPManager:
 
     async def catalogue(self, names: list[str], user: str) -> list[dict]:
         async def discover(name):
+            started = time.monotonic()
+            log_event("mcp_discovery_started", level=logging.DEBUG, group=name)
             try:
                 async with self.locks.setdefault(self._key(name, user), asyncio.Lock()):
                     headers = await self._headers(name, user)
                     if headers is not None:
                         connection = await self._connection(name, user, headers)
-                        return self._schemas(name, connection)
+                        schemas = self._schemas(name, connection)
+                        log_event(
+                            "mcp_discovery_finished",
+                            level=logging.DEBUG,
+                            group=name,
+                            tool_count=len(schemas),
+                            elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                        )
+                        return schemas
             except Exception as exc:
-                logger.warning(
-                    "MCP catalogue unavailable: group=%s error_class=%s",
-                    name,
-                    type(exc).__name__,
+                log_event(
+                    "mcp_catalogue_unavailable",
+                    level=logging.WARNING,
+                    group=name,
+                    error_class=type(exc).__name__,
                 )
             return [self._connect_schema(name)]
 
@@ -258,7 +268,14 @@ class MCPManager:
                     float(self.groups[name].get("tool_call_timeout", 120))
                 ):
                     result = await session.call_tool(tool_name, arguments)
-            except Exception:
+            except Exception as exc:
+                log_event(
+                    "mcp_call_unconfirmed",
+                    level=logging.WARNING,
+                    group=name,
+                    tool=full_name,
+                    error_class=type(exc).__name__,
+                )
                 self.connections.pop(self._key(name, user), None)
                 await connection.close()
                 # Force a refresh on the next operation without deleting the

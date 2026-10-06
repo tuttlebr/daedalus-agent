@@ -22,6 +22,7 @@ from daedalus_runtime.config import (
     load_config,
     validate_config,
 )
+from daedalus_runtime.logging import configure_logging, log_context, log_event
 from daedalus_runtime.mcp import MCPManager
 from daedalus_runtime.oauth import GoogleOAuth
 from daedalus_runtime.tools import ToolRegistry, load_tool_factories
@@ -41,8 +42,6 @@ from nat_helpers.tool_output_compaction import (
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from redis.asyncio import Redis
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -212,8 +211,10 @@ class ToolService:
                         )
                         messages.insert(index, {"role": "user", "content": context})
             except Exception as exc:
-                logger.warning(
-                    "Automatic memory unavailable: error_class=%s", type(exc).__name__
+                log_event(
+                    "memory_context_unavailable",
+                    level=logging.WARNING,
+                    error_class=type(exc).__name__,
                 )
         now = time.monotonic()
         self.runs = {
@@ -338,10 +339,13 @@ class ToolService:
 
 
 def create_app(config_path: str | None = None) -> FastAPI:
+    configure_logging()
     path = config_path or os.getenv("DAEDALUS_CONFIG_FILE", "/workspace/config.yaml")
 
     @asynccontextmanager
     async def lifespan(app):
+        starting = time.monotonic()
+        log_event("tool_service_starting")
         config = load_config(path)
         configure_mcp_approval_policy(path)
         load_tool_factories()
@@ -375,8 +379,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
                     if mcp._auth(name).get("_type") != "mcp_oauth2"
                 ]
                 await mcp.catalogue(static_groups, "runtime-readiness")
+                log_event(
+                    "tool_service_ready",
+                    elapsed_ms=round((time.monotonic() - starting) * 1000, 1),
+                    native_tools=len(config.get("functions", {})),
+                    group_count=len(mcp.groups),
+                )
                 yield
             finally:
+                log_event("tool_service_stopping", active_runs=len(service.runs))
                 reaper.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await reaper
@@ -410,11 +421,47 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.post("/runtime/prepare")
     async def prepare(body: dict, request: Request):
-        try:
-            return await request.app.state.tools.prepare(body, request)
-        except (ValueError, KeyError) as exc:
-            logger.warning("Run preparation failed: error_class=%s", type(exc).__name__)
-            raise HTTPException(400, "Invalid run or runtime configuration") from exc
+        started = time.monotonic()
+        with log_context(run_id=request.headers.get("x-daedalus-request-id", "")):
+            log_event("tool_prepare_started")
+            try:
+                result = await request.app.state.tools.prepare(body, request)
+            except asyncio.CancelledError:
+                log_event(
+                    "tool_prepare_cancelled",
+                    elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                )
+                raise
+            except Exception as exc:
+                status = (
+                    exc.status_code
+                    if isinstance(exc, HTTPException)
+                    else 400
+                    if isinstance(exc, (ValueError, KeyError))
+                    else 500
+                )
+                log_event(
+                    "tool_prepare_failed",
+                    level=logging.WARNING,
+                    error_class=type(exc).__name__,
+                    http_status=status,
+                    elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                )
+                if isinstance(exc, HTTPException):
+                    raise
+                raise HTTPException(
+                    status,
+                    "Invalid run or runtime configuration"
+                    if status == 400
+                    else "Run preparation failed",
+                ) from None
+            log_event(
+                "tool_prepare_finished",
+                elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                tool_count=len(result["tools"]),
+                message_count=len(result["messages"]),
+            )
+            return result
 
     @app.delete("/runtime/run")
     async def release(body: RunReport, request: Request):
@@ -445,6 +492,12 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 if key in body.metrics:
                     run.span.set_attribute(key, body.metrics[key])
             run.span.end()
+        log_event(
+            "tool_run_released",
+            run_id=run_id,
+            outcome=body.outcome,
+            active_runs=len(service.runs),
+        )
         return {"status": "released"}
 
     @app.post("/runtime/tools/call")
@@ -458,30 +511,61 @@ def create_app(config_path: str | None = None) -> FastAPI:
             queue = asyncio.Queue(maxsize=16)
 
             async def emit(event, data):
+                if event == "oauth_required":
+                    log_event(
+                        "tool_oauth_required",
+                        run_id=request.headers.get("x-daedalus-request-id", ""),
+                        tool=body.name,
+                    )
                 await queue.put({"event": event, "data": data})
 
             async def invoke():
-                try:
-                    result = await service.call(body, run, emit)
-                except ValidationError as exc:
-                    result = {
-                        "content": json.dumps(
-                            exc.errors(include_input=False, include_url=False),
-                            default=str,
-                        ),
-                        "is_error": True,
-                    }
-                except Exception as exc:
-                    logger.warning(
-                        "Tool failed: name=%s error_class=%s",
-                        body.name,
-                        type(exc).__name__,
+                started = time.monotonic()
+                with log_context(
+                    run_id=request.headers.get("x-daedalus-request-id", ""),
+                    tool=body.name,
+                ):
+                    log_event("tool_execution_started")
+                    try:
+                        result = await service.call(body, run, emit)
+                    except asyncio.CancelledError:
+                        log_event(
+                            "tool_execution_cancelled",
+                            elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                        )
+                        raise
+                    except ValidationError as exc:
+                        log_event(
+                            "tool_validation_failed",
+                            level=logging.WARNING,
+                            error_class=type(exc).__name__,
+                        )
+                        result = {
+                            "content": json.dumps(
+                                exc.errors(include_input=False, include_url=False),
+                                default=str,
+                            ),
+                            "is_error": True,
+                        }
+                    except Exception as exc:
+                        log_event(
+                            "tool_execution_failed",
+                            level=logging.WARNING,
+                            error_class=type(exc).__name__,
+                        )
+                        result = {
+                            "content": f"Tool failed ({type(exc).__name__}). Check its arguments and service availability.",
+                            "is_error": True,
+                        }
+                    log_event(
+                        "tool_execution_finished",
+                        elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                        is_error=bool(result.get("is_error")),
+                        terminal=bool(result.get("terminal")),
+                        approval_required=result.get("terminal_reason")
+                        == "mcp_approval_required",
                     )
-                    result = {
-                        "content": f"Tool failed ({type(exc).__name__}). Check its arguments and service availability.",
-                        "is_error": True,
-                    }
-                await emit("result", result)
+                    await emit("result", result)
 
             task = asyncio.create_task(invoke())
             try:

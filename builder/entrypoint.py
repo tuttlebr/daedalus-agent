@@ -11,11 +11,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-logger = logging.getLogger("daedalus.runtime")
+from daedalus_runtime.logging import configure_logging, log_event
 
 
 def main():
-    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
+    configure_logging("supervisor")
+    log_event("backend_starting")
     binary = Path(
         os.getenv(
             "DAEDALUS_RUNTIME_BINARY", str(Path(__file__).with_name("daedalus-runtime"))
@@ -25,9 +26,12 @@ def main():
         raise RuntimeError("The Daedalus Rust runtime binary is missing")
     children = []
     stopping = False
+    started = time.monotonic()
 
     def stop(_signal, _frame):
         nonlocal stopping
+        if not stopping:
+            log_event("backend_stopping")
         stopping = True
         for child in children:
             if child.poll() is None:
@@ -59,19 +63,36 @@ def main():
                 start_new_session=True,
             )
         )
+        log_event(
+            "child_started", phase="python_tools", pid=children[0].pid, port=tools_port
+        )
         deadline = time.monotonic() + 120
         while not stopping:
             if children[0].poll() is not None:
+                log_event(
+                    "child_exited",
+                    level=logging.ERROR,
+                    phase="python_tools",
+                    exit_code=children[0].returncode,
+                )
                 raise RuntimeError("The Python tool service failed to start")
             try:
                 with urllib.request.urlopen(
                     env["DAEDALUS_TOOLS_URL"] + "/health", timeout=1
                 ) as response:  # nosec B310 - fixed loopback URL
                     if response.status == 200:
+                        log_event(
+                            "child_ready",
+                            phase="python_tools",
+                            elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                        )
                         break
             except (OSError, urllib.error.URLError):
                 pass
             if time.monotonic() > deadline:
+                log_event(
+                    "child_readiness_timeout", level=logging.ERROR, phase="python_tools"
+                )
                 raise RuntimeError("The Python tool service did not become healthy")
             time.sleep(0.1)
         if stopping:
@@ -79,9 +100,17 @@ def main():
         children.append(
             subprocess.Popen([str(binary)], env=env, start_new_session=True)  # nosec B603 - operator-selected runtime executable
         )
+        log_event("child_started", phase="rust_agent", pid=children[1].pid)
         while not stopping:
-            if any(child.poll() is not None for child in children):
-                raise RuntimeError("A Daedalus runtime process exited unexpectedly")
+            for phase, child in zip(("python_tools", "rust_agent"), children):
+                if child.poll() is not None:
+                    log_event(
+                        "child_exited",
+                        level=logging.ERROR,
+                        phase=phase,
+                        exit_code=child.returncode,
+                    )
+                    raise RuntimeError("A Daedalus runtime process exited unexpectedly")
             time.sleep(0.2)
     finally:
         stop(None, None)
