@@ -372,7 +372,9 @@ def check(image=None, binary=None, redis_image=None):
                 "api_key": "fixture",
                 "base_url": f"http://127.0.0.1:{model_port}/v1",
                 "model_name": "fixture",
-                "request_timeout": 20,
+                # Existing deployments configure a one-hour model timeout.
+                # Exercise actual service startup with that configuration.
+                "request_timeout": 3600,
             }
         },
         "workflow": {

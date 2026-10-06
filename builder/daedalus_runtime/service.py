@@ -17,7 +17,11 @@ from typing import Literal
 
 import httpx
 from daedalus_runtime.approval import configure_mcp_approval_policy
-from daedalus_runtime.config import load_config, validate_config
+from daedalus_runtime.config import (
+    describe_validation_error,
+    load_config,
+    validate_config,
+)
 from daedalus_runtime.mcp import MCPManager
 from daedalus_runtime.oauth import GoogleOAuth
 from daedalus_runtime.tools import ToolRegistry, load_tool_factories
@@ -347,9 +351,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
         registry = ToolRegistry(config)
         try:
             validate_config(config, registry)
-        except Exception:
+        except Exception as exc:
             raise ValueError(
-                "Invalid Daedalus runtime configuration; check model, tool, and skill mappings"
+                "Invalid Daedalus runtime configuration: "
+                + describe_validation_error(exc)
             ) from None
         redis = Redis.from_url(
             redis_url_from_env(), socket_connect_timeout=2, socket_timeout=5

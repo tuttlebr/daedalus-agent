@@ -42,6 +42,11 @@ loopback `DAEDALUS_TOOLS_PORT` (8001 by default) for Python. Do not expose it as
 separate Service. Optional runtime logging uses `RUST_LOG` and `LOG_LEVEL`.
 Existing frontend `NAT_*` transport settings remain compatibility settings.
 
+`DAEDALUS_LLM_TIMEOUT` sets the model request timeout in seconds, from 1 to 3600.
+The runtime also enforces a separate 30-minute deadline for the entire agent
+run, including model and tool calls. Invalid configuration logs identify fields
+and validation categories while omitting configured values and credentials.
+
 Existing sessions, Redis conversations, tool output caches, and Google grants
 are retained. The backend image and frontend must be rolled out together to
 enable the steering composer. Existing custom YAML overlays must use
