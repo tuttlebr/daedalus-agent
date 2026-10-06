@@ -691,13 +691,13 @@ def check(image=None, binary=None, redis_image=None):
                     == 404
                 )
 
-                def chat(scenario, run, props=None):
+                def chat(scenario, run, props=None, conversation=None):
                     response = client.post(
                         base + "/v1/chat/completions",
                         headers={
                             **headers,
                             "x-daedalus-request-id": run,
-                            "x-conversation-id": run,
+                            "x-conversation-id": conversation or run,
                         },
                         json={
                             "stream": True,
@@ -712,9 +712,21 @@ def check(image=None, binary=None, redis_image=None):
                 assert "The real datetime tool completed" in answer, answer  # nosec B101 - executable contract check
                 assert "Function Complete: current_datetime_tool" in answer  # nosec B101 - executable contract check
                 assert not peers.calls  # nosec B101 - executable contract check
+                affinity = peers.requests[0]["user"]
+                assert re.fullmatch(r"[0-9a-f]{64}", affinity)  # nosec B101 - executable contract check
+                assert all(request["user"] == affinity for request in peers.requests)  # nosec B101 - executable contract check
+                before = len(peers.requests)
+                chat("BASIC PRIVATE_PROMPT", "basic-followup", conversation="basic-run")
+                assert all(
+                    request["user"] == affinity for request in peers.requests[before:]
+                )  # nosec B101 - executable contract check
                 before = len(peers.requests)
                 deferred = chat("DEFERRED_DISCOVERY", "discovery-run")
                 requests = peers.requests[before:]
+                assert requests[0]["user"] != affinity  # nosec B101 - executable contract check
+                assert all(
+                    request["user"] == requests[0]["user"] for request in requests
+                )  # nosec B101 - executable contract check
                 assert "The real datetime tool completed" in deferred  # nosec B101 - executable contract check
                 assert "Function Complete: fixture_deferred__connect" in deferred  # nosec B101 - executable contract check
                 assert "Function Complete: fixture_deferred__next_read" in deferred  # nosec B101 - executable contract check

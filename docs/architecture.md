@@ -24,6 +24,16 @@ failed response. A tool only runs after the whole model response completes.
 Invalid requests, malformed responses, and explicit incomplete responses keep
 their failure status. Exhausted retries return an explicit stream interruption.
 
+Each model request includes an opaque `user` value for provider prompt-cache
+affinity. It is a SHA-256 digest scoped to the authenticated user and conversation,
+stable across model rounds, retries, profile promotions, and later conversation
+turns. If no conversation ID is supplied, the run ID supplies that scope. The
+length-delimited hash excludes raw identities from the provider field and keeps
+different users' conversations distinct. It is a routing hint, not an
+authorization or cache-isolation boundary. Switchyard preserves this standard
+field when translating Responses to Fireworks Chat Completions; its Fireworks
+configuration must not override it with a shared static session-affinity header.
+
 Backend application logs are JSON lines on stdout. They record run start/end,
 preparation, model attempts and retries, time to the first model event, tool
 execution, steering, cancellation, approval waits, and process lifecycle. A final

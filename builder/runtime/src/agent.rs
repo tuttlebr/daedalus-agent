@@ -230,8 +230,15 @@ impl Agent {
                 .filter(|tool| !final_synthesis || prepared.final_tools.contains(&tool.name))
                 .cloned()
                 .collect();
-            let mut params =
-                json!({"store":false, "parallel_tool_calls":prepared.parallel_tool_calls});
+            let mut params = json!({
+                "store": false,
+                "parallel_tool_calls": prepared.parallel_tool_calls,
+                "user": crate::provider::cache_affinity_key(
+                    &self.handle.user,
+                    &self.handle.conversation,
+                    &self.events.run_id,
+                ),
+            });
             if prepared.model.api_type == "responses" {
                 params["truncation"] = json!("auto");
             }

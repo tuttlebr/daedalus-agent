@@ -13,6 +13,32 @@ use rig_core::operation::Completion;
 use rig_core::providers::openai::wire::OpenAiWire;
 use rig_core::wire::{Decoder, Descriptor, Encoded, Flow, Mode, Out, Wire, WireEvent, WireFrame};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+/// Opaque OpenAI-compatible `user` value for provider prompt-cache affinity.
+/// Conversation IDs are scoped by authenticated user. Requests without a
+/// conversation use their run ID, so unrelated runs never share a fixed key.
+pub fn cache_affinity_key(user: &str, conversation: &str, run_id: &str) -> String {
+    let mut hash = Sha256::new();
+    for part in [
+        "daedalus-cache-v1",
+        user,
+        if conversation.is_empty() {
+            "run"
+        } else {
+            "conversation"
+        },
+        if conversation.is_empty() {
+            run_id
+        } else {
+            conversation
+        },
+    ] {
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part.as_bytes());
+    }
+    format!("{:x}", hash.finalize())
+}
 
 /// Switchyard relays upstream transport failures as an SSE error inside HTTP
 /// 200, without a status or retry hint. Recognize only its transport envelope;
@@ -161,6 +187,28 @@ impl EnvelopeMetadata {
 mod tests {
     use super::*;
     use rig_core::providers::openai::{OpenAIConfig, Route};
+
+    #[test]
+    fn cache_affinity_is_stable_scoped_and_opaque() {
+        let key = cache_affinity_key("alice", "conversation-1", "run-1");
+        assert_eq!(key.len(), 64);
+        assert!(key.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(key, cache_affinity_key("alice", "conversation-1", "run-2"));
+        assert_ne!(key, cache_affinity_key("bob", "conversation-1", "run-1"));
+        assert_ne!(key, cache_affinity_key("alice", "conversation-2", "run-1"));
+        assert_ne!(
+            cache_affinity_key("alice", "", "run-1"),
+            cache_affinity_key("alice", "", "run-2"),
+        );
+        assert_ne!(
+            cache_affinity_key("alice", "run-1", "run-1"),
+            cache_affinity_key("alice", "", "run-1"),
+        );
+        assert_ne!(
+            cache_affinity_key("ab", "c", "run"),
+            cache_affinity_key("a", "bc", "run"),
+        );
+    }
 
     fn wire() -> CompatibleOpenAi {
         CompatibleOpenAi(OpenAiWire::new(
