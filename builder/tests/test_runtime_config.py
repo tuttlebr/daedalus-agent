@@ -86,3 +86,44 @@ def test_pydantic_diagnostic_omits_inputs_and_validator_context():
 def test_unexpected_validation_error_does_not_log_exception_contents():
     error = RuntimeError("Provider failure with private-test-credential")
     assert describe_validation_error(error) == "RuntimeError"
+
+
+@pytest.mark.parametrize(
+    "deferred,description", [("true", "Lights"), (True, ""), (True, None)]
+)
+def test_deferred_discovery_requires_boolean_and_capability_description(
+    runtime_config, deferred, description
+):
+    runtime_config["function_groups"] = {
+        "lights": {"defer_discovery": deferred, "discovery_description": description}
+    }
+    with pytest.raises(ConfigValidationError, match="function_groups.lights"):
+        validate_config(runtime_config, ToolRegistry(runtime_config))
+
+
+@pytest.mark.parametrize(
+    "initial,extra",
+    [
+        (["read", "read"], {}),
+        ([None], {}),
+        ("read", {}),
+        (["write"], {"include": ["read"]}),
+        (["write"], {"exclude": ["write"]}),
+        (["read"], {"defer_discovery": False}),
+    ],
+)
+def test_initial_tools_cannot_expand_allowlist_or_ignore_discovery_mode(
+    runtime_config, initial, extra
+):
+    runtime_config["function_groups"] = {
+        "lights": {
+            "defer_discovery": True,
+            "discovery_description": "Lighting control",
+            "initial_tools": initial,
+            **extra,
+        }
+    }
+    with pytest.raises(
+        ConfigValidationError, match="function_groups.lights.initial_tools"
+    ):
+        validate_config(runtime_config, ToolRegistry(runtime_config))

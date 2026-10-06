@@ -158,3 +158,69 @@ def test_static_headers_and_oauth_credentials_remain_scoped():
         assert not manager.capability_status()["available"]
 
     asyncio.run(scenario())
+
+
+def test_deferred_catalogue_keeps_readiness_and_exposes_exact_allowed_schemas():
+    config = {
+        "function_groups": {
+            "lighting": {
+                "server": {"url": "https://fixture.invalid/mcp"},
+                "defer_discovery": True,
+                "discovery_description": "Read and control Philips Hue lights.",
+                "include": ["read", "advanced_read"],
+            }
+        }
+    }
+    connection = SimpleNamespace(
+        tools={
+            name: SimpleNamespace(
+                name=name,
+                description=name,
+                inputSchema={
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                },
+            )
+            for name in ("read", "advanced_read", "hidden_write")
+        }
+    )
+
+    async def scenario():
+        manager = mcp.MCPManager(config, SimpleNamespace())
+        manager._headers = AsyncMock(return_value={})
+        manager._connection = AsyncMock(return_value=connection)
+        initial = await manager.catalogue(["lighting"], "alice", initial=True)
+        assert [s["name"] for s in initial] == ["lighting__connect"]
+        assert "Philips Hue" in initial[0]["description"]
+        manager._headers.assert_not_awaited()
+        manager._connection.assert_not_awaited()
+
+        ready = await manager.catalogue(["lighting"], "runtime-readiness")
+        assert [s["name"] for s in ready] == [
+            "lighting__read",
+            "lighting__advanced_read",
+        ]
+        for user in ("alice", "bob"):
+            connected = await manager.call("lighting__connect", {}, user, AsyncMock())
+            assert connected["tools"] == ready
+            manager._connection.assert_awaited_with("lighting", user, {})
+        assert (await manager.catalogue(["lighting"], "alice", initial=True)) == initial
+        config["function_groups"]["lighting"]["initial_tools"] = [
+            "read",
+            "hidden_write",
+        ]
+        small = await manager.catalogue(["lighting"], "alice", initial=True)
+        assert [s["name"] for s in small] == ["lighting__read", "lighting__connect"]
+        assert small[0] == ready[0]
+        assert "lighting__advanced_read" in small[1]["description"]
+        assert "lighting__hidden_write" not in small[1]["description"]
+        assert "lighting__read" not in small[1]["description"]
+        # Even an unvalidated caller cannot bypass the include filter using
+        # initial_tools. Runtime startup rejects that conflicting declaration.
+        assert "lighting__hidden_write" not in {s["name"] for s in small}
+        with pytest.raises(ValueError, match="not exposed"):
+            await manager.call("lighting__hidden_write", {}, "alice", AsyncMock())
+        with pytest.raises(ValueError, match="does not accept arguments"):
+            await manager.call("lighting__connect", {"id": "bad"}, "alice", AsyncMock())
+
+    asyncio.run(scenario())

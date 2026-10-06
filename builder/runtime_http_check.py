@@ -205,6 +205,7 @@ class Peers:
                             "TOOL_STEER",
                             "APPROVAL",
                             "SKILL_ROUTE",
+                            "DEFERRED_DISCOVERY",
                             "INCOMPLETE",
                             "STREAM_RECOVER",
                             "STREAM_TRUNCATED",
@@ -261,9 +262,18 @@ class Peers:
                     peers.model_waiting.set()
                     peers.release_model.wait(15)
                     return
-                elif not has_result:
+                elif not has_result or (
+                    scenario == "DEFERRED_DISCOVERY"
+                    and "RETAINED_EVIDENCE" not in serialized
+                ):
                     names = (
-                        ["agent_skills_tool"]
+                        [
+                            "fixture_deferred__next_read"
+                            if has_result
+                            else "fixture_deferred__connect"
+                        ]
+                        if scenario == "DEFERRED_DISCOVERY"
+                        else ["agent_skills_tool"]
                         if scenario == "SKILL_ROUTE"
                         else ["fixture_mcp__write_item", "fixture_second__slow_read"]
                         if scenario == "APPROVAL"
@@ -516,6 +526,14 @@ def check(image=None, binary=None, redis_image=None):
         "fixture_mcp"
     ]
     config["workflow"]["tools"].append("fixture_second")
+    config["function_groups"]["fixture_deferred"] = {
+        **config["function_groups"]["fixture_mcp"],
+        "defer_discovery": True,
+        "discovery_description": "Read fixture evidence after discovering its tools.",
+        "initial_tools": ["slow_read"],
+        "include": ["slow_read", "next_read"],
+    }
+    config["workflow"]["tools"].append("fixture_deferred")
     container = None
     redis_container = None
     process = None
@@ -694,6 +712,30 @@ def check(image=None, binary=None, redis_image=None):
                 assert "The real datetime tool completed" in answer, answer  # nosec B101 - executable contract check
                 assert "Function Complete: current_datetime_tool" in answer  # nosec B101 - executable contract check
                 assert not peers.calls  # nosec B101 - executable contract check
+                before = len(peers.requests)
+                deferred = chat("DEFERRED_DISCOVERY", "discovery-run")
+                requests = peers.requests[before:]
+                assert "The real datetime tool completed" in deferred  # nosec B101 - executable contract check
+                assert "Function Complete: fixture_deferred__connect" in deferred  # nosec B101 - executable contract check
+                assert "Function Complete: fixture_deferred__next_read" in deferred  # nosec B101 - executable contract check
+                initial_names = {tool["name"] for tool in requests[0]["tools"]}
+                connected_names = {tool["name"] for tool in requests[1]["tools"]}
+                discovery = next(
+                    tool
+                    for tool in requests[0]["tools"]
+                    if tool["name"] == "fixture_deferred__connect"
+                )
+                assert "fixture_deferred__next_read" in discovery["description"]  # nosec B101 - executable contract check
+                assert "fixture_deferred__write_item" not in discovery["description"]  # nosec B101 - executable contract check
+                assert "fixture_deferred__connect" in initial_names  # nosec B101 - executable contract check
+                assert "fixture_deferred__slow_read" in initial_names  # nosec B101 - executable contract check
+                assert "fixture_deferred__next_read" not in initial_names  # nosec B101 - executable contract check
+                assert initial_names <= connected_names  # nosec B101 - executable contract check
+                assert len(connected_names) == len(requests[1]["tools"])  # nosec B101 - executable contract check
+                assert "fixture_deferred__next_read" in connected_names  # nosec B101 - executable contract check
+                assert "fixture_deferred__write_item" not in connected_names  # nosec B101 - executable contract check
+                assert len(requests) == 3 and peers.calls == ["next_read"]  # nosec B101 - executable contract check
+                peers.calls.clear()
                 gateway = chat("GATEWAY", "gateway-run")
                 assert gateway.count("The real datetime tool completed") == 1, gateway  # nosec B101 - executable contract check
                 assert "Function Complete: current_datetime_tool" in gateway  # nosec B101 - executable contract check

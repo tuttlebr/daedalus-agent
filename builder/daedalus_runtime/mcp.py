@@ -188,11 +188,23 @@ class MCPManager:
             )
         return schemas
 
-    def _connect_schema(self, name):
-        names = ", ".join(self.groups[name].get("include", []))
+    def _connect_schema(self, name, deferred_names=None):
+        names = ", ".join(
+            deferred_names
+            if deferred_names is not None
+            else self.groups[name].get("include", [])
+        )
+        capability = self.groups[name].get("discovery_description", "")
         return {
             "name": f"{name}__connect",
-            "description": f"Connect to {name} and discover its tools before using them. Complete browser authorization if requested. Available operations include: {names or 'the configured service operations'}.",
+            "description": (f"{capability} " if capability else "")
+            + f"Connect to {name} and discover its tools before using them. "
+            "The discovered tools remain available for this request; use their "
+            "returned names and schemas for subsequent calls. Complete browser "
+            "authorization if requested. "
+            "Use tools already exposed directly. Discover the appropriate "
+            "operation before substituting other tools for unavailable functionality. "
+            f"Operations available after connecting include: {names or 'the configured service operations'}.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -200,8 +212,16 @@ class MCPManager:
             },
         }
 
-    async def catalogue(self, names: list[str], user: str) -> list[dict]:
+    async def catalogue(
+        self, names: list[str], user: str, *, initial: bool = False
+    ) -> list[dict]:
         async def discover(name):
+            # Defer only the run's model-facing catalogue. Startup/readiness
+            # still verifies the real transport and complete tool catalogue.
+            deferred = initial and self.groups[name].get("defer_discovery", False)
+            initial_tools = self.groups[name].get("initial_tools", [])
+            if deferred and not initial_tools:
+                return [self._connect_schema(name)]
             started = time.monotonic()
             log_event("mcp_discovery_started", level=logging.DEBUG, group=name)
             try:
@@ -210,6 +230,17 @@ class MCPManager:
                     if headers is not None:
                         connection = await self._connection(name, user, headers)
                         schemas = self._schemas(name, connection)
+                        if deferred:
+                            initial_names = {
+                                f"{name}__{tool}" for tool in initial_tools
+                            }
+                            deferred_names = [
+                                s["name"]
+                                for s in schemas
+                                if s["name"] not in initial_names
+                            ]
+                            schemas = [s for s in schemas if s["name"] in initial_names]
+                            schemas.append(self._connect_schema(name, deferred_names))
                         log_event(
                             "mcp_discovery_finished",
                             level=logging.DEBUG,

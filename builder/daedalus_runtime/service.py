@@ -178,7 +178,7 @@ class ToolService:
 
         local, remote = await asyncio.gather(
             asyncio.gather(*(local_schema(name) for name in local_names)),
-            self.mcp.catalogue(group_names, user),
+            self.mcp.catalogue(group_names, user, initial=True),
         )
         tools = [*local, *remote]
         if not autonomy:

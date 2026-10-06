@@ -55,6 +55,34 @@ enable the steering composer. Existing custom YAML overlays must use
 MCP connection recovery occurs before subsequent calls; the runtime never
 replays a `tools/call` whose remote result is uncertain.
 
+Large MCP groups can set `defer_discovery: true` and a nonempty
+`discovery_description` explaining their capabilities. Each request initially
+exposes the group's `__connect` tool; connecting adds the original allowed tools
+and argument schemas for the rest of that request. Readiness still discovers
+the complete catalogue, and authentication, per-user sessions, local allowlists,
+and approval policies continue to apply to each call.
+An optional `initial_tools` list keeps commonly used operations exposed without
+the discovery round trip; these must belong to the group's local allowlist.
+When initial tools are configured, discovery advertises the remaining allowed
+operation names so the model can find specialized operations without their
+full schemas. Tool names and schemas added after connecting use the same
+per-user catalogue and allowlist.
+The home configuration enables deferred Hue discovery with these settings in
+`function_groups.hue_mcp_server`:
+
+```yaml
+defer_discovery: true
+initial_tools:
+  [get_bridge_status, list_resources, get_resource, set_light_state]
+```
+
+This keeps bridge status, resource lookup, and basic light control exposed while
+loading additional operations on demand. Keep the configured
+`discovery_description` to explain the remaining capabilities.
+Clear `initial_tools` and set `defer_discovery: false` to restore eager exposure.
+Measure Hue workflows as well as unrelated tasks: first use of a deferred
+operation adds a model round trip for discovery.
+
 Validate a built backend against local scripted model/MCP peers:
 
 ```bash

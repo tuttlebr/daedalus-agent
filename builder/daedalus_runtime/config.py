@@ -93,6 +93,38 @@ def validate_config(config: dict, registry) -> None:
     groups = config.get("function_groups", {})
     if set(functions) & set(groups):
         raise ConfigValidationError("Tool and MCP group names must be distinct")
+    for name, group in groups.items():
+        deferred = group.get("defer_discovery", False)
+        if type(deferred) is not bool:
+            raise ConfigValidationError(
+                f"function_groups.{name}.defer_discovery must be a boolean"
+            )
+        description = group.get("discovery_description", "")
+        if not isinstance(description, str) or len(description) > 2000:
+            raise ConfigValidationError(
+                f"Invalid function_groups.{name}.discovery_description"
+            )
+        if deferred and not description.strip():
+            raise ConfigValidationError(
+                f"function_groups.{name}.discovery_description is required for deferred discovery"
+            )
+        initial = group.get("initial_tools", [])
+        if (
+            not isinstance(initial, list)
+            or any(not isinstance(tool, str) or not tool.strip() for tool in initial)
+            or len(initial) != len(set(initial))
+            or (initial and not deferred)
+        ):
+            raise ConfigValidationError(
+                f"function_groups.{name}.initial_tools requires unique names and deferred discovery"
+            )
+        include, exclude = set(group.get("include", [])), set(group.get("exclude", []))
+        if (include and set(initial) - include) or (
+            not include and set(initial) & exclude
+        ):
+            raise ConfigValidationError(
+                f"function_groups.{name}.initial_tools references an unavailable tool"
+            )
     for field in ("tools", "daily_summary_tools", "daily_summary_final_tools"):
         names = workflow.get(field, [])
         if not isinstance(names, list) or any(

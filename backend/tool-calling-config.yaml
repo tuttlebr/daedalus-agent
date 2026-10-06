@@ -120,10 +120,21 @@ embedders:
 function_groups:
   hue_mcp_server:
     _type: mcp_client
+    # Keep common operations ready and discover the full authorized catalogue
+    # when needed, without sending every schema on unrelated model requests.
+    defer_discovery: true
+    initial_tools:
+      [get_bridge_status, list_resources, get_resource, set_light_state]
+    discovery_description: >-
+      Philips Hue lighting and bridge control: inspect bridge status, list and
+      read lights, rooms, zones, scenes and other resources, change lighting,
+      manage scenes and schedules, and configure bridge resources. Load these
+      tools when a task needs Philips Hue; resource-specific operations and
+      argument schemas are available after connecting.
     tool_call_timeout: 15
     reconnect_enabled: true
     reconnect_max_attempts: 3
-    # Discover all Hue tools and authorize them without per-call UI approval.
+    # Authorize all Hue tools without per-call UI approval after discovery.
     approval_policy: auto_approve
     tool_overrides:
       get_bridge_status:
