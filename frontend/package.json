@@ -55,6 +55,7 @@
     "@mermaid-js/parser": "1.1.0",
     "dompurify": "^3.4.13",
     "postcss": "$postcss",
+    "source-map-js": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.2.tgz",
     "sharp": "$sharp"
   },
   "devDependencies": {
