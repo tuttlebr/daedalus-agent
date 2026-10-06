@@ -53,6 +53,20 @@ class Peers:
                 self.wfile.write(data)
 
             def event(self, value):
+                if self.gateway:
+                    # Match Switchyard's live Responses envelope: content and
+                    # output indices are present, bookkeeping may be omitted.
+                    value = json.loads(json.dumps(value))
+                    value.pop("sequence_number", None)
+                    value.pop("item_id", None)
+                    response = value.get("response", {})
+                    response.pop("created_at", None)
+                    items = response.get("output", [])
+                    if value["type"] == "response.output_item.done":
+                        items = [*items, value["item"]]
+                    for item in items:
+                        if item["type"] == "message":
+                            item.pop("id", None)
                 self.wfile.write(("data: " + json.dumps(value) + "\n\n").encode())
                 self.wfile.flush()
 
@@ -111,6 +125,7 @@ class Peers:
                     self.reply({"error": "unexpected endpoint"}, 404)
                     return
                 peers.requests.append(body)
+                self.gateway = "GATEWAY" in json.dumps(body)
                 if (
                     "RETRY_MODEL" in json.dumps(body)
                     and sum("RETRY_MODEL" in json.dumps(old) for old in peers.requests)
@@ -129,6 +144,19 @@ class Peers:
                     pass
 
             def model_response(self, body):
+                if self.gateway:
+                    self.event(
+                        {
+                            "type": "response.created",
+                            "response": {
+                                "id": "resp_fixture",
+                                "object": "response",
+                                "model": "fixture",
+                                "status": "in_progress",
+                                "output": [],
+                            },
+                        }
+                    )
                 serialized = json.dumps(body.get("input", []))
                 redirected = "NEW_DIRECTION" in serialized
                 has_result = "function_call_output" in serialized
@@ -278,6 +306,15 @@ class Peers:
                             "delta": text,
                         }
                     )
+                    if self.gateway:
+                        self.event(
+                            {
+                                "type": "response.content_part.done",
+                                "output_index": 0,
+                                "content_index": 0,
+                                "part": {"type": "output_text", "text": text},
+                            }
+                        )
                     item = {
                         **item,
                         "status": "completed",
@@ -565,6 +602,17 @@ def check(image=None, binary=None, redis_image=None):
                 assert "The real datetime tool completed" in answer, answer  # nosec B101 - executable contract check
                 assert "Function Complete: current_datetime_tool" in answer  # nosec B101 - executable contract check
                 assert not peers.calls  # nosec B101 - executable contract check
+                gateway = chat("GATEWAY", "gateway-run")
+                assert gateway.count("The real datetime tool completed") == 1, gateway  # nosec B101 - executable contract check
+                assert "Function Complete: current_datetime_tool" in gateway  # nosec B101 - executable contract check
+                assert '"finish_reason":"stop"' in gateway, gateway  # nosec B101 - executable contract check
+                gateway_incomplete = chat(
+                    "GATEWAY_INCOMPLETE", "gateway-incomplete-run"
+                )
+                assert (
+                    "Model response did not complete" in gateway_incomplete
+                ), gateway_incomplete  # nosec B101 - executable contract check
+                assert "Function Start:" not in gateway_incomplete  # nosec B101 - executable contract check
                 for profile, expected in [
                     (None, ["fixture", "fixture/deep"]),
                     ("default", ["fixture", "fixture"]),

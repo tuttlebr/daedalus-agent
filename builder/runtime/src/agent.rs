@@ -221,6 +221,10 @@ impl Agent {
                 .model_calls
                 .fetch_add(1, Ordering::Relaxed);
             let model = provider.completion(&model_name);
+            let model = rig_core::driver::Model::new(
+                crate::provider::CompatibleOpenAi(model.wire),
+                model.transport,
+            );
             let mut stream = model.stream(request)?;
             let deadline = tokio::time::sleep(Duration::from_secs_f64(
                 prepared.model.request_timeout.max(1.0),

@@ -11,6 +11,13 @@ bounded tool batches, steering, cancellation, and terminal events. It never
 executes a partial model tool call. Each run has a bounded, authenticated inbox;
 duplicate command IDs are idempotent, and conflicting reuse is rejected.
 
+Responses streams from compatible gateways may omit envelope metadata. The
+runtime supplies missing sequence numbers and an unknown timestamp, and reuses
+message IDs previously observed at the same output index. Content, tool call
+identities, output indices, and completion status still pass Rig's validation.
+Provider failure logs include the error category and HTTP status without
+recording request bodies, response bodies, or credentials.
+
 `builder/daedalus_runtime` runs Python tools on loopback port 8001. The Rust
 process is the public backend on port 8000. The supervisor starts both, waits
 for Python startup, forwards termination signals, and exits if either fails.

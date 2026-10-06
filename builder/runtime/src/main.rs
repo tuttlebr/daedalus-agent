@@ -3,6 +3,7 @@
 mod agent;
 mod control;
 mod events;
+mod provider;
 
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 
@@ -178,7 +179,16 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
                 "Model request timed out" => "Model request timed out",
                 _ => "Agent execution failed; completed output has been preserved",
             };
-            tracing::warn!(run_id, outcome = message, "Agent run ended");
+            let provider_error = failure.downcast_ref::<rig_core::error::ProviderError>();
+            tracing::warn!(
+                run_id,
+                outcome = message,
+                provider_error_kind = provider_error.map(|error| error.kind().code()),
+                provider_status = provider_error
+                    .and_then(|error| error.provider_response_status())
+                    .map(|status| status.as_u16()),
+                "Agent run ended"
+            );
             let _ = events
                 .event("error", json!({"error":{"message":message}}))
                 .await;
