@@ -108,7 +108,7 @@ export const DocumentIngestProgress = memo(
             className={classNames(
               'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full',
               errored
-                ? 'bg-nvidia-red/15 text-nvidia-red'
+                ? 'bg-error/15 text-primary'
                 : finished
                 ? 'bg-nvidia-teal/15 text-nvidia-teal'
                 : phase === 'indexing'

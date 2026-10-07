@@ -54,8 +54,8 @@ export const Input = memo(
             'focus:outline-none focus:ring-2 focus:ring-offset-0',
             'touch-manipulation',
             error
-              ? 'border-nvidia-red/50 focus:ring-nvidia-red/30 focus:border-nvidia-red'
-              : 'border-separator/70 focus:ring-nvidia-green/30 focus:border-nvidia-green/50',
+              ? 'border-error focus:ring-focus focus:border-error'
+              : 'border-control-border focus:ring-focus focus:border-control-border',
             sizeClasses[size],
             Boolean(leftIcon) && 'pl-10',
             Boolean(rightIcon) && 'pr-10',

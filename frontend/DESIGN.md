@@ -55,47 +55,65 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   The manifest uses the neutral launch background and current, correctly sized
   Chat and sign-in screenshots.
 
-## September 17 Creative Office palette pair
+## Alaska palette
 
-The supplied light and dark swatches are preserved as sRGB palette tokens in
-`styles/appearance.css`. Semantic roles use the swatches directly for canvases,
-controls, and decoration, with derived shades for readable text.
+Design credit: _Alaska, by Alicia Curley_. The seven source swatches are
+`#161D27`, `#253D56`, `#4C6D8B`, `#9DB5B5`, `#B69BA6`, `#F5A35F`, and `#FFC04A`.
+The supplied specification also allows white, `#F5F7F8`, the light surface
+`#EFF3F3`, and the raised dark surface `#2C4A68`.
 
-| Role               | Light                   | Dark                     |
-| ------------------ | ----------------------- | ------------------------ |
-| Canvas             | Warm Canvas `#F5F1E8`   | Deep Canvas `#2E2C28`    |
-| Supporting surface | Soft Daylight `#E8DCC8` | Warm Espresso `#3D3830`  |
-| Sage emphasis      | Sage Focus `#A3B899`    | Sage Shadow `#5C6E52`    |
-| Cool detail        | Dusty Calm `#7C93A6`    | Slate Calm `#4E5E6E`     |
-| Warm highlight     | Apricot Spark `#D98E73` | Ember Glow `#A65E47`     |
-| Primary text       | Ink Anchor `#3A3A38`    | Moonlight Note `#EAE4D8` |
-| Wood detail        | Light Oak `#C9A87C`     | Dark Walnut `#6B5138`    |
+`styles/appearance.css` is the color authority. Public CSS color tokens use the
+names below; RGB channel aliases support Tailwind opacity utilities and legacy
+`nvidia-*` names. Components consume semantic tokens. Theme selection sets
+`data-theme` and the existing Tailwind `dark` class together, including before
+hydration. System follows the OS; manual Light/Dark choices persist.
 
-Light panels use a warm tint between the canvas and Soft Daylight. Dark panels
-use Warm Espresso, with lighter brown control and elevated surfaces. Sage tints
-identify user messages and interactive emphasis; slate, apricot, and wood tones
-support charts, highlights, and decorative gradients.
+| Token                 | Light     | Dark      |
+| --------------------- | --------- | --------- |
+| `--bg-canvas`         | `#FFFFFF` | `#161D27` |
+| `--bg-surface`        | `#EFF3F3` | `#253D56` |
+| `--bg-surface-raised` | `#FFFFFF` | `#2C4A68` |
+| `--bg-user-bubble`    | `#4C6D8B` | `#4C6D8B` |
+| `--bg-bot-bubble`     | `#9DB5B5` | `#253D56` |
+| `--text-primary`      | `#161D27` | `#F5F7F8` |
+| `--text-secondary`    | `#4C6D8B` | `#9DB5B5` |
+| `--text-on-accent`    | `#161D27` | `#161D27` |
+| `--text-on-user`      | `#F5F7F8` | `#F5F7F8` |
+| `--accent-primary`    | `#F5A35F` | `#F5A35F` |
+| `--accent-secondary`  | `#FFC04A` | `#FFC04A` |
+| `--accent-neutral`    | `#B69BA6` | `#B69BA6` |
+| `--border-subtle`     | `#9DB5B5` | `#4C6D8B` |
 
-Small interactive text uses `#46563F` in light appearance and `#B4C5AA` in dark
-appearance. Blue and warm text also use contrast-adjusted shades. Filled actions
-use Sage Focus with Ink Anchor labels in light appearance and Deep Canvas labels
-in dark appearance, measuring 5.4:1 and 6.6:1 contrast respectively. Filled-action
-hover states retain sage backgrounds and dark labels. Focus outlines use the
-stronger text accent. Success and error colors remain distinct and keep their
-existing labels and icons. Increased-contrast mode strengthens secondary text
-and separators.
+User bubbles use the component rule's light text (5.05:1), resolving the conflicting
+mention of user bubbles under `--text-on-accent`. Bot text measures 7.84:1 in light
+mode and 10.39:1 in dark mode. Filled primary actions use apricot with navy text
+(8.30:1), switching to gold on hover (10.40:1). Links remain readable blue or inherit
+message text with an underline. Gold is used as a fill, never as bot message text.
+The streaming indicator has three gold dots on a small slate backdrop (6.85:1).
+Minor errors use mauve borders/tints, normal primary text, and existing labels/icons.
 
-Existing `nvidia-*` utility names remain compatibility aliases to semantic roles.
-Browser theme metadata, the install manifest, and offline recovery use matching
-colors. Generated branding references are refreshed through `npm run branding`;
-icon artwork is independent of the interface palette.
+Two local text adjustments satisfy AA without adding colors: secondary text on
+a light bot bubble uses deep slate (5.16:1), and secondary text/placeholders on
+raised dark surfaces use the allowed light neutral (8.55:1). The unadjusted
+pairings are 2.51:1 and 4.25:1 respectively. Input boundaries use steel in light
+mode and blue-green in dark mode, separate from decorative subtle dividers.
+Focus has a 2px apricot outer outline and a contrasting inner edge, since apricot
+against white alone is only 2.04:1. Increased-contrast and forced-colors modes
+retain their accessibility overrides.
 
-Validation: production build and type checks, ESLint, pre-commit, 10 focused
-branding/service-worker unit tests, and 10 browser tests passed. Desktop Chromium
-and mobile WebKit covered both appearances, all five destinations, 200% text,
-contrast scans, appearance persistence, populated activity and Autonomy, sign-in,
-and offline recovery. Desktop and mobile screenshots were inspected. Physical
-devices and VoiceOver were not tested for this palette update.
+Browser chrome reads the canvas token. The install manifest uses white, and
+`npm run branding` refreshes its content-hashed references. `npm run appearance`
+embeds the shared theme definitions into `public/offline.html`; the production
+build also runs this generator so offline recovery needs no stylesheet request.
+The existing icon artwork and generated/user document content retain their own
+artwork. Code highlighting and built-in chart styling consume palette tokens.
+
+Palette regression coverage lives in `e2e/tests/hig-design.spec.ts`: both themes,
+populated messages and errors, Markdown, primary-action hover, focus, placeholders,
+input boundaries, appearance persistence, and WCAG AA scans. The streaming
+cancellation case in `e2e/tests/agentic-app.spec.ts` also checks the three gold dots
+and their removal after Stop. Browser emulation does not replace physical-device
+or assistive-technology checks.
 
 ## Source guidance
 

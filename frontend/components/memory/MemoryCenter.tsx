@@ -587,7 +587,7 @@ export function MemoryCenter() {
         {error && !editing && (
           <p
             role="alert"
-            className="rounded-lg border border-nvidia-red/30 bg-nvidia-red/10 px-4 py-3 text-sm text-nvidia-red"
+            className="rounded-lg border border-error bg-error/10 px-4 py-3 text-sm text-primary"
           >
             {error}
           </p>
@@ -713,7 +713,7 @@ export function MemoryCenter() {
                           type="button"
                           aria-label="Forget memory"
                           disabled={workingId === memory.id}
-                          className="rounded-lg p-2 text-dark-text-muted hover:bg-nvidia-red/10 hover:text-nvidia-red disabled:opacity-50"
+                          className="rounded-lg p-2 text-dark-text-muted hover:bg-error/10 hover:text-primary disabled:opacity-50"
                           onClick={() => void invalidateMemory(memory)}
                         >
                           <IconTrash size={17} />
@@ -800,14 +800,11 @@ export function MemoryCenter() {
           </div>
         </div>
 
-        <GlassCard
-          variant="subtle"
-          className="space-y-3 border border-nvidia-red/20"
-        >
+        <GlassCard variant="subtle" className="space-y-3 border border-error">
           <div className="flex items-start gap-3">
             <IconAlertTriangle
               size={19}
-              className="mt-0.5 flex-shrink-0 text-nvidia-red"
+              className="mt-0.5 flex-shrink-0 text-primary"
             />
             <div className="space-y-1">
               <p className="font-medium text-dark-text-primary">
@@ -844,7 +841,7 @@ export function MemoryCenter() {
                   id="clear-memory-confirmation"
                   value={clearText}
                   onChange={(event) => setClearText(event.target.value)}
-                  className="min-h-touch-min min-w-0 w-full flex-auto rounded-lg border border-nvidia-red/30 bg-fill/5 px-3 text-sm text-dark-text-primary outline-none"
+                  className="min-h-touch-min min-w-0 w-full flex-auto rounded-lg border border-error bg-fill/5 px-3 text-sm text-dark-text-primary outline-none"
                 />
                 <Button
                   variant="danger"
@@ -946,7 +943,7 @@ export function MemoryCenter() {
                 'Raw source text is unavailable.'}
             </pre>
             {error && (
-              <p role="alert" className="text-sm text-nvidia-red">
+              <p role="alert" className="text-sm text-primary">
                 {error}
               </p>
             )}
@@ -996,7 +993,7 @@ export function MemoryCenter() {
               <p
                 id="memory-edit-error"
                 role="alert"
-                className="text-sm text-nvidia-red"
+                className="text-sm text-primary"
               >
                 {error}
               </p>

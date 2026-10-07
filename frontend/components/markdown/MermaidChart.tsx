@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { useFileSave } from '@/hooks/useFileSave';
+import { useTheme } from '@/hooks/useTheme';
 
 import { toPng } from 'html-to-image';
 // Mermaid 11.16.1's browser bundle contains the matching parser. Its default
@@ -22,6 +23,7 @@ interface Props {
 
 export const MermaidChart: FC<Props> = memo(({ value }) => {
   const { saveFile, fileSaveDialog } = useFileSave();
+  const { isDark } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -33,9 +35,58 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
 
     const renderDiagram = async () => {
       try {
+        const theme = getComputedStyle(document.documentElement);
+        // Mermaid's color derivation requires resolved hex, not CSS variables.
+        const color = (token: string) =>
+          '#' +
+          theme
+            .getPropertyValue(token)
+            .trim()
+            .split(/\s+/)
+            .map((channel) => Number(channel).toString(16).padStart(2, '0'))
+            .join('');
+        const surface = color('--control');
+        const label = color('--label');
+        const border = color('--border-control');
         mermaid.initialize({
           startOnLoad: false,
-          theme: 'dark',
+          theme: 'base',
+          themeVariables: {
+            darkMode: isDark,
+            background: surface,
+            primaryColor: surface,
+            secondaryColor: surface,
+            tertiaryColor: surface,
+            primaryTextColor: label,
+            secondaryTextColor: label,
+            tertiaryTextColor: label,
+            primaryBorderColor: border,
+            secondaryBorderColor: border,
+            tertiaryBorderColor: border,
+            textColor: label,
+            lineColor: border,
+            edgeLabelBackground: surface,
+            clusterBkg: surface,
+            clusterBorder: border,
+            noteBkgColor: color('--palette-mauve'),
+            noteTextColor: color('--palette-navy'),
+            noteBorderColor: border,
+            actorBkg: surface,
+            actorTextColor: label,
+            actorBorder: border,
+            actorLineColor: border,
+            signalColor: label,
+            signalTextColor: label,
+            labelBoxBkgColor: surface,
+            labelBoxBorderColor: border,
+            labelTextColor: label,
+            loopTextColor: label,
+            activationBkgColor: surface,
+            activationBorderColor: border,
+            sequenceNumberColor: surface,
+            errorBkgColor: surface,
+            errorTextColor: label,
+          },
           securityLevel: 'strict',
           // Resolve the shared stack so downloaded SVGs keep their fonts even
           // outside the page that defines the CSS variable.
@@ -65,7 +116,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
     return () => {
       cancelled = true;
     };
-  }, [value, uniqueId]);
+  }, [value, uniqueId, isDark]);
 
   const copySource = useCallback(() => {
     navigator.clipboard?.writeText(value).then(() => {
@@ -78,7 +129,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
     if (!containerRef.current) return;
     try {
       const dataUrl = await toPng(containerRef.current, {
-        backgroundColor: '#1e1e1e',
+        backgroundColor: getComputedStyle(containerRef.current).backgroundColor,
       });
       const blob = await (await fetch(dataUrl)).blob();
       saveFile(blob, 'mermaid-diagram.png');
@@ -98,12 +149,14 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
       >
         {fileSaveDialog}
         <div className="flex items-center justify-between py-1.5 px-4">
-          <span className="text-xs lowercase text-white">mermaid (error)</span>
+          <span className="text-xs lowercase text-primary">
+            mermaid (error)
+          </span>
         </div>
-        <div className="p-4 bg-red-900/30 text-red-300 text-sm whitespace-pre-wrap overflow-auto max-h-[50vh]">
+        <div className="p-4 bg-error/30 text-primary text-sm whitespace-pre-wrap overflow-auto max-h-[50vh]">
           {error}
-          <hr className="my-3 border-red-700/50" />
-          <code className="text-gray-300 text-xs">{value}</code>
+          <hr className="my-3 border-error" />
+          <code className="text-secondary text-xs">{value}</code>
         </div>
       </div>
     );
@@ -116,10 +169,10 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
     >
       {fileSaveDialog}
       <div className="flex items-center justify-between py-1.5 px-4">
-        <span className="text-xs lowercase text-white">mermaid</span>
+        <span className="text-xs lowercase text-primary">mermaid</span>
         <div className="flex items-center">
           <button
-            className="flex gap-1.5 items-center rounded bg-none p-1 text-xs text-white"
+            className="flex gap-1.5 items-center rounded bg-none p-1 text-xs text-primary"
             onClick={copySource}
           >
             {isCopied ? <IconCheck size={18} /> : <IconClipboard size={18} />}
@@ -127,7 +180,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
           </button>
           {svg && (
             <button
-              className="flex items-center rounded bg-none p-1 text-xs text-white"
+              className="flex items-center rounded bg-none p-1 text-xs text-primary"
               aria-label="Download diagram"
               onClick={downloadPng}
             >
@@ -138,7 +191,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
       </div>
       <div
         ref={containerRef}
-        className="p-4 bg-[#1e1e1e] overflow-auto max-h-[60vh] flex justify-center"
+        className="p-4 bg-elevated overflow-auto max-h-[60vh] flex justify-center"
         dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
       />
     </div>

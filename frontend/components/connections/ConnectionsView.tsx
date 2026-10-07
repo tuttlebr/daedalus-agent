@@ -152,7 +152,7 @@ export function ConnectionsView() {
         {error && (
           <p
             role="alert"
-            className="rounded-lg border border-nvidia-red/30 bg-nvidia-red/10 px-4 py-3 text-sm text-nvidia-red"
+            className="rounded-lg border border-error bg-error/10 px-4 py-3 text-sm text-primary"
           >
             {error}
           </p>

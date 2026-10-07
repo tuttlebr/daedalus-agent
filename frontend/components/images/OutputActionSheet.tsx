@@ -101,7 +101,7 @@ export function OutputActionSheet({
             type="button"
             onClick={onClose}
             aria-label="Close selected image actions"
-            className="grid h-11 w-11 place-items-center rounded-full text-muted transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+            className="grid h-11 w-11 place-items-center rounded-full text-muted transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             <IconX size={20} />
           </button>
@@ -194,10 +194,10 @@ function sheetActionClasses(
   return classNames(
     'inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium transition-colors touch-manipulation focus-visible:outline-none focus-visible:ring-2',
     emphasis
-      ? 'border-nvidia-green bg-action text-on-action hover:brightness-95 focus-visible:ring-nvidia-green/50'
+      ? 'border-nvidia-green bg-action text-on-action hover:bg-action-hover focus-visible:ring-focus'
       : destructive
-      ? 'border-red-500/25 text-nvidia-red hover:bg-red-500/10 focus-visible:ring-red-500/40'
-      : 'border-separator/70 bg-fill/[0.04] text-secondary hover:bg-fill/[0.08] focus-visible:ring-nvidia-green/40',
+      ? 'border-error text-primary hover:bg-error/10 focus-visible:ring-focus'
+      : 'border-separator/70 bg-fill/[0.04] text-secondary hover:bg-fill/[0.08] focus-visible:ring-focus',
     className,
   );
 }

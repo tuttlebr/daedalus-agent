@@ -65,7 +65,7 @@ export const getReactMarkDownCustomComponents = (
           if (inline) {
             return (
               <code
-                className="font-mono bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm"
+                className="font-mono bg-panel px-1 py-0.5 rounded text-sm"
                 {...props}
               >
                 {childArray}
@@ -158,7 +158,7 @@ export const getReactMarkDownCustomComponents = (
           // Wide tables scroll horizontally instead of crushing columns
           // into unreadable slivers on narrow screens.
           <div className="my-3 max-w-full overflow-x-auto overscroll-x-contain">
-            <table className="border-collapse border border-black dark:border-white min-w-full table-auto">
+            <table className="border-collapse border border-separator min-w-full table-auto">
               {children}
             </table>
           </div>
@@ -172,7 +172,7 @@ export const getReactMarkDownCustomComponents = (
       th: memo(
         ({ children }: MarkdownComponentProps) => (
           <th
-            className="border border-black bg-gray-500 px-3 py-1 text-white dark:border-white align-top"
+            className="border border-separator bg-panel px-3 py-1 text-primary align-top"
             style={{
               wordBreak: 'break-word',
               overflowWrap: 'anywhere',
@@ -191,7 +191,7 @@ export const getReactMarkDownCustomComponents = (
       td: memo(
         ({ children }: MarkdownComponentProps) => (
           <td
-            className="border border-black px-3 py-1 dark:border-white align-top"
+            className="border border-separator px-3 py-1 align-top"
             style={{
               wordBreak: 'break-word',
               overflowWrap: 'anywhere',
@@ -210,7 +210,7 @@ export const getReactMarkDownCustomComponents = (
       a: memo(
         ({ href, children, node: _node, ...props }: MarkdownComponentProps) => {
           const className =
-            'text-nvidia-green dark:text-nvidia-green-bright no-underline hover:underline font-medium transition-colors';
+            'text-inherit underline underline-offset-2 font-medium';
 
           if (href && isSandboxArtifactDownloadUrl(href)) {
             return (
@@ -274,7 +274,7 @@ export const getReactMarkDownCustomComponents = (
 
           return validContent ? (
             <sup
-              className="text-xs bg-gray-100 dark:bg-neutral-800 text-nvidia-green border border-nvidia-green-light/30 px-1 py-0.5 rounded-md shadow-sm"
+              className="text-xs bg-panel text-nvidia-green border border-nvidia-green-light/30 px-1 py-0.5 rounded-md shadow-sm"
               style={{
                 fontWeight: 'bold',
                 marginLeft: '2px',
@@ -309,7 +309,7 @@ export const getReactMarkDownCustomComponents = (
       h1: memo(
         ({ children, ...props }: MarkdownComponentProps) => (
           <h1
-            className="text-3xl font-bold mt-6 mb-4 text-gray-900 dark:text-gray-50 border-b border-gray-200 dark:border-gray-700 pb-2"
+            className="text-3xl font-bold mt-6 mb-4 text-inherit border-b border-separator pb-2"
             {...props}
           >
             {children}
@@ -321,10 +321,7 @@ export const getReactMarkDownCustomComponents = (
 
       h2: memo(
         ({ children, ...props }: MarkdownComponentProps) => (
-          <h2
-            className="text-2xl font-bold mt-5 mb-3 text-gray-900 dark:text-gray-50"
-            {...props}
-          >
+          <h2 className="text-2xl font-bold mt-5 mb-3 text-inherit" {...props}>
             {children}
           </h2>
         ),
@@ -335,7 +332,7 @@ export const getReactMarkDownCustomComponents = (
       h3: memo(
         ({ children, ...props }: MarkdownComponentProps) => (
           <h3
-            className="text-xl font-semibold mt-4 mb-2 text-gray-900 dark:text-gray-50"
+            className="text-xl font-semibold mt-4 mb-2 text-inherit"
             {...props}
           >
             {children}
@@ -348,7 +345,7 @@ export const getReactMarkDownCustomComponents = (
       h4: memo(
         ({ children, ...props }: MarkdownComponentProps) => (
           <h4
-            className="text-lg font-semibold mt-3 mb-2 text-gray-800 dark:text-gray-100"
+            className="text-lg font-semibold mt-3 mb-2 text-inherit"
             {...props}
           >
             {children}
@@ -361,7 +358,7 @@ export const getReactMarkDownCustomComponents = (
       blockquote: memo(
         ({ children, ...props }: MarkdownComponentProps) => (
           <blockquote
-            className="border-l-4 border-nvidia-green dark:border-nvidia-green-bright pl-4 py-2 my-4 italic text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/50 rounded-r"
+            className="border-l-4 border-nvidia-green dark:border-nvidia-green-bright pl-4 py-2 my-4 italic text-inherit bg-panel rounded-r"
             {...props}
           >
             {children}
@@ -373,10 +370,7 @@ export const getReactMarkDownCustomComponents = (
 
       hr: memo(
         ({ ...props }) => (
-          <hr
-            className="my-6 border-t-2 border-gray-200 dark:border-gray-700"
-            {...props}
-          />
+          <hr className="my-6 border-t-2 border-separator" {...props} />
         ),
         () => true,
       ),
@@ -406,10 +400,7 @@ export const getReactMarkDownCustomComponents = (
 
       strong: memo(
         ({ children, ...props }: MarkdownComponentProps) => (
-          <strong
-            className="font-bold text-gray-900 dark:text-gray-50"
-            {...props}
-          >
+          <strong className="font-bold text-inherit" {...props}>
             {children}
           </strong>
         ),
@@ -419,7 +410,7 @@ export const getReactMarkDownCustomComponents = (
 
       em: memo(
         ({ children, ...props }: MarkdownComponentProps) => (
-          <em className="italic text-gray-800 dark:text-gray-200" {...props}>
+          <em className="italic text-inherit" {...props}>
             {children}
           </em>
         ),
@@ -429,10 +420,7 @@ export const getReactMarkDownCustomComponents = (
 
       del: memo(
         ({ children, ...props }: MarkdownComponentProps) => (
-          <del
-            className="line-through text-gray-600 dark:text-gray-400"
-            {...props}
-          >
+          <del className="line-through text-inherit" {...props}>
             {children}
           </del>
         ),

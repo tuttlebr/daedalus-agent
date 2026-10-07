@@ -359,14 +359,14 @@ function SizeControl({
           <button
             type="button"
             onClick={applyCustom}
-            className="min-h-11 rounded-lg bg-action px-3 py-2 text-sm font-medium text-on-action transition-colors hover:opacity-90"
+            className="min-h-11 rounded-lg bg-action px-3 py-2 text-sm font-medium text-on-action transition-colors hover:bg-action-hover"
           >
             Apply
           </button>
         </div>
       )}
       {error && (
-        <p id={errorId} role="alert" className="mt-1 text-xs text-nvidia-red">
+        <p id={errorId} role="alert" className="mt-1 text-xs text-primary">
           {error}
         </p>
       )}
@@ -464,4 +464,4 @@ function formatSizeLabel(size: ImageSize): string {
 }
 
 const fieldClassName =
-  'min-h-11 w-full min-w-0 rounded-lg border border-separator/70 bg-control px-2 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-nvidia-green/60 md:min-h-9 md:text-xs';
+  'min-h-11 w-full min-w-0 rounded-lg border border-separator/70 bg-control px-2 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-focus md:min-h-9 md:text-xs';

@@ -21,7 +21,7 @@ export default function Custom500() {
         </p>
         <button
           onClick={() => window.location.reload()}
-          className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-on-action bg-action rounded-xl hover:brightness-95 transition-colors duration-200"
+          className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-on-action bg-action rounded-xl hover:bg-action-hover transition-colors duration-200"
         >
           Try Again
         </button>

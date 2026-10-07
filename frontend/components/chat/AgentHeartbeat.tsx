@@ -36,7 +36,7 @@ function formatElapsed(seconds: number): string {
 }
 
 /**
- * Agent streaming indicator with sweep bar, breathing dot, and activity text.
+ * Agent streaming indicator with three warm dots and activity text.
  * Shown during active response generation.
  */
 export const AgentHeartbeat = memo(
@@ -53,17 +53,10 @@ export const AgentHeartbeat = memo(
       return () => clearInterval(timer);
     }, []);
 
-    const accentColor = 'nvidia-green';
     const recentCategories = completedStepCategories.slice(-6);
 
     return (
       <div className="animate-morph-in">
-        {/* Sweep bar */}
-        <div
-          className="h-0.5 w-full rounded-full animate-heartbeat-sweep"
-          style={{ backgroundSize: '200% 100%' }}
-        />
-
         {/* Activity row */}
         <div className="flex items-center gap-2 px-3 py-2">
           {/* Step category icons */}
@@ -76,7 +69,7 @@ export const AgentHeartbeat = memo(
                   key={`${cat}-${i}`}
                   className={classNames(
                     'w-5 h-5 rounded-full flex items-center justify-center',
-                    `bg-${accentColor}/20 text-${accentColor}`,
+                    'bg-panel text-primary',
                   )}
                 >
                   <Icon size={12} />
@@ -85,13 +78,11 @@ export const AgentHeartbeat = memo(
             })}
           </div>
 
-          {/* Breathing dot */}
-          <span
-            className={classNames(
-              'w-2 h-2 rounded-full animate-heartbeat-breathe flex-shrink-0',
-              `bg-${accentColor}`,
-            )}
-          />
+          <span className="typing-indicator" aria-hidden="true">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+          </span>
 
           {/* Activity text */}
           <span className="text-xs text-dark-text-muted truncate flex-1">
@@ -99,12 +90,7 @@ export const AgentHeartbeat = memo(
           </span>
 
           {/* Elapsed timer */}
-          <span
-            className={classNames(
-              'text-xs font-mono flex-shrink-0',
-              `text-${accentColor}/70`,
-            )}
-          >
+          <span className="text-xs font-mono flex-shrink-0 text-secondary">
             {formatElapsed(elapsed)}
           </span>
         </div>

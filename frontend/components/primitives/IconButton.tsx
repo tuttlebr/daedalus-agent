@@ -20,7 +20,7 @@ const variantClasses: Record<IconButtonVariant, string> = {
     hover:bg-control
     hover:text-primary
     active:scale-95
-    focus-visible:ring-2 focus-visible:ring-neutral-400/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   ghost: `
     bg-transparent
@@ -28,19 +28,19 @@ const variantClasses: Record<IconButtonVariant, string> = {
     hover:bg-panel dark:hover:bg-control
     hover:text-primary
     active:scale-95
-    focus-visible:ring-2 focus-visible:ring-neutral-400/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   solid: `
     bg-primary text-panel
     hover:opacity-90
     active:scale-95
-    focus-visible:ring-2 focus-visible:ring-neutral-400/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   accent: `
     bg-action text-on-action
-    hover:brightness-95
+    hover:bg-action-hover
     active:scale-95
-    focus-visible:ring-2 focus-visible:ring-nvidia-green/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   outline: `
     bg-transparent
@@ -49,14 +49,14 @@ const variantClasses: Record<IconButtonVariant, string> = {
     hover:bg-panel dark:hover:bg-control
     hover:border-separator
     active:scale-95
-    focus-visible:ring-2 focus-visible:ring-neutral-400/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   danger: `
     bg-transparent text-muted
-    hover:bg-red-100 dark:hover:bg-red-900/30
-    hover:text-red-600 dark:hover:text-red-400
+    hover:bg-error/20
+    hover:text-primary
     active:scale-95
-    focus-visible:ring-2 focus-visible:ring-red-500/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
 };
 

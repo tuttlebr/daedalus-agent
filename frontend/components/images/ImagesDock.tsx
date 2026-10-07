@@ -245,9 +245,9 @@ function StopButton({ onClick }: { onClick: () => void }) {
       title="Stop image generation"
       className={classNames(
         'inline-flex h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold touch-manipulation',
-        'bg-nvidia-red/15 text-nvidia-red border border-nvidia-red/30',
-        'transition-all hover:bg-nvidia-red/25 active:scale-95',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
+        'bg-error/15 text-primary border border-error',
+        'transition-all hover:bg-error/25 active:scale-95',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
       )}
     >
       <IconSquare size={16} strokeWidth={2.5} />
@@ -279,8 +279,8 @@ function SubmitButton({
         'transition-all',
         disabled
           ? 'bg-fill/5 text-muted cursor-not-allowed'
-          : 'bg-action text-on-action hover:brightness-95',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
+          : 'bg-action text-on-action hover:bg-action-hover',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
       )}
     >
       {loading ? (

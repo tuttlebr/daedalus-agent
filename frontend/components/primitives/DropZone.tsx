@@ -58,9 +58,7 @@ export const DropZone = memo(
         onDrop={handleDrop}
         className={classNames(
           'relative transition-all duration-200',
-          isDragging &&
-            !disabled &&
-            'ring-2 ring-nvidia-green/50 bg-nvidia-green/5',
+          isDragging && !disabled && 'ring-2 ring-focus bg-nvidia-green/5',
           className,
         )}
       >

@@ -181,11 +181,9 @@ export const Image = memo(
         {fileSaveDialog}
         <div className="relative group">
           {error ? (
-            <div className="flex items-center justify-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-              <IconExclamationCircle className="w-5 h-5 text-red-500 mr-2" />
-              <p className="text-red-600 dark:text-red-400 text-sm">
-                Failed to load image
-              </p>
+            <div className="flex items-center justify-center p-4 bg-error dark:bg-error/20 rounded-lg border border-error dark:border-error">
+              <IconExclamationCircle className="w-5 h-5 text-primary mr-2" />
+              <p className="text-primary text-sm">Failed to load image</p>
             </div>
           ) : (
             <div className="relative">
@@ -194,7 +192,7 @@ export const Image = memo(
                 src={src}
                 alt={alt || 'image'}
                 onError={handleImageError}
-                className="object-cover rounded-lg border border-slate-100 dark:border-gray-700 shadow-xs max-w-full h-auto"
+                className="object-cover rounded-lg border border-separator shadow-xs max-w-full h-auto"
                 loading="lazy"
                 decoding="async"
                 {...props}
@@ -213,7 +211,7 @@ export const Image = memo(
           )}
         </div>
         {downloadError && (
-          <p role="alert" className="text-sm text-nvidia-red">
+          <p role="alert" className="text-sm text-primary">
             {downloadError}
           </p>
         )}

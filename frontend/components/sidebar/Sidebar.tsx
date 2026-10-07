@@ -33,7 +33,7 @@ import classNames from 'classnames';
 import { v4 as uuidv4 } from 'uuid';
 
 const rowActionClasses =
-  'flex h-[44px] w-[44px] items-center justify-center rounded-md text-dark-text-muted transition-all md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40';
+  'flex h-[44px] w-[44px] items-center justify-center rounded-md text-dark-text-muted transition-all md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
 
 export const Sidebar = memo(() => {
   const { logout } = useAuth();
@@ -302,7 +302,7 @@ export const Sidebar = memo(() => {
       {error && (
         <p
           role="alert"
-          className="mx-3 mb-2 rounded-lg bg-nvidia-red/10 p-3 text-sm text-nvidia-red"
+          className="mx-3 mb-2 rounded-lg bg-error/10 p-3 text-sm text-primary"
         >
           {error}
         </p>
@@ -343,7 +343,7 @@ export const Sidebar = memo(() => {
                         }
                       }}
                       disabled={pending !== null}
-                      className="min-w-0 flex-1 rounded-md border border-separator/70 bg-dark-bg-tertiary px-2 py-1.5 text-sm text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-nvidia-green/40"
+                      className="min-w-0 flex-1 rounded-md border border-separator/70 bg-dark-bg-tertiary px-2 py-1.5 text-sm text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-focus"
                     />
                     <button
                       type="button"
@@ -374,7 +374,7 @@ export const Sidebar = memo(() => {
             if (isConfirmingDelete) {
               return (
                 <li key={conv.id}>
-                  <div className="flex min-h-touch-min items-center gap-1 rounded-lg bg-nvidia-red/10 px-3 py-1.5 text-sm text-nvidia-red">
+                  <div className="flex min-h-touch-min items-center gap-1 rounded-lg bg-error/10 px-3 py-1.5 text-sm text-primary">
                     <span className="min-w-0 flex-1 truncate">
                       Delete &ldquo;{conv.name}&rdquo;?
                     </span>
@@ -385,7 +385,7 @@ export const Sidebar = memo(() => {
                       disabled={pending !== null}
                       className={classNames(
                         rowActionClasses,
-                        'text-nvidia-red hover:bg-nvidia-red/15',
+                        'text-primary hover:bg-error/15',
                       )}
                       onClick={() => handleDelete(conv.id)}
                     >
@@ -486,7 +486,7 @@ export const Sidebar = memo(() => {
                           title="Delete conversation"
                           className={classNames(
                             rowActionClasses,
-                            'hover:bg-nvidia-red/10 hover:text-nvidia-red',
+                            'hover:bg-error/10 hover:text-primary',
                           )}
                           onClick={(e) => {
                             e.preventDefault();
@@ -515,7 +515,7 @@ export const Sidebar = memo(() => {
               setActiveView('memory');
               closeSidebarOnMobile();
             }}
-            className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+            className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             <IconBrain size={16} />
             <span>Memory Center</span>
@@ -525,7 +525,7 @@ export const Sidebar = memo(() => {
               setActiveView('connections');
               closeSidebarOnMobile();
             }}
-            className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+            className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             <IconPlugConnected size={16} />
             <span>Connections</span>
@@ -535,7 +535,7 @@ export const Sidebar = memo(() => {
           {conversations.length > 0 && (
             <div>
               {isConfirmingClear ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-sm text-nvidia-red">
+                <div className="flex items-center gap-2 px-3 py-2 text-sm text-primary">
                   <span className="flex-1">Clear all conversations?</span>
                   <IconButton
                     icon={<IconCheck size={16} />}
@@ -558,7 +558,7 @@ export const Sidebar = memo(() => {
               ) : (
                 <button
                   onClick={() => setIsConfirmingClear(true)}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-nvidia-red rounded-lg hover:bg-nvidia-red/5 transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40"
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-primary rounded-lg hover:bg-error/5 transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 >
                   <IconTrash size={16} />
                   <span>Clear Conversations</span>

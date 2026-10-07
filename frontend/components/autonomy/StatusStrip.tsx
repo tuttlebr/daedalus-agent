@@ -155,7 +155,7 @@ const IconChrome = forwardRef<
       onClick={onClick}
       aria-label={label}
       disabled={disabled}
-      className="grid h-11 w-11 place-items-center rounded-full text-dark-text-muted transition hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 disabled:pointer-events-none disabled:opacity-60"
+      className="grid h-11 w-11 place-items-center rounded-full text-dark-text-muted transition hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:pointer-events-none disabled:opacity-60"
     >
       {children}
     </button>

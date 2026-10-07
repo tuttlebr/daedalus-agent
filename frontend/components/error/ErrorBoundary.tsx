@@ -70,13 +70,13 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="min-h-screen flex items-center justify-center bg-dark-bg-primary p-4">
           <div className="max-w-md w-full text-center space-y-6 animate-morph-in">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-nvidia-red/10 border border-nvidia-red/20 flex items-center justify-center">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-error/10 border border-error flex items-center justify-center">
               <svg
                 width="32"
                 height="32"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#e52020"
+                stroke="var(--text-primary)"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"

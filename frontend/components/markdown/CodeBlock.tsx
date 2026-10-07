@@ -7,7 +7,6 @@ import {
 } from '@tabler/icons-react';
 import { FC, memo, useEffect, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 import { useFileSave } from '@/hooks/useFileSave';
 
@@ -108,12 +107,12 @@ export const CodeBlock: FC<Props> = memo(
       >
         {fileSaveDialog}
         <div className="flex items-center justify-between py-1.5 px-4">
-          <span className="text-xs lowercase text-white">{language}</span>
+          <span className="text-xs lowercase text-primary">{language}</span>
 
           <div className="flex items-center">
             {isHtml && (
               <button
-                className="flex min-h-11 items-center gap-1.5 rounded bg-none px-2 text-xs text-white transition-colors hover:text-nvidia-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:min-h-9"
+                className="flex min-h-11 items-center gap-1.5 rounded bg-none px-2 text-xs text-primary transition-colors hover:text-nvidia-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:min-h-9"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -126,7 +125,7 @@ export const CodeBlock: FC<Props> = memo(
             )}
             <button
               aria-label={isCopied ? 'Copied' : 'Copy code'}
-              className="flex min-h-11 items-center gap-1.5 rounded bg-none px-1.5 text-xs text-white transition-colors hover:text-nvidia-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:min-h-9"
+              className="flex min-h-11 items-center gap-1.5 rounded bg-none px-1.5 text-xs text-primary transition-colors hover:text-nvidia-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:min-h-9"
               onClick={(e) => copyToClipboard(e)}
             >
               {isCopied ? <IconCheck size={18} /> : <IconClipboard size={18} />}
@@ -135,7 +134,7 @@ export const CodeBlock: FC<Props> = memo(
             <button
               aria-label="Download code"
               title="Download code"
-              className="flex min-h-11 items-center rounded bg-none px-1.5 text-xs text-white transition-colors hover:text-nvidia-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:min-h-9"
+              className="flex min-h-11 items-center rounded bg-none px-1.5 text-xs text-primary transition-colors hover:text-nvidia-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:min-h-9"
               onClick={(e) => downloadAsFile(e)}
             >
               <IconDownload size={18} />
@@ -165,14 +164,14 @@ export const CodeBlock: FC<Props> = memo(
                 maxHeight: fullscreen ? 'none' : '70vh',
                 height: fullscreen ? '100%' : '400px',
                 display: 'block',
-                backgroundColor: '#ffffff',
+                backgroundColor: 'rgb(var(--palette-white))',
               }}
             />
           </div>
         ) : (
           <SyntaxHighlighter
             language={language}
-            style={oneDark}
+            useInlineStyles={false}
             customStyle={{
               margin: 0,
               maxWidth: '100%',

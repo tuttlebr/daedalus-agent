@@ -536,7 +536,7 @@ export function AutonomyDashboard() {
               setLoading(true);
               void refresh();
             }}
-            className="min-h-touch-min rounded-lg border border-separator/70 bg-fill/[0.04] px-4 py-2 text-sm text-dark-text-primary transition-colors hover:border-nvidia-green/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+            className="min-h-touch-min rounded-lg border border-separator/70 bg-fill/[0.04] px-4 py-2 text-sm text-dark-text-primary transition-colors hover:border-nvidia-green/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             Retry
           </button>

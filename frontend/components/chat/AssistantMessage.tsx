@@ -158,12 +158,12 @@ export const AssistantMessage = memo(
               role="alert"
               className={classNames(
                 'mb-2 flex items-start gap-2 px-3 py-2 rounded-xl rounded-tl-lg',
-                'bg-nvidia-red/10 border border-nvidia-red/30 text-sm text-dark-text-primary',
+                'bg-error/10 border border-error text-sm text-dark-text-primary',
               )}
             >
               <IconAlertCircle
                 size={16}
-                className="mt-0.5 flex-shrink-0 text-nvidia-red"
+                className="mt-0.5 flex-shrink-0 text-primary"
               />
               <div className="flex-1 min-w-0">
                 <div className="font-medium">{errorMessages!.message}</div>
@@ -178,7 +178,7 @@ export const AssistantMessage = memo(
                 <button
                   type="button"
                   onClick={onRetry}
-                  className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-nvidia-red hover:bg-nvidia-red/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40"
+                  className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-primary hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 >
                   <IconRefresh size={12} />
                   Retry
@@ -208,7 +208,7 @@ export const AssistantMessage = memo(
                       ? 'p-0'
                       : [
                           'px-4 py-3 rounded-2xl rounded-tl-lg',
-                          'bg-dark-bg-secondary/80 border border-separator/70',
+                          'chat-bubble-assistant bg-chat-assistant border border-separator',
                         ],
                     isStreaming && 'border-nvidia-green/20',
                   )}
@@ -230,7 +230,7 @@ export const AssistantMessage = memo(
                         <button
                           type="button"
                           onClick={() => setIsFullscreen(true)}
-                          className="grid h-11 w-11 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-9 md:w-9"
+                          className="grid h-11 w-11 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-9 md:w-9"
                           aria-label="View fullscreen"
                         >
                           <IconMaximize size={14} />
@@ -270,13 +270,13 @@ export const AssistantMessage = memo(
                     )}
 
                     {isStreaming && (
-                      <span className="inline-block w-0.5 h-4 ml-0.5 bg-nvidia-green animate-blink align-text-bottom" />
+                      <span className="inline-block w-0.5 h-4 ml-0.5 bg-action animate-blink align-text-bottom" />
                     )}
                   </div>
 
                   {/* Gradient fade when collapsed */}
                   {needsCollapse && !isExpanded && !isStreaming && (
-                    <div className="absolute bottom-12 left-0 right-0 h-20 bg-gradient-to-t from-dark-bg-secondary/95 to-transparent pointer-events-none rounded-b-2xl" />
+                    <div className="absolute bottom-12 left-0 right-0 h-8 bg-chat-assistant pointer-events-none rounded-b-2xl" />
                   )}
 
                   {/* Expand/collapse toggle */}

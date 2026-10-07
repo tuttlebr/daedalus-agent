@@ -21,7 +21,7 @@ const variantClasses: Record<BadgeVariant, string> = {
   success: 'bg-nvidia-teal/15 text-nvidia-teal border border-nvidia-teal/30',
   warning:
     'bg-nvidia-orange/15 text-nvidia-orange border border-nvidia-orange/30',
-  error: 'bg-nvidia-red/15 text-nvidia-red border border-nvidia-red/30',
+  error: 'bg-error/15 text-primary border border-error',
   info: 'bg-nvidia-blue/15 text-nvidia-blue border border-nvidia-blue/30',
 };
 

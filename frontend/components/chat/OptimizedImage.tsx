@@ -297,10 +297,10 @@ export const OptimizedImage = memo(
           {error && (
             <div
               role="status"
-              className="flex items-center justify-center p-4 bg-nvidia-red/10 rounded-lg border border-nvidia-red/30"
+              className="flex items-center justify-center p-4 bg-error/10 rounded-lg border border-error"
             >
-              <IconExclamationCircle className="w-5 h-5 text-nvidia-red mr-2" />
-              <p className="text-nvidia-red text-sm">Failed to load image</p>
+              <IconExclamationCircle className="w-5 h-5 text-primary mr-2" />
+              <p className="text-primary text-sm">Failed to load image</p>
             </div>
           )}
 
@@ -373,7 +373,7 @@ export const OptimizedImage = memo(
         </div>
 
         {downloadError && !isFullscreen && (
-          <p role="alert" className="text-sm text-nvidia-red">
+          <p role="alert" className="text-sm text-primary">
             {downloadError}
           </p>
         )}
@@ -411,7 +411,7 @@ export const OptimizedImage = memo(
             </div>
 
             {downloadError && (
-              <p role="alert" className="px-4 text-sm text-nvidia-red">
+              <p role="alert" className="px-4 text-sm text-primary">
                 {downloadError}
               </p>
             )}

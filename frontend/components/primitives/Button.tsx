@@ -16,46 +16,46 @@ export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary: `
-    bg-primary text-panel
-    hover:opacity-90
+    bg-action text-on-action
+    hover:bg-action-hover
     active:scale-[0.98]
-    focus-visible:ring-2 focus-visible:ring-neutral-400/40 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg-primary
+    focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg-primary
   `,
   accent: `
     bg-action text-on-action
-    hover:brightness-95
+    hover:bg-action-hover
     active:scale-[0.98]
-    focus-visible:ring-2 focus-visible:ring-nvidia-green/40 focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg-primary
+    focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg-primary
   `,
   secondary: `
     bg-control text-primary
     hover:bg-control
     active:scale-[0.98]
-    focus-visible:ring-2 focus-visible:ring-neutral-400/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   ghost: `
     bg-transparent text-secondary
     hover:bg-control/10
     active:scale-[0.98]
-    focus-visible:ring-2 focus-visible:ring-neutral-400/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   danger: `
-    bg-red-600 text-white
-    hover:bg-red-700
+    bg-error/20 text-primary border border-error
+    hover:bg-error/30
     active:scale-[0.98]
-    focus-visible:ring-2 focus-visible:ring-red-500/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   success: `
-    bg-emerald-600 text-white
-    hover:bg-emerald-700
+    bg-chat-user text-on-user
+    hover:bg-chat-user
     active:scale-[0.98]
-    focus-visible:ring-2 focus-visible:ring-emerald-500/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
   outline: `
     bg-transparent border-2 border-separator text-secondary
     hover:bg-panel dark:hover:bg-control hover:border-separator
     active:scale-[0.98]
-    focus-visible:ring-2 focus-visible:ring-neutral-400/40
+    focus-visible:ring-2 focus-visible:ring-focus
   `,
 };
 

@@ -97,7 +97,7 @@ export const SandboxArtifactLink = memo(
           </span>
         )}
         {error && (
-          <span role="alert" className="ml-1 text-xs text-nvidia-red">
+          <span role="alert" className="ml-1 text-xs text-primary">
             {error} Select the link to retry.
           </span>
         )}

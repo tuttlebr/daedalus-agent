@@ -167,7 +167,7 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
           )}
 
           {error && (
-            <div role="alert" className="mt-3 text-xs text-nvidia-red">
+            <div role="alert" className="mt-3 text-xs text-primary">
               {error}
             </div>
           )}
@@ -200,7 +200,7 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
               href={authUrl}
               target="_blank"
               rel="noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-action px-3 py-2 text-sm font-medium text-on-action hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/50"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-action px-3 py-2 text-sm font-medium text-on-action hover:bg-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               Authorize Google Docs <IconExternalLink size={14} />
             </a>
@@ -225,7 +225,7 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
                 <button
                   type="button"
                   onClick={() => void decide('approved')}
-                  className="rounded-lg bg-action px-4 py-2 text-sm font-medium text-on-action hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/50"
+                  className="rounded-lg bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 >
                   {confirmingHighImpact ? 'Confirm approval' : 'Approve'}
                 </button>

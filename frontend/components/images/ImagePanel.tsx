@@ -655,7 +655,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
 
           {error && (
             <div className="flex-none px-4 pb-1">
-              <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-nvidia-red backdrop-blur">
+              <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-error bg-error/10 px-3 py-2 text-xs text-primary backdrop-blur">
                 <span>{error}</span>
                 {!loading && (
                   <button
@@ -667,7 +667,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
                         void submit();
                       }
                     }}
-                    className="shrink-0 rounded-md px-2 py-1 font-medium text-nvidia-red transition-colors hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+                    className="shrink-0 rounded-md px-2 py-1 font-medium text-primary transition-colors hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                   >
                     {recoverableJobId ? 'Check status' : 'Try again'}
                   </button>
@@ -856,7 +856,7 @@ function outputActionClasses(danger = false) {
   return classNames(
     'inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition-colors',
     danger
-      ? 'border-red-500/20 text-nvidia-red hover:bg-red-500/10'
+      ? 'border-error text-primary hover:bg-error/10'
       : 'border-separator/70 text-secondary hover:bg-fill/5 hover:text-primary',
   );
 }

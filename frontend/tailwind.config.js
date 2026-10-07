@@ -75,7 +75,12 @@ module.exports = {
         fill: 'rgb(var(--fill) / <alpha-value>)',
         accent: 'rgb(var(--accent) / <alpha-value>)',
         action: 'rgb(var(--action) / <alpha-value>)',
+        'action-hover': 'rgb(var(--action-hover) / <alpha-value>)',
         'on-action': 'rgb(var(--on-action) / <alpha-value>)',
+        'on-user': 'var(--text-on-user)',
+        focus: 'var(--color-focus)',
+        'control-border': 'rgb(var(--border-control) / <alpha-value>)',
+        'accent-neutral': 'rgb(var(--palette-mauve) / <alpha-value>)',
         // =============================================================
         // Legacy color names resolve to semantic appearance roles.
         // =============================================================
@@ -153,9 +158,9 @@ module.exports = {
           dark: 'var(--color-success-dark)',
         },
         error: {
-          DEFAULT: 'var(--color-error)',
-          light: 'var(--color-error-light)',
-          dark: 'var(--color-error-dark)',
+          DEFAULT: 'rgb(var(--status-error) / <alpha-value>)',
+          light: 'rgb(var(--status-error) / <alpha-value>)',
+          dark: 'rgb(var(--status-error) / <alpha-value>)',
         },
         warning: {
           DEFAULT: 'var(--color-warning)',

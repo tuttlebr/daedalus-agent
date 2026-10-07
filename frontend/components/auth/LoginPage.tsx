@@ -142,13 +142,13 @@ export const LoginPage: React.FC = () => {
               <div
                 role="alert"
                 id="login-error"
-                className="flex items-start gap-3 p-3 rounded-lg bg-nvidia-red/10 border border-nvidia-red/20 animate-shake"
+                className="flex items-start gap-3 p-3 rounded-lg bg-error/10 border border-error animate-shake"
               >
                 <IconAlertCircle
                   size={18}
-                  className="text-nvidia-red flex-shrink-0 mt-0.5"
+                  className="text-primary flex-shrink-0 mt-0.5"
                 />
-                <p className="text-sm text-nvidia-red-light">{error}</p>
+                <p className="text-sm text-primary">{error}</p>
               </div>
             )}
 

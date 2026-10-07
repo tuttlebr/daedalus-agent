@@ -43,7 +43,7 @@ export const OfflineIndicator = memo(() => {
         'flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium',
         'backdrop-blur-xl border shadow-lg animate-slide-up',
         isOffline
-          ? 'bg-nvidia-red/15 border-nvidia-red/30 text-nvidia-red'
+          ? 'bg-error/15 border-error text-primary'
           : 'bg-nvidia-green/15 border-nvidia-green/30 text-nvidia-green',
       )}
     >

@@ -7,7 +7,7 @@ export function ImagePromptDetail({ image }: { image: GalleryImage }) {
         {image.imageContext?.originalPrompt ?? image.prompt}
       </p>
       {image.imageContext?.warning && (
-        <p role="status" className="text-xs text-amber-300">
+        <p role="status" className="text-xs text-primary">
           {image.imageContext.warning}
         </p>
       )}

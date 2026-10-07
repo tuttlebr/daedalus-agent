@@ -183,7 +183,7 @@ export function WorkspaceDrawer({
           type="button"
           onClick={onClose}
           aria-label="Close workspace"
-          className="grid h-[44px] w-[44px] shrink-0 place-items-center rounded-full text-dark-text-muted transition hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+          className="grid h-[44px] w-[44px] shrink-0 place-items-center rounded-full text-dark-text-muted transition hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           <IconX size={18} />
         </button>
@@ -194,7 +194,7 @@ export function WorkspaceDrawer({
           {error && (
             <p
               role="alert"
-              className="mb-4 rounded-lg border border-nvidia-red/30 bg-nvidia-red/10 p-3 text-sm text-nvidia-red"
+              className="mb-4 rounded-lg border border-error bg-error/10 p-3 text-sm text-primary"
             >
               {error}
             </p>
@@ -277,7 +277,7 @@ export function WorkspaceDrawer({
             {profileImportError && (
               <p
                 role="alert"
-                className="mt-2 font-sans text-[0.75rem] text-nvidia-red"
+                className="mt-2 font-sans text-[0.75rem] text-primary"
               >
                 {profileImportError}
               </p>
@@ -429,7 +429,7 @@ export function WorkspaceDrawer({
               {goalImportError && (
                 <p
                   role="alert"
-                  className="font-sans text-[0.75rem] text-nvidia-red"
+                  className="font-sans text-[0.75rem] text-primary"
                 >
                   {goalImportError}
                 </p>
@@ -532,7 +532,7 @@ export function WorkspaceDrawer({
                         type="button"
                         onClick={() => onCancelQueuedRequest(request.id)}
                         disabled={busy === request.id}
-                        className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle transition-colors hover:text-nvidia-red disabled:opacity-40"
+                        className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle transition-colors hover:text-primary disabled:opacity-40"
                       >
                         {busy === request.id ? 'cancelling' : 'cancel'}
                       </button>
@@ -602,7 +602,7 @@ export function WorkspaceDrawer({
                     <span
                       className={classNames(
                         'max-w-full break-words text-[0.75rem] uppercase tracking-wider [overflow-wrap:anywhere]',
-                        event.level === 'error' && 'text-nvidia-red',
+                        event.level === 'error' && 'text-primary',
                         event.level === 'warn' && 'text-nvidia-orange',
                         event.level === 'info' && 'text-nvidia-green',
                       )}
@@ -656,7 +656,7 @@ function Collapsible({
       className="group mb-3 rounded-md border border-separator/70 bg-fill/[0.015] open:bg-fill/[0.025]"
       open={defaultOpen}
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium text-dark-text-secondary transition hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium text-dark-text-secondary transition hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
         <span className="flex min-w-0 flex-wrap items-center gap-2 [overflow-wrap:anywhere]">
           {title}
           {typeof badge === 'number' && badge > 0 && (
@@ -679,7 +679,7 @@ function Collapsible({
 function runStatusTone(status: string): string {
   if (status === 'completed') return 'text-nvidia-teal';
   if (status === 'failed' || status === 'cancelled' || status === 'aborted')
-    return 'text-nvidia-red';
+    return 'text-primary';
   if (status === 'skipped') return 'text-nvidia-orange';
   if (status === 'running') return 'text-nvidia-green';
   return 'text-dark-text-subtle';

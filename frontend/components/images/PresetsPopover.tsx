@@ -86,7 +86,7 @@ export function PresetsPanel({
             key={preset.id}
             type="button"
             onClick={() => onApply(preset)}
-            className="min-h-11 rounded-lg px-3 py-2 text-left transition-colors hover:bg-fill/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+            className="min-h-11 rounded-lg px-3 py-2 text-left transition-colors hover:bg-fill/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             <div className="text-sm text-primary">{preset.label}</div>
             <div className="mt-0.5 line-clamp-2 text-xs text-muted">
@@ -121,7 +121,7 @@ export const DockIconTrigger = React.forwardRef<
           : 'h-11 w-11 rounded-full md:h-8 md:w-8',
         'text-muted hover:text-primary hover:bg-fill/5',
         'transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
         disabled && 'opacity-40 cursor-not-allowed pointer-events-none',
         className,
       )}

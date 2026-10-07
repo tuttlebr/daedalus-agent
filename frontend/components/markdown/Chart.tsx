@@ -46,15 +46,13 @@ const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false,
 });
 
-// Utility function to generate a random color
-const getRandomColor = () => {
-  const letters = '0123456789ABCDEF';
-  let color = '#';
-  for (let i = 0; i < 6; i++) {
-    color += letters[Math.floor(Math.random() * 16)];
-  }
-  return color;
-};
+const seriesColors = [
+  'var(--text-secondary)',
+  'var(--accent-neutral)',
+  'var(--text-primary)',
+  'var(--accent-primary)',
+  'var(--accent-secondary)',
+];
 
 const Chart = (props: any) => {
   const { saveFile, fileSaveDialog } = useFileSave();
@@ -80,7 +78,7 @@ const Chart = (props: any) => {
   // Chart emphasis follows the shared appearance palette.
   const colors = {
     fill: 'var(--color-nvidia-green)',
-    stroke: 'black',
+    stroke: 'var(--text-primary)',
   };
 
   const handleDownload = async () => {
@@ -89,7 +87,7 @@ const Chart = (props: any) => {
       if (chartElement) {
         logger.info('Generating image to download...');
         const blob = await htmlToImage.toBlob(chartElement, {
-          backgroundColor: 'white',
+          backgroundColor: getComputedStyle(chartElement).backgroundColor,
         });
         if (!blob) throw new Error('Chart image is empty');
         if (saveFile(blob, `${Label}-${ChartType}.png`))
@@ -106,11 +104,25 @@ const Chart = (props: any) => {
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
             <BarChart id={`chart-BarChart-${Label}`} data={Data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={XAxisKey} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
+              <CartesianGrid
+                stroke="var(--border-subtle)"
+                strokeDasharray="3 3"
+              />
+              <XAxis stroke="var(--text-secondary)" dataKey={XAxisKey} />
+              <YAxis stroke="var(--text-secondary)" />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--bg-surface-raised)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                itemStyle={{ color: 'var(--text-primary)' }}
+              />
+              <Legend
+                formatter={(value) => (
+                  <span className="text-primary">{value}</span>
+                )}
+              />
               <Bar dataKey={YAxisKey} fill={colors.fill} />
             </BarChart>
           </ResponsiveContainer>
@@ -120,11 +132,25 @@ const Chart = (props: any) => {
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
             <LineChart id={`chart-LineChart-${Label}`} data={Data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={XAxisKey} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
+              <CartesianGrid
+                stroke="var(--border-subtle)"
+                strokeDasharray="3 3"
+              />
+              <XAxis stroke="var(--text-secondary)" dataKey={XAxisKey} />
+              <YAxis stroke="var(--text-secondary)" />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--bg-surface-raised)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                itemStyle={{ color: 'var(--text-primary)' }}
+              />
+              <Legend
+                formatter={(value) => (
+                  <span className="text-primary">{value}</span>
+                )}
+              />
               <Line type="monotone" dataKey={YAxisKey} stroke={colors.fill} />
             </LineChart>
           </ResponsiveContainer>
@@ -134,8 +160,19 @@ const Chart = (props: any) => {
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
             <PieChart id={`chart-PieChart-${Label}`}>
-              <Tooltip />
-              <Legend />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--bg-surface-raised)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                itemStyle={{ color: 'var(--text-primary)' }}
+              />
+              <Legend
+                formatter={(value) => (
+                  <span className="text-primary">{value}</span>
+                )}
+              />
               <Pie
                 data={Data}
                 dataKey={ValueKey}
@@ -144,7 +181,10 @@ const Chart = (props: any) => {
                 label
               >
                 {Data.map((_: any, index: number) => (
-                  <Cell key={`cell-${index}`} fill={getRandomColor()} />
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={seriesColors[index % seriesColors.length]}
+                  />
                 ))}
               </Pie>
             </PieChart>
@@ -155,11 +195,25 @@ const Chart = (props: any) => {
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
             <AreaChart id={`chart-AreaChart-${Label}`} data={Data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={XAxisKey} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
+              <CartesianGrid
+                stroke="var(--border-subtle)"
+                strokeDasharray="3 3"
+              />
+              <XAxis stroke="var(--text-secondary)" dataKey={XAxisKey} />
+              <YAxis stroke="var(--text-secondary)" />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--bg-surface-raised)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                itemStyle={{ color: 'var(--text-primary)' }}
+              />
+              <Legend
+                formatter={(value) => (
+                  <span className="text-primary">{value}</span>
+                )}
+              />
               <Area
                 type="monotone"
                 dataKey={YAxisKey}
@@ -174,9 +228,12 @@ const Chart = (props: any) => {
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
             <RadarChart id={`chart-RadarChart-${Label}`} data={Data}>
-              <PolarGrid />
-              <PolarAngleAxis dataKey={PolarAngleKey} />
-              <PolarRadiusAxis />
+              <PolarGrid stroke="var(--border-subtle)" />
+              <PolarAngleAxis
+                stroke="var(--text-secondary)"
+                dataKey={PolarAngleKey}
+              />
+              <PolarRadiusAxis stroke="var(--text-secondary)" />
               <Radar
                 name="Metrics"
                 dataKey={PolarValueKey}
@@ -184,7 +241,11 @@ const Chart = (props: any) => {
                 fill={colors.fill}
                 fillOpacity={0.6}
               />
-              <Legend />
+              <Legend
+                formatter={(value) => (
+                  <span className="text-primary">{value}</span>
+                )}
+              />
             </RadarChart>
           </ResponsiveContainer>
         );
@@ -193,11 +254,33 @@ const Chart = (props: any) => {
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
             <ScatterChart id={`chart-ScatterChart-${Label}`}>
-              <CartesianGrid />
-              <XAxis type="number" dataKey={XAxisKey} name={XAxisKey} />
-              <YAxis type="number" dataKey={YAxisKey} name={YAxisKey} />
-              <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-              <Legend />
+              <CartesianGrid stroke="var(--border-subtle)" />
+              <XAxis
+                stroke="var(--text-secondary)"
+                type="number"
+                dataKey={XAxisKey}
+                name={XAxisKey}
+              />
+              <YAxis
+                stroke="var(--text-secondary)"
+                type="number"
+                dataKey={YAxisKey}
+                name={YAxisKey}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--bg-surface-raised)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                itemStyle={{ color: 'var(--text-primary)' }}
+                cursor={{ strokeDasharray: '3 3' }}
+              />
+              <Legend
+                formatter={(value) => (
+                  <span className="text-primary">{value}</span>
+                )}
+              />
               <Scatter name="Sales vs Profit" data={Data} fill={colors.fill} />
             </ScatterChart>
           </ResponsiveContainer>
@@ -207,11 +290,25 @@ const Chart = (props: any) => {
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
             <ComposedChart id={`chart-ComposedChart-${Label}`} data={Data}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={XAxisKey} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
+              <CartesianGrid
+                stroke="var(--border-subtle)"
+                strokeDasharray="3 3"
+              />
+              <XAxis stroke="var(--text-secondary)" dataKey={XAxisKey} />
+              <YAxis stroke="var(--text-secondary)" />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--bg-surface-raised)',
+                  color: 'var(--text-primary)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+                itemStyle={{ color: 'var(--text-primary)' }}
+              />
+              <Legend
+                formatter={(value) => (
+                  <span className="text-primary">{value}</span>
+                )}
+              />
               <Bar dataKey={BarKey} fill={colors.fill} />
               <Line type="monotone" dataKey={LineKey} stroke={colors.stroke} />
             </ComposedChart>
@@ -284,7 +381,10 @@ const Chart = (props: any) => {
               id={`chart-QuadrantChart-${Label}`}
               margin={{ top: 20, right: 30, bottom: 30, left: 30 }}
             >
-              <CartesianGrid strokeDasharray="3 3" />
+              <CartesianGrid
+                stroke="var(--border-subtle)"
+                strokeDasharray="3 3"
+              />
               <XAxis
                 type="number"
                 dataKey={XAxisKey}
@@ -323,7 +423,7 @@ const Chart = (props: any) => {
                     if (!active || !payload?.length) return null;
                     const d = payload[0].payload;
                     return (
-                      <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded p-2 shadow-lg text-sm">
+                      <div className="bg-panel border border-separator rounded p-2 shadow-lg text-sm">
                         <p className="font-semibold">
                           {NameKey ? String(d[NameKey]) : ''}
                         </p>
@@ -338,8 +438,16 @@ const Chart = (props: any) => {
                   }) as any
                 }
               />
-              <ReferenceLine x={xMedian} stroke="#666" strokeDasharray="5 5" />
-              <ReferenceLine y={yMedian} stroke="#666" strokeDasharray="5 5" />
+              <ReferenceLine
+                x={xMedian}
+                stroke="var(--text-secondary)"
+                strokeDasharray="5 5"
+              />
+              <ReferenceLine
+                y={yMedian}
+                stroke="var(--text-secondary)"
+                strokeDasharray="5 5"
+              />
               <Scatter data={coloredData} label={renderCustomLabel as any}>
                 {coloredData.map(
                   (entry: Record<string, string>, index: number) => (
@@ -378,7 +486,16 @@ const Chart = (props: any) => {
               }}
               nodeLabel="name"
               linkLabel="label"
-              nodeAutoColorBy="id"
+              nodeColor={() =>
+                getComputedStyle(document.documentElement)
+                  .getPropertyValue('--text-secondary')
+                  .trim()
+              }
+              linkColor={() =>
+                getComputedStyle(document.documentElement)
+                  .getPropertyValue('--text-secondary')
+                  .trim()
+              }
               width={window.innerWidth * 0.9}
               height={500}
             />
@@ -391,7 +508,7 @@ const Chart = (props: any) => {
   };
 
   return (
-    <div className="relative pb-2">
+    <div className="chart-surface relative pb-2 bg-panel text-primary">
       {fileSaveDialog}
       <button
         type="button"
@@ -401,7 +518,7 @@ const Chart = (props: any) => {
       >
         <IconDownload size={20} />
       </button>
-      <div className="pt-4" id={`chart-${Label}`}>
+      <div className="pt-4 bg-panel" id={`chart-${Label}`}>
         <div className="pl-4">{Label}</div>
         {renderChart()}
       </div>

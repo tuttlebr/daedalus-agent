@@ -169,8 +169,8 @@ const CanvasTile = memo(function CanvasTile({
       type="button"
       onClick={onSelect}
       className={classNames(
-        'absolute inset-0 block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nvidia-green/60',
-        selected && 'ring-2 ring-inset ring-nvidia-green/70',
+        'absolute inset-0 block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus',
+        selected && 'ring-2 ring-inset ring-focus',
       )}
       aria-label="Open generated image actions"
       aria-pressed={selected}

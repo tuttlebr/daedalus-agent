@@ -147,7 +147,7 @@ export const SplitPane = memo(
               'relative w-1 flex-shrink-0 cursor-col-resize touch-none',
               'after:absolute after:inset-y-0 after:-left-1.5 after:-right-1.5 after:content-[""]',
               'hover:bg-nvidia-green/30 focus-visible:bg-nvidia-green/40',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
               'transition-colors duration-150',
               isResizing && 'bg-nvidia-green/50',
             )}

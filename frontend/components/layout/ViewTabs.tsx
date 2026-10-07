@@ -78,7 +78,7 @@ export function ViewTabs() {
               onKeyDown={(e) => handleKeyDown(e, index)}
               className={classNames(
                 'app-nav-item relative inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 focus-visible:ring-inset',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset',
                 active ? 'text-nvidia-green' : 'text-muted hover:text-primary',
               )}
             >

@@ -18,7 +18,7 @@ const barColors: Record<NonNullable<ProgressBarProps['variant']>, string> = {
   default: 'bg-control',
   accent: 'bg-nvidia-green',
   success: 'bg-nvidia-teal',
-  error: 'bg-nvidia-red',
+  error: 'bg-error',
 };
 
 export const ProgressBar = memo(

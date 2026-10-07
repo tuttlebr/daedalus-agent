@@ -14,26 +14,24 @@ const Loading: React.FC<LoadingProps> = ({
     <>
       {type === 'code' ? (
         <div className="codeblock relative text-[16px] animate-pulse">
-          <div className="flex items-center justify-between py-1.5 px-4 bg-gray-800">
-            <span className="w-16 h-4 bg-gray-600 rounded"></span>
+          <div className="flex items-center justify-between py-1.5 px-4 bg-panel">
+            <span className="w-16 h-4 bg-separator rounded"></span>
             <div className="flex items-center gap-2">
-              <span className="w-20 h-4 bg-gray-600 rounded"></span>
-              <span className="w-6 h-4 bg-gray-600 rounded"></span>
+              <span className="w-20 h-4 bg-separator rounded"></span>
+              <span className="w-6 h-4 bg-separator rounded"></span>
             </div>
           </div>
-          <div className="p-4 bg-gray-900 space-y-2">
-            <div className="w-3/4 h-4 bg-gray-700 rounded"></div>
-            <div className="w-1/2 h-4 bg-gray-700 rounded"></div>
-            <div className="w-5/6 h-4 bg-gray-700 rounded"></div>
+          <div className="p-4 bg-panel space-y-2">
+            <div className="w-3/4 h-4 bg-separator rounded"></div>
+            <div className="w-1/2 h-4 bg-separator rounded"></div>
+            <div className="w-5/6 h-4 bg-separator rounded"></div>
           </div>
         </div>
       ) : type === 'chart' ? (
-        <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-gray-100 dark:bg-gray-800 flex items-center justify-center rounded-md shadow-md animate-pulse">
+        <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-panel flex items-center justify-center rounded-md shadow-md animate-pulse">
           <div className="text-center">
-            <IconLoader className="w-8 h-8 text-gray-400 dark:text-gray-600 animate-spin mx-auto" />
-            <p className="mt-2 text-gray-500 dark:text-gray-400 text-sm">
-              {message}
-            </p>
+            <IconLoader className="w-8 h-8 text-primary animate-spin mx-auto" />
+            <p className="mt-2 text-primary text-sm">{message}</p>
           </div>
         </div>
       ) : type === 'text' ? (
@@ -41,7 +39,7 @@ const Loading: React.FC<LoadingProps> = ({
           <div role="status" className="text-center">
             <svg
               aria-hidden="true"
-              className="w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-green-500 mx-auto"
+              className="w-8 h-8 text-secondary animate-spin dark:text-secondary fill-accent mx-auto"
               viewBox="0 0 100 101"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
@@ -56,18 +54,18 @@ const Loading: React.FC<LoadingProps> = ({
               />
             </svg>
             {message && <span className="sr-only">{message}</span>}
-            <p className="mt-2 text-gray-500 dark:text-gray-400">{message}</p>
+            <p className="mt-2 text-primary">{message}</p>
           </div>
         </div>
       ) : (
-        <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-gray-100 flex items-center justify-center rounded-md shadow-md animate-none">
+        <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-panel flex items-center justify-center rounded-md shadow-md animate-none">
           <span
             className={`font-medium focus:outline-none transition-colors duration-300 dark:text-white text-center`}
           >
             Loading
             <div className="relative mt-1 mb-2">
-              <div className="h-1 w-32 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-green-500 animate-loadingBar"></div>
+              <div className="h-1 w-32 bg-panel rounded-full overflow-hidden">
+                <div className="h-full bg-accent animate-loadingBar"></div>
               </div>
             </div>
           </span>

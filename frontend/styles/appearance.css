@@ -1,40 +1,179 @@
-/* Web adaptation of Apple's HIG: semantic colors, system typography, solid
-   content surfaces, and a restrained translucent navigation layer. */
+/* Alaska, by Alicia Curley. All application colors originate here.
+   RGB channels support Tailwind opacity modifiers; public tokens are colors. */
 :root {
-  /* Creative Office swatches are sRGB. Text roles adapt them for contrast. */
-  --palette-canvas: 245 241 232; /* #F5F1E8 Warm Canvas */
-  --palette-surface: 232 220 200; /* #E8DCC8 Soft Daylight */
-  --palette-sage: 163 184 153; /* #A3B899 Sage Focus */
-  --palette-blue: 124 147 166; /* #7C93A6 Dusty Calm */
-  --palette-warm: 217 142 115; /* #D98E73 Apricot Spark */
-  --palette-ink: 58 58 56; /* #3A3A38 Ink Anchor */
-  --palette-wood: 201 168 124; /* #C9A87C Light Oak */
+  --palette-navy: 22 29 39; /* #161D27 */
+  --palette-slate: 37 61 86; /* #253D56 */
+  --palette-steel: 76 109 139; /* #4C6D8B */
+  --palette-glacier: 157 181 181; /* #9DB5B5 */
+  --palette-mauve: 182 155 166; /* #B69BA6 */
+  --palette-apricot: 245 163 95; /* #F5A35F */
+  --palette-gold: 255 192 74; /* #FFC04A */
+  /* Neutrals and the two derived surfaces explicitly allowed by the spec. */
+  --palette-white: 255 255 255; /* #FFFFFF */
+  --palette-snow: 245 247 248; /* #F5F7F8 */
+  --palette-overcast: 239 243 243; /* #EFF3F3 */
+  --palette-raised: 44 74 104; /* #2C4A68 */
+}
 
+:root,
+:root[data-theme='light'] {
   color-scheme: light;
-  --app: var(--palette-canvas);
-  --panel: 238 231 219;
-  --control: var(--palette-surface);
-  --elevated: 250 247 240;
-  --label: var(--palette-ink);
-  --secondary-label: 83 79 71;
-  --muted-label: 98 93 84;
-  --separator: 182 169 147;
-  --fill: var(--palette-ink);
-  --accent: 70 86 63;
-  --accent-hover: 57 70 50;
-  --action: var(--palette-sage);
-  --on-action: var(--palette-ink);
-  --warm-accent: 125 73 52;
-  --cool-accent: 64 89 104;
-  --chrome: rgb(var(--palette-canvas) / 0.94);
-  --color-focus: rgb(var(--accent));
-  /* Familiar status colors remain distinct from decorative brand accents. */
-  --status-success: 30 105 77;
-  --status-error: 172 43 39;
+  --app: var(--palette-white);
+  --panel: var(--palette-overcast);
+  --control: var(--palette-white);
+  --elevated: var(--palette-white);
+  --bot-bubble: var(--palette-glacier);
+  --label: var(--palette-navy);
+  --secondary-label: var(--palette-steel);
+  --muted-label: var(--secondary-label);
+  --separator: var(--palette-glacier);
+  --border-control: var(--palette-steel);
+  --focus-contrast: var(--palette-navy);
+  /* Readable blue for links and legacy decorative accents. Warm fills are
+     separate: apricot/gold must never become small text on light surfaces. */
+  --accent: var(--palette-slate);
+  --accent-hover: var(--palette-navy);
+  --cool-accent: var(--palette-slate);
+  --warm-accent: var(--palette-slate);
+  --status-success: var(--palette-slate);
+  --raised-secondary: var(--palette-steel);
+  --bubble-secondary: var(--palette-slate);
+}
+
+html.dark,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --app: var(--palette-navy);
+  --panel: var(--palette-slate);
+  --control: var(--palette-raised);
+  --elevated: var(--palette-raised);
+  --bot-bubble: var(--palette-slate);
+  --label: var(--palette-snow);
+  --secondary-label: var(--palette-glacier);
+  --separator: var(--palette-steel);
+  --border-control: var(--palette-glacier);
+  --focus-contrast: var(--palette-snow);
+  --accent: var(--palette-glacier);
+  --accent-hover: var(--palette-snow);
+  --cool-accent: var(--palette-glacier);
+  --warm-accent: var(--palette-glacier);
+  --status-success: var(--palette-glacier);
+  /* Glacier on raised blue is only 4.25:1. Use the allowed light neutral. */
+  --raised-secondary: var(--palette-snow);
+  --bubble-secondary: var(--palette-glacier);
+}
+
+:root {
+  --bg-canvas: rgb(var(--app));
+  --bg-surface: rgb(var(--panel));
+  --bg-surface-raised: rgb(var(--elevated));
+  --bg-user-bubble: rgb(var(--palette-steel));
+  --bg-bot-bubble: rgb(var(--bot-bubble));
+  --text-primary: rgb(var(--label));
+  --text-secondary: rgb(var(--secondary-label));
+  --text-on-accent: rgb(var(--palette-navy));
+  --text-on-user: rgb(var(--palette-snow));
+  --accent-primary: rgb(var(--palette-apricot));
+  --accent-secondary: rgb(var(--palette-gold));
+  --accent-neutral: rgb(var(--palette-mauve));
+  --border-subtle: rgb(var(--separator));
+  --action: var(--palette-apricot);
+  --action-hover: var(--palette-gold);
+  --on-action: var(--palette-navy);
+  --status-error: var(--palette-mauve);
+  --fill: var(--label);
+  --chrome: var(--bg-surface);
+  --color-focus: var(--accent-primary);
+
+  /* Compatibility aliases keep existing features on the semantic palette. */
+  --palette-blue: var(--palette-steel);
+  --palette-warm: var(--palette-apricot);
+  --palette-wood: var(--palette-mauve);
+  --color-sage: rgb(var(--accent));
+  --color-sage-light: rgb(var(--palette-glacier));
+  --color-sage-dark: rgb(var(--accent-hover));
+  --color-emerald: rgb(var(--palette-steel));
+  --color-emerald-light: rgb(var(--accent));
+  --color-emerald-dark: rgb(var(--accent-hover));
+  --color-lime: rgb(var(--warm-accent));
+  --color-lime-light: var(--accent-primary);
+  --color-lime-dark: rgb(var(--warm-accent));
+  --surface-accent: rgb(var(--palette-glacier) / 0.12);
+  --surface-accent-strong: rgb(var(--palette-glacier) / 0.25);
+  --color-bg-primary: var(--bg-canvas);
+  --color-bg-secondary: var(--bg-surface);
+  --color-bg-tertiary: var(--bg-surface-raised);
+  --color-bg-quaternary: var(--bg-surface-raised);
+  --color-bg-elevated: var(--bg-surface-raised);
+  --color-dark-bg-primary: var(--bg-canvas);
+  --color-dark-bg-secondary: var(--bg-surface);
+  --color-dark-bg-tertiary: var(--bg-surface-raised);
+  --color-dark-bg-quaternary: var(--bg-surface-raised);
+  --color-dark-bg-elevated: var(--bg-surface-raised);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-secondary);
+  --color-text-subtle: var(--text-secondary);
+  --color-dark-text-primary: var(--text-primary);
+  --color-dark-text-secondary: var(--text-secondary);
+  --color-dark-text-muted: var(--text-secondary);
+  --color-dark-text-subtle: var(--text-secondary);
+  --color-border: var(--border-subtle);
+  --color-dark-border: var(--border-subtle);
+  --color-border-subtle: var(--border-subtle);
+  --color-dark-border-subtle: var(--border-subtle);
+  --card-bg: var(--bg-surface);
+  --card-border: var(--border-subtle);
+  --input-bg: var(--bg-surface-raised);
+  --input-border: rgb(var(--border-control));
+  --input-focus-border: var(--accent-primary);
+  --surface-glass: var(--bg-surface);
+  --surface-glass-hover: var(--bg-surface-raised);
+  --surface-glass-control: var(--bg-surface-raised);
+  --surface-glass-control-hover: var(--bg-surface-raised);
+  --surface-glass-overlay: var(--bg-surface-raised);
+  --surface-glass-border: var(--border-subtle);
+  --surface-glass-border-strong: rgb(var(--border-control));
+  --button-bg: var(--accent-primary);
+  --button-hover: var(--accent-secondary);
+  --button-text: var(--text-on-accent);
+  --button-accent-bg: var(--accent-primary);
+  --button-accent-hover: var(--accent-secondary);
+  --chat-bg-user: var(--bg-user-bubble);
+  --chat-bg-assistant: var(--bg-bot-bubble);
+  --chat-dark-bg-user: var(--bg-user-bubble);
+  --chat-dark-bg-assistant: var(--bg-bot-bubble);
+  --chat-border: var(--border-subtle);
+  --chat-input-bg: var(--bg-surface-raised);
+  --chat-input-border: rgb(var(--border-control));
+  --chat-bubble-user-bg: var(--bg-user-bubble);
+  --chat-bubble-user-bg-flat: var(--bg-user-bubble);
+  --chat-bubble-user-bg-dark: var(--bg-user-bubble);
+  --chat-bubble-user-bg-dark-flat: var(--bg-user-bubble);
+  --chat-bubble-user-border: var(--bg-user-bubble);
+  --chat-bubble-user-border-dark: var(--bg-user-bubble);
+  --chat-bubble-assistant-bg: var(--bg-bot-bubble);
+  --chat-bubble-assistant-bg-dark: var(--bg-bot-bubble);
+  --chat-bubble-assistant-border: var(--border-subtle);
+  --chat-bubble-assistant-border-dark: var(--border-subtle);
+  --action-button-bg: var(--bg-surface-raised);
+  --action-button-text: var(--text-primary);
+  --action-button-hover-bg: var(--bg-surface);
+  --action-button-bg-dark: var(--action-button-bg);
+  --action-button-text-dark: var(--action-button-text);
+  --action-button-hover-bg-dark: var(--action-button-hover-bg);
+  --sh-class: rgb(var(--cool-accent));
+  --sh-identifier: var(--text-primary);
+  --sh-sign: var(--text-secondary);
+  --sh-property: rgb(var(--cool-accent));
+  --sh-entity: rgb(var(--cool-accent));
+  --sh-jsxliterals: rgb(var(--cool-accent));
+  --sh-string: var(--text-primary);
+  --sh-keyword: rgb(var(--cool-accent));
+  --sh-comment: var(--text-secondary);
   --color-nvidia-green: rgb(var(--accent));
-  --color-nvidia-green-dark: rgb(var(--accent-hover));
-  --color-nvidia-green-light: rgb(var(--accent-hover));
-  --color-nvidia-green-bright: rgb(var(--accent));
+  --color-nvidia-green-light: rgb(var(--accent));
+  --color-nvidia-green-dark: rgb(var(--accent));
   --color-nvidia-blue: rgb(var(--cool-accent));
   --color-nvidia-blue-light: rgb(var(--cool-accent));
   --color-nvidia-blue-dark: rgb(var(--cool-accent));
@@ -56,100 +195,10 @@
   --color-nvidia-red: rgb(var(--status-error));
   --color-nvidia-red-light: rgb(var(--status-error));
   --color-nvidia-red-dark: rgb(var(--status-error));
-  --color-sage: rgb(var(--accent));
-  --color-sage-light: rgb(var(--palette-sage));
-  --color-sage-dark: rgb(var(--accent-hover));
-  --color-emerald: rgb(var(--palette-blue));
-  --color-emerald-light: rgb(var(--accent));
-  --color-emerald-dark: rgb(var(--accent-hover));
-  --color-lime: rgb(var(--warm-accent));
-  --color-lime-light: rgb(var(--palette-warm));
-  --color-lime-dark: rgb(var(--warm-accent));
-  --surface-accent: rgb(var(--accent) / 0.12);
-  --surface-accent-strong: rgb(var(--accent) / 0.25);
-  --chat-bg-user: rgb(var(--palette-sage) / 0.18);
-  --chat-bg-assistant: rgb(var(--panel));
-  --chat-border: rgb(var(--separator));
-  --chat-input-bg: rgb(var(--control));
-  --chat-input-border: rgb(var(--separator));
-  --chat-bubble-assistant-border: rgb(var(--separator));
-  --chat-bubble-assistant-border-dark: rgb(var(--separator));
-  --action-button-bg: rgb(var(--control));
-  --action-button-text: rgb(var(--label));
-  --action-button-hover-bg: rgb(var(--elevated));
-  --action-button-bg-dark: rgb(var(--control));
-  --action-button-text-dark: rgb(var(--label));
-  --action-button-hover-bg-dark: rgb(var(--elevated));
-
-  /* Compatibility aliases keep existing feature surfaces on the same palette. */
-  --color-dark-bg-primary: rgb(var(--app));
-  --color-dark-bg-secondary: rgb(var(--panel));
-  --color-dark-bg-tertiary: rgb(var(--control));
-  --color-dark-bg-quaternary: rgb(var(--control));
-  --color-dark-bg-elevated: rgb(var(--elevated));
-  --color-dark-text-primary: rgb(var(--label));
-  --color-dark-text-secondary: rgb(var(--secondary-label));
-  --color-dark-text-muted: rgb(var(--muted-label));
-  --color-dark-text-subtle: rgb(var(--muted-label));
-  --color-bg-primary: rgb(var(--app));
-  --color-bg-secondary: rgb(var(--panel));
-  --color-bg-tertiary: rgb(var(--control));
-  --color-text-primary: rgb(var(--label));
-  --color-text-secondary: rgb(var(--secondary-label));
-  --color-text-muted: rgb(var(--muted-label));
-  --color-text-subtle: rgb(var(--muted-label));
-  --color-border: rgb(var(--separator));
-  --color-dark-border: rgb(var(--separator));
-  --card-bg: rgb(var(--panel));
-  --card-border: rgb(var(--separator));
-  --input-bg: rgb(var(--control));
-  --input-border: rgb(var(--separator));
-  --surface-glass: rgb(var(--panel));
-  --surface-glass-hover: rgb(var(--control));
-  --surface-glass-control: var(--chrome);
-  --surface-glass-control-hover: rgb(var(--control));
-  --surface-glass-overlay: rgb(var(--panel));
-  --surface-glass-border: rgb(var(--separator));
-  --surface-glass-border-strong: rgb(var(--separator));
-  --chat-bubble-user-bg: rgb(var(--palette-sage) / 0.18);
-  --chat-bubble-user-bg-flat: rgb(var(--palette-sage) / 0.18);
-  --chat-bubble-user-border: rgb(var(--accent) / 0.2);
-  --chat-bubble-assistant-bg: rgb(var(--panel));
+  --color-nvidia-green-bright: rgb(var(--accent));
 }
 
-html.dark {
-  --palette-canvas: 46 44 40; /* #2E2C28 Deep Canvas */
-  --palette-surface: 61 56 48; /* #3D3830 Warm Espresso */
-  --palette-sage: 92 110 82; /* #5C6E52 Sage Shadow */
-  --palette-blue: 78 94 110; /* #4E5E6E Slate Calm */
-  --palette-warm: 166 94 71; /* #A65E47 Ember Glow */
-  --palette-ink: 234 228 216; /* #EAE4D8 Moonlight Note */
-  --palette-wood: 107 81 56; /* #6B5138 Dark Walnut */
-
-  color-scheme: dark;
-  --app: var(--palette-canvas);
-  --panel: var(--palette-surface);
-  --control: 73 66 55;
-  --elevated: 77 71 61;
-  --label: var(--palette-ink);
-  --secondary-label: 212 204 190;
-  --muted-label: 195 186 172;
-  --separator: 132 119 101;
-  --fill: var(--palette-ink);
-  --accent: 180 197 170;
-  --accent-hover: 195 210 188;
-  --action: 163 184 153;
-  --on-action: var(--palette-canvas);
-  --warm-accent: 239 177 143;
-  --cool-accent: 168 194 210;
-  --chrome: rgb(var(--palette-surface) / 0.94);
-  --status-success: 143 211 172;
-  --status-error: 255 160 150;
-  --chat-bubble-user-bg-dark: rgb(var(--palette-sage) / 0.18);
-  --chat-bubble-user-bg-dark-flat: rgb(var(--palette-sage) / 0.18);
-  --chat-bubble-user-border-dark: rgb(var(--accent) / 0.2);
-  --chat-bubble-assistant-bg-dark: rgb(var(--panel));
-}
+/* END THEME TOKENS */
 
 html {
   font-size: 100%;
@@ -176,8 +225,9 @@ textarea,
   scroll-margin-block: 1rem;
 }
 :focus-visible {
-  outline: 3px solid var(--color-focus) !important;
-  outline-offset: 3px;
+  outline: 2px solid var(--color-focus) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgb(var(--focus-contrast));
 }
 svg.tabler-icon {
   flex-shrink: 0;
@@ -192,8 +242,14 @@ svg.tabler-icon {
   background: rgb(var(--panel));
   border-color: rgb(var(--separator));
 }
+.chat-message-pane {
+  background: var(--bg-surface);
+}
+.app-chrome[data-chat-input] {
+  background: var(--bg-surface-raised);
+}
 .app-dialog::backdrop {
-  background: rgb(0 0 0 / 0.36);
+  background: rgb(var(--palette-navy) / 0.36);
 }
 .app-dialog {
   color: rgb(var(--label));
@@ -269,8 +325,8 @@ body:has(dialog[open]) .app-install-prompt {
 }
 .app-nav-item[aria-current='page'],
 .app-nav-item[aria-selected='true'] {
-  color: rgb(var(--accent));
-  background: rgb(var(--accent) / 0.12);
+  color: var(--text-on-accent);
+  background: var(--accent-primary);
   font-weight: 600;
 }
 .app-bottom-nav {
@@ -331,14 +387,14 @@ body:has(dialog[open]) .app-install-prompt {
 }
 @media (prefers-contrast: more) {
   :root {
-    --secondary-label: var(--palette-ink);
-    --muted-label: 70 65 58;
-    --separator: 98 93 84;
+    --secondary-label: var(--palette-navy);
+    --muted-label: var(--palette-navy);
+    --separator: var(--palette-steel);
   }
   html.dark {
-    --secondary-label: var(--palette-ink);
-    --muted-label: 228 221 209;
-    --separator: 195 186 172;
+    --secondary-label: var(--palette-snow);
+    --muted-label: var(--palette-snow);
+    --separator: var(--palette-glacier);
   }
   button,
   input,
@@ -380,4 +436,142 @@ body:has(dialog[open]) .app-install-prompt {
   .adjust-label {
     display: none;
   }
+}
+
+/* Surfaces carry readable secondary text even inside a differently tinted
+   message. The public --text-secondary remains the specified palette swatch. */
+:is(
+    .bg-control,
+    .bg-elevated,
+    .bg-dark-bg-tertiary,
+    .bg-dark-bg-quaternary,
+    .app-dialog-panel,
+    .codeblock,
+    [data-chat-input]
+  ) {
+  --secondary-label: var(--raised-secondary);
+  --muted-label: var(--raised-secondary);
+  --color-dark-text-secondary: rgb(var(--raised-secondary));
+  --color-dark-text-muted: rgb(var(--raised-secondary));
+  --color-dark-text-subtle: rgb(var(--raised-secondary));
+}
+.chat-bubble-assistant {
+  --message-text: var(--text-primary);
+  --message-secondary: rgb(var(--bubble-secondary));
+  --secondary-label: var(--bubble-secondary);
+  --muted-label: var(--bubble-secondary);
+  --color-dark-text-muted: rgb(var(--bubble-secondary));
+  --color-nvidia-green: rgb(var(--bubble-secondary));
+  --color-nvidia-green-light: rgb(var(--bubble-secondary));
+}
+.chat-bubble-user {
+  --message-text: var(--text-on-user);
+  --message-secondary: var(--text-on-user);
+}
+.prose {
+  --tw-prose-body: var(--message-text, var(--text-primary));
+  --tw-prose-headings: var(--message-text, var(--text-primary));
+  --tw-prose-bold: var(--message-text, var(--text-primary));
+  --tw-prose-links: var(--message-text, var(--text-primary));
+  --tw-prose-code: var(--message-text, var(--text-primary));
+  --tw-prose-quotes: var(--message-text, var(--text-primary));
+  --tw-prose-bullets: var(--message-secondary, var(--text-secondary));
+  --tw-prose-counters: var(--message-secondary, var(--text-secondary));
+  color: var(--message-text, var(--text-primary));
+}
+.prose
+  :where(h1, h2, h3, h4, strong, em, a, var, del, time, small, blockquote) {
+  color: var(--message-text, var(--text-primary));
+}
+.prose :where(small, dd, aside, time) {
+  opacity: 1;
+}
+.prose :where(code:not(pre code), blockquote, th) {
+  background: transparent;
+  color: inherit;
+}
+.prose mark {
+  background: var(--accent-secondary);
+  color: var(--text-on-accent);
+}
+.prose :where(kbd, details, aside, th, td, blockquote) {
+  border-color: currentColor;
+}
+.codeblock {
+  --message-text: var(--text-primary);
+  --message-secondary: rgb(var(--raised-secondary));
+  color: var(--text-primary);
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+}
+.codeblock pre,
+.codeblock code {
+  color: var(--text-primary);
+  background: var(--bg-surface-raised);
+}
+.prose pre {
+  color: var(--text-primary);
+  background: var(--bg-surface-raised);
+}
+.codeblock .token {
+  color: var(--text-primary);
+}
+.codeblock :is(.token.comment, .token.prolog, .token.doctype) {
+  color: rgb(var(--raised-secondary));
+  font-style: italic;
+}
+.codeblock :is(.token.keyword, .token.selector, .token.function) {
+  color: rgb(var(--raised-secondary));
+  font-weight: 600;
+}
+.typing-indicator {
+  display: inline-flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  padding: 0.5rem;
+  border-radius: 1rem;
+  background: rgb(var(--palette-slate));
+}
+.typing-indicator .typing-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--accent-secondary);
+}
+/* Keep the requested apricot ring; the inner contrasting edge also remains
+   visible on white, where apricot alone is below 3:1. */
+button:disabled,
+input:disabled,
+textarea:disabled {
+  border-color: var(--accent-neutral);
+}
+* {
+  scrollbar-color: var(--text-secondary) var(--accent-neutral);
+}
+::-webkit-scrollbar-track,
+.dark ::-webkit-scrollbar-track,
+::-webkit-scrollbar-track:hover,
+.dark ::-webkit-scrollbar-track:hover {
+  background: var(--accent-neutral);
+}
+::-webkit-scrollbar-thumb,
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+}
+::-webkit-scrollbar-thumb:hover,
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-primary);
+}
+@media (forced-colors: active) {
+  * {
+    scrollbar-color: auto;
+  }
+  :focus-visible {
+    outline-color: Highlight !important;
+  }
+}
+
+.chart-surface .recharts-pie-label-text {
+  fill: var(--text-primary);
 }

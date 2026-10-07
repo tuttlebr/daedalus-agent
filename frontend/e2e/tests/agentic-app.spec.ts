@@ -263,6 +263,12 @@ test('cancels active backend work through the durable job endpoint', async ({
     page.getByText('E2E cancellation pending', { exact: true }),
   ).toBeVisible();
 
+  const dots = page.locator('.typing-indicator .typing-dot');
+  await expect(dots).toHaveCount(3);
+  for (const dot of await dots.all()) {
+    await expect(dot).toHaveCSS('background-color', 'rgb(255, 192, 74)');
+  }
+
   const cancelResponse = page.waitForResponse(
     (response) =>
       response.request().method() === 'DELETE' &&
@@ -278,6 +284,7 @@ test('cancels active backend work through the durable job endpoint', async ({
   await expect(
     page.getByRole('button', { name: 'Stop generating' }),
   ).toBeHidden();
+  await expect(dots).toHaveCount(0);
   await expect
     .poll(async () => {
       const status = await browserGet(page, `/api/chat/async?jobId=${jobId}`);

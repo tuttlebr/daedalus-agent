@@ -28,7 +28,7 @@ export function AppearanceSettings() {
               checked={mode === value}
               onChange={() => setMode(value)}
             />
-            <span className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-xs text-secondary peer-checked:bg-panel peer-checked:text-primary peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
+            <span className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-xs text-secondary peer-checked:bg-panel peer-checked:text-primary peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus">
               <Icon size={18} aria-hidden="true" />
               {label}
             </span>

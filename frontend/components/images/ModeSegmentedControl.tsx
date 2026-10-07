@@ -47,7 +47,7 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
             <span
               className={classNames(
                 'flex min-h-11 flex-wrap items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm text-secondary transition-colors md:min-h-9',
-                'peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent',
+                'peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus',
                 selected && 'bg-panel font-semibold text-primary shadow-sm',
                 loading && 'cursor-not-allowed opacity-50',
               )}

@@ -741,8 +741,7 @@ export const ChatInput = memo(
                         key={u.id}
                         className={classNames(
                           'flex items-center gap-2 text-xs px-2 py-1 rounded-md',
-                          u.error &&
-                            'bg-nvidia-red/5 border border-nvidia-red/20',
+                          u.error && 'bg-error/5 border border-error',
                         )}
                       >
                         {u.type === 'image' ? (
@@ -760,14 +759,14 @@ export const ChatInput = memo(
                         </span>
                         {u.error ? (
                           <>
-                            <span className="text-nvidia-red whitespace-nowrap">
+                            <span className="text-primary whitespace-nowrap">
                               {u.error}
                             </span>
                             <button
                               type="button"
                               onClick={() => retryUpload(u.id)}
                               aria-label="Retry upload"
-                              className="p-0.5 rounded text-nvidia-red hover:bg-nvidia-red/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40"
+                              className="p-0.5 rounded text-primary hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                             >
                               <IconRefresh size={12} />
                             </button>
@@ -859,7 +858,7 @@ export const ChatInput = memo(
                       <select
                         value={selectedCollection}
                         onChange={(e) => setSelectedCollection(e.target.value)}
-                        className="flex-1 bg-dark-bg-tertiary text-dark-text-primary text-xs border border-separator/70 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-nvidia-green/30"
+                        className="flex-1 bg-dark-bg-tertiary text-dark-text-primary text-xs border border-separator/70 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-focus"
                       >
                         <option value="">Select a knowledge base...</option>
                         <option value={INLINE_MODE}>

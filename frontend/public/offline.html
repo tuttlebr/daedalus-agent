@@ -15,10 +15,9 @@
             mode = JSON.parse(localStorage.getItem('ui-settings') || '{}').state
               ?.lightMode;
           } catch (_) {}
-          document.documentElement.classList.toggle(
-            'dark',
-            mode === 'dark' || (mode !== 'light' && media.matches),
-          );
+          const dark = mode === 'dark' || (mode !== 'light' && media.matches);
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
         }
         update();
         media.addEventListener('change', update);
@@ -37,8 +36,8 @@
       body {
         font-family: 'SF Pro', -apple-system, BlinkMacSystemFont, 'SF Pro Text',
           system-ui, 'Segoe UI', sans-serif;
-        background: var(--app);
-        color: var(--label);
+        background: var(--bg-canvas);
+        color: var(--text-primary);
         min-height: 100vh;
         min-height: 100dvh;
         display: flex;
@@ -73,13 +72,13 @@
         font-size: 1.5rem;
         font-weight: 500;
         margin-bottom: 0.75rem;
-        color: var(--label);
+        color: var(--text-primary);
       }
 
       p {
         font-size: 0.9375rem;
         line-height: 1.6;
-        color: var(--muted);
+        color: var(--text-secondary);
         margin-bottom: 2rem;
       }
 
@@ -88,8 +87,8 @@
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
-        background: var(--action);
-        color: var(--on-action);
+        background: var(--accent-primary);
+        color: var(--text-on-accent);
         font-family: inherit;
         font-size: 0.9375rem;
         font-weight: 500;
@@ -103,7 +102,7 @@
       }
 
       .retry-btn:hover {
-        filter: brightness(0.95);
+        background: var(--accent-secondary);
       }
       .retry-btn:active {
         transform: scale(0.98);
@@ -117,7 +116,7 @@
       .status {
         margin-top: 2.5rem;
         font-size: 0.8125rem;
-        color: var(--muted);
+        color: var(--text-secondary);
       }
 
       .status-dot {
@@ -125,34 +124,218 @@
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #ef4444;
+        background: var(--accent-neutral);
         margin-right: 0.375rem;
         vertical-align: middle;
       }
 
       .status-dot.online {
-        background: var(--action);
+        background: var(--accent-primary);
       }
+      /* BEGIN GENERATED APPEARANCE */
+      /* Alaska, by Alicia Curley. All application colors originate here.
+         RGB channels support Tailwind opacity modifiers; public tokens are colors. */
       :root {
+        --palette-navy: 22 29 39; /* #161D27 */
+        --palette-slate: 37 61 86; /* #253D56 */
+        --palette-steel: 76 109 139; /* #4C6D8B */
+        --palette-glacier: 157 181 181; /* #9DB5B5 */
+        --palette-mauve: 182 155 166; /* #B69BA6 */
+        --palette-apricot: 245 163 95; /* #F5A35F */
+        --palette-gold: 255 192 74; /* #FFC04A */
+        /* Neutrals and the two derived surfaces explicitly allowed by the spec. */
+        --palette-white: 255 255 255; /* #FFFFFF */
+        --palette-snow: 245 247 248; /* #F5F7F8 */
+        --palette-overcast: 239 243 243; /* #EFF3F3 */
+        --palette-raised: 44 74 104; /* #2C4A68 */
+      }
+
+      :root,
+      :root[data-theme='light'] {
         color-scheme: light;
-        --app: #f5f1e8;
-        --label: #3a3a38;
-        --muted: #625d54;
-        --action: #a3b899;
-        --focus: #46563f;
-        --on-action: #3a3a38;
+        --app: var(--palette-white);
+        --panel: var(--palette-overcast);
+        --control: var(--palette-white);
+        --elevated: var(--palette-white);
+        --bot-bubble: var(--palette-glacier);
+        --label: var(--palette-navy);
+        --secondary-label: var(--palette-steel);
+        --muted-label: var(--secondary-label);
+        --separator: var(--palette-glacier);
+        --border-control: var(--palette-steel);
+        --focus-contrast: var(--palette-navy);
+        /* Readable blue for links and legacy decorative accents. Warm fills are
+           separate: apricot/gold must never become small text on light surfaces. */
+        --accent: var(--palette-slate);
+        --accent-hover: var(--palette-navy);
+        --cool-accent: var(--palette-slate);
+        --warm-accent: var(--palette-slate);
+        --status-success: var(--palette-slate);
+        --raised-secondary: var(--palette-steel);
+        --bubble-secondary: var(--palette-slate);
       }
-      :root.dark {
+
+      html.dark,
+      :root[data-theme='dark'] {
         color-scheme: dark;
-        --app: #2e2c28;
-        --label: #eae4d8;
-        --muted: #c3baac;
-        --action: #a3b899;
-        --focus: #b4c5aa;
-        --on-action: #2e2c28;
+        --app: var(--palette-navy);
+        --panel: var(--palette-slate);
+        --control: var(--palette-raised);
+        --elevated: var(--palette-raised);
+        --bot-bubble: var(--palette-slate);
+        --label: var(--palette-snow);
+        --secondary-label: var(--palette-glacier);
+        --separator: var(--palette-steel);
+        --border-control: var(--palette-glacier);
+        --focus-contrast: var(--palette-snow);
+        --accent: var(--palette-glacier);
+        --accent-hover: var(--palette-snow);
+        --cool-accent: var(--palette-glacier);
+        --warm-accent: var(--palette-glacier);
+        --status-success: var(--palette-glacier);
+        /* Glacier on raised blue is only 4.25:1. Use the allowed light neutral. */
+        --raised-secondary: var(--palette-snow);
+        --bubble-secondary: var(--palette-glacier);
       }
+
+      :root {
+        --bg-canvas: rgb(var(--app));
+        --bg-surface: rgb(var(--panel));
+        --bg-surface-raised: rgb(var(--elevated));
+        --bg-user-bubble: rgb(var(--palette-steel));
+        --bg-bot-bubble: rgb(var(--bot-bubble));
+        --text-primary: rgb(var(--label));
+        --text-secondary: rgb(var(--secondary-label));
+        --text-on-accent: rgb(var(--palette-navy));
+        --text-on-user: rgb(var(--palette-snow));
+        --accent-primary: rgb(var(--palette-apricot));
+        --accent-secondary: rgb(var(--palette-gold));
+        --accent-neutral: rgb(var(--palette-mauve));
+        --border-subtle: rgb(var(--separator));
+        --action: var(--palette-apricot);
+        --action-hover: var(--palette-gold);
+        --on-action: var(--palette-navy);
+        --status-error: var(--palette-mauve);
+        --fill: var(--label);
+        --chrome: var(--bg-surface);
+        --color-focus: var(--accent-primary);
+
+        /* Compatibility aliases keep existing features on the semantic palette. */
+        --palette-blue: var(--palette-steel);
+        --palette-warm: var(--palette-apricot);
+        --palette-wood: var(--palette-mauve);
+        --color-sage: rgb(var(--accent));
+        --color-sage-light: rgb(var(--palette-glacier));
+        --color-sage-dark: rgb(var(--accent-hover));
+        --color-emerald: rgb(var(--palette-steel));
+        --color-emerald-light: rgb(var(--accent));
+        --color-emerald-dark: rgb(var(--accent-hover));
+        --color-lime: rgb(var(--warm-accent));
+        --color-lime-light: var(--accent-primary);
+        --color-lime-dark: rgb(var(--warm-accent));
+        --surface-accent: rgb(var(--palette-glacier) / 0.12);
+        --surface-accent-strong: rgb(var(--palette-glacier) / 0.25);
+        --color-bg-primary: var(--bg-canvas);
+        --color-bg-secondary: var(--bg-surface);
+        --color-bg-tertiary: var(--bg-surface-raised);
+        --color-bg-quaternary: var(--bg-surface-raised);
+        --color-bg-elevated: var(--bg-surface-raised);
+        --color-dark-bg-primary: var(--bg-canvas);
+        --color-dark-bg-secondary: var(--bg-surface);
+        --color-dark-bg-tertiary: var(--bg-surface-raised);
+        --color-dark-bg-quaternary: var(--bg-surface-raised);
+        --color-dark-bg-elevated: var(--bg-surface-raised);
+        --color-text-primary: var(--text-primary);
+        --color-text-secondary: var(--text-secondary);
+        --color-text-muted: var(--text-secondary);
+        --color-text-subtle: var(--text-secondary);
+        --color-dark-text-primary: var(--text-primary);
+        --color-dark-text-secondary: var(--text-secondary);
+        --color-dark-text-muted: var(--text-secondary);
+        --color-dark-text-subtle: var(--text-secondary);
+        --color-border: var(--border-subtle);
+        --color-dark-border: var(--border-subtle);
+        --color-border-subtle: var(--border-subtle);
+        --color-dark-border-subtle: var(--border-subtle);
+        --card-bg: var(--bg-surface);
+        --card-border: var(--border-subtle);
+        --input-bg: var(--bg-surface-raised);
+        --input-border: rgb(var(--border-control));
+        --input-focus-border: var(--accent-primary);
+        --surface-glass: var(--bg-surface);
+        --surface-glass-hover: var(--bg-surface-raised);
+        --surface-glass-control: var(--bg-surface-raised);
+        --surface-glass-control-hover: var(--bg-surface-raised);
+        --surface-glass-overlay: var(--bg-surface-raised);
+        --surface-glass-border: var(--border-subtle);
+        --surface-glass-border-strong: rgb(var(--border-control));
+        --button-bg: var(--accent-primary);
+        --button-hover: var(--accent-secondary);
+        --button-text: var(--text-on-accent);
+        --button-accent-bg: var(--accent-primary);
+        --button-accent-hover: var(--accent-secondary);
+        --chat-bg-user: var(--bg-user-bubble);
+        --chat-bg-assistant: var(--bg-bot-bubble);
+        --chat-dark-bg-user: var(--bg-user-bubble);
+        --chat-dark-bg-assistant: var(--bg-bot-bubble);
+        --chat-border: var(--border-subtle);
+        --chat-input-bg: var(--bg-surface-raised);
+        --chat-input-border: rgb(var(--border-control));
+        --chat-bubble-user-bg: var(--bg-user-bubble);
+        --chat-bubble-user-bg-flat: var(--bg-user-bubble);
+        --chat-bubble-user-bg-dark: var(--bg-user-bubble);
+        --chat-bubble-user-bg-dark-flat: var(--bg-user-bubble);
+        --chat-bubble-user-border: var(--bg-user-bubble);
+        --chat-bubble-user-border-dark: var(--bg-user-bubble);
+        --chat-bubble-assistant-bg: var(--bg-bot-bubble);
+        --chat-bubble-assistant-bg-dark: var(--bg-bot-bubble);
+        --chat-bubble-assistant-border: var(--border-subtle);
+        --chat-bubble-assistant-border-dark: var(--border-subtle);
+        --action-button-bg: var(--bg-surface-raised);
+        --action-button-text: var(--text-primary);
+        --action-button-hover-bg: var(--bg-surface);
+        --action-button-bg-dark: var(--action-button-bg);
+        --action-button-text-dark: var(--action-button-text);
+        --action-button-hover-bg-dark: var(--action-button-hover-bg);
+        --sh-class: rgb(var(--cool-accent));
+        --sh-identifier: var(--text-primary);
+        --sh-sign: var(--text-secondary);
+        --sh-property: rgb(var(--cool-accent));
+        --sh-entity: rgb(var(--cool-accent));
+        --sh-jsxliterals: rgb(var(--cool-accent));
+        --sh-string: var(--text-primary);
+        --sh-keyword: rgb(var(--cool-accent));
+        --sh-comment: var(--text-secondary);
+        --color-nvidia-green: rgb(var(--accent));
+        --color-nvidia-green-light: rgb(var(--accent));
+        --color-nvidia-green-dark: rgb(var(--accent));
+        --color-nvidia-blue: rgb(var(--cool-accent));
+        --color-nvidia-blue-light: rgb(var(--cool-accent));
+        --color-nvidia-blue-dark: rgb(var(--cool-accent));
+        --color-nvidia-purple: rgb(var(--warm-accent));
+        --color-nvidia-purple-light: rgb(var(--warm-accent));
+        --color-nvidia-purple-dark: rgb(var(--warm-accent));
+        --color-nvidia-orange: rgb(var(--warm-accent));
+        --color-nvidia-orange-light: rgb(var(--warm-accent));
+        --color-nvidia-orange-dark: rgb(var(--warm-accent));
+        --color-nvidia-yellow: rgb(var(--warm-accent));
+        --color-nvidia-yellow-light: rgb(var(--warm-accent));
+        --color-nvidia-yellow-dark: rgb(var(--warm-accent));
+        --color-nvidia-magenta: rgb(var(--warm-accent));
+        --color-nvidia-magenta-light: rgb(var(--warm-accent));
+        --color-nvidia-magenta-dark: rgb(var(--warm-accent));
+        --color-nvidia-teal: rgb(var(--status-success));
+        --color-nvidia-teal-light: rgb(var(--status-success));
+        --color-nvidia-teal-dark: rgb(var(--status-success));
+        --color-nvidia-red: rgb(var(--status-error));
+        --color-nvidia-red-light: rgb(var(--status-error));
+        --color-nvidia-red-dark: rgb(var(--status-error));
+        --color-nvidia-green-bright: rgb(var(--accent));
+      }
+      /* END GENERATED APPEARANCE */
       :focus-visible {
-        outline: 3px solid var(--focus);
+        outline: 2px solid var(--accent-primary);
+        box-shadow: 0 0 0 1px var(--text-primary);
         outline-offset: 4px;
       }
       @media (prefers-reduced-motion: reduce) {

@@ -159,7 +159,7 @@ interface RelatedQuestion {
 const FaviconImg: React.FC<{ src?: string; alt?: string }> = ({ src, alt }) => {
   const [error, setError] = useState(false);
   if (!src || error) {
-    return <IconWorld className="w-4 h-4 text-gray-400 flex-shrink-0" />;
+    return <IconWorld className="w-4 h-4 text-secondary flex-shrink-0" />;
   }
   return (
     <img
@@ -198,29 +198,24 @@ const StarRating: React.FC<{ rating: number; reviews?: number }> = ({
   for (let i = 1; i <= 5; i++) {
     if (i <= Math.floor(rating)) {
       stars.push(
-        <IconStarFilled key={i} className="w-3.5 h-3.5 text-amber-400" />,
+        <IconStarFilled key={i} className="w-3.5 h-3.5 text-primary" />,
       );
     } else if (i - 0.5 <= rating) {
       stars.push(
         <IconStarFilled
           key={i}
-          className="w-3.5 h-3.5 text-amber-400 opacity-60"
+          className="w-3.5 h-3.5 text-primary opacity-60"
         />,
       );
     } else {
-      stars.push(
-        <IconStar
-          key={i}
-          className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600"
-        />,
-      );
+      stars.push(<IconStar key={i} className="w-3.5 h-3.5 text-primary" />);
     }
   }
   return (
     <span className="inline-flex items-center gap-0.5">
       {stars}
       {reviews != null && (
-        <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">
+        <span className="ml-1 text-xs text-primary">
           ({reviews.toLocaleString()})
         </span>
       )}
@@ -239,13 +234,13 @@ const AnswerBoxCard: React.FC<{ data: AnswerBox }> = ({ data }) => {
   return (
     <div className="rounded-lg border border-nvidia-green/30 bg-nvidia-green/5 dark:bg-nvidia-green/10 p-4 mb-4">
       {data.title && (
-        <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+        <div className="text-sm font-medium text-primary mb-1">
           {data.title}
         </div>
       )}
       {data.stock && data.price != null ? (
         <div>
-          <span className="text-2xl font-bold text-gray-900 dark:text-gray-50">
+          <span className="text-2xl font-bold text-primary">
             {data.currency || '$'}
             {data.price}
           </span>
@@ -253,10 +248,10 @@ const AnswerBoxCard: React.FC<{ data: AnswerBox }> = ({ data }) => {
             <span
               className={`ml-2 text-sm font-medium ${
                 data.price_movement.movement === 'Up'
-                  ? 'text-green-600'
+                  ? 'text-primary'
                   : data.price_movement.movement === 'Down'
-                  ? 'text-red-600'
-                  : 'text-gray-600'
+                  ? 'text-primary'
+                  : 'text-secondary'
               }`}
             >
               {data.price_movement.movement === 'Up'
@@ -268,31 +263,25 @@ const AnswerBoxCard: React.FC<{ data: AnswerBox }> = ({ data }) => {
                 `${data.price_movement.percentage}%`}
             </span>
           )}
-          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <div className="text-sm text-primary mt-1">
             {data.stock}
             {data.exchange && ` (${data.exchange})`}
           </div>
         </div>
       ) : data.temperature ? (
         <div>
-          <span className="text-3xl font-bold text-gray-900 dark:text-gray-50">
+          <span className="text-3xl font-bold text-primary">
             {data.temperature}
           </span>
           {data.weather && (
-            <span className="ml-2 text-lg text-gray-600 dark:text-gray-400">
-              {data.weather}
-            </span>
+            <span className="ml-2 text-lg text-primary">{data.weather}</span>
           )}
           {data.location && (
-            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {data.location}
-            </div>
+            <div className="text-sm text-primary mt-1">{data.location}</div>
           )}
         </div>
       ) : (
-        <div className="text-lg font-semibold text-gray-900 dark:text-gray-50">
-          {answer}
-        </div>
+        <div className="text-lg font-semibold text-primary">{answer}</div>
       )}
       {data.link && (
         <a
@@ -314,7 +303,7 @@ const AnswerBoxCard: React.FC<{ data: AnswerBox }> = ({ data }) => {
 // ---------------------------------------------------------------------------
 
 const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
-  <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 p-4 mb-4">
+  <div className="rounded-lg border border-separator bg-panel p-4 mb-4">
     <div className="flex gap-4">
       {data.image && (
         <ThumbnailImg
@@ -324,16 +313,12 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
         />
       )}
       <div className="min-w-0 flex-1">
-        <h3 className="text-lg font-bold text-gray-900 dark:text-gray-50 leading-tight">
+        <h3 className="text-lg font-bold text-primary leading-tight">
           {data.title}
         </h3>
-        {data.type && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            {data.type}
-          </span>
-        )}
+        {data.type && <span className="text-xs text-primary">{data.type}</span>}
         {data.description && (
-          <p className="text-sm text-gray-700 dark:text-gray-300 mt-2 leading-relaxed line-clamp-3">
+          <p className="text-sm text-primary mt-2 leading-relaxed line-clamp-3">
             {data.description}
           </p>
         )}
@@ -342,17 +327,15 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
 
     {/* Facts */}
     {data.facts && Object.keys(data.facts).length > 0 && (
-      <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 grid grid-cols-2 gap-x-4 gap-y-1">
+      <div className="mt-3 pt-3 border-t border-separator grid grid-cols-2 gap-x-4 gap-y-1">
         {Object.entries(data.facts)
           .slice(0, 6)
           .map(([k, v]) => (
             <div key={k} className="text-sm">
-              <span className="text-gray-500 dark:text-gray-400">
+              <span className="text-primary">
                 {k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}:{' '}
               </span>
-              <span className="text-gray-900 dark:text-gray-100 font-medium">
-                {String(v)}
-              </span>
+              <span className="text-primary font-medium">{String(v)}</span>
             </div>
           ))}
       </div>
@@ -376,7 +359,7 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
           href={data.source_link}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:underline"
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
         >
           {data.source_name}
         </a>
@@ -387,7 +370,7 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
           href={p.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-gray-500 dark:text-gray-400 hover:text-nvidia-green hover:underline"
+          className="text-xs text-primary hover:text-nvidia-green hover:underline"
         >
           {p.name}
         </a>
@@ -405,7 +388,7 @@ const OrganicResultCard: React.FC<{ result: OrganicResult }> = ({ result }) => (
     {/* URL line */}
     <div className="flex items-center gap-2 mb-0.5">
       <FaviconImg src={result.favicon} alt={result.displayed_link} />
-      <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
+      <span className="text-xs text-primary truncate">
         {result.displayed_link || safeHostname(result.link)}
       </span>
     </div>
@@ -414,17 +397,15 @@ const OrganicResultCard: React.FC<{ result: OrganicResult }> = ({ result }) => (
       href={result.link}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-[15px] font-medium text-blue-700 dark:text-blue-400 hover:underline leading-snug line-clamp-1"
+      className="text-[15px] font-medium text-primary hover:underline leading-snug line-clamp-1"
     >
       {result.title}
     </a>
     {/* Snippet */}
     <div className="flex gap-3 mt-1">
-      <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed line-clamp-2 flex-1">
+      <p className="text-sm text-primary leading-relaxed line-clamp-2 flex-1">
         {result.date && (
-          <span className="text-gray-500 dark:text-gray-400 mr-1">
-            {result.date} &mdash;
-          </span>
+          <span className="text-primary mr-1">{result.date} &mdash;</span>
         )}
         {result.snippet}
       </p>
@@ -448,26 +429,26 @@ const StoryCard: React.FC<{ item: StoryItem | NewsResult }> = ({ item }) => (
     href={item.link}
     target="_blank"
     rel="noopener noreferrer"
-    className="flex-shrink-0 w-56 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-nvidia-green/50 transition-colors group"
+    className="flex-shrink-0 w-56 rounded-lg border border-separator overflow-hidden hover:border-nvidia-green/50 transition-colors group"
   >
     {item.thumbnail && (
       <ThumbnailImg
         src={item.thumbnail}
         alt={item.title}
-        className="w-full h-28 bg-gray-100 dark:bg-gray-800"
+        className="w-full h-28 bg-panel"
       />
     )}
     <div className="p-2.5">
-      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mb-1">
+      <div className="text-xs text-primary flex items-center gap-1 mb-1">
         {item.source && <span className="font-medium">{item.source}</span>}
         {item.date && (
           <>
-            <span className="text-gray-300 dark:text-gray-600">&middot;</span>
+            <span className="text-primary">&middot;</span>
             <span>{item.date}</span>
           </>
         )}
       </div>
-      <div className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2 leading-snug group-hover:text-nvidia-green transition-colors">
+      <div className="text-sm font-medium text-primary line-clamp-2 leading-snug group-hover:text-nvidia-green transition-colors">
         {item.title}
       </div>
     </div>
@@ -491,7 +472,7 @@ const ImageGrid: React.FC<{ images: ImageResult[] }> = ({ images }) => (
         <ThumbnailImg
           src={img.thumbnail}
           alt={img.title}
-          className="w-full h-full bg-gray-100 dark:bg-gray-800 group-hover:scale-105 transition-transform"
+          className="w-full h-full bg-panel group-hover:scale-105 transition-transform"
         />
         {img.source && (
           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-1">
@@ -516,7 +497,7 @@ const ShoppingCard: React.FC<{ item: ShoppingResult }> = ({ item }) => {
       href={href || '#'}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex-shrink-0 w-44 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-nvidia-green/50 transition-colors"
+      className="flex-shrink-0 w-44 rounded-lg border border-separator overflow-hidden hover:border-nvidia-green/50 transition-colors"
     >
       {item.thumbnail && (
         <div className="bg-white p-2 flex items-center justify-center h-32">
@@ -527,17 +508,17 @@ const ShoppingCard: React.FC<{ item: ShoppingResult }> = ({ item }) => {
           />
         </div>
       )}
-      <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50">
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2 leading-snug">
+      <div className="p-2.5 bg-panel">
+        <div className="text-sm font-medium text-primary line-clamp-2 leading-snug">
           {item.title}
         </div>
         {item.price && (
           <div className="mt-1.5 flex items-baseline gap-2">
-            <span className="text-base font-bold text-gray-900 dark:text-gray-50">
+            <span className="text-base font-bold text-primary">
               {item.price}
             </span>
             {item.old_price && (
-              <span className="text-xs text-gray-400 line-through">
+              <span className="text-xs text-secondary line-through">
                 {item.old_price}
               </span>
             )}
@@ -549,15 +530,13 @@ const ShoppingCard: React.FC<{ item: ShoppingResult }> = ({ item }) => {
           </div>
         )}
         {item.source && (
-          <div className="mt-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-1 flex items-center gap-1 text-xs text-primary">
             <IconBuildingStore className="w-3 h-3" />
             {item.source}
           </div>
         )}
         {item.delivery && (
-          <div className="text-xs text-green-600 dark:text-green-400 mt-0.5">
-            {item.delivery}
-          </div>
+          <div className="text-xs text-primary mt-0.5">{item.delivery}</div>
         )}
       </div>
     </a>
@@ -575,7 +554,7 @@ const VideoCard: React.FC<{ item: VideoResult }> = ({ item }) => (
     rel="noopener noreferrer"
     className="flex gap-3 py-2 group"
   >
-    <div className="relative flex-shrink-0 w-32 h-20 rounded-md overflow-hidden bg-gray-100 dark:bg-gray-800">
+    <div className="relative flex-shrink-0 w-32 h-20 rounded-md overflow-hidden bg-panel">
       {item.thumbnail && (
         <ThumbnailImg
           src={item.thumbnail}
@@ -590,10 +569,10 @@ const VideoCard: React.FC<{ item: VideoResult }> = ({ item }) => (
       )}
     </div>
     <div className="min-w-0 flex-1">
-      <div className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2 leading-snug group-hover:text-nvidia-green transition-colors">
+      <div className="text-sm font-medium text-primary line-clamp-2 leading-snug group-hover:text-nvidia-green transition-colors">
         {item.title}
       </div>
-      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
+      <div className="text-xs text-primary mt-1 flex items-center gap-1">
         {item.displayed_link && <span>{item.displayed_link}</span>}
         {item.date && (
           <>
@@ -613,22 +592,22 @@ const VideoCard: React.FC<{ item: VideoResult }> = ({ item }) => (
 const RelatedQuestionItem: React.FC<{ item: RelatedQuestion }> = ({ item }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border-b border-gray-100 dark:border-gray-700 last:border-b-0">
+    <div className="border-b border-separator last:border-b-0">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between py-2.5 text-left text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-nvidia-green transition-colors"
+        className="w-full flex items-center justify-between py-2.5 text-left text-sm font-medium text-primary hover:text-nvidia-green transition-colors"
       >
         <span className="pr-2">{item.question}</span>
         {open ? (
-          <IconChevronUp className="w-4 h-4 flex-shrink-0 text-gray-400" />
+          <IconChevronUp className="w-4 h-4 flex-shrink-0 text-secondary" />
         ) : (
-          <IconChevronDown className="w-4 h-4 flex-shrink-0 text-gray-400" />
+          <IconChevronDown className="w-4 h-4 flex-shrink-0 text-secondary" />
         )}
       </button>
       {open && (
         <div className="pb-3 pl-2">
           {item.snippet && (
-            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+            <p className="text-sm text-primary leading-relaxed">
               {item.snippet}
             </p>
           )}
@@ -659,7 +638,7 @@ const SectionHeader: React.FC<{
 }> = ({ icon, title }) => (
   <div className="flex items-center gap-2 mb-2.5 mt-4 first:mt-0">
     <span className="text-nvidia-green">{icon}</span>
-    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-50 uppercase tracking-wide">
+    <h4 className="text-sm font-semibold text-primary uppercase tracking-wide">
       {title}
     </h4>
   </div>
@@ -703,7 +682,7 @@ function PaginatedSection<T>({
         <button
           type="button"
           onClick={() => setExpanded(false)}
-          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-secondary hover:text-secondary dark:hover:text-secondary"
         >
           <IconChevronUp size={14} />
           Show fewer
@@ -828,7 +807,7 @@ const SearchResults: React.FC<SearchResultsProps> = ({ payload }) => {
             icon={<IconClock className="w-4 h-4" />}
             title="People Also Ask"
           />
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/30 px-3">
+          <div className="rounded-lg border border-separator bg-panel px-3">
             {payload.related_questions.map((q, i) => (
               <RelatedQuestionItem key={i} item={q} />
             ))}
@@ -839,14 +818,14 @@ const SearchResults: React.FC<SearchResultsProps> = ({ payload }) => {
       {/* Related Searches */}
       {payload.related_searches && payload.related_searches.length > 0 && (
         <div className="mt-4">
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+          <div className="text-xs font-medium text-primary mb-2">
             Related searches
           </div>
           <div className="flex flex-wrap gap-2">
             {payload.related_searches.map((rs, i) => (
               <span
                 key={i}
-                className="inline-block text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2.5 py-1.5 rounded-full border border-gray-200 dark:border-gray-700"
+                className="inline-block text-xs bg-panel text-primary px-2.5 py-1.5 rounded-full border border-separator"
               >
                 {rs.query}
               </span>

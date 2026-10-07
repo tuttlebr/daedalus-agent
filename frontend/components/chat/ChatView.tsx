@@ -1256,7 +1256,7 @@ export const ChatView = memo(() => {
           onKeyDown={handleScrollKeyDown}
           tabIndex={0}
           aria-label="Conversation messages"
-          className="chat-scroll-container h-full overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nvidia-green/30 [-webkit-overflow-scrolling:touch]"
+          className="chat-scroll-container h-full overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus [-webkit-overflow-scrolling:touch]"
         >
           {!hasMessages ? (
             <EmptyState
@@ -1352,7 +1352,7 @@ export const ChatView = memo(() => {
             type="button"
             onClick={jumpToLatest}
             aria-label="Jump to latest messages"
-            className="absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-separator/70 bg-dark-bg-elevated/90 text-dark-text-secondary shadow-lg backdrop-blur-md transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40 md:h-10 md:w-10"
+            className="absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-separator/70 bg-dark-bg-elevated/90 text-dark-text-secondary shadow-lg backdrop-blur-md transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-10 md:w-10"
           >
             <IconArrowDown size={20} />
           </button>
@@ -1374,7 +1374,7 @@ export const ChatView = memo(() => {
                     className={
                       prompt.succeeded
                         ? 'inline-flex items-center gap-1.5 rounded-md border border-nvidia-green/40 bg-nvidia-green/15 px-3 py-1.5 text-xs font-medium text-nvidia-green'
-                        : 'inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-xs font-medium text-on-action hover:brightness-95'
+                        : 'inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-xs font-medium text-on-action hover:bg-action-hover'
                     }
                     onClick={
                       prompt.succeeded
@@ -1459,7 +1459,7 @@ const EmptyState = memo(
                 key={prompt}
                 type="button"
                 onClick={() => onSuggestion(prompt)}
-                className="min-h-touch-min rounded-xl border border-separator/70 bg-fill/[0.03] px-4 py-2.5 text-sm text-dark-text-secondary transition-colors hover:border-nvidia-green/40 hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+                className="min-h-touch-min rounded-xl border border-separator/70 bg-fill/[0.03] px-4 py-2.5 text-sm text-dark-text-secondary transition-colors hover:border-nvidia-green/40 hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               >
                 {prompt}
               </button>

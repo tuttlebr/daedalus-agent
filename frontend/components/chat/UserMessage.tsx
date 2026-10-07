@@ -145,8 +145,8 @@ export const UserMessage = memo(
               <div
                 className={classNames(
                   'min-w-0 px-4 py-3 rounded-2xl rounded-br-lg',
-                  'bg-nvidia-green/10 border border-nvidia-green/20',
-                  'text-dark-text-primary text-sm',
+                  'chat-bubble-user bg-chat-user border border-chat-user',
+                  'text-on-user text-sm',
                 )}
               >
                 <MarkdownRenderer
@@ -233,7 +233,7 @@ const InlineDocumentCard = memo(
         <button
           type="button"
           onClick={() => setIsExpanded((v) => !v)}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fill/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-blue/40"
+          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fill/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           aria-expanded={isExpanded}
         >
           <IconFileText

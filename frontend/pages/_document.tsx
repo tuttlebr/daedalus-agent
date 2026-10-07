@@ -40,7 +40,7 @@ export default function Document() {
         <meta name="description" content="AI Agent Interface" />
 
         {/* Windows */}
-        <meta name="msapplication-TileColor" content="#a3b899" />
+        <meta name="msapplication-TileColor" content="#161d27" />
         <meta
           name="msapplication-TileImage"
           content={branding.assets['/icons/icon-144x144.png']}
@@ -51,11 +51,15 @@ export default function Document() {
         <script
           dangerouslySetInnerHTML={{
             __html: `
+          var mode;
           try {
             var s = JSON.parse(localStorage.getItem('ui-settings') || '{}');
-            var mode = s && s.state && s.state.lightMode;
+            mode = s && s.state && s.state.lightMode;
+          } catch(e) {}
+          try {
             var dark = mode === 'dark' || (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
             document.documentElement.classList.toggle('dark', dark);
+            document.documentElement.dataset.theme = dark ? 'dark' : 'light';
           } catch(e) {}
           try {
             var standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;

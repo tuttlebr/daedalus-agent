@@ -21,7 +21,7 @@ export default function Custom404() {
         <p className="mb-8 text-lg text-dark-text-muted">Page Not Found</p>
         <Link
           href="/"
-          className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-on-action bg-action rounded-xl hover:brightness-95 transition-colors duration-200"
+          className="inline-flex items-center gap-2 px-6 py-3 text-sm font-medium text-on-action bg-action rounded-xl hover:bg-action-hover transition-colors duration-200"
         >
           Go Home
         </Link>

@@ -353,7 +353,7 @@ function InputsSection({
         … Up to 30 MB each; full resolution is preserved.
       </p>
 
-      {error && <p className="text-xs text-nvidia-red mt-2">{error}</p>}
+      {error && <p className="text-xs text-primary mt-2">{error}</p>}
     </div>
   );
 }
@@ -488,7 +488,7 @@ function MaskSection({
           </p>
         </>
       )}
-      {error && <p className="text-xs text-nvidia-red mt-2">{error}</p>}
+      {error && <p className="text-xs text-primary mt-2">{error}</p>}
     </div>
   );
 }

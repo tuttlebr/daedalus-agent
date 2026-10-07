@@ -175,7 +175,7 @@ export const Popover = memo(
                 <button
                   type="button"
                   onClick={close}
-                  className="min-h-11 rounded-lg px-3 text-sm font-medium text-nvidia-green transition-colors hover:bg-fill/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-green/40"
+                  className="min-h-11 rounded-lg px-3 text-sm font-medium text-nvidia-green transition-colors hover:bg-fill/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 >
                   Done
                 </button>

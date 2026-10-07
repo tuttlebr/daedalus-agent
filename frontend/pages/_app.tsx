@@ -21,7 +21,7 @@ import '@/styles/app.css';
 
 function App({ Component, pageProps }: AppProps<{}>) {
   const router = useRouter();
-  const { isDark } = useTheme();
+  const { canvasColor } = useTheme();
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -69,7 +69,7 @@ function App({ Component, pageProps }: AppProps<{}>) {
       </a>
       <Head>
         <title>Daedalus</title>
-        <meta name="theme-color" content={isDark ? '#2e2c28' : '#f5f1e8'} />
+        <meta name="theme-color" content={canvasColor} />
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
@@ -77,6 +77,18 @@ function App({ Component, pageProps }: AppProps<{}>) {
       </Head>
       <Toaster
         toastOptions={{
+          success: {
+            iconTheme: {
+              primary: 'var(--text-secondary)',
+              secondary: 'var(--bg-surface)',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: 'var(--text-primary)',
+              secondary: 'var(--accent-neutral)',
+            },
+          },
           style: {
             maxWidth: 500,
             background: 'rgb(var(--panel))',

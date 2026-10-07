@@ -15,6 +15,177 @@ test.use({ serviceWorkers: 'block' });
 
 const IPHONE_17_PRO = { width: 402, height: 874 } as const;
 
+test('Alaska diagrams and charts follow the selected appearance', async ({
+  page,
+}, testInfo) => {
+  await openApp(page);
+  const conversation = {
+    id: 'alaska-diagrams',
+    name: 'Palette diagrams',
+    folderId: null,
+    messages: [
+      {
+        role: 'assistant',
+        content: [
+          '```mermaid\ngraph LR\n A[Start] --> B[Reply]\n```',
+          '<chart>{"Label":"Example","ChartType":"BarChart","Data":[{"day":"Mon","count":2},{"day":"Tue","count":3}],"XAxisKey":"day","YAxisKey":"count"}</chart>',
+        ].join('\n\n'),
+      },
+    ],
+  };
+  await page.route('**/api/session/conversationHistory', (route) =>
+    route.fulfill({ json: [conversation] }),
+  );
+  await page.route('**/api/session/selectedConversation', (route) =>
+    route.fulfill({ json: conversation }),
+  );
+  await page.reload();
+  await expect(page.locator('.codeblock svg .node').first()).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Show Full Response' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Show Full Response' }).click();
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    const color =
+      colorScheme === 'light' ? 'rgb(22, 29, 39)' : 'rgb(245, 247, 248)';
+    await expect(page.locator('.codeblock .nodeLabel').first()).toHaveCSS(
+      'color',
+      color,
+    );
+    await settleTransitions(page);
+    const result = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+      .analyze();
+    expect(result.violations).toEqual([]);
+    await page.screenshot({
+      path: testInfo.outputPath(`alaska-diagrams-${colorScheme}.png`),
+    });
+  }
+});
+
+test('Alaska chat colors keep messages, actions, focus, and errors readable', async ({
+  page,
+}, testInfo) => {
+  await openApp(page);
+  const conversation = {
+    id: 'alaska-colors',
+    name: 'Alaska palette review',
+    folderId: null,
+    messages: [
+      {
+        role: 'user',
+        content:
+          'Check **bold**, *emphasis*, `inline code`, and a [link](https://example.com).',
+      },
+      {
+        role: 'assistant',
+        content:
+          'A cool field with **readable text**, a [source](https://example.com), and `inline code`.\n\n```python\ndef twilight():\n    return "Alaska"\n```',
+      },
+      {
+        role: 'assistant',
+        content: '',
+        errorMessages: {
+          message: 'The connection was interrupted. Try again.',
+          recoverable: true,
+          timestamp: 1,
+        },
+      },
+    ],
+  };
+  await page.route('**/api/session/conversationHistory', (route) =>
+    route.fulfill({ json: [conversation] }),
+  );
+  await page.route('**/api/session/selectedConversation', (route) =>
+    route.fulfill({ json: conversation }),
+  );
+  await page.reload();
+  const user = page.locator('.chat-bubble-user');
+  const assistant = page.locator('.chat-bubble-assistant');
+  const input = page.getByPlaceholder('Send a message...');
+  await input.fill('Check the sunset action');
+  const send = page.getByRole('button', { name: 'Send message', exact: true });
+
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await settleTransitions(page);
+    await expect(user).toHaveCSS('background-color', 'rgb(76, 109, 139)');
+    await expect(user.locator('p')).toHaveCSS('color', 'rgb(245, 247, 248)');
+    await expect(assistant).toHaveCSS(
+      'background-color',
+      theme === 'light' ? 'rgb(157, 181, 181)' : 'rgb(37, 61, 86)',
+    );
+    await expect(assistant.locator('p').first()).toHaveCSS(
+      'color',
+      theme === 'light' ? 'rgb(22, 29, 39)' : 'rgb(245, 247, 248)',
+    );
+    await expect(send).toHaveCSS('background-color', 'rgb(245, 163, 95)');
+    await expect(send).toHaveCSS('color', 'rgb(22, 29, 39)');
+    await expect(
+      page
+        .getByRole('alert')
+        .filter({ hasText: 'The connection was interrupted.' }),
+    ).toHaveCSS('border-color', 'rgb(182, 155, 166)');
+    await expect(
+      page
+        .getByRole('alert')
+        .filter({ hasText: 'The connection was interrupted.' }),
+    ).toHaveCSS('background-color', 'rgba(182, 155, 166, 0.1)');
+    await send.hover();
+    await expect(send).toHaveCSS('background-color', 'rgb(255, 192, 74)');
+    await page.mouse.move(0, 0);
+    await input.focus();
+    await page.keyboard.press('Tab');
+    await expect(send).toBeFocused();
+    await expect(send).toHaveCSS('outline-color', 'rgb(245, 163, 95)');
+    await expect(send).toHaveCSS('outline-width', '2px');
+
+    // Check component boundaries and placeholder text, which axe does not
+    // reliably include in its normal visible-text contrast scan.
+    const ratios = await input.evaluate((element) => {
+      const luminance = (rgb: string) => {
+        const channels = rgb
+          .match(/[\d.]+/g)!
+          .slice(0, 3)
+          .map(Number)
+          .map((n) => {
+            const v = n / 255;
+            return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+          });
+        return (
+          channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+        );
+      };
+      const contrast = (a: string, b: string) => {
+        const first = luminance(a);
+        const second = luminance(b);
+        return (
+          (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
+        );
+      };
+      const style = getComputedStyle(element);
+      return {
+        placeholder: contrast(
+          getComputedStyle(element, '::placeholder').color,
+          style.backgroundColor,
+        ),
+        border: contrast(style.borderColor, style.backgroundColor),
+      };
+    });
+    expect(ratios.placeholder).toBeGreaterThanOrEqual(4.5);
+    expect(ratios.border).toBeGreaterThanOrEqual(3);
+    const result = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+      .analyze();
+    expect(result.violations).toEqual([]);
+    await page.screenshot({
+      path: testInfo.outputPath(`alaska-chat-${theme}.png`),
+    });
+  }
+});
+
 test('appearance follows the system, respects an override, and persists', async ({
   page,
 }) => {
@@ -23,17 +194,17 @@ test('appearance follows the system, respects an override, and persists', async 
   await expect(page.locator('html')).not.toHaveClass(/dark/);
   await expect(page.locator('body')).toHaveCSS(
     'background-color',
-    'rgb(245, 241, 232)',
+    'rgb(255, 255, 255)',
   );
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveClass(/dark/);
   await expect(page.locator('body')).toHaveCSS(
     'background-color',
-    'rgb(46, 44, 40)',
+    'rgb(22, 29, 39)',
   );
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
     'content',
-    '#2e2c28',
+    'rgb(22 29 39)',
   );
   await openSidebar(page);
   await page.getByRole('radio', { name: 'Light', exact: true }).check();
@@ -42,7 +213,7 @@ test('appearance follows the system, respects an override, and persists', async 
   await expect(page.locator('html')).not.toHaveClass(/dark/);
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
     'content',
-    '#f5f1e8',
+    'rgb(255 255 255)',
   );
 });
 
