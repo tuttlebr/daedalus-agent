@@ -218,6 +218,85 @@ test('deletes a history-only conversation through the real API and keeps it dele
   }
 });
 
+test('recovers owned chat history after index loss without replacing it with a stale selection', async ({
+  page,
+}) => {
+  await login(page);
+  const redis = new Redis(redisUrl);
+  const id = 'e2e-recover-owned-history';
+  const saved = {
+    id,
+    name: 'Recovered saved conversation',
+    ownerId: 'e2e-user',
+    folderId: null,
+    updatedAt: Date.now(),
+    messages: [
+      { role: 'user', content: 'Recovered earlier question' },
+      { role: 'assistant', content: 'Recovered complete answer' },
+    ],
+  };
+  try {
+    await redis.set(`conversation:${id}`, JSON.stringify(saved), 'EX', 120);
+    await redis.sadd('user:e2e-user:conversations', id);
+    await redis.del('user:e2e-user:conversationHistory');
+    await redis.set(
+      'user:e2e-user:selectedConversation',
+      JSON.stringify({
+        ...saved,
+        messages: saved.messages.slice(-1),
+      }),
+      'EX',
+      120,
+    );
+
+    await page.reload();
+    await expect(
+      page.getByText('Recovered earlier question', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Recovered complete answer', { exact: true }),
+    ).toBeVisible();
+    const response = await browserGet(page, '/api/session/conversationHistory');
+    expect(response.status).toBe(200);
+    expect(
+      JSON.parse(response.body).find((c: { id: string }) => c.id === id)
+        ?.messages,
+    ).toEqual(saved.messages);
+    expect(await redis.ttl(`conversation:${id}`)).toBe(-1);
+
+    const target = page.getByRole('button', { name: saved.name, exact: true });
+    if (!(await target.isVisible())) {
+      await page
+        .getByRole('button', { name: 'Toggle sidebar', exact: true })
+        .click();
+    }
+    await expect(target).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByText('Recovered earlier question', { exact: true }),
+    ).toBeVisible();
+
+    const deleted = await page.evaluate(async (conversationId) => {
+      const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      return response.status;
+    }, id);
+    expect(deleted).toBe(200);
+    await page.reload();
+    const after = await browserGet(page, '/api/session/conversationHistory');
+    expect(
+      JSON.parse(after.body).map((c: { id: string }) => c.id),
+    ).not.toContain(id);
+    await expect(target).toHaveCount(0);
+  } finally {
+    await redis.del(`conversation:${id}`);
+    await redis.srem('user:e2e-user:conversations', id);
+    redis.disconnect();
+  }
+});
+
 test('streams a chat completion over the WebSocket path', async ({ page }) => {
   let websocketConnected = false;
   let chatTokenReceived = false;

@@ -4,7 +4,7 @@ import { getSession } from '@/utils/auth/session';
 import handler from '@/pages/api/conversations/[id]';
 
 import { deleteConversationForUser } from '@/server/session/conversationDeletion';
-import { jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
+import { jsonGet, jsonSet } from '@/server/session/redis';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- Mocks ---
@@ -24,7 +24,7 @@ vi.mock('@/server/session/redis', () => ({
         ];
       }
       if (script.includes('SAVE_OWNED_CONVERSATION')) {
-        await jsonSetWithExpiry(args[0], JSON.parse(args[3]), Number(args[6]));
+        await jsonSet(args[0], '$', JSON.parse(args[3]));
         await mockSadd(args[1], args[4]);
         return 1;
       }
@@ -34,7 +34,7 @@ vi.mock('@/server/session/redis', () => ({
   })),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: vi.fn(),
-  jsonSetWithExpiry: vi.fn(),
+  jsonSet: vi.fn(),
 }));
 
 vi.mock('@/server/session/conversationDeletion', () => ({
@@ -171,7 +171,7 @@ describe('conversations/[id] API handler', () => {
 
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(conversationData);
-      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(jsonSet).not.toHaveBeenCalled();
     });
 
     it('returns 404 when conversation not found', async () => {
@@ -232,7 +232,7 @@ describe('conversations/[id] API handler', () => {
 
       await handler(req, res);
 
-      expect(jsonSetWithExpiry).toHaveBeenCalled();
+      expect(jsonSet).toHaveBeenCalled();
       expect(mockSadd).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ success: true });
@@ -259,9 +259,9 @@ describe('conversations/[id] API handler', () => {
 
       await handler(req, res);
 
-      expect(jsonSetWithExpiry).toHaveBeenCalled();
+      expect(jsonSet).toHaveBeenCalled();
       // Verify the saved data merges existing + updated fields
-      const savedData = (jsonSetWithExpiry as any).mock.calls[0][1];
+      const savedData = (jsonSet as any).mock.calls[0][2];
       expect(savedData.name).toBe('Updated Name');
       expect(savedData.messages).toEqual([]);
       expect(res.status).toHaveBeenCalledWith(200);
@@ -301,7 +301,7 @@ describe('conversations/[id] API handler', () => {
 
       await handler(req, res);
 
-      const savedData = (jsonSetWithExpiry as any).mock.calls[0][1];
+      const savedData = (jsonSet as any).mock.calls[0][2];
       expect(savedData.updatedAt).toBe(now);
 
       vi.spyOn(Date, 'now').mockRestore();
@@ -327,9 +327,9 @@ describe('conversations/[id] API handler', () => {
       });
     });
 
-    it('returns 500 when jsonSetWithExpiry throws', async () => {
+    it('returns 500 when jsonSet throws', async () => {
       (jsonGet as any).mockResolvedValue(null);
-      (jsonSetWithExpiry as any).mockRejectedValueOnce(new Error('Redis down'));
+      (jsonSet as any).mockRejectedValueOnce(new Error('Redis down'));
 
       const body = { id: 'conv-1' };
       const { req, res } = createMockReqRes('PUT', { id: 'conv-1' }, body);
@@ -369,7 +369,7 @@ describe('conversations/[id] API handler', () => {
       expect(res.json).toHaveBeenCalledWith({
         error: 'Forbidden: You do not have access to this conversation',
       });
-      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(jsonSet).not.toHaveBeenCalled();
     });
 
     it('returns 500 when durable deletion fails', async () => {

@@ -20,6 +20,22 @@ and PWA behavior on top of the NeMo Agent Toolkit backend.
   of deriving collection names in browser-facing code
 - Runs as a PWA with an offline shell and interrupted-job recovery
 
+## Chat History Persistence
+
+Saved conversations and imported history remain in Redis until explicitly
+deleted. They have no automatic seven-day expiry. History reads reconcile
+owner-authorized conversation records with legacy history copies, removing old
+TTLs from surviving records as they are read. Worker completions therefore stay
+visible even when the legacy history list is missing or stale.
+
+Imports merge atomically without the former 50-conversation/100-message
+truncation. Storage failures return an error rather than acknowledging an unsaved
+history. Existing Redis persistence must be retained across deployments; this
+migration cannot recreate records whose contents have already expired. Recover
+those only from preserved backups after checking current ownership and explicit
+deletions. Browser caches, selection snapshots, jobs and uploaded media retain
+their separate cache/retention policies.
+
 ## Runtime Model
 
 The production frontend image serves three roles:

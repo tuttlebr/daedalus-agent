@@ -21,6 +21,7 @@ import {
   cleanSelectedConversation,
 } from '@/utils/app/clean';
 import { saveConversation, loadConversation } from '@/utils/app/conversation';
+import { dedupeConversationsById } from '@/utils/app/conversationList';
 import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 import { getWorkflowName } from '@/utils/app/helper';
 import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
@@ -246,7 +247,18 @@ const Home = () => {
         const serverConv = await loadConversation();
         if (serverConv) {
           const cleaned = cleanSelectedConversation(serverConv);
-          useConversationStore.getState().addConversation(cleaned);
+          const existing = useConversationStore
+            .getState()
+            .conversations.find(
+              (conversation) => conversation.id === cleaned.id,
+            );
+          // Selection is a cached copy and may have fewer/older messages than
+          // the complete record recovered by the history request above.
+          const [preferred] = dedupeConversationsById([
+            ...(existing ? [existing] : []),
+            cleaned,
+          ]);
+          useConversationStore.getState().addConversation(preferred);
           useConversationStore.getState().selectConversation(cleaned.id);
         } else {
           const local = getUserSessionItem('selectedConversation');

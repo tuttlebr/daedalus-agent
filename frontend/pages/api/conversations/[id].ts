@@ -12,8 +12,7 @@ import {
   saveConversationForUser,
   readConversationForUser,
 } from '@/server/session/conversationStore';
-import { sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
-import { clampConversations } from '@/server/session/sanitize';
+import { sessionKey, jsonGet } from '@/server/session/redis';
 
 export const config = {
   api: {
@@ -86,41 +85,8 @@ export default async function handler(
         console.error('Failed to touch images:', imageError);
       }
 
-      // Membership and the authoritative record were saved atomically above.
-
-      // Also update the user's conversationHistory list for cross-device synchronization
-      try {
-        const conversationHistoryKey = sessionKey([
-          'user',
-          session.username,
-          'conversationHistory',
-        ]);
-        const currentHistory = (await jsonGet(conversationHistoryKey)) || [];
-
-        // Ensure it's an array
-        const historyArray = Array.isArray(currentHistory)
-          ? currentHistory
-          : [];
-
-        // Remove existing conversation if present (to update it)
-        const filteredHistory = historyArray.filter((c: any) => c.id !== id);
-
-        // Add updated conversation to the list
-        const updatedHistory = [...filteredHistory, dataToSave];
-
-        // Clamp and clean the history
-        const cleanedHistory = clampConversations(updatedHistory);
-
-        // Save back to Redis
-        await jsonSetWithExpiry(
-          conversationHistoryKey,
-          cleanedHistory,
-          60 * 60 * 24 * 7,
-        );
-      } catch (historyError) {
-        // Log error but don't fail the request - conversationHistory sync is best-effort
-        console.error('Failed to update conversationHistory:', historyError);
-      }
+      // History reads reconcile these owned records directly. Writing a second
+      // read/modify/write history document here lost concurrent conversations.
 
       return res.status(200).json({ success: true });
     } catch (error) {

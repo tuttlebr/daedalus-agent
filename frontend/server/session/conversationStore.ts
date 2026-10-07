@@ -1,6 +1,5 @@
 import { getRedis, sessionKey } from './redis';
 
-const EXPIRY_SECONDS = 60 * 60 * 24 * 7;
 const READ = `
 local function read(key)
   local kind = redis.call('TYPE', key).ok
@@ -21,14 +20,14 @@ if raw ~= '' then
   local current = cjson.decode(raw)
   if redis.call('SISMEMBER', KEYS[2], ARGV[3]) ~= 1
     or (current['ownerId'] and current['ownerId'] ~= ARGV[4]) then return -1 end
-elseif ARGV[6] ~= '1' then
+elseif ARGV[5] ~= '1' then
   return -1
 end
 if redis.call('TYPE', KEYS[1]).ok == 'string' or raw == '' then
-  redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[5])
+  redis.call('SET', KEYS[1], ARGV[2])
 else
   redis.call('JSON.SET', KEYS[1], '$', ARGV[2])
-  redis.call('EXPIRE', KEYS[1], ARGV[5])
+  redis.call('PERSIST', KEYS[1])
 end
 redis.call('SADD', KEYS[2], ARGV[3])
 return 1
@@ -104,7 +103,6 @@ export async function saveConversationForUser(
       JSON.stringify(value),
       id,
       username,
-      EXPIRY_SECONDS,
       allowCreate ? '1' : '0',
     );
     if (result === 1) return value;

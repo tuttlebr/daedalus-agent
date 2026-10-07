@@ -5,94 +5,101 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   requireAuthenticatedUser: vi.fn(),
   getOrSetSessionId: vi.fn(),
-  jsonGet: vi.fn(),
-  jsonSetWithExpiry: vi.fn(),
-  redisDel: vi.fn(),
+  list: vi.fn(),
+  merge: vi.fn(),
+  remove: vi.fn(),
+  selected: vi.fn(),
 }));
 
+vi.mock('@/server/session/conversationHistory', () => ({
+  listConversationHistoryForUser: mocks.list,
+  mergeConversationHistoryForUser: mocks.merge,
+}));
+vi.mock('@/server/session/conversationDeletion', () => ({
+  deleteConversationForUser: mocks.remove,
+}));
 vi.mock('@/server/session/redis', () => ({
-  getRedis: vi.fn(() => ({ del: mocks.redisDel })),
-  sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
-  jsonGet: mocks.jsonGet,
-  jsonSetWithExpiry: mocks.jsonSetWithExpiry,
+  jsonGet: mocks.selected,
+  sessionKey: (parts: string[]) => parts.join(':'),
 }));
-
 vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
   getOrSetSessionId: mocks.getOrSetSessionId,
 }));
 
-function createMockReqRes(method: string, body: any = {}) {
-  const req = { method, body } as any;
-  const res = {
-    status: vi.fn().mockReturnThis(),
-    json: vi.fn().mockReturnThis(),
-    end: vi.fn().mockReturnThis(),
-    setHeader: vi.fn(),
-  } as any;
-  return { req, res };
+function request(method: string, body: any = {}) {
+  return {
+    req: { method, body } as any,
+    res: {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      end: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any,
+  };
 }
 
-describe('session/conversationHistory assistant content preservation', () => {
+describe('session/conversationHistory', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
-    mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
+    mocks.list.mockResolvedValue([]);
   });
 
-  it('preserves repeated assistant text on GET without rewriting stored history', async () => {
-    const prior = 'Daily summary for May 13, 2026.';
-    const next = 'The namespace is healthy.';
-    const conversations = [
-      {
-        id: 'conv-1',
-        name: 'Test',
-        folderId: null,
-        messages: [
-          { role: 'user', content: 'daily summary' },
-          { role: 'assistant', content: prior },
-          { role: 'user', content: 'namespace?' },
-          { role: 'assistant', content: `${prior}\n\n${next}` },
-        ],
-      },
-    ];
-    mocks.jsonGet.mockResolvedValue(conversations);
-
-    const { req, res } = createMockReqRes('GET');
+  it('returns reconciled history scoped to the authenticated user', async () => {
+    const history = [{ id: 'saved', messages: [{ content: 'Still here' }] }];
+    mocks.list.mockResolvedValue(history);
+    const { req, res } = request('GET');
     await handler(req, res);
-
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(conversations);
-    expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+    expect(mocks.list).toHaveBeenCalledWith('testuser');
+    expect(res.json).toHaveBeenCalledWith(history);
+    expect(mocks.merge).not.toHaveBeenCalled();
   });
 
-  it('deduplicates repeated conversation ids on GET and repairs storage', async () => {
-    const conversations = [
-      {
-        id: 'conv-1',
-        name: 'Older copy',
-        updatedAt: 1,
-        messages: [],
-      },
-      {
-        id: 'conv-1',
-        name: 'Newer copy',
-        updatedAt: 2,
-        messages: [{ role: 'user', content: 'Hello' }],
-      },
-    ];
-    mocks.jsonGet.mockResolvedValue(conversations);
-
-    const { req, res } = createMockReqRes('GET');
+  it('returns an error rather than empty history during a storage outage', async () => {
+    mocks.list.mockRejectedValue(new Error('Redis unavailable'));
+    const { req, res } = request('GET');
     await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).not.toHaveBeenCalledWith([]);
+  });
 
-    const repaired = [conversations[1]];
+  it('acknowledges imports only after the durable merge succeeds', async () => {
+    const history = [{ id: 'imported', messages: [] }];
+    const { req, res } = request('PUT', history);
+    await handler(req, res);
+    expect(mocks.merge).toHaveBeenCalledWith('testuser', history);
+    expect(res.status).toHaveBeenCalledWith(204);
+
+    mocks.merge.mockRejectedValue(new Error('Redis unavailable'));
+    const failed = request('PUT', history);
+    await handler(failed.req, failed.res);
+    expect(failed.res.status).toHaveBeenCalledWith(500);
+  });
+
+  it('rejects a malformed import', async () => {
+    const { req, res } = request('PUT', {});
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mocks.merge).not.toHaveBeenCalled();
+  });
+
+  it('clears recovered records through the ownership-aware deletion path', async () => {
+    mocks.list.mockResolvedValue([{ id: 'legacy' }, { id: 'recovered' }]);
+    const { req, res } = request('DELETE');
+    await handler(req, res);
+    expect(mocks.remove.mock.calls).toEqual([
+      ['testuser', 'legacy'],
+      ['testuser', 'recovered'],
+    ]);
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(repaired);
-    expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(
-      'daedalus:user:testuser:conversationHistory',
-      repaired,
-      60 * 60 * 24 * 7,
-    );
+  });
+
+  it('also clears a selected-only legacy conversation', async () => {
+    mocks.selected.mockResolvedValue({ id: 'selected-only' });
+    const { req, res } = request('DELETE');
+    await handler(req, res);
+    expect(mocks.remove).toHaveBeenCalledWith('testuser', 'selected-only');
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });

@@ -1,22 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { dedupeConversationsById } from '@/utils/app/conversationList';
-import { sanitizeConversationsAssistantReplays } from '@/utils/app/conversationReplay';
-
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
+import { deleteConversationForUser } from '@/server/session/conversationDeletion';
 import {
-  getRedis,
-  sessionKey,
-  jsonGet,
-  jsonSetWithExpiry,
-} from '@/server/session/redis';
-import {
-  stripBase64FromObject,
-  clampConversations,
-} from '@/server/session/sanitize';
+  listConversationHistoryForUser,
+  mergeConversationHistoryForUser,
+} from '@/server/session/conversationHistory';
+import { jsonGet, sessionKey } from '@/server/session/redis';
 
 export const config = {
   api: {
@@ -33,31 +26,12 @@ export default async function handler(
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
-  const redis = getRedis();
   getOrSetSessionId(req, res); // Side effect: ensures session cookie is set
   const userId = session.username;
-  // Store conversations at user level for cross-device persistence
-  const key = sessionKey(['user', userId, 'conversationHistory']);
 
   if (req.method === 'GET') {
     try {
-      const data = await jsonGet(key);
-      if (!data) return res.status(200).json([]);
-      const conversations = Array.isArray(data) ? data : [];
-      const sanitized = dedupeConversationsById(
-        sanitizeConversationsAssistantReplays(conversations),
-      );
-      if (sanitized !== conversations) {
-        await jsonSetWithExpiry(key, sanitized, 60 * 60 * 24 * 7).catch(
-          (error) => {
-            console.error(
-              'Failed to persist sanitized conversationHistory',
-              error,
-            );
-          },
-        );
-      }
-      return res.status(200).json(sanitized);
+      return res.status(200).json(await listConversationHistoryForUser(userId));
     } catch (e) {
       return res
         .status(500)
@@ -66,72 +40,34 @@ export default async function handler(
   }
 
   if (req.method === 'PUT') {
+    if (!Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Expected a conversation array' });
+    }
     try {
-      let incoming = Array.isArray(req.body) ? req.body : [];
-      // Strip base64 content before processing
-      incoming = dedupeConversationsById(stripBase64FromObject(incoming));
-
-      try {
-        // Merge with existing history instead of overwriting, so conversations
-        // not held in the frontend's limited in-memory list are preserved.
-        const existing = await jsonGet(key);
-        const existingArray = dedupeConversationsById(
-          Array.isArray(existing) ? existing : [],
-        );
-
-        // Build a map of incoming conversations by ID for fast lookup
-        const incomingById = new Map<string, any>();
-        for (const conv of incoming) {
-          if (conv && conv.id) {
-            incomingById.set(conv.id, conv);
-          }
-        }
-
-        // Start with existing conversations, updating any that appear in the incoming set
-        const merged: any[] = [];
-        const seen = new Set<string>();
-
-        for (const conv of existingArray) {
-          if (!conv || !conv.id) continue;
-          const updated = incomingById.get(conv.id);
-          merged.push(updated ?? conv);
-          seen.add(conv.id);
-        }
-
-        // Add any new conversations from incoming that weren't already in the list
-        for (const conv of incoming) {
-          if (conv && conv.id && !seen.has(conv.id)) {
-            merged.push(conv);
-          }
-        }
-
-        const clamped = sanitizeConversationsAssistantReplays(
-          clampConversations(merged),
-        );
-        await jsonSetWithExpiry(key, clamped, 60 * 60 * 24 * 7);
-      } catch (err) {
-        console.error('Failed to save conversationHistory to Redis', err);
-        // Fall through – respond 204 so UI continues working even if Redis is down
-      }
+      await mergeConversationHistoryForUser(userId, req.body);
       return res.status(204).end();
-    } catch (e) {
-      console.error('Error handling PUT /api/session/conversationHistory', e);
-      return res.status(204).end();
+    } catch (error) {
+      console.error('Failed to save conversationHistory to Redis', error);
+      return res
+        .status(500)
+        .json({ error: 'Failed to save conversation history' });
     }
   }
 
   if (req.method === 'DELETE') {
     try {
-      // Delete the conversationHistory key from Redis
-      await redis.del(key);
-
-      // Also clear the selectedConversation for this user
-      const selectedConversationKey = sessionKey([
-        'user',
-        userId,
-        'selectedConversation',
-      ]);
-      await redis.del(selectedConversationKey);
+      const history = await listConversationHistoryForUser(userId);
+      const selected = await jsonGet(
+        sessionKey(['user', userId, 'selectedConversation']),
+      );
+      const ids = new Set(
+        [...history, selected]
+          .map((conversation) => conversation?.id)
+          .filter(Boolean),
+      );
+      for (const id of ids) {
+        await deleteConversationForUser(userId, id);
+      }
 
       return res.status(200).json({ success: true });
     } catch (e) {
