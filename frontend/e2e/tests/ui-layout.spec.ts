@@ -283,9 +283,10 @@ test('mobile keyboard resizes the visible shell without scrolling the document',
   expect(initialContentPosition.headingTop).toBeGreaterThanOrEqual(
     initialContentPosition.paneTop,
   );
-  const lastSuggestion = page.getByRole('button', {
-    name: 'What will the weather be like today?',
-  });
+  const lastSuggestion = page
+    .locator('.chat-empty-state')
+    .getByRole('button')
+    .last();
   await page.locator('.chat-scroll-container').evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });

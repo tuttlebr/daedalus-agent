@@ -188,7 +188,7 @@ const CanvasTile = memo(function CanvasTile({
           Partial
         </div>
       )}
-      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 text-left text-[0.75rem] font-medium text-white opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 text-left text-[0.75rem] font-medium text-white opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
         {selected ? 'Selected · view actions' : 'Tap to view actions'}
       </span>
     </button>

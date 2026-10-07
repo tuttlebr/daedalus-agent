@@ -2,6 +2,7 @@
 
 import React, { useEffect, useId, useState } from 'react';
 
+import { isIOS } from '@/utils/app/platform';
 import { downloadFilename } from '@/utils/app/sandboxArtifactDownload';
 
 interface ImageDownloadActionProps {
@@ -33,11 +34,9 @@ function DownloadAction({
     // iPadOS can report a desktop Mac user agent. Direct downloads in iOS
     // Home Screen apps can replace the app with a preview with no way back:
     // https://bugs.webkit.org/show_bug.cgi?id=236943
-    const isIOS =
-      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    setUseSaveSheet(isIOS);
-    if (!isIOS) return;
+    const useIOSSave = isIOS();
+    setUseSaveSheet(useIOSSave);
+    if (!useIOSSave) return;
 
     if (!navigator.share || !navigator.canShare) {
       setUnsupported(true);

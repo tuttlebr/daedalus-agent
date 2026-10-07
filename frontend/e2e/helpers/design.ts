@@ -16,7 +16,13 @@ export async function openApp(page: Page, conversations: Conversation[] = []) {
     else if (path === '/api/memory/status') body = { total: 0, counts: {} };
     else if (path === '/api/memory/memories')
       body = {
-        items: [{ id: 'fact-1', text: 'I prefer concise answers.' }],
+        items: [
+          {
+            id: 'fact-1',
+            text: 'I prefer concise answers.',
+            fact_type: 'world',
+          },
+        ],
         total: 1,
         limit: 25,
         offset: 0,

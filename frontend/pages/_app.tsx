@@ -88,6 +88,8 @@ function App({ Component, pageProps }: AppProps<{}>) {
         }}
         containerStyle={{
           top: 'max(1rem, calc(env(safe-area-inset-top) + 20px))',
+          left: 'max(1rem, env(safe-area-inset-left))',
+          right: 'max(1rem, env(safe-area-inset-right))',
         }}
       />
       <OfflineIndicator />

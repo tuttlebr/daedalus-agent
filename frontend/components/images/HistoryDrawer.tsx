@@ -252,7 +252,7 @@ export function HistoryDrawer() {
                       disabled={isDeletingThis || isClearing}
                       className={classNames(
                         'absolute top-1 right-1 grid h-11 w-11 place-items-center rounded-md touch-manipulation',
-                        'text-muted hover:text-nvidia-red hover:bg-nvidia-red/10 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
+                        'text-muted hover:text-nvidia-red hover:bg-nvidia-red/10 opacity-100 touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100',
                         'transition-all disabled:opacity-50',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nvidia-red/40',
                       )}

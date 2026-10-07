@@ -14,13 +14,13 @@ import {
 import React, { memo, useState, useRef, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
+import { useFileSave } from '@/hooks/useFileSave';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import { useAppVisualViewport } from '@/hooks/useVisualViewportKeyboard';
 
 import { uploadDocument } from '@/utils/app/documentHandler';
 import { uploadImage } from '@/utils/app/imageHandler';
 import { useMilvusCollections } from '@/utils/app/queries';
-import { saveArtifactBlob } from '@/utils/app/sandboxArtifactDownload';
 import { admitUploadBatch } from '@/utils/app/uploadBatch';
 import { uploadVideo, getVideoMimeType } from '@/utils/app/videoHandler';
 
@@ -92,8 +92,18 @@ interface ChatInputProps {
   isStreaming?: boolean;
 }
 
+function imageMimeType(file: File): string {
+  if (file.type.startsWith('image/')) return file.type;
+  // The iOS Files picker can omit MIME types for original camera photos.
+  if (!file.type || file.type === 'application/octet-stream') {
+    if (/\.heic$/i.test(file.name)) return 'image/heic';
+    if (/\.heif$/i.test(file.name)) return 'image/heif';
+  }
+  return '';
+}
+
 function classifyFile(file: File): 'image' | 'document' | 'video' {
-  if (file.type.startsWith('image/')) return 'image';
+  if (imageMimeType(file)) return 'image';
   if (file.type.startsWith('video/')) return 'video';
   return 'document';
 }
@@ -134,6 +144,7 @@ export const ChatInput = memo(
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isMobile = useIsMobile();
+    const { saveFile, fileSaveDialog } = useFileSave();
     const visualViewport = useAppVisualViewport();
 
     const documentAttachments = attachments.filter(
@@ -222,7 +233,7 @@ export const ChatInput = memo(
             }
             const imageRef = await uploadImage(
               base64,
-              file.type,
+              imageMimeType(file),
               controller.signal,
             );
             setUploading((prev) =>
@@ -237,7 +248,7 @@ export const ChatInput = memo(
               imageRef: {
                 imageId: imageRef.imageId,
                 sessionId: imageRef.sessionId,
-                mimeType: file.type,
+                mimeType: imageRef.mimeType || imageMimeType(file),
                 ...(imageRef.userId && { userId: imageRef.userId }),
               },
             };
@@ -515,8 +526,8 @@ export const ChatInput = memo(
               response.headers.get('Content-Disposition'),
             ) || `${label.replace(/\.[^./\\]+$/, '')}.md`;
 
-          saveArtifactBlob(blob, downloadName);
-          toast.success(`Downloaded ${downloadName}`);
+          if (saveFile(blob, downloadName))
+            toast.success(`Download started: ${downloadName}`);
         } catch (err) {
           console.error('Markdown download failed:', err);
           toast.error(
@@ -527,7 +538,7 @@ export const ChatInput = memo(
           setDownloadingDocumentId(null);
         }
       },
-      [],
+      [saveFile],
     );
 
     const handleSend = useCallback(async () => {
@@ -693,7 +704,8 @@ export const ChatInput = memo(
           e.key === 'Enter' &&
           !e.shiftKey &&
           !e.nativeEvent.isComposing &&
-          !isMobile
+          !isMobile &&
+          !window.matchMedia?.('(pointer: coarse)').matches
         ) {
           e.preventDefault();
           handleSend();
@@ -716,6 +728,7 @@ export const ChatInput = memo(
 
     return (
       <GlassToolbar data-chat-input className="flex-shrink-0 py-3">
+        {fileSaveDialog}
         <div className="chat-content-rail space-y-2">
           <DropZone onDrop={handleFileSelect} className="chat-input-dropzone">
             {hasComposerExtras && (
@@ -961,7 +974,7 @@ export const ChatInput = memo(
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/x-flv,video/3gpp,.pdf,.docx,.pptx,.html,.htm,.txt,text/plain,.md,.markdown,text/markdown,text/x-markdown"
+            accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/heic,image/heif,.heic,.heif,video/mp4,video/x-flv,video/3gpp,.pdf,.docx,.pptx,.html,.htm,.txt,text/plain,.md,.markdown,text/markdown,text/x-markdown"
             className="hidden"
             onChange={(e) => {
               if (e.target.files) {

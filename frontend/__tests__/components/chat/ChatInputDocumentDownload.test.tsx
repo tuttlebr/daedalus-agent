@@ -2,6 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { uploadDocument } from '@/utils/app/documentHandler';
+import { uploadImage } from '@/utils/app/imageHandler';
 import { saveArtifactBlob } from '@/utils/app/sandboxArtifactDownload';
 
 import { ChatInput } from '@/components/chat/ChatInput';
@@ -184,6 +185,49 @@ describe('ChatInput inline document download', () => {
 
     act(() => root.unmount());
   });
+
+  it.each(['image/heic', '', 'application/octet-stream'])(
+    'uploads an iPhone HEIC photo with MIME %s through image storage',
+    async (mimeType) => {
+      const onSend = vi.fn();
+      vi.mocked(uploadImage).mockResolvedValue({
+        imageId: 'photo',
+        sessionId: 'session',
+        mimeType: 'image/png',
+      });
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      await act(async () => root.render(<ChatInput onSend={onSend} />));
+      const input =
+        container.querySelector<HTMLInputElement>('input[type="file"]')!;
+      expect(input.accept).toContain('.heic');
+      Object.defineProperty(input, 'files', {
+        configurable: true,
+        value: [
+          new File(['synthetic-image'], 'IMG_001.HEIC', { type: mimeType }),
+        ],
+      });
+      await act(async () => {
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise((resolve) => window.setTimeout(resolve, 20));
+      });
+      expect(uploadImage).toHaveBeenLastCalledWith(
+        expect.any(String),
+        'image/heic',
+        expect.any(AbortSignal),
+      );
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Send message"]')!
+          .click(),
+      );
+      expect(onSend.mock.calls[0][0].attachments[0].imageRef.mimeType).toBe(
+        'image/png',
+      );
+      act(() => root.unmount());
+    },
+  );
 
   it('frames inline document text as collision-safe untrusted JSON', async () => {
     const onSend = vi.fn();

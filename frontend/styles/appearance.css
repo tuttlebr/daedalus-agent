@@ -153,6 +153,10 @@ html.dark {
 
 html {
   font-size: 100%;
+  /* Keep rotation from inflating text; browser text sizing and pinch zoom
+     remain available. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 body {
   line-height: 1.5;
@@ -220,19 +224,45 @@ svg.tabler-icon {
   text-align: left;
 }
 .app-safe-x {
-  padding-left: env(safe-area-inset-left, 0px);
-  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: var(--safe-area-inset-left);
+  padding-right: var(--safe-area-inset-right);
 }
 .safe-y {
-  padding-top: max(1rem, env(safe-area-inset-top, 0px));
-  padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  padding-top: max(1rem, var(--safe-area-inset-top));
+  padding-bottom: max(1rem, var(--safe-area-inset-bottom));
 }
 .app-dialog-centered {
-  padding-left: max(1rem, env(safe-area-inset-left, 0px));
-  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  padding-left: max(1rem, var(--safe-area-inset-left));
+  padding-right: max(1rem, var(--safe-area-inset-right));
+}
+.app-install-prompt {
+  left: max(1rem, var(--safe-area-inset-left));
+  right: max(1rem, var(--safe-area-inset-right));
+  bottom: calc(var(--safe-area-inset-bottom) + 4.5rem);
+  max-height: calc(
+    100dvh - var(--safe-area-inset-top) - var(--safe-area-inset-bottom) - 6rem
+  );
+  overflow-y: auto;
+}
+@media (min-width: 768px) {
+  /* Wide phones use top tabs, so the composer owns the home-indicator inset.
+     The keyboard-open rule keeps its existing small gap above the keyboard. */
+  .app-viewport[data-keyboard-open='false'] [data-chat-input] {
+    padding-bottom: max(0.75rem, var(--safe-area-inset-bottom));
+  }
+  .app-install-prompt {
+    bottom: max(1rem, var(--safe-area-inset-bottom));
+  }
+}
+/* Installation guidance must never obscure typing or an active sheet. */
+body:has(.app-viewport[data-keyboard-open='true']) .app-install-prompt,
+body:has(input:focus, textarea:focus, [contenteditable='true']:focus)
+  .app-install-prompt,
+body:has(dialog[open]) .app-install-prompt {
+  display: none;
 }
 .app-page {
-  padding-top: max(1.5rem, env(safe-area-inset-top));
+  padding-top: max(1.5rem, var(--safe-area-inset-top));
 }
 .app-nav-item {
   min-height: 3rem;
@@ -248,9 +278,9 @@ svg.tabler-icon {
   /* Let longer labels use more width before wrapping at larger text sizes. */
   grid-template-columns: repeat(5, auto);
   gap: 2px;
-  padding: 0.375rem max(0.25rem, env(safe-area-inset-right))
+  padding: 0.375rem max(0.25rem, var(--safe-area-inset-right))
     max(0.375rem, var(--safe-area-inset-bottom))
-    max(0.25rem, env(safe-area-inset-left));
+    max(0.25rem, var(--safe-area-inset-left));
 }
 .app-bottom-nav .app-nav-item {
   min-width: 44px;
@@ -267,6 +297,9 @@ svg.tabler-icon {
 /* Text size follows browser preferences and zoom. Coarse pointers include
    iPad even when a wide layout is displayed. */
 @media (pointer: coarse) {
+  .touch-action-controls {
+    opacity: 1;
+  }
   button,
   [role='button'],
   select,

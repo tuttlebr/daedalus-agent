@@ -8,6 +8,8 @@ import React, {
   useEffect,
 } from 'react';
 
+import { useFileSave } from '@/hooks/useFileSave';
+
 import { uploadImage, ImageReference } from '@/utils/app/imageHandler';
 import { Logger } from '@/utils/logger';
 
@@ -28,6 +30,9 @@ const uploadingImages = new Set<string>();
 
 export const Image = memo(
   ({ src, alt, ...props }: ImageProps) => {
+    const { saveFile, fileSaveDialog } = useFileSave();
+    const [downloadError, setDownloadError] = useState('');
+    const [downloading, setDownloading] = useState(false);
     const imgRef = useRef(null);
     const [error, setError] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
@@ -125,59 +130,22 @@ export const Image = memo(
     };
 
     const handleDownload = useCallback(async () => {
-      // For downloaded images, use full quality (not thumbnail)
-      const downloadSrc = uploadedRef
-        ? `/api/session/imageStorage?imageId=${uploadedRef.imageId}&sessionId=${uploadedRef.sessionId}`
-        : src;
-
-      if (!downloadSrc) return;
-
+      if (!src || downloading) return;
+      setDownloading(true);
+      setDownloadError('');
       try {
-        // Fetch the image as a blob
-        const response = await fetch(downloadSrc);
+        const response = await fetch(src);
+        if (!response.ok) throw new Error('Image download failed');
         const blob = await response.blob();
-
-        const fileName = alt ? `${alt}.png` : `image-${Date.now()}.png`;
-
-        // Try Web Share API first (mobile devices)
-        if (
-          typeof navigator !== 'undefined' &&
-          navigator.canShare &&
-          navigator.share
-        ) {
-          try {
-            const file = new File([blob], fileName, {
-              type: blob.type || 'image/png',
-            });
-
-            // Check if we can share this file
-            if (navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: 'Share Image',
-                text: alt || 'Image from chat',
-              });
-              return; // Successfully shared, exit early
-            }
-          } catch (shareErr) {
-            // If share fails or is cancelled, fall through to download
-            logger.info('Share cancelled or failed, falling back to download');
-          }
-        }
-
-        // Fallback: Standard download (desktop or if share not supported)
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      } catch (err) {
-        logger.error('Failed to download image:', err);
+        const extension =
+          blob.type === 'image/jpeg' ? 'jpg' : blob.type.split('/')[1] || 'png';
+        saveFile(blob, `${alt || 'image'}.${extension}`);
+      } catch {
+        setDownloadError('Could not prepare the image. Try again.');
+      } finally {
+        setDownloading(false);
       }
-    }, [src, alt, uploadedRef]);
+    }, [src, alt, downloading, saveFile]);
 
     if (src === 'loading' || isUploading) {
       return (
@@ -210,6 +178,7 @@ export const Image = memo(
     // Regular image display (external URLs only - base64 should be uploaded first)
     return (
       <>
+        {fileSaveDialog}
         <div className="relative group">
           {error ? (
             <div className="flex items-center justify-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
@@ -231,16 +200,23 @@ export const Image = memo(
                 {...props}
               />
               <button
-                className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 sm:opacity-100"
+                className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg opacity-100 transition-opacity duration-200 touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
                 onClick={handleDownload}
+                disabled={downloading}
+                aria-busy={downloading}
                 aria-label="Download image"
-                title="Download as PNG"
+                title="Save image"
               >
                 <IconDownload size={20} />
               </button>
             </div>
           )}
         </div>
+        {downloadError && (
+          <p role="alert" className="text-sm text-nvidia-red">
+            {downloadError}
+          </p>
+        )}
       </>
     );
   },

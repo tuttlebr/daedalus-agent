@@ -9,6 +9,8 @@ import {
   useState,
 } from 'react';
 
+import { useFileSave } from '@/hooks/useFileSave';
+
 import { toPng } from 'html-to-image';
 // Mermaid 11.16.1's browser bundle contains the matching parser. Its default
 // core entry imports parser 1.2.0, which is not available in npm metadata.
@@ -19,6 +21,7 @@ interface Props {
 }
 
 export const MermaidChart: FC<Props> = memo(({ value }) => {
+  const { saveFile, fileSaveDialog } = useFileSave();
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -77,21 +80,15 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
       const dataUrl = await toPng(containerRef.current, {
         backgroundColor: '#1e1e1e',
       });
-      const link = document.createElement('a');
-      link.download = 'mermaid-diagram.png';
-      link.href = dataUrl;
-      link.click();
+      const blob = await (await fetch(dataUrl)).blob();
+      saveFile(blob, 'mermaid-diagram.png');
     } catch {
-      // Fallback: download the SVG source
-      const blob = new Blob([svg], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.download = 'mermaid-diagram.svg';
-      link.href = url;
-      link.click();
-      URL.revokeObjectURL(url);
+      saveFile(
+        new Blob([svg], { type: 'image/svg+xml' }),
+        'mermaid-diagram.svg',
+      );
     }
-  }, [svg]);
+  }, [svg, saveFile]);
 
   if (error) {
     return (
@@ -99,6 +96,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
         className="codeblock relative text-[16px]"
         style={{ fontFamily: 'var(--font-mono)' }}
       >
+        {fileSaveDialog}
         <div className="flex items-center justify-between py-1.5 px-4">
           <span className="text-xs lowercase text-white">mermaid (error)</span>
         </div>
@@ -116,6 +114,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
       className="codeblock relative text-[16px]"
       style={{ fontFamily: 'var(--font-mono)' }}
     >
+      {fileSaveDialog}
       <div className="flex items-center justify-between py-1.5 px-4">
         <span className="text-xs lowercase text-white">mermaid</span>
         <div className="flex items-center">
@@ -129,6 +128,7 @@ export const MermaidChart: FC<Props> = memo(({ value }) => {
           {svg && (
             <button
               className="flex items-center rounded bg-none p-1 text-xs text-white"
+              aria-label="Download diagram"
               onClick={downloadPng}
             >
               <IconDownload size={18} />

@@ -303,7 +303,7 @@ export const AssistantMessage = memo(
 
                 {/* Action buttons — always visible on touch, hover-only on desktop */}
                 {!isStreaming && content && (
-                  <div className="flex items-center gap-1 mt-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+                  <div className="flex items-center gap-1 mt-1 opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100">
                     <IconButton
                       icon={copied ? <IconCheck /> : <IconCopy />}
                       aria-label="Copy message"

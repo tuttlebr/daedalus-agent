@@ -29,7 +29,7 @@ export default defineConfig({
         'utils/**/*.ts',
         'components/**/*.tsx',
         'services/**/*.ts',
-        'hooks/**/*.ts',
+        'hooks/**/*.{ts,tsx}',
         'pages/api/**/*.ts',
         'ws-server.ts',
         'server/autonomy/store.ts',

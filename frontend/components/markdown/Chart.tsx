@@ -5,6 +5,8 @@ import toast from 'react-hot-toast';
 
 import dynamic from 'next/dynamic';
 
+import { useFileSave } from '@/hooks/useFileSave';
+
 import { Logger } from '@/utils/logger';
 
 import * as htmlToImage from 'html-to-image';
@@ -55,6 +57,7 @@ const getRandomColor = () => {
 };
 
 const Chart = (props: any) => {
+  const { saveFile, fileSaveDialog } = useFileSave();
   const data = props?.payload;
   const {
     Label = '',
@@ -85,19 +88,12 @@ const Chart = (props: any) => {
       const chartElement = document.getElementById(`chart-${Label}`);
       if (chartElement) {
         logger.info('Generating image to download...');
-        const chartBackground = chartElement.style.background;
-        // Set the chart background to white before capturing the image
-        chartElement.style.background = 'white';
-        // Capture the image
-        const dataUrl = await htmlToImage.toPng(chartElement);
-        const link = document.createElement('a');
-        link.href = dataUrl;
-        link.download = `${Label}-${ChartType}.png`;
-        link.click();
-        // Reset the chart background
-        chartElement.style.background = chartBackground;
-        logger.info('Image downloaded successfully.');
-        toast.success('Downloaded successfully.');
+        const blob = await htmlToImage.toBlob(chartElement, {
+          backgroundColor: 'white',
+        });
+        if (!blob) throw new Error('Chart image is empty');
+        if (saveFile(blob, `${Label}-${ChartType}.png`))
+          toast.success('Download started.');
       }
     } catch (error) {
       logger.error('Error generating download image:', error);
@@ -395,11 +391,16 @@ const Chart = (props: any) => {
   };
 
   return (
-    <div className="pb-2">
-      <IconDownload
-        className="w-4 h-4 hover:text-nvidia-green absolute top-[4.5rem] right-[4.5rem]"
+    <div className="relative pb-2">
+      {fileSaveDialog}
+      <button
+        type="button"
+        aria-label="Download chart"
         onClick={handleDownload}
-      />
+        className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded-lg text-primary hover:text-nvidia-green"
+      >
+        <IconDownload size={20} />
+      </button>
       <div className="pt-4" id={`chart-${Label}`}>
         <div className="pl-4">{Label}</div>
         {renderChart()}

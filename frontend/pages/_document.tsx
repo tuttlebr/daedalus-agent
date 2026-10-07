@@ -39,47 +39,6 @@ export default function Document() {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="description" content="AI Agent Interface" />
 
-        {/* iOS Splash Screens */}
-        <link
-          rel="apple-touch-startup-image"
-          href={branding.assets['/icons/icon-512x512.png']}
-          media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)"
-        />
-        <link
-          rel="apple-touch-startup-image"
-          href={branding.assets['/icons/icon-512x512.png']}
-          media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)"
-        />
-        <link
-          rel="apple-touch-startup-image"
-          href={branding.assets['/icons/icon-512x512.png']}
-          media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)"
-        />
-        <link
-          rel="apple-touch-startup-image"
-          href={branding.assets['/icons/icon-512x512.png']}
-          media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)"
-        />
-        <link
-          rel="apple-touch-startup-image"
-          href={branding.assets['/icons/icon-512x512.png']}
-          media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)"
-        />
-        <link
-          rel="apple-touch-startup-image"
-          href={branding.assets['/icons/icon-512x512.png']}
-          media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)"
-        />
-        <link
-          rel="apple-touch-startup-image"
-          href={branding.assets['/icons/icon-512x512.png']}
-          media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2)"
-        />
-        <link
-          rel="apple-touch-startup-image"
-          href={branding.assets['/icons/icon-512x512.png']}
-        />
-
         {/* Windows */}
         <meta name="msapplication-TileColor" content="#a3b899" />
         <meta

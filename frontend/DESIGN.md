@@ -167,3 +167,48 @@ from the source commit; the production build regenerates them.
 Browser emulation can verify the web implementation; it does not substitute
 for VoiceOver listening, physical iPhone keyboard behavior, or installation
 from Safari. Those device checks should accompany a production release.
+
+## iPhone web app compatibility
+
+The frontend targets iPhone 16 and newer in Safari and as a Home Screen web app,
+using the iOS 18 web platform as its baseline. Layout follows viewport geometry,
+safe-area insets, and pointer capabilities rather than a phone-model allowlist.
+The existing visual-viewport hook retains keyboard, rotation, body-pan recovery,
+and pinch-zoom behavior. Landscape Chat reserves the home-indicator inset when
+bottom navigation is hidden; keyboard-open layout does not add it again.
+
+Safari receives Share → Add to Home Screen instructions, including the optional
+Open as Web App setting on newer iOS releases. Installed apps suppress those
+instructions. The prompt respects dismissal and stays out of typing and modal
+flows. Launch branding uses the manifest and Apple touch icon; square app icons
+are no longer incorrectly declared as full-screen startup images.
+
+Downloads prepared asynchronously use `useFileSave`: iOS receives an in-app
+Save action after the bytes are ready, and that new tap opens the native share
+sheet. Cancellation keeps the user in the app; share failures retain the file
+for retry. This covers Chat images, sandbox files, converted Markdown, code,
+charts, diagrams, and activity exports. Create retains its prefetched original
+image save action. Other platforms keep ordinary file downloads. The bytes are
+not re-encoded by the save flow.
+
+Touch actions remain visible in landscape, and Return inserts a newline on
+coarse-pointer devices regardless of width. Chat accepts HEIC/HEIF camera photos,
+including Files selections without a MIME type, and retains the normalized MIME
+type returned by the existing image service. Sign-in disables username spelling
+corrections and capitalization without disabling password-manager autofill.
+
+`e2e/tests/iphone-webapp.spec.ts` covers six representative screen sizes from
+390 to 440 CSS pixels wide, browser and standalone modes, and both orientations.
+It checks all five destinations, safe-area geometry, landscape Return behavior,
+installation guidance, and file saving. The share API and standalone flags are
+simulated; browser tests cannot exercise the native iOS share sheet, installation,
+or a physical software keyboard. Before a device release, check those flows on
+an installed iPhone app, along with VoiceOver and returning after device lock.
+Use the existing HIG and viewport suites for enlarged text, light/dark appearance,
+dialog focus, pinch zoom, and keyboard restoration.
+
+References checked October 6, 2026:
+
+- [Apple's Home Screen web app guidance](https://support.apple.com/guide/iphone/bookmark-a-website-iph42ab2f3a7/ios)
+- [WebKit safe-area layout](https://webkit.org/blog/7929/designing-websites-for-iphone-x/)
+- [WebKit user activation and asynchronous file sharing](https://webkit.org/blog/13862/the-user-activation-api/)

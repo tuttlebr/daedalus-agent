@@ -436,7 +436,7 @@ function MaskSection({
               useThumbnail
               className="w-full h-full object-contain"
             />
-            <div className="absolute top-1 right-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+            <div className="absolute top-1 right-1 opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100">
               <IconButton
                 icon={<IconX size={12} />}
                 onClick={() => onChange(null)}
@@ -555,7 +555,7 @@ function Thumb({
       <div className="absolute inset-x-0 top-0 px-1.5 py-0.5 bg-black/60 text-white text-[9px] font-medium">
         Image {index}
       </div>
-      <div className="absolute top-0.5 right-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+      <div className="absolute top-0.5 right-0.5 opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100">
         <IconButton
           icon={<IconX size={10} />}
           onClick={onRemove}

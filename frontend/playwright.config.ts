@@ -51,7 +51,8 @@ export default defineConfig({
     },
     {
       name: 'mobile-chromium',
-      testMatch: /(?:ui-layout|hig-design|ux-review|image-download)\.spec\.ts/,
+      testMatch:
+        /(?:ui-layout|hig-design|ux-review|image-download|iphone-webapp)\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: chromiumLaunchOptions,
@@ -63,8 +64,9 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      testMatch: /(?:ui-layout|hig-design|ux-review|image-download)\.spec\.ts/,
-      use: { ...devices['iPhone 15'], viewport: iphone17ProViewport },
+      testMatch:
+        /(?:ui-layout|hig-design|ux-review|image-download|iphone-webapp)\.spec\.ts/,
+      use: { ...devices['iPhone 16 Pro'], viewport: iphone17ProViewport },
     },
     {
       name: 'tablet-webkit',

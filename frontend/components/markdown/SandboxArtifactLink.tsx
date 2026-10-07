@@ -8,10 +8,11 @@ import {
   useState,
 } from 'react';
 
+import { useFileSave } from '@/hooks/useFileSave';
+
 import {
   downloadFilename,
   fetchSandboxArtifact,
-  saveArtifactBlob,
 } from '@/utils/app/sandboxArtifactDownload';
 
 interface SandboxArtifactLinkProps
@@ -22,6 +23,7 @@ interface SandboxArtifactLinkProps
 
 export const SandboxArtifactLink = memo(
   ({ href, children, className, ...props }: SandboxArtifactLinkProps) => {
+    const { saveFile, fileSaveDialog } = useFileSave();
     const [isPreparing, setIsPreparing] = useState(false);
     const [error, setError] = useState('');
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -48,7 +50,8 @@ export const SandboxArtifactLink = memo(
           signal: abortController.signal,
         });
         const blob = await response.blob();
-        saveArtifactBlob(
+        if (abortController.signal.aborted) return;
+        saveFile(
           blob,
           downloadFilename(response.headers.get('content-disposition')),
         );
@@ -74,6 +77,7 @@ export const SandboxArtifactLink = memo(
 
     return (
       <span className="inline">
+        {fileSaveDialog}
         <a
           {...props}
           href={href}

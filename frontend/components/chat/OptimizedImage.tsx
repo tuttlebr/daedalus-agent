@@ -6,6 +6,8 @@ import {
 } from '@tabler/icons-react';
 import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 
+import { useFileSave } from '@/hooks/useFileSave';
+
 import { getBlobCacheKey } from '@/utils/app/imageBlobCache';
 import {
   ImageReference,
@@ -59,6 +61,9 @@ export const OptimizedImage = memo(
     showControls = true,
     enableFullscreen = true,
   }: OptimizedImageProps) => {
+    const { saveFile, fileSaveDialog } = useFileSave();
+    const [downloadError, setDownloadError] = useState('');
+    const [downloading, setDownloading] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(false);
     const [isVisible, setIsVisible] = useState(false); // Start as not visible for lazy loading
@@ -255,70 +260,27 @@ export const OptimizedImage = memo(
 
     const handleDownload = async (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (downloading) return;
+      setDownloading(true);
+      setDownloadError('');
       try {
-        let blob: Blob;
-
-        // Always download full resolution image
-        if (imageRef) {
-          // Fetch full resolution for download (not thumbnail)
-          const fullUrl = getImageUrl(imageRef, false);
-          const response = await fetch(fullUrl);
-          blob = await response.blob();
-        } else if (blobUrl) {
-          const response = await fetch(blobUrl);
-          blob = await response.blob();
-        } else {
-          // Fetch the image as a blob
-          const response = await fetch(imageSrc);
-          blob = await response.blob();
-        }
-
-        const fileName = alt
-          ? `${alt}.png`
-          : `image-${imageRef?.imageId || Date.now()}.png`;
-
-        // Try Web Share API first (mobile devices)
-        if (
-          typeof navigator !== 'undefined' &&
-          navigator.canShare &&
-          navigator.share
-        ) {
-          try {
-            const file = new File([blob], fileName, {
-              type: blob.type || 'image/png',
-            });
-
-            // Check if we can share this file
-            if (navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: 'Share Image',
-                text: alt || 'Image from chat',
-              });
-              return; // Successfully shared, exit early
-            }
-          } catch (shareErr) {
-            // If share fails or is cancelled, fall through to download
-            logger.info('Share cancelled or failed, falling back to download');
-          }
-        }
-
-        // Fallback: Standard download (desktop or if share not supported)
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      } catch (err) {
-        logger.error('Failed to download image:', err);
+        const fullUrl = imageRef ? getImageUrl(imageRef, false) : imageSrc;
+        const response = await fetch(fullUrl);
+        if (!response.ok) throw new Error('Image download failed');
+        const blob = await response.blob();
+        const extension =
+          blob.type === 'image/jpeg' ? 'jpg' : blob.type.split('/')[1] || 'png';
+        saveFile(blob, `${alt || 'image'}.${extension}`);
+      } catch {
+        setDownloadError('Could not prepare the image. Try again.');
+      } finally {
+        setDownloading(false);
       }
     };
 
     return (
       <>
+        {fileSaveDialog}
         <div
           ref={containerRef}
           className={`relative inline-block max-w-full group ${className}`}
@@ -383,13 +345,15 @@ export const OptimizedImage = memo(
 
               {/* Action buttons overlay */}
               {!isLoading && showControls && (
-                <div className="absolute top-2 right-2 flex gap-2 opacity-100 transition-opacity duration-200 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                <div className="absolute top-2 right-2 flex gap-2 opacity-100 transition-opacity duration-200 touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                   <button
                     type="button"
                     className="bg-panel text-primary p-2 rounded-lg shadow-sm"
                     onClick={handleDownload}
+                    disabled={downloading}
+                    aria-busy={downloading}
                     aria-label="Download image"
-                    title="Download as PNG"
+                    title="Save image"
                   >
                     <IconDownload size={20} />
                   </button>
@@ -408,6 +372,11 @@ export const OptimizedImage = memo(
           )}
         </div>
 
+        {downloadError && !isFullscreen && (
+          <p role="alert" className="text-sm text-nvidia-red">
+            {downloadError}
+          </p>
+        )}
         {/* Fullscreen Modal */}
         {isFullscreen && !error && (
           <ModalSurface
@@ -423,8 +392,10 @@ export const OptimizedImage = memo(
                 type="button"
                 className="text-primary p-2 rounded-lg bg-control"
                 onClick={handleDownload}
+                disabled={downloading}
+                aria-busy={downloading}
                 aria-label="Download image"
-                title="Download as PNG (Full Quality)"
+                title="Save full-quality image"
               >
                 <IconDownload size={24} />
               </button>
@@ -439,6 +410,11 @@ export const OptimizedImage = memo(
               </button>
             </div>
 
+            {downloadError && (
+              <p role="alert" className="px-4 text-sm text-nvidia-red">
+                {downloadError}
+              </p>
+            )}
             {/* Fullscreen image - use full resolution if available */}
             <div className="relative flex min-h-0 flex-1 items-center justify-center p-4">
               <img

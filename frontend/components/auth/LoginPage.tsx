@@ -67,7 +67,7 @@ export const LoginPage: React.FC = () => {
     <main
       id="main-content"
       tabIndex={-1}
-      className="min-h-[100dvh] flex items-center justify-center bg-app safe-y py-8"
+      className="min-h-[100dvh] flex items-center justify-center bg-app app-safe-x safe-y py-8"
     >
       <div className="w-full max-w-md px-4">
         <GlassCard variant="elevated" padding="lg" className="space-y-8">
@@ -101,6 +101,10 @@ export const LoginPage: React.FC = () => {
                 id="username"
                 type="text"
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -121,6 +125,7 @@ export const LoginPage: React.FC = () => {
                 id="password"
                 type="password"
                 autoComplete="current-password"
+                enterKeyHint="go"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

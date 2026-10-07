@@ -9,6 +9,8 @@ import { FC, memo, useEffect, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
+import { useFileSave } from '@/hooks/useFileSave';
+
 import {
   generateRandomString,
   programmingLanguages,
@@ -30,6 +32,7 @@ interface Props {
 
 export const CodeBlock: FC<Props> = memo(
   ({ language, value, defaultPreview = true, fullscreen = false }) => {
+    const { saveFile, fileSaveDialog } = useFileSave();
     const [isCopied, setIsCopied] = useState<boolean>(false);
 
     const isHtml = HTML_PREVIEW_LANGUAGES.has(language.toLowerCase());
@@ -92,15 +95,7 @@ export const CodeBlock: FC<Props> = memo(
       }
 
       const blob = new Blob([formattedValue], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.download = suggestedFileName;
-      link.href = url;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      saveFile(blob, suggestedFileName);
     };
 
     return (
@@ -111,6 +106,7 @@ export const CodeBlock: FC<Props> = memo(
         )}
         style={{ fontFamily: 'var(--font-mono)' }}
       >
+        {fileSaveDialog}
         <div className="flex items-center justify-between py-1.5 px-4">
           <span className="text-xs lowercase text-white">{language}</span>
 

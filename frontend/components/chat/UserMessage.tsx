@@ -158,7 +158,7 @@ export const UserMessage = memo(
 
               {/* Copy button — below the bubble so it never clips off-screen;
                   always visible on touch, hover-only on desktop */}
-              <div className="mt-1 flex justify-end opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
+              <div className="mt-1 flex justify-end opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                 <IconButton
                   icon={copied ? <IconCheck /> : <IconCopy />}
                   aria-label="Copy message"

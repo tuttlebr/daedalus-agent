@@ -15,8 +15,11 @@ import {
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
+import { useFileSave } from '@/hooks/useFileSave';
+
 import { apiDelete } from '@/utils/app/api';
 import { saveConversation } from '@/utils/app/conversation';
+import { downloadFilename } from '@/utils/app/sandboxArtifactDownload';
 
 import { Conversation } from '@/types/chat';
 
@@ -34,6 +37,7 @@ const rowActionClasses =
 
 export const Sidebar = memo(() => {
   const { logout } = useAuth();
+  const { saveFile, fileSaveDialog } = useFileSave();
 
   const conversations = useConversationStore((s) => s.conversations);
   const selectedConversationId = useConversationStore(
@@ -186,14 +190,29 @@ export const Sidebar = memo(() => {
     }
   }, [renamingId, renameValue, updateConversation, pending, cancelRename]);
 
-  const handleDownloadTraces = useCallback((id: string) => {
-    const link = document.createElement('a');
-    link.href = `/api/conversations/${encodeURIComponent(id)}/traces`;
-    link.download = '';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  }, []);
+  const handleDownloadTraces = useCallback(
+    async (id: string) => {
+      if (pending) return;
+      setPending(id);
+      setError(null);
+      try {
+        const response = await fetch(
+          `/api/conversations/${encodeURIComponent(id)}/traces`,
+          { cache: 'no-store' },
+        );
+        if (!response.ok) throw new Error('Trace download failed');
+        saveFile(
+          await response.blob(),
+          downloadFilename(response.headers.get('Content-Disposition')),
+        );
+      } catch {
+        setError('Could not download activity. Try again.');
+      } finally {
+        setPending(null);
+      }
+    },
+    [pending, saveFile],
+  );
 
   const handleClearAll = useCallback(async () => {
     if (pending) return;
@@ -424,7 +443,7 @@ export const Sidebar = memo(() => {
                       <span className="truncate text-sm">{conv.name}</span>
                     </button>
                     {!isAutonomous && (
-                      <div className="flex flex-shrink-0 items-center opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
+                      <div className="flex flex-shrink-0 items-center opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                         <button
                           type="button"
                           id={`rename-conversation-${conv.id}`}
@@ -557,6 +576,7 @@ export const Sidebar = memo(() => {
           </button>
         </div>
       </div>
+      {fileSaveDialog}
     </GlassPanel>
   );
 });
