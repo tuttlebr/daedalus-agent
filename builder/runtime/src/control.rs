@@ -61,6 +61,7 @@ impl Command {
 }
 
 pub struct RunHandle {
+    pub telemetry: Mutex<Option<opentelemetry_sdk::trace::Span>>,
     pub user: String,
     pub conversation: String,
     pub sender: mpsc::Sender<Command>,
@@ -143,6 +144,7 @@ mod tests {
             finished: AtomicBool::new(false),
             cancellation: watch::channel(false).0,
             metrics: Metrics::default(),
+            telemetry: Mutex::new(None),
         };
         for _ in 0..256 {
             assert_eq!(
@@ -203,6 +205,7 @@ mod tests {
             finished: AtomicBool::new(false),
             cancellation: watch::channel(false).0,
             metrics: Metrics::default(),
+            telemetry: Mutex::new(None),
         };
         let command = Command::Steer {
             command_id: Uuid::new_v4(),
@@ -246,6 +249,7 @@ mod tests {
             finished: AtomicBool::new(false),
             cancellation: watch::channel(false).0,
             metrics: Metrics::default(),
+            telemetry: Mutex::new(None),
         };
         let command = Command::Steer {
             command_id: Uuid::new_v4(),

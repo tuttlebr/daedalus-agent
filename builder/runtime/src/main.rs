@@ -1,10 +1,22 @@
 //! Daedalus's interruptible agent runtime. Python is a leaf-tool service.
 
 mod agent;
+mod config;
 mod control;
 mod events;
 mod logging;
+mod memory;
+#[cfg(test)]
+mod migration;
+#[cfg(test)]
+mod migration_spikes;
+mod output;
+mod preparation;
+mod protocol;
 mod provider;
+mod storage;
+mod telemetry;
+mod yaml;
 
 use std::{
     collections::HashMap,
@@ -41,6 +53,7 @@ struct App {
     internal_token: Arc<String>,
     insecure: bool,
     runs: Runs,
+    preparation: Option<Arc<preparation::Preparation>>,
 }
 
 fn error(status: u16, message: &str) -> Response {
@@ -123,6 +136,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     let (commands, inbox) = mpsc::channel(32);
     let (sender, receiver) = mpsc::channel(128);
     let handle = Arc::new(RunHandle {
+        telemetry: Mutex::new(None),
         user,
         conversation,
         sender: commands,
@@ -152,6 +166,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         sender,
     };
     let cleanup_headers = headers.clone();
+    let legacy_preparation = app.preparation.is_none();
     let cleanup_http = app.http.clone();
     let cleanup_url = format!("{}/runtime/run", app.tools_url);
     let metrics_handle = handle.clone();
@@ -165,6 +180,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         handle,
         pending: Vec::new(),
         revision: 0,
+        preparation: app.preparation.clone(),
     };
     let streaming = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let message_count = messages.len();
@@ -232,6 +248,9 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
                 }).await;
             }
             let metrics = metrics_handle.metrics.snapshot();
+            if let Some(mut telemetry_span) = metrics_handle.telemetry.lock().await.take() {
+                telemetry::finish(&mut telemetry_span,log_outcome,&metrics);
+            }
             tracing::info!(
                 event = "run_finished",
                 outcome = log_outcome,
@@ -242,6 +261,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
                 output_tokens = metrics["output_tokens"].as_u64(),
                 reported_usage_calls = metrics["reported_usage_calls"].as_u64()
             );
+            if legacy_preparation {
             let cleanup = cleanup_http
                 .delete(cleanup_url)
                 .headers(cleanup_headers)
@@ -257,6 +277,7 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
                     error_kind = details.kind,
                     http_status = details.status
                 );
+            }
             }
             runs.lock().await.remove(&run_id);
         }
@@ -328,6 +349,19 @@ async fn proxy(State(app): State<App>, request: Request) -> Response {
     if parts.uri.path().starts_with("/runtime/") {
         return error(404, "Not found");
     }
+    if app
+        .preparation
+        .as_ref()
+        .is_some_and(|p| !p.config.python_tools)
+    {
+        return if parts.uri.path().starts_with("/v1/")
+            || parts.uri.path().starts_with("/executions/")
+        {
+            (StatusCode::SERVICE_UNAVAILABLE,Json(json!({"error":{"message":"Capability unavailable in this profile","code":"capability_unavailable"}}))).into_response()
+        } else {
+            error(404, "Not found")
+        };
+    }
     let mut headers = parts.headers;
     for name in [
         header::HOST,
@@ -380,18 +414,104 @@ fn router(app: App) -> Router {
             "/v1/runs/{run_id}/control",
             post(control).layer(DefaultBodyLimit::max(32 * 1024)),
         )
+        .route("/health/ready", get(readiness))
         .fallback(proxy)
         .with_state(app)
+}
+
+async fn readiness(State(app): State<App>) -> Response {
+    if std::path::Path::new("/tmp/daedalus-draining").exists() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"status":"draining"})),
+        )
+            .into_response();
+    }
+    if app.internal_token.is_empty() && !app.insecure {
+        return error(503, "Internal authentication is not configured");
+    }
+    let Some(preparation) = &app.preparation else {
+        return proxy(
+            State(app),
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    };
+    if preparation.config.python_tools {
+        return proxy(
+            State(app),
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    }
+    // Minimal chat only requires Redis if configured; memory/output caches remain
+    // optional. Full-profile readiness retains its required dependency policy.
+    let redis_required = preparation.config.env.contains_key("REDIS_URL");
+    if redis_required && preparation.outputs.store.ping().await.is_err() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"status":"unready","reason":"redis_unavailable"})),
+        )
+            .into_response();
+    }
+    let mut memory = json!({"state":if preparation.memory.enabled {"hindsight"} else {"disabled"}});
+    let mut degraded = false;
+    if preparation.memory.enabled {
+        let mode = preparation
+            .config
+            .variable("DAEDALUS_MEMORY_READINESS_MODE", "degraded")
+            .trim()
+            .to_lowercase();
+        if !["", "degraded", "required"].contains(&mode.as_str()) {
+            return error(503, "Invalid memory readiness mode");
+        }
+        let available = preparation.memory.health().await.is_ok();
+        memory["hindsight"] = json!(if available { "ready" } else { "unavailable" });
+        if !available && mode == "required" {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"status":"unready","reason":"hindsight_unavailable","memory":memory})),
+            )
+                .into_response();
+        }
+        degraded = !available;
+    }
+    Json(json!({"status":if degraded {"degraded"} else {"ready"},"runtime":"rust","memory":memory,"capabilities":{"current_datetime":true,"python_executor":false}})).into_response()
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     logging::init();
+    let http = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let mode = std::env::var("DAEDALUS_PREPARATION").unwrap_or_else(|_| "rust".into());
+    let preparation = match mode.as_str() {
+        "rust" => {
+            let path = std::env::var("DAEDALUS_CONFIG_FILE")
+                .unwrap_or_else(|_| "/workspace/config.yaml".into());
+            let config = config::Config::from_path(std::path::Path::new(&path))?;
+            if std::env::args().any(|arg| arg == "--check-config") {
+                println!(
+                    "Configuration valid; preparation=rust; python_executor_required={}",
+                    config.python_tools
+                );
+                return Ok(());
+            }
+            Some(preparation::Preparation::new(config, http.clone())?)
+        }
+        "python" => None,
+        _ => anyhow::bail!("DAEDALUS_PREPARATION must be rust or python"),
+    };
     let app = App {
-        http: reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?,
+        http,
         tools_url: std::env::var("DAEDALUS_TOOLS_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:8001".into()),
         internal_token: Arc::new(
@@ -407,6 +527,7 @@ async fn main() -> anyhow::Result<()> {
             "1" | "true" | "yes"
         ),
         runs: Arc::new(Mutex::new(HashMap::new())),
+        preparation,
     };
     let host = std::env::var("DAEDALUS_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = std::env::var("DAEDALUS_PORT").unwrap_or_else(|_| "8000".into());
@@ -416,14 +537,24 @@ async fn main() -> anyhow::Result<()> {
         component = "rust_agent",
         port = listener.local_addr()?.port()
     );
+    let shutdown_preparation = app.preparation.clone();
+    let shutdown_runs = app.runs.clone();
     axum::serve(listener, router(app))
-        .with_graceful_shutdown(async {
+        .with_graceful_shutdown(async move {
             let mut terminate =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                     .expect("install SIGTERM handler");
             tokio::select! { _ = terminate.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
             tracing::info!(event = "runtime_stopping", component = "rust_agent");
+            for handle in shutdown_runs.lock().await.values() {
+                let _ = handle.cancellation.send(true);
+            }
         })
         .await?;
+    if let Some(preparation) = shutdown_preparation
+        && let Some(telemetry) = &preparation.telemetry
+    {
+        telemetry.shutdown().await;
+    }
     Ok(())
 }

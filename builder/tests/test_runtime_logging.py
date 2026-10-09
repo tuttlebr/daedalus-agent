@@ -26,7 +26,10 @@ def output(monkeypatch):
     previous_level = logger.level
     logger.setLevel(logging.INFO)
     try:
-        yield stream
+        # entrypoint tests configure the supervisor in this same pytest process;
+        # production runs the tools and supervisor in separate processes.
+        with log_context(component="python_tools"):
+            yield stream
     finally:
         logger.setLevel(previous_level)
 

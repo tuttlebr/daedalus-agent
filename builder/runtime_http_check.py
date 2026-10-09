@@ -32,6 +32,7 @@ class Peers:
         self.requests = []
         self.calls = []
         self.model_waiting = threading.Event()
+        self.model_disconnected = threading.Event()
         self.tool_waiting = threading.Event()
         self.release_model = threading.Event()
         self.release_tool = threading.Event()
@@ -144,6 +145,21 @@ class Peers:
                             "content": [{"type": "text", "text": "RETAINED_EVIDENCE"}],
                             "isError": False,
                         }
+                        if (
+                            body["params"].get("arguments", {}).get("private")
+                            == "LARGE_TOOL"
+                        ):
+                            # Baseline compaction selects a top-level array.
+                            # A JSON string nested in one text block is opaque.
+                            result["content"] = [
+                                {"type": "text", "text": f"{i}: " + "雪" * 5000}
+                                for i in range(700)
+                            ]
+                        elif (
+                            body["params"].get("arguments", {}).get("private")
+                            == "LARGE_OPAQUE"
+                        ):
+                            result["content"][0]["text"] = "雪" * 3_500_000
                     else:
                         self.reply(
                             {
@@ -260,8 +276,12 @@ class Peers:
                         }
                     )
                     peers.model_waiting.set()
-                    peers.release_model.wait(15)
+                    self.wait_for_disconnect(
+                        peers.model_disconnected, peers.release_model
+                    )
                     return
+                elif "TEXT_ONLY" in serialized:
+                    text = "Synthetic text response 雪🌲."
                 elif not has_result or (
                     scenario == "DEFERRED_DISCOVERY"
                     and "RETAINED_EVIDENCE" not in serialized
@@ -280,10 +300,34 @@ class Peers:
                         else ["fixture_mcp__slow_read", "fixture_mcp__next_read"]
                         if scenario == "TOOL_STEER"
                         else ["fixture_mcp__next_read"]
+                        if "LARGE_TOOL" in serialized or "LARGE_OPAQUE" in serialized
+                        else ["fixture_mcp__next_read"]
                         if scenario == "STREAM_TOOL_CUT" and attempt == 1
                         else ["current_datetime_tool"]
                     )
                     for index, name in enumerate(names):
+                        arguments = (
+                            json.dumps({"private": "LARGE_TOOL"})
+                            if "LARGE_TOOL" in serialized
+                            else json.dumps({"private": "LARGE_OPAQUE"})
+                            if "LARGE_OPAQUE" in serialized
+                            else json.dumps({"extra": None, "雪🌲": False})
+                            if name == "current_datetime_tool"
+                            and "CLOCK_EXTRA" in serialized
+                            else "null"
+                            if name == "current_datetime_tool"
+                            and "CLOCK_NULL" in serialized
+                            else json.dumps(
+                                {
+                                    "operation": "load_skill",
+                                    "skill_name": "fixture-skill",
+                                }
+                            )
+                            if name == "agent_skills_tool"
+                            else json.dumps({"private": "PRIVATE_TOOL_ARGUMENT"})
+                            if name.endswith("slow_read")
+                            else "{}"
+                        )
                         item = {
                             "type": "function_call",
                             "id": f"fc_{index}",
@@ -306,30 +350,12 @@ class Peers:
                                 "output_index": index,
                                 "item_id": item["id"],
                                 "sequence_number": index * 4 + 1,
-                                "delta": json.dumps(
-                                    {
-                                        "operation": "load_skill",
-                                        "skill_name": "fixture-skill",
-                                    }
-                                )
-                                if name == "agent_skills_tool"
-                                else json.dumps({"private": "PRIVATE_TOOL_ARGUMENT"})
-                                if name.endswith("slow_read")
-                                else "{}",
+                                "delta": arguments,
                             }
                         )
                         item = {
                             **item,
-                            "arguments": json.dumps(
-                                {
-                                    "operation": "load_skill",
-                                    "skill_name": "fixture-skill",
-                                }
-                            )
-                            if name == "agent_skills_tool"
-                            else json.dumps({"private": "PRIVATE_TOOL_ARGUMENT"})
-                            if name.endswith("slow_read")
-                            else "{}",
+                            "arguments": arguments,
                             "status": "completed",
                         }
                         self.event(
@@ -471,7 +497,7 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def check(image=None, binary=None, redis_image=None):
+def check(image=None, binary=None, redis_image=None, preparation="rust", report=None):
     if os.sys.flags.optimize:
         raise RuntimeError("Run runtime contracts without Python optimization")
     docker = shutil.which("docker")
@@ -518,7 +544,7 @@ def check(image=None, binary=None, redis_image=None):
             "tools": ["current_datetime_tool", "fixture_mcp"],
             "max_iterations": 8,
             "parallel_tool_calls": True,
-            "tool_output_compaction_enabled": False,
+            "tool_output_compaction_enabled": bool(redis_image),
             "instructions": "Follow user directions and retain completed tool results.",
         },
     }
@@ -560,11 +586,15 @@ def check(image=None, binary=None, redis_image=None):
         path.write_text(yaml.safe_dump(config))
         path.chmod(0o644)
         env = {
+            "DAEDALUS_PREPARATION": preparation,
             "DAEDALUS_INTERNAL_API_TOKEN": f"  {token}  ",
             "DAEDALUS_MEMORY_MODE": "disabled",
             "DAEDALUS_PORT": str(runtime_port),
             "DAEDALUS_TOOLS_PORT": str(tools_port),
             "REDIS_URL": "redis://127.0.0.1:1",
+            "AUTONOMOUS_LLM_MODEL_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
+            "AUTONOMOUS_LLM_MODEL_API_KEY": "PRIVATE_AUTONOMOUS_CREDENTIAL",
+            "AUTONOMOUS_LLM_MODEL_MODEL": "fixture/autonomy",
             "IMAGE_GENERATION_API_KEY": "PRIVATE_IMAGE_CREDENTIAL",
             "IMAGE_GENERATION_MODEL": "gpt-image-2.5-sunburst",
             "IMAGE_GENERATION_BASE_URL": f"http://127.0.0.1:{model_port}/v1",
@@ -691,13 +721,16 @@ def check(image=None, binary=None, redis_image=None):
                     == 404
                 )
 
-                def chat(scenario, run, props=None, conversation=None):
+                def chat(
+                    scenario, run, props=None, conversation=None, extra_headers=None
+                ):
                     response = client.post(
                         base + "/v1/chat/completions",
                         headers={
                             **headers,
                             "x-daedalus-request-id": run,
                             "x-conversation-id": conversation or run,
+                            **(extra_headers or {}),
                         },
                         json={
                             "stream": True,
@@ -748,6 +781,11 @@ def check(image=None, binary=None, redis_image=None):
                 assert "fixture_deferred__write_item" not in connected_names  # nosec B101 - executable contract check
                 assert len(requests) == 3 and peers.calls == ["next_read"]  # nosec B101 - executable contract check
                 peers.calls.clear()
+                invalid_clock = chat("CLOCK_EXTRA", "clock-extra-run")
+                assert "The real datetime tool completed" in invalid_clock  # nosec B101
+                assert "extra_forbidden" in json.dumps(peers.requests[-1])  # nosec B101
+                invalid_clock = chat("CLOCK_NULL", "clock-null-run")
+                assert "Agent execution failed" in invalid_clock  # nosec B101
                 gateway = chat("GATEWAY", "gateway-run")
                 assert gateway.count("The real datetime tool completed") == 1, gateway  # nosec B101 - executable contract check
                 assert "Function Complete: current_datetime_tool" in gateway  # nosec B101 - executable contract check
@@ -776,6 +814,18 @@ def check(image=None, binary=None, redis_image=None):
                         ]
                         == expected
                     )
+                for profile in (None, "deep_max"):
+                    before = len(peers.requests)
+                    response = chat(
+                        "SKILL_ROUTE",
+                        "autonomy-" + str(profile),
+                        {"model_profile": profile} if profile else None,
+                        extra_headers={"x-daedalus-execution-scope": "autonomy"},
+                    )
+                    assert "The real datetime tool completed" in response  # nosec B101
+                    assert [
+                        request["model"] for request in peers.requests[before:]
+                    ] == ["fixture/autonomy", "fixture/autonomy"]  # nosec B101
                 retried = chat("RETRY_MODEL", "retry-run")
                 assert "The real datetime tool completed" in retried  # nosec B101 - executable contract check
                 assert (  # nosec B101 - executable contract check
@@ -1043,6 +1093,14 @@ def check(image=None, binary=None, redis_image=None):
                             ).status_code
                             == 404
                         )
+                if redis_image:
+                    result = chat("LARGE_TOOL", "large-tool-run")
+                    assert "The real datetime tool completed" in result  # nosec B101
+                    assert "_daedalus_compacted_tool_output" in json.dumps(
+                        peers.requests[-1]
+                    )  # nosec B101
+                    result = chat("LARGE_OPAQUE", "large-opaque-run")
+                    assert "Agent execution failed" in result  # nosec B101
                 # Read through a separate descriptor: seeking the child's shared
                 # stdout file would move its write position while it is logging.
                 records = []
@@ -1076,12 +1134,18 @@ def check(image=None, binary=None, redis_image=None):
                     "cancellation_received",
                     "run_finished",
                     "run_failed",
-                    "tool_prepare_finished",
                     "tool_execution_started",
                     "tool_execution_finished",
-                    "tool_run_released",
                     "child_ready",
                 }
+                if preparation == "python":
+                    required_events.update(
+                        {"tool_prepare_finished", "tool_run_released"}
+                    )
+                else:
+                    assert not {"tool_prepare_finished", "tool_run_released"} & {
+                        event.get("event") for event in events
+                    }, "Rust runs must not create or release Python run state"  # nosec B101
                 assert required_events <= {
                     event.get("event") for event in events
                 }, events  # nosec B101 - executable contract check
@@ -1099,7 +1163,8 @@ def check(image=None, binary=None, redis_image=None):
                     ), name
                 assert any(
                     event.get("event") == "tool_execution_finished"  # nosec B101 - executable contract check
-                    and event.get("run_id") == "basic-run"
+                    and event.get("run_id")
+                    == ("basic-run" if preparation == "python" else "tool-run")
                     for event in events
                 )
                 assert any(
@@ -1131,6 +1196,7 @@ def check(image=None, binary=None, redis_image=None):
                     "PRIVATE_PROMPT",
                     "PRIVATE_PROVIDER_ERROR",
                     "PRIVATE_MODEL_CREDENTIAL",
+                    "PRIVATE_AUTONOMOUS_CREDENTIAL",
                     "PRIVATE_TOOL_ARGUMENT",
                     "RETAINED_EVIDENCE",
                     "The real datetime tool completed",
@@ -1141,6 +1207,32 @@ def check(image=None, binary=None, redis_image=None):
                     assert (
                         private not in raw_logs
                     ), "Private content appeared in runtime logs"  # nosec B101 - executable contract check
+                if report:
+                    # Only the clock's result is nondeterministic. Keep all model
+                    # requests, tool arguments, schemas, errors and affinity IDs.
+                    requests = json.loads(json.dumps(peers.requests))
+                    for request in requests:
+                        clock_calls = {
+                            item["call_id"]
+                            for item in request.get("input", [])
+                            if item.get("type") == "function_call"
+                            and item.get("name") == "current_datetime_tool"
+                        }
+                        for item in request.get("input", []):
+                            if (
+                                item.get("type") == "function_call_output"
+                                and item.get("call_id") in clock_calls
+                            ):
+                                value = item.get("output", "")
+                                if re.fullmatch(
+                                    r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?[+-]\d\d:\d\d",
+                                    value,
+                                ):
+                                    item["output"] = "<clock-instant>"
+                    Path(report).write_text(
+                        json.dumps({"version": 1, "requests": requests}, indent=2)
+                        + "\n"
+                    )
                 print(
                     "HTTP contract passed: streaming, native tools, bounded provider retry, incomplete rejection, user isolation, idempotent steering during model/MCP calls, retained results, skipped queued calls, and cancellation."
                     " Structured lifecycle logs, failure diagnostics, run correlation, and private-data exclusion passed."
@@ -1189,9 +1281,13 @@ if __name__ == "__main__":
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--image")
     target.add_argument("--binary")
+    parser.add_argument("--preparation", choices=("rust", "python"), default="rust")
     parser.add_argument(
         "--redis-image",
         help="Disposable Redis image for exact approval integration checks",
     )
+    parser.add_argument(
+        "--report", help="Synthetic requests for differential comparison"
+    )
     args = parser.parse_args()
-    check(args.image, args.binary, args.redis_image)
+    check(args.image, args.binary, args.redis_image, args.preparation, args.report)

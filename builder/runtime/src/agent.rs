@@ -11,7 +11,7 @@ use rig_core::completion::{CompletionRequest, FinishReason, ToolDefinition};
 use rig_core::message::Message;
 use rig_core::providers::openai::{OpenAIConfig, Route};
 use rig_core::streaming::{Item, StreamEvent};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
@@ -19,7 +19,7 @@ use crate::control::{Command, RunHandle};
 use crate::events::Events;
 use crate::logging::{Phase, label};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ModelConfig {
     pub base_url: String,
     pub api_key: String,
@@ -41,13 +41,13 @@ fn retries() -> usize {
     3
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct PreparedRun {
     pub model: ModelConfig,
     pub instructions: String,
@@ -91,6 +91,10 @@ pub struct ToolOutcome {
     pub model_profile: Option<String>,
     #[serde(default)]
     pub tools: Vec<ToolDefinition>,
+    #[serde(default)]
+    pub loaded_skills: Vec<String>,
+    #[serde(default)]
+    pub executor_state: Value,
 }
 
 pub struct Agent {
@@ -102,6 +106,26 @@ pub struct Agent {
     pub handle: std::sync::Arc<RunHandle>,
     pub pending: Vec<(String, String)>,
     pub revision: u64,
+    pub preparation: Option<std::sync::Arc<crate::preparation::Preparation>>,
+}
+
+/// Match the executor's json.dumps(ensure_ascii=False) framing, including its
+/// separator spaces and trailing newline, without charging private P1 state.
+fn legacy_tool_event_size(value: &Value) -> usize {
+    fn spaces(value: &Value) -> usize {
+        match value {
+            Value::Object(fields) => {
+                fields.len()
+                    + fields.len().saturating_sub(1)
+                    + fields.values().map(spaces).sum::<usize>()
+            }
+            Value::Array(items) => {
+                items.len().saturating_sub(1) + items.iter().map(spaces).sum::<usize>()
+            }
+            _ => 0,
+        }
+    }
+    value.to_string().len() + spaces(value) + 1
 }
 
 impl Agent {
@@ -160,14 +184,30 @@ impl Agent {
     pub async fn run(mut self, body: Value) -> Result<()> {
         let preparing = Instant::now();
         tracing::info!(event = "prepare_started");
-        let prepare = self
-            .http
-            .post(format!("{}/runtime/prepare", self.tools_url))
-            .headers(self.headers.clone())
-            .json(&body)
-            .send();
+        let preparation = self.preparation.clone();
+        let prepare_http = self.http.clone();
+        let prepare_headers = self.headers.clone();
+        let prepare_url = self.tools_url.clone();
+        let prepare = async {
+            if let Some(preparation) = &preparation {
+                preparation
+                    .prepare(&prepare_http, &prepare_url, &prepare_headers, &body)
+                    .await
+            } else {
+                prepare_http
+                    .post(format!("{prepare_url}/runtime/prepare"))
+                    .headers(prepare_headers)
+                    .json(&body)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .json::<PreparedRun>()
+                    .await
+                    .map_err(Into::into)
+            }
+        };
         tokio::pin!(prepare);
-        let response = loop {
+        let mut prepared = loop {
             tokio::select! {
                 biased;
                 Some(command) = self.inbox.recv() => self.accept(command).await?,
@@ -175,12 +215,6 @@ impl Agent {
                 _ = self.events.sender.closed() => bail!("Client disconnected"),
             }
         };
-        let mut prepared: PreparedRun = response
-            .error_for_status()
-            .context(Phase("prepare_request"))?
-            .json()
-            .await
-            .context(Phase("prepare_decode"))?;
         tracing::info!(
             event = "prepare_finished",
             elapsed_ms = preparing.elapsed().as_millis() as u64,
@@ -191,6 +225,27 @@ impl Agent {
             max_iterations = prepared.max_iterations,
             parallel_tool_calls = prepared.parallel_tool_calls
         );
+        let mut selection = preparation.as_ref().map(|p| {
+            crate::preparation::ModelSelection::new(
+                &p.config,
+                &body,
+                prepared.daily_summary,
+                crate::preparation::header(&self.headers, "x-daedalus-execution-scope")
+                    .eq_ignore_ascii_case("autonomy"),
+            )
+        });
+        if let Some(preparation) = &preparation
+            && let Some(telemetry) = &preparation.telemetry
+        {
+            let span = telemetry.start(&prepared, selection.as_ref().unwrap());
+            self.headers
+                .insert("traceparent", crate::telemetry::traceparent(&span));
+            self.headers.remove("tracestate");
+            *self.handle.telemetry.lock().await = Some(span);
+        } else if preparation.is_some() {
+            self.headers.remove("traceparent");
+            self.headers.remove("tracestate");
+        }
         let route = if prepared.model.api_type == "responses" {
             Route::Responses
         } else {
@@ -218,6 +273,14 @@ impl Agent {
         let mut iterations = 0;
         let mut retry_attempt = 0;
         let mut resume_text = false;
+        let mut executor_states: HashMap<String, Value> = HashMap::new();
+        let query = prepared
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role == "user")
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
         while iterations < prepared.max_iterations {
             self.drain().await?;
             self.apply(&mut history).await?;
@@ -445,7 +508,7 @@ impl Agent {
                     let position = queued.iter().position(|call| {
                         redirected
                             || !active_groups
-                                .contains(call.function.name.split("__").next().unwrap_or_default())
+                                .contains(self.execution_group(&call.function.name).as_str())
                     });
                     let Some(position) = position else {
                         break;
@@ -481,14 +544,25 @@ impl Agent {
                         .tool_calls
                         .fetch_add(1, Ordering::Relaxed)
                         + 1;
-                    active_groups.insert(name.split("__").next().unwrap_or_default().to_owned());
+                    let group = self.execution_group(&name);
+                    active_groups.insert(group.clone());
                     self.events
                         .tool(&id, &name, false, call.function.arguments.clone())
                         .await?;
                     let http = self.http.clone();
                     let headers = self.headers.clone();
-                    let url = format!("{}/runtime/tools/call", self.tools_url);
+                    let url = format!(
+                        "{}/runtime/{}",
+                        self.tools_url,
+                        if preparation.is_some() {
+                            "v1/tools/call"
+                        } else {
+                            "tools/call"
+                        }
+                    );
                     let events = self.events.clone();
+                    let tool_preparation = preparation.clone();
+                    let context = json!({"version":1,"query":query,"available_tools":prepared.tools.iter().map(|t| &t.name).collect::<Vec<_>>(),"executor_state":executor_states.get(&group).cloned().unwrap_or_else(||json!({}))});
                     active.push(async move {
                         let started = Instant::now();
                         tracing::info!(event = "tool_call_started", tool_call, tool = label(&name));
@@ -497,8 +571,9 @@ impl Agent {
                             headers,
                             url,
                             events,
-                            &name,
-                            &call.function.arguments,
+                            (&name, &call.function.arguments),
+                            tool_preparation,
+                            context,
                         )
                         .await
                         .context(Phase("tool_request"));
@@ -538,9 +613,22 @@ impl Agent {
                     Some(result) = active.next() => result,
                     _ = self.events.sender.closed() => bail!("Client disconnected"),
                 };
-                let outcome = outcome?;
+                let mut outcome = outcome?;
                 let name = call.function.name.to_string();
-                active_groups.remove(name.split("__").next().unwrap_or_default());
+                if preparation.is_some() {
+                    executor_states
+                        .insert(self.execution_group(&name), outcome.executor_state.clone());
+                    if let Some(preparation) = &preparation {
+                        // A leaf reports successful skill loading; only Rust resolves routing policy.
+                        let selection = selection.as_mut().unwrap();
+                        outcome.model_profile =
+                            selection.skill_loaded(&preparation.config, &outcome.loaded_skills);
+                        if let Some(span) = self.handle.telemetry.lock().await.as_mut() {
+                            crate::telemetry::routing(span, selection);
+                        }
+                    }
+                }
+                active_groups.remove(&self.execution_group(&name));
                 // An approval marker terminates the frontend stream. Defer it until
                 // every already-started call has returned its result.
                 let visible =
@@ -629,15 +717,67 @@ impl Agent {
         bail!("Agent iteration limit reached")
     }
 
+    fn execution_group(&self, name: &str) -> String {
+        if let Some(preparation) = &self.preparation
+            && let Some(kind) = preparation.config.raw["functions"][name]["_type"].as_str()
+        {
+            return format!("native:{kind}");
+        }
+        name.split("__").next().unwrap_or_default().to_owned()
+    }
+
     async fn tool_response(
         http: reqwest::Client,
         headers: HeaderMap,
         url: String,
         events: Events,
-        name: &str,
-        arguments: &Value,
+        invocation: (&str, &Value),
+        preparation: Option<std::sync::Arc<crate::preparation::Preparation>>,
+        context: Value,
     ) -> Result<ToolOutcome> {
-        let request = json!({"name":name,"arguments":arguments});
+        let (name, arguments) = invocation;
+        if let Some(preparation) = &preparation
+            && preparation.config.raw["functions"][name]["_type"] == "current_datetime"
+        {
+            if !arguments.is_object() {
+                bail!("Tool arguments must be an object");
+            }
+            if arguments.as_object().is_some_and(|a| !a.is_empty()) {
+                // Match Pydantic's safe error envelope and Python json.dumps,
+                // including spaces and ASCII escaping of untrusted field names.
+                let errors: Vec<_> = arguments.as_object().unwrap().keys().map(|key| {
+                    let key: String = serde_json::to_string(key).unwrap().chars().map(|c| {
+                        if c.is_ascii() { c.to_string() } else {
+                            c.encode_utf16(&mut [0; 2]).iter().map(|u| format!("\\u{u:04x}")).collect()
+                        }
+                    }).collect();
+                    format!("{{\"type\": \"extra_forbidden\", \"loc\": [{key}], \"msg\": \"Extra inputs are not permitted\"}}")
+                }).collect();
+                return Ok(ToolOutcome {
+                    content: format!("[{}]", errors.join(", ")),
+                    is_error: true,
+                    ..Default::default()
+                });
+            }
+            let configured = preparation.config.raw["functions"][name]["timezone"]
+                .as_str()
+                .unwrap_or("UTC");
+            let trusted = crate::preparation::header(&headers, "x-timezone");
+            let timezone = if trusted.is_empty() {
+                configured
+            } else {
+                trusted
+            };
+            return Ok(match timezone.parse::<chrono_tz::Tz>() {
+                Ok(tz) => ToolOutcome { content:chrono::Utc::now().with_timezone(&tz).to_rfc3339_opts(chrono::SecondsFormat::Micros,false), ..Default::default() },
+                Err(_) => ToolOutcome { content:"Tool failed (ZoneInfoNotFoundError). Check its arguments and service availability.".into(),is_error:true,..Default::default() }
+            });
+        }
+        let mut request = json!({"name":name,"arguments":arguments});
+        if preparation.is_some() {
+            request["context"] = context.clone();
+        }
+        let user = crate::preparation::header(&headers, "x-user-id").to_string();
         let response = http
             .post(url)
             .headers(headers)
@@ -647,9 +787,19 @@ impl Agent {
             .error_for_status()?;
         let mut stream = response.bytes_stream();
         let mut buffer = Vec::new();
+        // The legacy executor compacted before transport. Version 1 transports
+        // raw content to its Rust owner; allow the configured compaction input
+        // (up to six JSON-escaped bytes per character) plus the legacy envelope.
+        let event_limit = preparation.as_ref().map_or(8 * 1024 * 1024, |p| {
+            p.outputs
+                .settings
+                .max_original
+                .saturating_mul(6)
+                .saturating_add(8 * 1024 * 1024)
+        });
         while let Some(chunk) = stream.next().await {
             buffer.extend_from_slice(&chunk?);
-            if buffer.len() > 8 * 1024 * 1024 {
+            if buffer.len() > event_limit {
                 bail!("Tool event exceeds size limit");
             }
             while let Some(end) = buffer.iter().position(|byte| *byte == b'\n') {
@@ -660,8 +810,38 @@ impl Agent {
                 let event: Value = serde_json::from_slice(&line)?;
                 match event["event"].as_str() {
                     Some("result") => {
-                        return serde_json::from_value(event["data"].clone())
-                            .context("Invalid tool result");
+                        let mut outcome: ToolOutcome =
+                            serde_json::from_value(event["data"].clone())
+                                .context("Invalid tool result")?;
+                        if let Some(preparation) = &preparation
+                            && !outcome.terminal
+                        {
+                            outcome.content = preparation
+                                .outputs
+                                .optimize(
+                                    &user,
+                                    name,
+                                    context["query"].as_str().unwrap_or(""),
+                                    &outcome.content,
+                                )
+                                .await;
+                        }
+                        if preparation.is_some() {
+                            // Only the internal raw buffer grew. Preserve the
+                            // legacy envelope limit after Rust compaction,
+                            // excluding the new private executor context.
+                            let mut legacy = event;
+                            let data = legacy["data"]
+                                .as_object_mut()
+                                .context("Invalid tool result")?;
+                            data.remove("executor_state");
+                            data.remove("loaded_skills");
+                            data.insert("content".into(), json!(outcome.content));
+                            if legacy_tool_event_size(&legacy) > 8 * 1024 * 1024 {
+                                bail!("Tool event exceeds size limit");
+                            }
+                        }
+                        return Ok(outcome);
                     }
                     Some("oauth_required") => {
                         tracing::info!(event = "oauth_required");

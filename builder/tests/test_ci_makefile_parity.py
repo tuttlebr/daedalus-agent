@@ -58,6 +58,26 @@ def test_makefile_and_ci_exist():
     assert _CI.is_file(), _CI
 
 
+def test_rust_migration_gates_have_ci_and_local_parity():
+    ci = yaml.safe_load(_CI.read_text())
+    commands = "\n".join(
+        step.get("run", "") for step in ci["jobs"]["rust-migration"]["steps"]
+    )
+    makefile = _MAKEFILE.read_text()
+    ci_target = next(line for line in makefile.splitlines() if line.startswith("ci:"))
+    for target in ("rust-check", "rust-coverage", "migration", "candidate-browser"):
+        assert target in commands and target in ci_target
+        assert f"{target}:" in makefile
+    assert "--rollback-image $(MIGRATION_BASELINE_IMAGE)" in makefile
+    assert "--compare-image $(MIGRATION_BASELINE_IMAGE)" in makefile
+    assert "--redis-image $(MIGRATION_REDIS_IMAGE)" in makefile
+    assert "--target rust-minimal" in makefile
+    assert (
+        "--locked --manifest-path builder/runtime/Cargo.toml --all-targets -- -D warnings"
+        in makefile
+    )
+
+
 def test_makefile_builder_mirrors_ci_pytest_flags():
     make_flags = _pytest_flags(_makefile_builder_pytest_line())
     ci_flags = _pytest_flags(_ci_builder_pytest_command())

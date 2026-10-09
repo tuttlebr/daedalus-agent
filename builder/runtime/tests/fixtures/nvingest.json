@@ -1,0 +1,81 @@
+{
+  "fixture_version": 1,
+  "client_version": "26.3.0",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/v2/submit_job",
+      "body": {
+        "payload": "{\"job_payload\": {\"source_name\": [\"migration-fixture.txt\"], \"source_id\": [\"migration-fixture.txt\"], \"content\": [\"Synthetic Daedalus migration evidence. No production document.\"], \"document_type\": [\"text\"]}, \"job_id\": \"None\", \"tasks\": [{\"type\": \"extract\", \"task_properties\": {\"method\": \"pdfium\", \"document_type\": \"text\", \"params\": {\"extract_text\": true, \"extract_images\": false, \"extract_images_method\": \"group\", \"extract_tables\": false, \"extract_tables_method\": \"yolox\", \"extract_charts\": false, \"extract_infographics\": false, \"extract_page_as_image\": false, \"text_depth\": \"document\", \"table_output_format\": \"markdown\"}}}], \"tracing_options\": {}, \"pdf_config\": {}}"
+      }
+    }
+  ],
+  "result": [
+    [
+      [
+        {
+          "document_type": "text",
+          "metadata": {
+            "content": "Synthetic Daedalus migration evidence. No production document.",
+            "content_metadata": {
+              "type": "text",
+              "page_number": -1,
+              "description": "",
+              "hierarchy": {
+                "page_count": -1,
+                "page": -1,
+                "block": -1,
+                "line": -1,
+                "span": -1,
+                "nearby_objects": {
+                  "text": {
+                    "content": [],
+                    "bbox": [],
+                    "type": []
+                  },
+                  "images": {
+                    "content": [],
+                    "bbox": [],
+                    "type": []
+                  },
+                  "structured": {
+                    "content": [],
+                    "bbox": [],
+                    "type": []
+                  }
+                }
+              },
+              "subtype": "",
+              "start_time": -1,
+              "end_time": -1
+            },
+            "error_metadata": null,
+            "audio_metadata": null,
+            "image_metadata": null,
+            "source_metadata": {
+              "source_id": "migration-fixture.txt",
+              "source_name": "migration-fixture.txt",
+              "source_type": "text",
+              "source_location": "",
+              "collection_id": "",
+              "date_created": "2026-10-09T17:04:32.107934",
+              "last_modified": "2026-10-09T17:04:32.107944",
+              "summary": "",
+              "partition_id": -1,
+              "access_level": -1
+            },
+            "text_metadata": {
+              "text_type": "document",
+              "summary": "",
+              "keywords": "",
+              "language": "unknown",
+              "text_location": [0, 0, 0, 0],
+              "text_location_max_dimensions": [0, 0, 0, 0]
+            }
+          }
+        }
+      ]
+    ],
+    []
+  ]
+}

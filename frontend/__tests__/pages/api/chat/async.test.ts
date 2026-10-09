@@ -1856,7 +1856,8 @@ function wireRedisStore(initial: Record<string, any> = {}) {
       const value = store.get(args[2]);
       if ((value ? JSON.stringify(value) : '') !== args[4]) return 0;
       if (value?.ownerId && value.ownerId !== args[7]) return -1;
-      if (!value && args[9] !== '1') return -1;
+      // SAVE no longer accepts a TTL: allowCreate is its fifth ARGV entry.
+      if (!value && args[8] !== '1') return -1;
       store.set(args[2], JSON.parse(args[5]));
       return 1;
     }

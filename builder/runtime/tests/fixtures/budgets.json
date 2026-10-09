@@ -1,0 +1,31 @@
+{
+  "fixture_version": 1,
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "frozen_before_candidate": true,
+  "owner": "backend maintainer",
+  "correctness": { "unexplained_differences": 0, "unauthorized_effects": 0 },
+  "overhead": {
+    "warmup": 20,
+    "measured_runs": 200,
+    "concurrency": [1, 4, 8],
+    "repetitions": 3,
+    "p95_max_regression_fraction": 0.1,
+    "p95_allowance_ms": 10
+  },
+  "control": { "samples_per_phase": 100, "p95_cancellable_wait_ms": 2000 },
+  "resources": {
+    "max_peak_rss_regression_fraction": 0.1,
+    "max_cold_readiness_regression_fraction": 0.1
+  },
+  "release_soak_hours": 24,
+  "workloads": [
+    "text",
+    "clock",
+    "history_unicode",
+    "memory_context",
+    "steer_model_wait",
+    "stop_preparation",
+    "stop_model_wait"
+  ],
+  "notes": "User-approved migration plan gates. Synthetic peers isolate application overhead; live answer quality and P4 soak are separate release evidence. Failures remain in reports."
+}

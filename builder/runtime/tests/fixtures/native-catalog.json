@@ -1,0 +1,2695 @@
+{
+  "agent_skills_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "description": "Explicit LLM-facing schema for the unified skill dispatcher.",
+      "properties": {
+        "operation": {
+          "default": "list_skills",
+          "description": "Use list_skills to discover matching skills, load_skill to read a selected skill's instructions or resource, or run_skill_script only when script execution is enabled.",
+          "enum": ["list_skills", "load_skill", "run_skill_script"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional keyword query used only by list_skills.",
+          "title": "Query"
+        },
+        "skill_name": {
+          "default": "",
+          "description": "Skill name returned by list_skills; required by load_skill and run_skill_script.",
+          "title": "Skill Name",
+          "type": "string"
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional skill-relative resource path used only by load_skill.",
+          "title": "Resource"
+        },
+        "script": {
+          "default": "",
+          "description": "Skill-relative script path used only by run_skill_script.",
+          "title": "Script",
+          "type": "string"
+        },
+        "args": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional space-separated script arguments used only by run_skill_script.",
+          "title": "Args"
+        }
+      },
+      "title": "AgentSkillsInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for agent_skills_tool."
+  },
+  "briefing_renderer_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "edition": {
+          "additionalProperties": false,
+          "description": "A daily-daedalus/v1 edition OBJECT, not a JSON string. Follow daily-summary/references/edition-format.md for its fields.",
+          "properties": {
+            "format": {
+              "enum": ["daily-daedalus/v1"],
+              "type": "string"
+            },
+            "policy_version": {
+              "type": "string"
+            },
+            "generated_at": {
+              "additionalProperties": false,
+              "properties": {
+                "iso": {
+                  "type": "string"
+                },
+                "display": {
+                  "type": "string"
+                },
+                "issue_label": {
+                  "type": "string"
+                }
+              },
+              "required": ["iso", "display", "issue_label"],
+              "type": "object"
+            },
+            "description": {
+              "type": "string"
+            },
+            "lead": {
+              "additionalProperties": false,
+              "properties": {
+                "headline": {
+                  "type": "string"
+                },
+                "dek": {
+                  "type": "string"
+                },
+                "verdict": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "tone": {
+                      "enum": ["stable", "watch", "urgent"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["label", "tone"],
+                  "type": "object"
+                },
+                "paragraphs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 2,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "snapshot": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "columns": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 8,
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "rows": {
+                          "items": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 8,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "maxItems": 5,
+                          "minItems": 1,
+                          "type": "array"
+                        }
+                      },
+                      "required": ["columns", "rows"],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "enum": ["web"],
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        },
+                        "detail": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["kind", "label", "url"],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "enum": ["tool"],
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "refs": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 12,
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "detail": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["kind", "label", "refs"],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "desk_key": {
+                  "type": "string"
+                },
+                "figure": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "enum": ["figure"],
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "source_page": {
+                      "type": "string"
+                    },
+                    "credit": {
+                      "type": "string"
+                    },
+                    "alt": {
+                      "type": "string"
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "data_url": {
+                      "description": "Optional already-embedded raster bytes; normally omit so the briefing tool fetches the linked photo.",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["type", "url", "source_page", "credit"],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "headline",
+                "dek",
+                "paragraphs",
+                "source",
+                "desk_key"
+              ],
+              "type": "object"
+            },
+            "day_ahead": {
+              "additionalProperties": false,
+              "properties": {
+                "weather": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "status": {
+                          "enum": ["covered"],
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "rows": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "day": {
+                                "type": "string"
+                              },
+                              "conditions": {
+                                "type": "string"
+                              },
+                              "high": {
+                                "type": "string"
+                              },
+                              "low": {
+                                "type": "string"
+                              },
+                              "wind": {
+                                "type": "string"
+                              },
+                              "precip": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "day",
+                              "conditions",
+                              "high",
+                              "low",
+                              "wind",
+                              "precip"
+                            ],
+                            "type": "object"
+                          },
+                          "maxItems": 4,
+                          "minItems": 4,
+                          "type": "array"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": ["web"],
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                },
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "label", "url"],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": ["tool"],
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "refs": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "maxItems": 12,
+                                  "minItems": 1,
+                                  "type": "array"
+                                },
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "label", "refs"],
+                              "type": "object"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["status", "title", "rows", "note", "source"],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "status": {
+                          "enum": ["unavailable"],
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "rows": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "day": {
+                                "type": "string"
+                              },
+                              "conditions": {
+                                "type": "string"
+                              },
+                              "high": {
+                                "type": "string"
+                              },
+                              "low": {
+                                "type": "string"
+                              },
+                              "wind": {
+                                "type": "string"
+                              },
+                              "precip": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "day",
+                              "conditions",
+                              "high",
+                              "low",
+                              "wind",
+                              "precip"
+                            ],
+                            "type": "object"
+                          },
+                          "maxItems": 0,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "enum": ["web"],
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    },
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": ["kind", "label", "url"],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "enum": ["tool"],
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "refs": {
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "maxItems": 12,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    },
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": ["kind", "label", "refs"],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["status", "title", "rows", "note"],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "email_calendar": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "status": {
+                          "enum": ["covered"],
+                          "type": "string"
+                        },
+                        "agenda": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "time": {
+                                "type": "string"
+                              },
+                              "event": {
+                                "type": "string"
+                              },
+                              "location": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["time", "event", "location"],
+                            "type": "object"
+                          },
+                          "maxItems": 20,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "actions": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "body": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["title", "body"],
+                            "type": "object"
+                          },
+                          "maxItems": 20,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "lookahead": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 20,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": ["web"],
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                },
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "label", "url"],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": ["tool"],
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "refs": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "maxItems": 12,
+                                  "minItems": 1,
+                                  "type": "array"
+                                },
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "label", "refs"],
+                              "type": "object"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "agenda",
+                        "actions",
+                        "lookahead",
+                        "source"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "status": {
+                          "enum": ["unavailable"],
+                          "type": "string"
+                        },
+                        "agenda": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "time": {
+                                "type": "string"
+                              },
+                              "event": {
+                                "type": "string"
+                              },
+                              "location": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["time", "event", "location"],
+                            "type": "object"
+                          },
+                          "maxItems": 20,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "actions": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "body": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["title", "body"],
+                            "type": "object"
+                          },
+                          "maxItems": 20,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "lookahead": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 20,
+                          "minItems": 0,
+                          "type": "array"
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "enum": ["web"],
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    },
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": ["kind", "label", "url"],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "enum": ["tool"],
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "type": "string"
+                                    },
+                                    "refs": {
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "maxItems": 12,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    },
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": ["kind", "label", "refs"],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["status", "agenda", "actions", "lookahead"],
+                      "type": "object"
+                    }
+                  ]
+                }
+              },
+              "required": ["weather", "email_calendar"],
+              "type": "object"
+            },
+            "operations_details": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": ["web"],
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["kind", "label", "url"],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": ["tool"],
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "refs": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "maxItems": 12,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "detail": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["kind", "label", "refs"],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "blocks": {
+                    "items": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "type": {
+                              "enum": ["paragraph"],
+                              "type": "string"
+                            },
+                            "text": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["type", "text"],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "type": {
+                              "enum": ["subhead"],
+                              "type": "string"
+                            },
+                            "text": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["type", "text"],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "type": {
+                              "enum": ["list"],
+                              "type": "string"
+                            },
+                            "items": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "maxItems": 20,
+                              "minItems": 1,
+                              "type": "array"
+                            }
+                          },
+                          "required": ["type", "items"],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "type": {
+                              "enum": ["table"],
+                              "type": "string"
+                            },
+                            "columns": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "maxItems": 8,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "rows": {
+                              "items": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "maxItems": 8,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "maxItems": 20,
+                              "minItems": 1,
+                              "type": "array"
+                            }
+                          },
+                          "required": ["type", "columns", "rows"],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "type": {
+                              "enum": ["briefs"],
+                              "type": "string"
+                            },
+                            "items": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "title": {
+                                    "type": "string"
+                                  },
+                                  "body": {
+                                    "type": "string"
+                                  },
+                                  "source": {
+                                    "anyOf": [
+                                      {
+                                        "anyOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "kind": {
+                                                "enum": ["web"],
+                                                "type": "string"
+                                              },
+                                              "label": {
+                                                "type": "string"
+                                              },
+                                              "url": {
+                                                "type": "string"
+                                              },
+                                              "detail": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "kind",
+                                              "label",
+                                              "url"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "kind": {
+                                                "enum": ["tool"],
+                                                "type": "string"
+                                              },
+                                              "label": {
+                                                "type": "string"
+                                              },
+                                              "refs": {
+                                                "items": {
+                                                  "type": "string"
+                                                },
+                                                "maxItems": 12,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              },
+                                              "detail": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "kind",
+                                              "label",
+                                              "refs"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": ["title", "body"],
+                                "type": "object"
+                              },
+                              "maxItems": 8,
+                              "minItems": 1,
+                              "type": "array"
+                            }
+                          },
+                          "required": ["type", "items"],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "type": {
+                              "enum": ["figure"],
+                              "type": "string"
+                            },
+                            "url": {
+                              "type": "string"
+                            },
+                            "source_page": {
+                              "type": "string"
+                            },
+                            "credit": {
+                              "type": "string"
+                            },
+                            "alt": {
+                              "type": "string"
+                            },
+                            "caption": {
+                              "type": "string"
+                            },
+                            "data_url": {
+                              "description": "Optional already-embedded raster bytes; normally omit so the briefing tool fetches the linked photo.",
+                              "type": "string"
+                            }
+                          },
+                          "required": ["type", "url", "source_page", "credit"],
+                          "type": "object"
+                        }
+                      ],
+                      "description": "Every block needs type and the corresponding fields. Briefs use items; paragraph and subhead use text; table and figure fields are flat."
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": ["title", "source", "blocks"],
+                "type": "object"
+              },
+              "maxItems": 8,
+              "minItems": 0,
+              "type": "array"
+            },
+            "departments": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "desk_key": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "stories": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "headline": {
+                          "type": "string"
+                        },
+                        "dek": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "source": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": ["web"],
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                },
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "label", "url"],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": ["tool"],
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "refs": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "maxItems": 12,
+                                  "minItems": 1,
+                                  "type": "array"
+                                },
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": ["kind", "label", "refs"],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "blocks": {
+                          "items": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "type": {
+                                    "enum": ["paragraph"],
+                                    "type": "string"
+                                  },
+                                  "text": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["type", "text"],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "type": {
+                                    "enum": ["subhead"],
+                                    "type": "string"
+                                  },
+                                  "text": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["type", "text"],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "type": {
+                                    "enum": ["list"],
+                                    "type": "string"
+                                  },
+                                  "items": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "maxItems": 20,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": ["type", "items"],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "type": {
+                                    "enum": ["table"],
+                                    "type": "string"
+                                  },
+                                  "columns": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "maxItems": 8,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  },
+                                  "rows": {
+                                    "items": {
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "maxItems": 8,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    },
+                                    "maxItems": 20,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": ["type", "columns", "rows"],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "type": {
+                                    "enum": ["briefs"],
+                                    "type": "string"
+                                  },
+                                  "items": {
+                                    "items": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "title": {
+                                          "type": "string"
+                                        },
+                                        "body": {
+                                          "type": "string"
+                                        },
+                                        "source": {
+                                          "anyOf": [
+                                            {
+                                              "anyOf": [
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "kind": {
+                                                      "enum": ["web"],
+                                                      "type": "string"
+                                                    },
+                                                    "label": {
+                                                      "type": "string"
+                                                    },
+                                                    "url": {
+                                                      "type": "string"
+                                                    },
+                                                    "detail": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string"
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "kind",
+                                                    "label",
+                                                    "url"
+                                                  ],
+                                                  "type": "object"
+                                                },
+                                                {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "kind": {
+                                                      "enum": ["tool"],
+                                                      "type": "string"
+                                                    },
+                                                    "label": {
+                                                      "type": "string"
+                                                    },
+                                                    "refs": {
+                                                      "items": {
+                                                        "type": "string"
+                                                      },
+                                                      "maxItems": 12,
+                                                      "minItems": 1,
+                                                      "type": "array"
+                                                    },
+                                                    "detail": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "string"
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "kind",
+                                                    "label",
+                                                    "refs"
+                                                  ],
+                                                  "type": "object"
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": ["title", "body"],
+                                      "type": "object"
+                                    },
+                                    "maxItems": 8,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": ["type", "items"],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "type": {
+                                    "enum": ["figure"],
+                                    "type": "string"
+                                  },
+                                  "url": {
+                                    "type": "string"
+                                  },
+                                  "source_page": {
+                                    "type": "string"
+                                  },
+                                  "credit": {
+                                    "type": "string"
+                                  },
+                                  "alt": {
+                                    "type": "string"
+                                  },
+                                  "caption": {
+                                    "type": "string"
+                                  },
+                                  "data_url": {
+                                    "description": "Optional already-embedded raster bytes; normally omit so the briefing tool fetches the linked photo.",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "url",
+                                  "source_page",
+                                  "credit"
+                                ],
+                                "type": "object"
+                              }
+                            ],
+                            "description": "Every block needs type and the corresponding fields. Briefs use items; paragraph and subhead use text; table and figure fields are flat."
+                          },
+                          "maxItems": 20,
+                          "minItems": 1,
+                          "type": "array"
+                        }
+                      },
+                      "required": ["headline", "source", "blocks"],
+                      "type": "object"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": ["desk_key", "title", "stories"],
+                "type": "object"
+              },
+              "maxItems": 20,
+              "minItems": 0,
+              "type": "array"
+            },
+            "coverage": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "desk_key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": ["covered", "quiet", "unavailable"],
+                    "type": "string"
+                  }
+                },
+                "required": ["desk_key", "status"],
+                "type": "object"
+              },
+              "maxItems": 40,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "format",
+            "policy_version",
+            "generated_at",
+            "description",
+            "lead",
+            "day_ahead",
+            "operations_details",
+            "departments",
+            "coverage"
+          ],
+          "title": "Daily Daedalus edition",
+          "type": "object"
+        }
+      },
+      "required": ["edition"],
+      "title": "BriefingRendererInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for briefing_renderer_tool."
+  },
+  "add_memory": {
+    "schema": {
+      "description": "LLM-facing add-memory input. User identity is intentionally absent.",
+      "properties": {
+        "memory": {
+          "description": "Single declarative memory sentence to store.",
+          "title": "Memory",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Optional memory tags.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "description": "Optional memory metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "key_value_pairs": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional structured key/value metadata.",
+          "title": "Key Value Pairs"
+        }
+      },
+      "required": ["memory"],
+      "title": "AddMemoryInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for add_memory."
+  },
+  "current_datetime_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "nowInput",
+      "type": "object"
+    },
+    "description": ""
+  },
+  "get_memory": {
+    "schema": {
+      "description": "LLM-facing memory-search input. User identity is intentionally absent.",
+      "properties": {
+        "query": {
+          "description": "Search query for retrieving relevant memories.",
+          "title": "Query",
+          "type": "string"
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of memories to return.",
+          "title": "Top K"
+        }
+      },
+      "required": ["query"],
+      "title": "GetMemoryInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for get_memory."
+  },
+  "visual_media_tool": {
+    "schema": {
+      "$defs": {
+        "ImageBrief": {
+          "additionalProperties": false,
+          "properties": {
+            "scene": {
+              "default": "",
+              "title": "Scene",
+              "type": "string"
+            },
+            "subject": {
+              "default": "",
+              "title": "Subject",
+              "type": "string"
+            },
+            "medium": {
+              "default": "",
+              "title": "Medium",
+              "type": "string"
+            },
+            "composition": {
+              "default": "",
+              "title": "Composition",
+              "type": "string"
+            },
+            "lighting": {
+              "default": "",
+              "title": "Lighting",
+              "type": "string"
+            },
+            "details": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Details",
+              "type": "array"
+            },
+            "exact_text": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Exact Text",
+              "type": "array"
+            },
+            "changes": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Changes",
+              "type": "array"
+            },
+            "preserve": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Preserve",
+              "type": "array"
+            },
+            "exclusions": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "title": "Exclusions",
+              "type": "array"
+            },
+            "intended_use": {
+              "default": "",
+              "title": "Intended Use",
+              "type": "string"
+            },
+            "references": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 16,
+              "title": "References",
+              "type": "array"
+            },
+            "options": {
+              "$ref": "#/$defs/ImageOptions"
+            }
+          },
+          "title": "ImageBrief",
+          "type": "object"
+        },
+        "ImageOptions": {
+          "additionalProperties": false,
+          "properties": {
+            "quality": {
+              "anyOf": [
+                {
+                  "enum": ["auto", "low", "medium", "high", "xhigh", "max"],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Quality"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size"
+            },
+            "n": {
+              "anyOf": [
+                {
+                  "maximum": 8,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "N"
+            },
+            "output_format": {
+              "anyOf": [
+                {
+                  "enum": ["png", "jpeg", "webp"],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Output Format"
+            },
+            "output_compression": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Output Compression"
+            },
+            "background": {
+              "anyOf": [
+                {
+                  "enum": ["auto", "transparent", "opaque"],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Background"
+            }
+          },
+          "title": "ImageOptions",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "LLM-facing visual-media input; request identity is intentionally absent.",
+      "properties": {
+        "operation": {
+          "enum": ["generate", "edit", "analyze"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "prompt": {
+          "default": "",
+          "description": "The user's current image request, preserving their literal wording.",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "brief": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageBrief"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Complete image brief prepared with the loaded image-creation skill. The backend renders it without another model call."
+        },
+        "options": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageOptions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "guidance": {
+          "default": "auto",
+          "enum": ["auto", "exact"],
+          "title": "Guidance",
+          "type": "string"
+        },
+        "imageRef": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Imageref"
+        },
+        "image_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Url"
+        },
+        "videoRef": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Videoref"
+        },
+        "video_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Video Url"
+        },
+        "question": {
+          "default": "",
+          "title": "Question",
+          "type": "string"
+        },
+        "background": {
+          "anyOf": [
+            {
+              "enum": ["auto", "transparent", "opaque"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional generate/edit output background. Use 'transparent' when the user asks for an asset with a transparent background.",
+          "title": "Background"
+        }
+      },
+      "required": ["operation"],
+      "title": "VisualMediaInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for visual_media_tool. For an explicit image generation or editing request, first load image-creation using agent_skills_tool(operation='load_skill', skill_name='image-creation'), unless already loaded in this conversation. Keep prompt as the user's current request and supply a complete updated brief following the skill. Chat always uses automatic image quality. Use options for requested size, n, output_format, output_compression, and background. The latest request overrides inherited context; clear obsolete preserve/exact_text constraints in the brief. Describe references in their input order. Never invent unseen image contents. Use guidance='exact' when the user asks to use their prompt verbatim. Image analysis does not require this skill. Do not generate images for source-only daily summaries. "
+  },
+  "domain_retriever_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top K"
+        },
+        "filters": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filters"
+        }
+      },
+      "required": ["query", "domain"],
+      "title": "search_domainInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for domain_retriever_tool."
+  },
+  "user_document_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "description": "LLM-facing document-tool input; request identity is intentionally absent.",
+      "properties": {
+        "operation": {
+          "default": "search",
+          "enum": ["ingest", "extract", "search", "list_collections"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "query": {
+          "default": "",
+          "title": "Query",
+          "type": "string"
+        },
+        "collection_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Collection Name"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provenance"
+        },
+        "documentRef": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documentref"
+        },
+        "documentRefs": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documentrefs"
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top K"
+        },
+        "filters": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filters"
+        },
+        "chunk_size": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Size"
+        },
+        "chunk_overlap": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Overlap"
+        }
+      },
+      "title": "UserDocumentInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for user_document_tool."
+  },
+  "curated_feed_search_tool": {
+    "schema": {
+      "$defs": {
+        "RssDiscoveryQuery": {
+          "properties": {
+            "query": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Query",
+              "type": "string"
+            },
+            "feed_scope": {
+              "default": "auto",
+              "description": "Feed scope: auto, nvidia_developer, semianalysis",
+              "enum": ["auto", "nvidia_developer", "semianalysis"],
+              "title": "Feed Scope",
+              "type": "string"
+            }
+          },
+          "required": ["query"],
+          "title": "RssDiscoveryQuery",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "query": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Query",
+          "type": "string"
+        },
+        "feed_scope": {
+          "default": "auto",
+          "description": "Feed scope: auto, nvidia_developer, semianalysis",
+          "enum": ["auto", "nvidia_developer", "semianalysis"],
+          "title": "Feed Scope",
+          "type": "string"
+        },
+        "mode": {
+          "default": "article",
+          "description": "article retrieves one full article; discover returns feed candidates only",
+          "enum": ["article", "discover"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "queries": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/RssDiscoveryQuery"
+              },
+              "maxItems": 6,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Batch of independent searches; requires mode='discover'",
+          "title": "Queries"
+        },
+        "top_k": {
+          "default": 3,
+          "description": "Candidates per discovery query",
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Top K",
+          "type": "integer"
+        }
+      },
+      "title": "RssToolInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for curated_feed_search_tool. Search curated RSS feeds. mode='article' (default) returns one full article for query. mode='discover' returns top_k compact candidates per query; batch independent searches with queries=[{query,feed_scope}]. Discovery excerpts are feed summaries, not verified article content; retrieve selected URLs for precise claims. Available feed_scope values: auto, nvidia_developer, semianalysis."
+  },
+  "content_distiller_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "description": "Untrusted source text to summarize.",
+          "maxLength": 500000,
+          "title": "Content",
+          "type": "string"
+        },
+        "focus": {
+          "default": "",
+          "description": "Facts or topics the summary should retain.",
+          "maxLength": 1000,
+          "title": "Focus",
+          "type": "string"
+        },
+        "max_words": {
+          "default": 500,
+          "maximum": 2000,
+          "minimum": 50,
+          "title": "Max Words",
+          "type": "integer"
+        },
+        "output_format": {
+          "default": "prose",
+          "enum": ["prose", "bullets", "tldr"],
+          "title": "Output Format",
+          "type": "string"
+        }
+      },
+      "required": ["content"],
+      "title": "distill_contentInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for content_distiller_tool."
+  },
+  "tool_output_retriever_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "description": "Query and paging options for one opaque tool-output reference.",
+      "properties": {
+        "reference": {
+          "description": "Opaque tor_ reference from a compacted tool result.",
+          "maxLength": 36,
+          "minLength": 36,
+          "title": "Reference",
+          "type": "string"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Case-insensitive literal search. Omit to read an exact content chunk.",
+          "title": "Query"
+        },
+        "offset": {
+          "default": 0,
+          "description": "Character offset for exact paging when query is omitted.",
+          "minimum": 0,
+          "title": "Offset",
+          "type": "integer"
+        },
+        "max_chars": {
+          "anyOf": [
+            {
+              "maximum": 50000,
+              "minimum": 1000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requested page size, capped by the tool configuration.",
+          "title": "Max Chars"
+        }
+      },
+      "required": ["reference"],
+      "title": "ToolOutputRetrieverInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for tool_output_retriever_tool."
+  },
+  "user_interaction_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "description": "Explicit LLM-facing schema for the unified interaction dispatcher.",
+      "properties": {
+        "operation": {
+          "description": "Required operation. Use confirm_action for memory deletion only. Never use clarify for approval.",
+          "enum": [
+            "clarify",
+            "confirm_action",
+            "confirm_research_plan",
+            "present_options",
+            "delete_memory_guarded"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "question": {
+          "default": "",
+          "description": "Question for clarify only.",
+          "title": "Question",
+          "type": "string"
+        },
+        "options": {
+          "default": "",
+          "description": "Pipe-separated choices for clarify only.",
+          "title": "Options",
+          "type": "string"
+        },
+        "context": {
+          "default": "",
+          "description": "Context for clarify only.",
+          "title": "Context",
+          "type": "string"
+        },
+        "why_asking": {
+          "default": "",
+          "description": "Reason the clarification is needed.",
+          "title": "Why Asking",
+          "type": "string"
+        },
+        "action": {
+          "default": "",
+          "description": "Nonempty exact action presented by confirm_action. Required for approval requests; an MCP mutation safely derives it from the exact server, tool, and target only when omitted.",
+          "title": "Action",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Nonempty reason for confirm_action or plan approval. Required for approval requests; an MCP mutation uses a fixed gate reason only when omitted.",
+          "title": "Reason",
+          "type": "string"
+        },
+        "risks": {
+          "default": "",
+          "description": "Material action or plan risks.",
+          "title": "Risks",
+          "type": "string"
+        },
+        "alternatives": {
+          "default": "",
+          "description": "Pipe-separated action alternatives.",
+          "title": "Alternatives",
+          "type": "string"
+        },
+        "reversible": {
+          "default": true,
+          "description": "Whether the confirmed action is reversible.",
+          "title": "Reversible",
+          "type": "boolean"
+        },
+        "user_id": {
+          "default": "",
+          "description": "Legacy non-HTTP fallback only. Omit for authenticated requests.",
+          "title": "User Id",
+          "type": "string"
+        },
+        "action_type": {
+          "default": "unspecified",
+          "description": "Use mcp_mutation for an approval-gated MCP call.",
+          "title": "Action Type",
+          "type": "string"
+        },
+        "target": {
+          "default": "",
+          "description": "Exact non-wildcard approval or plan target.",
+          "title": "Target",
+          "type": "string"
+        },
+        "server_name": {
+          "default": "",
+          "description": "Exact MCP function-group name for confirm_action.",
+          "title": "Server Name",
+          "type": "string"
+        },
+        "tool_name": {
+          "default": "",
+          "description": "Exact remote MCP tool name for confirm_action.",
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "arguments_json": {
+          "default": "",
+          "description": "Exact MCP arguments JSON object for confirm_action.",
+          "title": "Arguments Json",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "description": "Plan title for confirm_research_plan.",
+          "title": "Title",
+          "type": "string"
+        },
+        "sections_json": {
+          "default": "[]",
+          "description": "Plan sections JSON for confirm_research_plan.",
+          "title": "Sections Json",
+          "type": "string"
+        },
+        "source_strategy_json": {
+          "default": "",
+          "description": "Optional source strategy JSON for plan approval.",
+          "title": "Source Strategy Json",
+          "type": "string"
+        },
+        "estimated_tool_calls": {
+          "default": 0,
+          "description": "Estimated calls for confirm_research_plan.",
+          "minimum": 0,
+          "title": "Estimated Tool Calls",
+          "type": "integer"
+        },
+        "decision": {
+          "default": "",
+          "description": "Decision to present with present_options.",
+          "title": "Decision",
+          "type": "string"
+        },
+        "options_json": {
+          "default": "[]",
+          "description": "Option objects JSON for present_options.",
+          "title": "Options Json",
+          "type": "string"
+        },
+        "recommendation": {
+          "default": "",
+          "description": "Optional recommendation for present_options.",
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "approval_token": {
+          "default": "",
+          "description": "Single-use credential for delete_memory_guarded only.",
+          "title": "Approval Token",
+          "type": "string"
+        }
+      },
+      "required": ["operation"],
+      "title": "UserInteractionInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for user_interaction_tool."
+  },
+  "perplexity_search_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 2,
+              "type": "array"
+            }
+          ],
+          "description": "One specific, standalone search query, or 2-5 distinct related subqueries for a multifaceted research task. Rewrite vague or conversational wording before calling: preserve the user's intent and named entities, add relevant context and time frames, and use precise terminology without inventing constraints.",
+          "title": "Query"
+        },
+        "country": {
+          "default": "",
+          "title": "Country",
+          "type": "string"
+        },
+        "max_results": {
+          "default": 0,
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "search_context_size": {
+          "default": "",
+          "enum": ["", "low", "medium", "high"],
+          "title": "Search Context Size",
+          "type": "string"
+        },
+        "search_recency_filter": {
+          "default": "",
+          "description": "Optional publication recency: hour, day, week, month, or year. Do not combine it with exact publication or last-updated dates; exact dates take precedence.",
+          "enum": ["", "hour", "day", "week", "month", "year"],
+          "title": "Search Recency Filter",
+          "type": "string"
+        },
+        "search_domain_filter": {
+          "default": "",
+          "title": "Search Domain Filter",
+          "type": "string"
+        },
+        "search_language_filter": {
+          "default": "",
+          "title": "Search Language Filter",
+          "type": "string"
+        },
+        "search_after_date_filter": {
+          "default": "",
+          "description": "Optional exact date in MM/DD/YYYY or YYYY-MM-DD format. ISO dates are normalized before calling Perplexity.",
+          "title": "Search After Date Filter",
+          "type": "string"
+        },
+        "search_before_date_filter": {
+          "default": "",
+          "description": "Optional exact date in MM/DD/YYYY or YYYY-MM-DD format. ISO dates are normalized before calling Perplexity.",
+          "title": "Search Before Date Filter",
+          "type": "string"
+        },
+        "last_updated_after_filter": {
+          "default": "",
+          "description": "Optional exact date in MM/DD/YYYY or YYYY-MM-DD format. ISO dates are normalized before calling Perplexity.",
+          "title": "Last Updated After Filter",
+          "type": "string"
+        },
+        "last_updated_before_filter": {
+          "default": "",
+          "description": "Optional exact date in MM/DD/YYYY or YYYY-MM-DD format. ISO dates are normalized before calling Perplexity.",
+          "title": "Last Updated Before Filter",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "title": "_searchInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for perplexity_search_tool."
+  },
+  "webscrape_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["url"],
+      "title": "_response_fnInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for webscrape_tool."
+  },
+  "nws_weather_tool": {
+    "schema": {
+      "properties": {
+        "latitude": {
+          "description": "Latitude of the US location.",
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude",
+          "type": "number"
+        },
+        "longitude": {
+          "description": "Longitude of the US location.",
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude",
+          "type": "number"
+        },
+        "days": {
+          "default": 4,
+          "description": "Today plus following local calendar days.",
+          "maximum": 7,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer"
+        },
+        "include_observations": {
+          "default": false,
+          "description": "Also request the latest station observation.",
+          "title": "Include Observations",
+          "type": "boolean"
+        }
+      },
+      "required": ["latitude", "longitude"],
+      "title": "WeatherInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for nws_weather_tool."
+  },
+  "llm_sandbox_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "description": "Explicit LLM-facing schema for the sandbox tool.",
+      "properties": {
+        "operation": {
+          "default": "execute",
+          "description": "Refresh command discovery, execute one bounded command, write/read a workspace file, or publish a completed file as a durable UI download.",
+          "enum": [
+            "list_commands",
+            "execute",
+            "write_file",
+            "read_file",
+            "publish_file"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "command": {
+          "default": "",
+          "description": "Shell command; use only when shell syntax is required.",
+          "title": "Command",
+          "type": "string"
+        },
+        "argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Preferred structured argument vector for one discovered command.",
+          "title": "Argv"
+        },
+        "timeout_seconds": {
+          "default": 0,
+          "description": "Command timeout in seconds; zero uses the configured default.",
+          "minimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "env_json": {
+          "default": "",
+          "description": "Optional JSON object of non-secret string environment variables.",
+          "title": "Env Json",
+          "type": "string"
+        },
+        "working_directory": {
+          "default": ".",
+          "description": "Relative working directory inside the conversation workspace.",
+          "title": "Working Directory",
+          "type": "string"
+        },
+        "file_path": {
+          "default": "",
+          "description": "Relative workspace path used by write_file, read_file, or publish_file.",
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_content": {
+          "default": "",
+          "description": "UTF-8 text written by write_file.",
+          "title": "File Content",
+          "type": "string"
+        },
+        "append": {
+          "default": false,
+          "description": "Append file_content instead of replacing file_path for write_file.",
+          "title": "Append",
+          "type": "boolean"
+        }
+      },
+      "title": "LlmSandboxInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for llm_sandbox_tool."
+  },
+  "nvidia_docs_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "description": "The endpoint is selected from a closed product set, never model-supplied.",
+      "properties": {
+        "product": {
+          "description": "NVIDIA documentation product to search.",
+          "enum": ["dynamo", "openshell", "aistore", "aiperf", "nvcf", "dsx"],
+          "title": "Product",
+          "type": "string"
+        },
+        "query": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": ["product", "query"],
+      "title": "NvidiaDocsInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for nvidia_docs_tool."
+  },
+  "source_verifier_tool": {
+    "schema": {
+      "additionalProperties": false,
+      "description": "One callable schema for all evidence operations.",
+      "properties": {
+        "operation": {
+          "enum": ["verify_claim", "plan_sources", "audit_citations"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "claim": {
+          "default": "",
+          "description": "Exact final claim for verify_claim.",
+          "title": "Claim",
+          "type": "string"
+        },
+        "source_url": {
+          "default": "",
+          "description": "Public source URL for verify_claim.",
+          "title": "Source Url",
+          "type": "string"
+        },
+        "context": {
+          "default": "",
+          "description": "Optional claim context.",
+          "title": "Context",
+          "type": "string"
+        },
+        "research_question": {
+          "default": "",
+          "description": "Required for plan_sources.",
+          "title": "Research Question",
+          "type": "string"
+        },
+        "selected_sources_json": {
+          "default": "",
+          "description": "Source IDs as a JSON array or comma-separated text.",
+          "title": "Selected Sources Json",
+          "type": "string"
+        },
+        "disabled_sources_json": {
+          "default": "",
+          "description": "Source IDs to exclude.",
+          "title": "Disabled Sources Json",
+          "type": "string"
+        },
+        "depth": {
+          "default": "auto",
+          "enum": ["auto", "quick", "deep"],
+          "title": "Depth",
+          "type": "string"
+        },
+        "answer_markdown": {
+          "default": "",
+          "description": "Required for audit_citations.",
+          "title": "Answer Markdown",
+          "type": "string"
+        },
+        "source_urls_json": {
+          "default": "",
+          "description": "Observed source URL ledger.",
+          "title": "Source Urls Json",
+          "type": "string"
+        },
+        "require_references": {
+          "default": true,
+          "title": "Require References",
+          "type": "boolean"
+        }
+      },
+      "required": ["operation"],
+      "title": "SourceVerifierInput",
+      "type": "object"
+    },
+    "description": "Runtime routing contract for source_verifier_tool."
+  }
+}

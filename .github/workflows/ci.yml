@@ -9,6 +9,44 @@ permissions:
   contents: read
 
 jobs:
+  rust-migration:
+    name: Rust Migration Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install migration toolchains
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt,clippy
+          rustup default 1.95.0
+          pip install httpx PyYAML redis
+          cd frontend
+          npm ci --legacy-peer-deps
+          npx playwright install --with-deps chromium
+      - name: Rust contracts and coverage
+        run: make rust-check rust-coverage
+      - name: Differential, image and rollback contracts
+        run: make migration
+      - name: Browser against candidate image
+        run: make candidate-browser
+      - name: Retain migration evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-migration-evidence
+          path: |
+            /tmp/daedalus-migration-reports
+            frontend/playwright-report
+
   builder:
     name: Builder Tests
     runs-on: ubuntu-latest

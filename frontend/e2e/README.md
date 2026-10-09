@@ -23,3 +23,10 @@ Use `E2E_SKIP_BUILD=1` only with artifacts built using the same secure WebSocket
 URL and current source. The default runner removes its Compose services and
 volumes afterward; `E2E_KEEP_SERVICES=1` retains them for local diagnosis. Tests
 never require production credentials or deployment access.
+
+`make candidate-browser` selects the built `rust-minimal` backend and a separate
+TLS/ACL Redis fixture. The runner requires `E2E_CANDIDATE_REDIS_IMAGE`, verifies
+that readiness identifies Rust, and never starts the mock backend in this mode.
+The candidate spec exercises real login, stream worker chat, native tool output,
+conversation persistence, steering and Stop. The default mock suite remains a
+separate check; passing it does not establish backend integration.

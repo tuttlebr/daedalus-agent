@@ -660,7 +660,7 @@ function Collapsible({
         <span className="flex min-w-0 flex-wrap items-center gap-2 [overflow-wrap:anywhere]">
           {title}
           {typeof badge === 'number' && badge > 0 && (
-            <span className="rounded bg-fill/[0.06] px-1.5 py-px text-[0.75rem] tracking-wider text-dark-text-secondary">
+            <span className="rounded bg-fill/[0.06] px-1.5 py-px text-[0.75rem] tracking-wider text-dark-text-primary">
               {badge}
             </span>
           )}

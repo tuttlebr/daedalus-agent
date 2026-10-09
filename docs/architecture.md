@@ -11,6 +11,12 @@ bounded tool batches, steering, cancellation, and terminal events. It never
 executes a partial model tool call. Each run has a bounded, authenticated inbox;
 duplicate command IDs are idempotent, and conflicting reuse is rejected.
 
+Rust also owns YAML configuration, model/profile selection, history budgeting,
+automatic Hindsight context, tool-output compaction/cache writes and run state.
+Its native clock needs no tool service. Shared protocol types are generated for
+Rust, TypeScript and Python. The [P0/P1 migration record](rust-migration.md)
+describes the compatibility fixtures, remaining Python ownership and rollback.
+
 Responses streams from compatible gateways may omit envelope metadata. The
 runtime supplies missing sequence numbers and an unknown timestamp, and reuses
 message IDs previously observed at the same output index. Content, tool call
@@ -70,6 +76,11 @@ Google OAuth, exact-call approvals, retrieval, images, and other existing APIs.
 Internal tool endpoints require the shared internal credential and are blocked
 at the public Rust proxy. Tool identities come from authenticated request
 context, never model arguments.
+
+For Rust-prepared runs, Python supplies a catalogue and executes leaf calls with
+an explicit versioned context; it does not own a second agent run. The full
+image still requires that service. The separate `rust-minimal` image starts the
+binary directly with only the native clock enabled and omits Python entirely.
 
 Steering uses `steer_job` over the existing WebSocket connection. The server
 revalidates the login and stored job owner, then forwards a UUID command to

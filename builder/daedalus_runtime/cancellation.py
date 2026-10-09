@@ -15,6 +15,8 @@ class CancelOnDisconnect:
 
     PATHS = {
         "/runtime/prepare",
+        "/runtime/v1/catalog",
+        "/runtime/v1/tools/call",
         "/runtime/tools/call",
         "/v1/images/generate",
         "/v1/images/edit",

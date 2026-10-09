@@ -27,12 +27,18 @@ TRIVY_INVENTORY ?= /tmp/daedalus-trivy-inventory.json
 TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES := /workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/create_azure_data_lake_storage_connection_details.py,/workspace/.venv/lib/python3.12/site-packages/oci/golden_gate/models/update_azure_data_lake_storage_connection_details.py
 RUNTIME_IMAGE ?= daedalus:runtime-check
 RUNTIME_REDIS_IMAGE ?=
+MIGRATION_BASELINE_SHA := 7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b
+MIGRATION_BASELINE_IMAGE ?= daedalus:migration-baseline-7dc4e1d
+MIGRATION_MINIMAL_IMAGE ?= daedalus:rust-minimal-check
+MIGRATION_REDIS_IMAGE ?= daedalus:redis-migration-check
+MIGRATION_PYTHON ?= python3
+MIGRATION_REPORT_DIR ?= /tmp/daedalus-migration-reports
 DEPLOY_ARGS ?=
 DEPLOY_IMAGE_ARGS ?= --allow-unsigned-images
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deploy ci runtime builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
+.PHONY: help deploy ci rust-check rust-coverage migration-baseline migration migration-benchmark candidate-browser runtime builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
 
 help: ## show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -40,13 +46,47 @@ help: ## show available targets
 deploy: ## build, verify, and deploy through the canonical development path
 	./deploy.sh $(DEPLOY_IMAGE_ARGS) $(DEPLOY_ARGS)
 
-ci: tools-check builder test-integration frontend frontend-e2e helm redis-upgrade docker security ## run every CI job sequentially
+ci: tools-check builder test-integration frontend frontend-e2e rust-check rust-coverage migration candidate-browser helm redis-upgrade docker security ## run every CI job sequentially
 
-runtime: ## build Rust and exercise the deployable backend over HTTP
+rust-check: ## Rust formatting, lint, unit and frozen contract tests
 	cargo fmt --manifest-path builder/runtime/Cargo.toml --check
 	cargo clippy --locked --manifest-path builder/runtime/Cargo.toml --all-targets -- -D warnings
+	cargo test --locked --manifest-path builder/runtime/Cargo.toml
+	python3 scripts/generate_protocol_types.py --check
+
+rust-coverage: ## instrument Rust tests and retain LCOV evidence
+	rustup component add llvm-tools-preview
+	cargo install cargo-llvm-cov --version 0.9.1 --locked
+	mkdir -p $(MIGRATION_REPORT_DIR)
+	cargo llvm-cov --locked --manifest-path builder/runtime/Cargo.toml --fail-under-lines 40 --lcov --output-path $(MIGRATION_REPORT_DIR)/rust.lcov
+
+runtime: rust-check ## build Rust and exercise the deployable backend over HTTP
 	docker buildx build --load --target backend --build-context skills=./skills -t $(RUNTIME_IMAGE) ./builder
 	python3 builder/runtime_http_check.py --image $(RUNTIME_IMAGE) $(if $(RUNTIME_REDIS_IMAGE),--redis-image $(RUNTIME_REDIS_IMAGE))
+
+migration-baseline: ## rebuild a retained source baseline when no immutable image override is supplied
+	@if [ "$(MIGRATION_BASELINE_IMAGE)" = "daedalus:migration-baseline-7dc4e1d" ]; then \
+		set -eu; baseline_dir=$$(mktemp -d); trap 'rm -rf "$$baseline_dir"' EXIT; \
+		git archive $(MIGRATION_BASELINE_SHA) | tar -x -C "$$baseline_dir"; \
+		docker buildx build --load --target backend --build-context skills="$$baseline_dir/skills" \
+			--label org.opencontainers.image.revision=$(MIGRATION_BASELINE_SHA) \
+			-t $(MIGRATION_BASELINE_IMAGE) "$$baseline_dir/builder"; \
+	fi
+
+migration: migration-baseline ## differential, Python-free image, TLS/ACL and rollback contracts
+	docker build -t $(MIGRATION_REDIS_IMAGE) ./redis
+	docker buildx build --load --target backend --build-context skills=./skills -t $(RUNTIME_IMAGE) ./builder
+	docker buildx build --load --target rust-minimal --build-context skills=./skills -t $(MIGRATION_MINIMAL_IMAGE) ./builder
+	docker run --rm --network none -e PYTHONPATH=/workspace -v $(CURDIR)/builder/migration:/migration:ro -v $(CURDIR)/builder/runtime/tests/fixtures:/fixtures:ro --entrypoint python $(RUNTIME_IMAGE) /migration/executor_contract.py
+	mkdir -p $(MIGRATION_REPORT_DIR)
+	$(MIGRATION_PYTHON) builder/migration/differential.py --baseline $(MIGRATION_BASELINE_IMAGE) --candidate $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --output $(MIGRATION_REPORT_DIR)/differential
+	$(MIGRATION_PYTHON) builder/migration/image_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --compare-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/minimal.json
+
+candidate-browser: ## real frontend/stream worker against the Python-free candidate image
+	cd frontend && E2E_CANDIDATE_IMAGE=$(MIGRATION_MINIMAL_IMAGE) E2E_CANDIDATE_REDIS_IMAGE=$(MIGRATION_REDIS_IMAGE) E2E_PYTHON=$(MIGRATION_PYTHON) npm run e2e -- --project=chromium
+
+migration-benchmark: ## frozen synthetic performance gates; run on an idle host after make migration
+	$(MIGRATION_PYTHON) builder/migration/benchmark.py --baseline $(MIGRATION_BASELINE_IMAGE) --candidate $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --output $(MIGRATION_REPORT_DIR)/performance
 
 builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"

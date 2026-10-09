@@ -1,0 +1,32 @@
+{
+  "fixture_version": 1,
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "intentional_difference": "Rust owns runs; the leaf executor receives context on each call and returns state even on failure.",
+  "owner": "backend maintainer",
+  "matrix": ["C04", "C05", "C09"],
+  "owning_test": "migration/executor_contract.py",
+  "request": {
+    "name": "fixture_tool",
+    "arguments": { "fail": true },
+    "context": {
+      "version": 1,
+      "query": "Synthetic bounded operation",
+      "available_tools": ["fixture_tool"],
+      "executor_state": {
+        "attempts": { "briefing": 1 },
+        "briefing_execution": { "status": "started" },
+        "nonretryable_mcp_results": {}
+      }
+    }
+  },
+  "result": {
+    "content": "Tool failed (RuntimeError). Check its arguments and service availability.",
+    "is_error": true,
+    "loaded_skills": [],
+    "executor_state": {
+      "attempts": { "briefing": 2 },
+      "briefing_execution": { "status": "started" },
+      "nonretryable_mcp_results": {}
+    }
+  }
+}

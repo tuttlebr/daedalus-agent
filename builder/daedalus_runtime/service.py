@@ -69,6 +69,26 @@ class RunReport(BaseModel):
     metrics: dict[str, int] = Field(default_factory=dict)
 
 
+class CatalogRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal[1]
+    names: list[str] = Field(max_length=256)
+
+
+class CallContext(BaseModel):
+    """Versioned state supplied by the authenticated Rust owner, never the model."""
+
+    model_config = ConfigDict(extra="forbid")
+    version: Literal[1]
+    query: str = Field(max_length=8_000_000)
+    available_tools: list[str] = Field(max_length=4096)
+    executor_state: dict = Field(default_factory=dict)
+
+
+class ExplicitToolCall(ToolCall):
+    context: CallContext
+
+
 class ToolService:
     def __init__(self, config: dict, registry: ToolRegistry, mcp: MCPManager):
         self.config, self.registry, self.mcp = config, registry, mcp
@@ -275,11 +295,19 @@ class ToolService:
             raise HTTPException(404, "Run is unavailable")
         return run
 
-    async def call(self, body: ToolCall, run: RunContext, emit):
+    async def call(self, body: ToolCall, run: RunContext, emit, *, explicit=False):
         from agent_skills.load_events import skill_load_scope
 
         if body.name not in run.tools:
             raise ValueError("Tool is not available in this run")
+        loaded_skills = []
+
+        def skill_loaded(event):
+            if explicit:
+                loaded_skills.append(event.skill_name)
+            else:
+                run.selection.skill_loaded(event, self.routing)
+
         with trace.use_span(
             run.span,
             end_on_exit=False,
@@ -287,9 +315,7 @@ class ToolService:
             set_status_on_exception=False,
         ), approval_marker_scope(new_request=True), agent_run_scope(
             run=run.artifacts
-        ), skill_load_scope(
-            lambda event: run.selection.skill_loaded(event, self.routing)
-        ):
+        ), skill_load_scope(skill_loaded):
             if body.name.partition("__")[0] in run.groups:
                 result = await self.mcp.call(body.name, body.arguments, run.user, emit)
                 run.tools.update(tool["name"] for tool in result.get("tools", []))
@@ -324,7 +350,7 @@ class ToolService:
                     terminal_reason="validated_artifact",
                 )
                 run.artifacts.terminal_content = None
-            if not result.get("terminal"):
+            if not explicit and not result.get("terminal"):
                 optimized = await optimize_tool_content(
                     result["content"],
                     tool_name=body.name,
@@ -334,8 +360,15 @@ class ToolService:
                     settings=self.compaction,
                 )
                 result["content"] = optimized.content
-            if run.selection.source == "skill_load":
+            if not explicit and run.selection.source == "skill_load":
                 result["model_profile"] = run.selection.effective
+            if explicit:
+                result["loaded_skills"] = loaded_skills
+                result["executor_state"] = {
+                    "attempts": dict(run.artifacts.attempts),
+                    "briefing_execution": run.artifacts.briefing_execution,
+                    "nonretryable_mcp_results": run.artifacts.nonretryable_mcp_results,
+                }
             return result
 
 
@@ -465,6 +498,28 @@ def create_app(config_path: str | None = None) -> FastAPI:
             )
             return result
 
+    @app.post("/runtime/v1/catalog")
+    async def catalog(body: CatalogRequest, request: Request):
+        service = request.app.state.tools
+        user = authenticated_user_id_from_context()
+        configured = set().union(
+            *(
+                service.workflow.get(key, [])
+                for key in ("tools", "daily_summary_tools", "daily_summary_final_tools")
+            )
+        )
+        if set(body.names) - configured:
+            raise HTTPException(400, "Tool is not configured")
+
+        async def entry(name):
+            if name in service.mcp.groups:
+                schemas = await service.mcp.catalogue([name], user, initial=True)
+            else:
+                schemas = [(await service.registry.get_function(name)).schema(name)]
+            return name, schemas
+
+        return dict(await asyncio.gather(*(entry(name) for name in body.names)))
+
     @app.delete("/runtime/run")
     async def release(body: RunReport, request: Request):
         service = request.app.state.tools
@@ -502,10 +557,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
         )
         return {"status": "released"}
 
-    @app.post("/runtime/tools/call")
-    async def call(body: ToolCall, request: Request):
+    async def stream_call(body: ToolCall, request: Request, run, *, explicit=False):
         service = request.app.state.tools
-        run = service.context(request)
         if body.name not in run.tools:
             raise HTTPException(400, "Tool is not available in this run")
 
@@ -529,7 +582,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 ):
                     log_event("tool_execution_started")
                     try:
-                        result = await service.call(body, run, emit)
+                        result = await service.call(body, run, emit, explicit=explicit)
                     except asyncio.CancelledError:
                         log_event(
                             "tool_execution_cancelled",
@@ -567,6 +620,13 @@ def create_app(config_path: str | None = None) -> FastAPI:
                         approval_required=result.get("terminal_reason")
                         == "mcp_approval_required",
                     )
+                    if explicit:
+                        result.setdefault("loaded_skills", [])
+                        result["executor_state"] = {
+                            "attempts": dict(run.artifacts.attempts),
+                            "briefing_execution": run.artifacts.briefing_execution,
+                            "nonretryable_mcp_results": run.artifacts.nonretryable_mcp_results,
+                        }
                     await emit("result", result)
 
             task = asyncio.create_task(invoke())
@@ -585,5 +645,51 @@ def create_app(config_path: str | None = None) -> FastAPI:
                     await task
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+    @app.post("/runtime/tools/call")
+    async def call(body: ToolCall, request: Request):
+        return await stream_call(
+            body, request, request.app.state.tools.context(request)
+        )
+
+    @app.post("/runtime/v1/tools/call")
+    async def explicit_call(body: ExplicitToolCall, request: Request):
+        from collections import Counter
+
+        from opentelemetry.propagate import extract
+
+        service = request.app.state.tools
+        user = authenticated_user_id_from_context()
+        group = body.name.partition("__")[0]
+        configured = set().union(
+            *(
+                service.workflow.get(key, [])
+                for key in ("tools", "daily_summary_tools", "daily_summary_final_tools")
+            )
+        )
+        if body.name not in body.context.available_tools or (
+            body.name not in configured and group not in configured
+        ):
+            raise HTTPException(400, "Tool is not available in this run")
+        # This object lives for exactly one bounded call. Rust retains all run
+        # state and returns only the state needed for the next invocation.
+        artifacts = AgentRun()
+        state = body.context.executor_state
+        artifacts.attempts = Counter(state.get("attempts", {}))
+        artifacts.briefing_execution = dict(state.get("briefing_execution", {}))
+        artifacts.nonretryable_mcp_results = dict(
+            state.get("nonretryable_mcp_results", {})
+        )
+        run = RunContext(
+            user,
+            body.context.query,
+            set(body.context.available_tools),
+            set(service.mcp.groups),
+            ModelSelection(),
+            time.monotonic(),
+            artifacts=artifacts,
+            span=trace.get_current_span(extract(dict(request.headers))),
+        )
+        return await stream_call(body, request, run, explicit=True)
 
     return app

@@ -233,8 +233,27 @@ async function main() {
   await redis.flushdb();
   await redis.quit();
 
-  startChild('backend', [process.execPath, 'e2e/mock-backend.mjs']);
+  if (process.env.E2E_CANDIDATE_IMAGE) {
+    if (!process.env.E2E_CANDIDATE_REDIS_IMAGE) {
+      throw new Error('Candidate mode requires E2E_CANDIDATE_REDIS_IMAGE');
+    }
+    startChild('candidate-backend', [
+      process.env.E2E_PYTHON || 'python3',
+      '../builder/migration/serve_candidate.py',
+      '--image', process.env.E2E_CANDIDATE_IMAGE,
+      '--redis-image', process.env.E2E_CANDIDATE_REDIS_IMAGE,
+      '--port', backendPort,
+    ]);
+  } else {
+    startChild('backend', [process.execPath, 'e2e/mock-backend.mjs']);
+  }
   await waitForHttp(`http://127.0.0.1:${backendPort}/health`);
+  if (process.env.E2E_CANDIDATE_IMAGE) {
+    const readiness = await fetch(`http://127.0.0.1:${backendPort}/health/ready`);
+    if (!readiness.ok || (await readiness.json()).runtime !== 'rust') {
+      throw new Error('Candidate mode requires the Rust image readiness contract');
+    }
+  }
 
   startChild('stream-worker', [
     process.execPath,

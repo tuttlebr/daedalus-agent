@@ -11,10 +11,24 @@ FROM rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00d
 WORKDIR /runtime
 COPY runtime/Cargo.toml runtime/Cargo.lock ./
 COPY runtime/src ./src
+COPY runtime/resources ./resources
+COPY runtime/tests ./tests
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/runtime/target,sharing=locked \
     cargo test --locked && cargo build --release --locked && \
     cp target/release/daedalus-runtime /daedalus-runtime
+
+# P1 minimal profile. This is not the P4 Rust core image: MCP and the worker
+# still use the explicitly selected transitional backend image below.
+FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG}@${BASE_IMAGE_DIGEST} AS rust-minimal
+RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates tzdata && \
+    rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
+ENV DAEDALUS_PREPARATION=rust DAEDALUS_TOOL_EXECUTOR=disabled
+USER 65532:65532
+EXPOSE 8000
+ENTRYPOINT ["/workspace/daedalus-runtime"]
 
 FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG}@${BASE_IMAGE_DIGEST} AS runtime_base
 

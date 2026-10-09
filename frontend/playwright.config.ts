@@ -12,6 +12,9 @@ const chromiumLaunchOptions = {
 
 export default defineConfig({
   testDir: './e2e/tests',
+  ...(process.env.E2E_CANDIDATE_IMAGE
+    ? { testMatch: /rust-candidate\.spec\.ts/ }
+    : { testIgnore: /rust-candidate\.spec\.ts/ }),
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
