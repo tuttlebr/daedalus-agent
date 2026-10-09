@@ -80,7 +80,9 @@ services:
         condition: service_completed_successfully
 
   nginx:
-    image: nginx:1.31.5-alpine-slim@sha256:3b171d7224b669faa3cc2137fea0a65301791df1ec1f271ebd2a2b7461f7fade
+    build:
+      context: ./vendor-images/nginx
+    image: daedalus/nginx:1.31.5-pcre2-10.49
     # TLS termination for Compose is out of scope; the Helm chart owns HTTPS
     # (nginx.https.enabled). Only the plaintext listener is published here.
     ports:
@@ -268,7 +270,9 @@ services:
       start_period: 5s
 
   object-store:
-    image: chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
+    build:
+      context: ./vendor-images/seaweedfs
+    image: daedalus/seaweedfs:4.46-go1.26.9
     command: ['mini', '-dir=/data']
     environment:
       - AWS_ACCESS_KEY_ID=${DOCUMENT_OBJECT_ACCESS_KEY:-daedalus-local}
@@ -293,7 +297,7 @@ services:
       start_period: 10s
 
   object-store-init:
-    image: chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
+    image: daedalus/seaweedfs:4.46-go1.26.9
     entrypoint: ['/bin/sh', '-ec']
     command:
       - |

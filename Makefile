@@ -166,6 +166,10 @@ tools-check: ## verify required binaries are present
 			missing=$$((missing+1)); \
 		fi; \
 	done; \
+	if command -v docker >/dev/null 2>&1 && ! docker buildx inspect | rg -q '^Platforms:.*linux/arm64'; then \
+		echo "  missing: ARM binfmt for vendor image scans (see vendor-images/README.md)"; \
+		missing=$$((missing+1)); \
+	fi; \
 	if [ $$missing -gt 0 ]; then \
 		echo "==> $$missing required tool(s) missing"; \
 		exit 1; \

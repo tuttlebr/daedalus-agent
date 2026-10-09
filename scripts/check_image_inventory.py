@@ -98,12 +98,36 @@ def validate(inventory):
     ):
         config = render_compose(source)
         services = config["services"]
+        derived_services = set()
+        for item in inventory.get("derived", []):
+            names = item["services"].get(mode, [])
+            if not names:
+                continue
+            builds = []
+            for name in names:
+                service = services.get(name, {})
+                if service.get("image") != item["image"]:
+                    raise ValueError(f"Derived image mismatch: {mode}/{name}")
+                if "build" in service:
+                    build = service["build"]
+                    context = (ROOT / Path(source).parent / build["context"]).resolve()
+                    if (
+                        context != (ROOT / item["context"]).resolve()
+                        or build.get("dockerfile", "Dockerfile") != "Dockerfile"
+                    ):
+                        raise ValueError(f"Derived build mismatch: {mode}/{name}")
+                    builds.append(name)
+                derived_services.add(name)
+            if not builds:
+                raise ValueError(f"Derived image has no build: {mode}/{item['id']}")
         built_refs = {value["image"] for value in services.values() if "build" in value}
         if mode == "compose":
             actual_built = {
                 name
                 for name, value in services.items()
-                if "build" in value and value["build"].get("target") != "base"
+                if "build" in value
+                and value["build"].get("target") != "base"
+                and name not in derived_services
             }
             check_refs("built services", actual_built, set(inventory["builtServices"]))
         actual = {value["image"] for value in services.values()} - built_refs
@@ -138,6 +162,37 @@ def validate(inventory):
     )
 
 
+def build_derived_image(item, platform):
+    """Scan the exact locally built platform image, including retained base files."""
+    docker = shutil.which("docker")
+    if docker is None:
+        raise FileNotFoundError("Required executable not found: docker")
+    tag = item["image"] + "-scan-" + platform.split("/")[1]
+    print(f"Building derived image {tag} from {item['context']}", flush=True)
+    # Tracked build context and image name, resolved executable, no shell.
+    subprocess.run(  # nosec B603
+        [
+            str(Path(docker).resolve()),
+            "buildx",
+            "build",
+            "--load",
+            "--platform",
+            platform,
+            "--provenance=false",
+            "--tag",
+            tag,
+            str(ROOT / item["context"]),
+        ],
+        check=True,
+        shell=False,
+        timeout=1800,
+    )
+    metadata = json.loads(output("docker", "image", "inspect", tag))[0]
+    if metadata["Os"] + "/" + metadata["Architecture"] != platform:
+        raise ValueError(f"Derived image architecture mismatch: {tag}")
+    return metadata["Id"]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scan-upstream", action="store_true")
@@ -158,8 +213,15 @@ def main():
             "statements"
         ]
         platforms = [args.platform] if args.platform else inventory["platforms"]
-        for item, platform in itertools.product(inventory["upstream"], platforms):
-            print(f"Scanning {item['id']} ({platform}): {item['image']}", flush=True)
+        for item, platform in itertools.product(
+            inventory["upstream"] + inventory.get("derived", []), platforms
+        ):
+            image = (
+                build_derived_image(item, platform)
+                if "context" in item
+                else item["image"]
+            )
+            print(f"Scanning {item['id']} ({platform}): {image}", flush=True)
             with tempfile.TemporaryDirectory(prefix="daedalus-image-scan-") as temp:
                 report = Path(temp) / "raw.json"
                 # The scanner override is an operator-selected executable;
@@ -170,7 +232,7 @@ def main():
                         trivy,
                         "image",
                         "--image-src",
-                        "remote",
+                        "docker" if "context" in item else "remote",
                         "--scanners",
                         "vuln,secret",
                         "--severity",
@@ -183,7 +245,7 @@ def main():
                         str(report),
                         "--platform",
                         platform,
-                        item["image"],
+                        image,
                     ],
                     cwd=ROOT,
                     check=False,
@@ -195,7 +257,8 @@ def main():
                 # Keep the scanner's unadjudicated exit/findings visible without
                 # printing detected secret values or the entire package SBOM.
                 summary = {
-                    "image": item["image"],
+                    "image": image,
+                    "declared_image": item["image"],
                     "platform": platform,
                     "actual_architecture": data.get("Metadata", {})
                     .get("ImageConfig", {})
@@ -239,7 +302,7 @@ def main():
                         count += 1
                         statement = matching_statement(
                             statements,
-                            item["image"],
+                            image,
                             target["Target"],
                             finding,
                             architecture=data.get("Metadata", {})
@@ -250,9 +313,7 @@ def main():
                             unresolved.append(finding)
                             continue
                         if not checked_native:
-                            verify_native_evidence(
-                                item["image"], statement["x-architecture"]
-                            )
+                            verify_native_evidence(image, statement["x-architecture"])
                             checked_native = True
                         print(
                             f"VEX not_affected {finding['VulnerabilityID']}: exact digest/component and native evidence verified; expires {statement['x-expires']}",

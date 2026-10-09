@@ -33,9 +33,9 @@ images:
     digest: ''
     pullPolicy: Always
   nginx:
-    repository: nginxinc/nginx-unprivileged
-    tag: alpine
-    digest: 'sha256:2ddec616f1cb58bcac057aa388f28cb81e35137641ef4226d321714499329bd1'
+    repository: mirror.gcr.io/nginxinc/nginx-unprivileged
+    tag: 1.31.6-alpine-slim
+    digest: 'sha256:1517d8c358e2e093957ebee087afa9eb19a32f5d7ecb711b7429e369cb998224'
     pullPolicy: Always
   redis:
     # Repository-owned, security-updated Redis Stack 7.4.0-v8 image. Keep

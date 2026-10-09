@@ -148,3 +148,53 @@ def test_missing_render_or_scanner_executable_fails_closed(monkeypatch):
         FileNotFoundError, match="Required scanner executable not found"
     ):
         inventory_module.main()
+
+
+@pytest.mark.parametrize("change", [None, "image", "context", "missing_build"])
+def test_derived_services_cannot_change_or_omit_the_declared_build(monkeypatch, change):
+    inventory = json.loads((ROOT / "deployment-images.json").read_text())
+    compose = yaml.safe_load((ROOT / "docker-compose.yaml").read_text())
+    browser = yaml.safe_load((ROOT / "frontend/e2e/docker-compose.yml").read_text())
+    service = compose["services"]["object-store"]
+    if change == "image":
+        service["image"] = "unreviewed:latest"
+    elif change == "context":
+        service["build"]["context"] = "./unreviewed-build"
+    elif change == "missing_build":
+        del service["build"]
+    monkeypatch.setattr(
+        inventory_module,
+        "render_compose",
+        lambda source: compose if source == "docker-compose.yaml" else browser,
+    )
+    monkeypatch.setattr(
+        inventory_module,
+        "output",
+        lambda *args: "  image: " + inventory["upstream"][0]["image"],
+    )
+    if change:
+        with pytest.raises(ValueError, match="Derived"):
+            inventory_module.validate(inventory)
+    else:
+        inventory_module.validate(inventory)
+
+
+def test_derived_scan_uses_an_immutable_id_and_rejects_wrong_architecture(monkeypatch):
+    item = {"image": "fixture:patched", "context": "vendor-images/nginx"}
+    metadata = {"Os": "linux", "Architecture": "arm64", "Id": "sha256:immutable"}
+    monkeypatch.setattr(inventory_module.shutil, "which", lambda _: "/fixture/docker")
+
+    def build(argv, **kwargs):
+        assert kwargs["check"] and kwargs["shell"] is False
+        assert argv[argv.index("--platform") + 1] == "linux/arm64"
+
+    monkeypatch.setattr(inventory_module.subprocess, "run", build)
+    monkeypatch.setattr(
+        inventory_module, "output", lambda *args: json.dumps([metadata])
+    )
+    assert (
+        inventory_module.build_derived_image(item, "linux/arm64") == "sha256:immutable"
+    )
+    metadata["Architecture"] = "amd64"
+    with pytest.raises(ValueError, match="architecture mismatch"):
+        inventory_module.build_derived_image(item, "linux/arm64")

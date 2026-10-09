@@ -209,13 +209,22 @@ pod security, and the disposable Redis upgrade/certificate-rotation/rollback
 rehearsal passed. Skips remain visible and do not satisfy future acceptance
 cases. Both shipped configurations passed the built Rust parser.
 
-Release validation also found pre-existing dependency failures: the pinned
-nginx and SeaweedFS images fail the current HIGH/CRITICAL scan, and Next.js
-15.5.24 fails the production audit for GHSA-4jqv-mc3x-m676 and
-GHSA-mcj8-r9mp-w47p. The development `uv.lock` also pins AnyIO 4.12.1,
-flagged by the filesystem scan for CVE-2026-63374 (fixed in 4.14.2).
-The repository-owned application images and minimal Rust
-image passed their vulnerability scans. `make ci` is not recorded as passing
-until these security gates pass; no exception or lowered threshold was added.
-Keep security remediation and deployment evidence separate from migration
-contract results.
+Release validation found pre-existing dependency failures in nginx, SeaweedFS,
+Next.js 15.5.24 and the development AnyIO lock. A separate security follow-up
+updates Next.js to 15.5.27 and AnyIO to 4.14.2, pins the clean unprivileged nginx
+slim image for Helm, and retains reproducible Compose vendor patches described
+in [vendor-images/README.md](../vendor-images/README.md). The SeaweedFS patch
+passed baseline-write/candidate-read and candidate-write/rollback-read checks
+against disposable S3 storage. Both nginx configurations passed syntax checks.
+
+All `make ci` targets passed across the retained runs. After the security edits,
+Python/frontend/Helm checks were rerun, followed by integration, both browser
+suites, application image checks, all six vendor image/architecture scans, and
+repository security checks. Unaffected Rust/migration and Redis upgrade targets
+reuse their earlier passing evidence. Production npm audit and image/filesystem
+scans pass their existing thresholds; no vulnerability exception or reduced
+gate was added. Five additional inventory regression cases passed with the
+existing inventory/CI parity suite (24 cases). The one new Gitleaks fingerprint
+identifies a verified public source hash in the committed baseline inventory.
+Deployment and live semantic evidence are recorded separately in the
+implementation issue and retained release report.

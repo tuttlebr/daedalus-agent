@@ -3,3 +3,7 @@
 307af885d9248958f2d0fc0f73ba8a8856eaeffd:skills/kubernetes-specialist/references/configuration.md:generic-api-key:118
 # Reviewed deploy dry-run placeholder; not a credential.
 11576340278450bcce58338bb7eefa6d33706d74:deploy.sh:generic-api-key:157
+
+# Public SHA-256 of baseline daedalus_runtime/oauth.py, verified against the
+# retained image and source commit. The filename triggers generic-api-key.
+039f3dd97777b77b3b30d8eb1139aa31a9b1f758:builder/runtime/tests/fixtures/baseline-inventory.json:generic-api-key:3286
