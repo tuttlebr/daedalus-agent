@@ -272,7 +272,7 @@ services:
   object-store:
     build:
       context: ./vendor-images/seaweedfs
-    image: daedalus/seaweedfs:4.46-go1.26.9
+    image: daedalus/seaweedfs:4.46-go1.26.9-net0.60.0
     command: ['mini', '-dir=/data']
     environment:
       - AWS_ACCESS_KEY_ID=${DOCUMENT_OBJECT_ACCESS_KEY:-daedalus-local}
@@ -297,7 +297,7 @@ services:
       start_period: 10s
 
   object-store-init:
-    image: daedalus/seaweedfs:4.46-go1.26.9
+    image: daedalus/seaweedfs:4.46-go1.26.9-net0.60.0
     entrypoint: ['/bin/sh', '-ec']
     command:
       - |

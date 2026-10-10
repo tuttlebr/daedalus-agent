@@ -9,13 +9,16 @@ uses the digest-pinned upstream unprivileged nginx slim image.
   [CVE-2026-103111](https://github.com/PCRE2Project/pcre2/security/advisories/GHSA-r9hj-j2rw-4q3m).
 - SeaweedFS retains release 4.46 and its existing runtime filesystem. Its Go
   executable is rebuilt from checksum-verified source with Go 1.26.9 and the
-  pinned gRPC fix. `go.mod` and `go.sum` are retained build inputs. This fixes
+  pinned gRPC fix. The October 10 rescan also requires `golang.org/x/net` 0.60.0
+  for [the HTTP/2 SETTINGS issue](https://pkg.go.dev/vuln/GO-2026-6611).
+  `go.mod` and `go.sum` retain that fix and its required Go module updates.
+  This also fixes
   [the HTTP Range issue](https://pkg.go.dev/vuln/GO-2026-6609),
   [the TLS ECH issue](https://pkg.go.dev/vuln/GO-2026-6607), and
   [the gRPC issue](https://github.com/grpc/grpc-go/security/advisories/GHSA-2v4p-qf9q-27wj).
   Existing Rust executables in the upstream image are retained.
   The locked optional rclone and Go module tooling dependencies are also patched
-  to 1.75.1 and 0.40.0 so the full source inventory passes its existing gate.
+  to 1.75.1 and 0.41.0 so the full source inventory passes its existing gate.
 
 The central `deployment-images.json` inventory records every consuming service
 and build directory. `scripts/check_image_inventory.py --scan-upstream` builds

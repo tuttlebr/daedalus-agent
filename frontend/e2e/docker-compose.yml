@@ -22,7 +22,7 @@ services:
   seaweedfs:
     build:
       context: ../../vendor-images/seaweedfs
-    image: daedalus/seaweedfs:4.46-go1.26.9
+    image: daedalus/seaweedfs:4.46-go1.26.9-net0.60.0
     command: mini -dir=/data -s3 -bucket=daedalus-e2e-documents
     environment:
       S3_BUCKET: daedalus-e2e-documents
