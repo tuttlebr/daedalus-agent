@@ -147,9 +147,13 @@ async function streamChat(req, res) {
   }
 
   if (prompt.includes('E2E_HTML')) {
+    const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4' +
+      'nGNUzlvKwMDAxMDAwMDAAAAOMAE6oWWQPwAAAABJRU5ErkJggg==';
     sendToken(
       res,
-      '<!doctype html><html><head><style>body{font-family:system-ui;padding:24px}h1{color:rgb(255,0,0)}</style></head><body><h1>Formatted HTML</h1><p>Preview parity</p></body></html>',
+      `<!doctype html><html><head><style>body{font-family:system-ui;padding:24px}h1{color:rgb(255,0,0)}</style></head><body><h1>Formatted HTML</h1><figure><img alt="Embedded source photo" src="${photo}"><figcaption>Source photo caption</figcaption></figure><p>${'Preview parity. '.repeat(
+        100,
+      )}</p></body></html>`,
     );
     res.end('data: [DONE]\n\n');
     return;

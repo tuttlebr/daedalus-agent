@@ -1,3 +1,4 @@
+import { omitInlineDataForModel } from '@/utils/app/embeddedHtmlImages';
 import {
   MilvusCollectionOwnershipError,
   resolveMilvusCollectionTarget,
@@ -392,6 +393,14 @@ export async function processMessages(
         verifiedUsername,
       );
 
+      // Saved HTML keeps its embedded photos for display. Only the provider
+      // copy drops the bytes, including when history was reloaded on the server.
+      if (
+        cleanedMessage.role === 'assistant' &&
+        typeof cleanedMessage.content === 'string'
+      ) {
+        cleanedMessage.content = omitInlineDataForModel(cleanedMessage.content);
+      }
       return cleanedMessage;
     }),
   );

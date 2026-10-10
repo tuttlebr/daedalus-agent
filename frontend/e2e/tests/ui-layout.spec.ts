@@ -573,6 +573,49 @@ test('mobile viewport preserves zoom and recovers after keyboard rotation', asyn
     });
 });
 
+test('HTML source images survive saving, reload and fullscreen', async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await sendMessage(page, 'E2E_HTML_IMAGES');
+  const frame = page.locator('iframe[title="HTML Preview"]').last();
+  const photo = () =>
+    frame.contentFrame().getByRole('img', { name: 'Embedded source photo' });
+  await expect
+    .poll(() =>
+      photo().evaluate((image: HTMLImageElement) => image.naturalWidth),
+    )
+    .toBe(2);
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(
+        '/api/session/selectedConversation',
+      );
+      return JSON.stringify(await response.json());
+    })
+    .toContain('data:image/png;base64,');
+  await page.reload();
+  await expect
+    .poll(() =>
+      photo().evaluate((image: HTMLImageElement) => image.naturalWidth),
+    )
+    .toBe(2);
+  await page.getByRole('button', { name: 'View fullscreen' }).last().click();
+  const dialog = page.getByRole('dialog', { name: 'Response document' });
+  const fullPhoto = dialog
+    .locator('iframe[title="HTML Preview"]')
+    .contentFrame()
+    .getByRole('img', { name: 'Embedded source photo' });
+  await expect
+    .poll(() =>
+      fullPhoto.evaluate((image: HTMLImageElement) => image.naturalWidth),
+    )
+    .toBe(2);
+  await dialog.getByRole('button', { name: 'Close fullscreen' }).click();
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+});
+
 test('fullscreen preserves HTML preview and Markdown formatting', async ({
   page,
 }, testInfo) => {

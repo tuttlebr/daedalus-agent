@@ -3,6 +3,10 @@ import { Logger } from '@/utils/logger';
 import { Message } from '@/types/chat';
 
 import {
+  hasBoundedHtmlImages,
+  omitInlineDataForModel,
+} from './embeddedHtmlImages';
+import {
   type ImageReference,
   getImageUrl,
   fetchImageAsBlob,
@@ -368,6 +372,12 @@ export function cleanMessagesForLLM(messages: any[]): Message[] {
       cleanedMessage.attachments = sanitizedAttachments;
     }
 
+    if (
+      cleanedMessage.role === 'assistant' &&
+      typeof cleanedMessage.content === 'string'
+    ) {
+      cleanedMessage.content = omitInlineDataForModel(cleanedMessage.content);
+    }
     return cleanedMessage;
   });
 
@@ -529,6 +539,13 @@ export function stripBase64Content(obj: any): any {
 
   for (const [key, value] of Object.entries(cleaned)) {
     if (typeof value === 'string') {
+      if (
+        key === 'content' &&
+        obj.role === 'assistant' &&
+        hasBoundedHtmlImages(value)
+      ) {
+        continue;
+      }
       // Drop raw data URLs and strip embedded ones without nuking full content.
       if (
         value.startsWith('data:image/') ||

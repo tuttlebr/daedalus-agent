@@ -2,13 +2,14 @@
  * Shared sanitization utilities for conversation data stored in Redis.
  * Used by conversationHistory, selectedConversation, and conversations/[id].
  */
+import { hasBoundedHtmlImages } from '@/utils/app/embeddedHtmlImages';
 
 const MAX_CONVERSATIONS = 50;
 const MAX_MESSAGES_PER_CONV = 100;
 
 /**
- * Recursively strip base64-encoded image data from an object to prevent
- * storage bloat and LLM context overflow.
+ * Recursively strip attachment data while retaining bounded assistant HTML
+ * display artifacts. Model preparation separately removes inline image bytes.
  */
 export function stripBase64FromObject<T>(obj: T): T {
   if (typeof obj !== 'object' || obj === null) {
@@ -23,6 +24,13 @@ export function stripBase64FromObject<T>(obj: T): T {
 
   for (const [key, value] of Object.entries(cleaned)) {
     if (typeof value === 'string') {
+      if (
+        key === 'content' &&
+        cleaned.role === 'assistant' &&
+        hasBoundedHtmlImages(value)
+      ) {
+        continue;
+      }
       // Strip embedded image data URLs and long base64 blobs, but match the
       // actual data-URL marker (`;base64,`) rather than the substring "base64"
       // so long legitimate prose that merely mentions base64 isn't destroyed
@@ -45,7 +53,7 @@ export function stripBase64FromObject<T>(obj: T): T {
  * Clamp a conversation list to safe sizes:
  *  - At most MAX_CONVERSATIONS conversations (keep most recent).
  *  - At most MAX_MESSAGES_PER_CONV messages per conversation (keep most recent).
- *  - All base64 content stripped.
+ *  - Attachment blobs stripped; bounded assistant HTML photos retained.
  */
 export function clampConversations<T extends { messages?: unknown[] }>(
   conversations: T[],

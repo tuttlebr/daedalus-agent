@@ -62,7 +62,7 @@ export default async function handler(
         conversation.messages = conversation.messages.slice(-200);
       }
 
-      // Aggressively remove any base64 content to prevent storage bloat and LLM context overflow
+      // Strip attachment bytes while retaining bounded photos in HTML documents.
       conversation = stripBase64FromObject(conversation);
       conversation = sanitizeConversationAssistantReplays(conversation);
 
