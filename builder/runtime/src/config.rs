@@ -10,6 +10,7 @@ use std::{
 #[derive(Clone)]
 pub struct Config {
     pub raw: Value,
+    pub policy_raw: Value,
     pub env: HashMap<String, String>,
     pub python_tools: bool,
 }
@@ -48,15 +49,20 @@ fn expand(value: &mut Value, env: &HashMap<String, String>) {
 }
 
 pub fn load(path: &Path, env: &HashMap<String, String>) -> Result<Value> {
+    load_with_policy(path, env, false)
+}
+
+fn load_with_policy(path: &Path, env: &HashMap<String, String>, policy: bool) -> Result<Value> {
     fn visit(
         path: &Path,
         env: &HashMap<String, String>,
         seen: &mut HashSet<PathBuf>,
+        policy: bool,
     ) -> Result<Value> {
         let path = path
             .canonicalize()
             .map_err(|_| anyhow!("Configuration file unavailable"))?;
-        if seen.len() >= 16 || !seen.insert(path.clone()) {
+        if seen.len() >= if policy { 5 } else { 16 } || !seen.insert(path.clone()) {
             bail!("Circular or excessively deep configuration inheritance");
         }
         let text = std::fs::read_to_string(&path)
@@ -70,15 +76,17 @@ pub fn load(path: &Path, env: &HashMap<String, String>) -> Result<Value> {
             let base = base
                 .as_str()
                 .ok_or_else(|| anyhow!("Invalid configuration base"))?;
-            let mut inherited = visit(&path.parent().unwrap().join(base), env, seen)?;
+            let mut inherited = visit(&path.parent().unwrap().join(base), env, seen, policy)?;
             merge(&mut inherited, data);
             data = inherited;
         }
-        expand(&mut data, env);
+        if !policy {
+            expand(&mut data, env);
+        }
         seen.remove(&path);
         Ok(data)
     }
-    visit(path, env, &mut HashSet::new())
+    visit(path, env, &mut HashSet::new(), policy)
 }
 
 pub fn truthy(v: &Value) -> bool {
@@ -143,21 +151,33 @@ pub fn names(value: Option<&Value>) -> Result<Vec<String>> {
 impl Config {
     pub fn from_path(path: &Path) -> Result<Self> {
         let env = std::env::vars().collect();
-        Self::new(load(path, &env)?, env)
+        let policy_raw = load_with_policy(path, &env, true)?;
+        let mut config = Self::new(load(path, &env)?, env)?;
+        config.policy_raw = policy_raw;
+        crate::authorization::Policies::new(&config.policy_raw)?;
+        Ok(config)
     }
     pub fn new(raw: Value, env: HashMap<String, String>) -> Result<Self> {
         let python_tools = raw["functions"]
             .as_object()
             .is_some_and(|f| f.values().any(|v| v["_type"] != "current_datetime"))
-            || raw["function_groups"]
-                .as_object()
-                .is_some_and(|g| !g.is_empty());
+            || env
+                .get("DAEDALUS_AUTHORIZATION")
+                .is_some_and(|s| s == "python")
+                && raw["function_groups"]
+                    .as_object()
+                    .is_some_and(|g| !g.is_empty());
         let config = Self {
+            policy_raw: raw.clone(),
             raw,
             env,
             python_tools,
         };
         config.validate()?;
+        match config.variable("DAEDALUS_AUTHORIZATION", "rust").as_str() {
+            "rust" | "python" => {}
+            _ => bail!("DAEDALUS_AUTHORIZATION must be rust or python"),
+        }
         Ok(config)
     }
     pub fn variable(&self, key: &str, default: &str) -> String {

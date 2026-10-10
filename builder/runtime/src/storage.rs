@@ -111,6 +111,73 @@ impl Store {
         let _: String = self.command(&mut redis::cmd("PING")).await?;
         Ok(())
     }
+    /// Cross-process OAuth refresh lease, compatible with redis-py's key and
+    /// owner token. Compare ownership on writes and release, including Drop.
+    pub async fn owned_lease(&self, key: &str) -> Result<OwnedLease> {
+        let owner = crate::authorization::nonce();
+        let until = tokio::time::Instant::now() + Duration::from_secs(35);
+        loop {
+            let acquired: Option<String> = self
+                .command(
+                    redis::cmd("SET")
+                        .arg(key)
+                        .arg(&owner)
+                        .arg("NX")
+                        .arg("EX")
+                        .arg(40),
+                )
+                .await?;
+            if acquired.is_some() {
+                return Ok(OwnedLease {
+                    store: self.clone(),
+                    key: key.into(),
+                    owner,
+                });
+            }
+            if tokio::time::Instant::now() >= until {
+                return Err(anyhow!("Authorization is in use"));
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+pub struct OwnedLease {
+    store: Store,
+    key: String,
+    owner: String,
+}
+impl OwnedLease {
+    pub async fn write(&self, key: &str, value: Option<&str>) -> Result<bool> {
+        let script = "if redis.call('GET',KEYS[1]) ~= ARGV[1] then return -1 end; if ARGV[2] == 'delete' then return redis.call('DEL',KEYS[2]) end; redis.call('SET',KEYS[2],ARGV[3]); return 1";
+        let result: i64 = self
+            .store
+            .command(
+                redis::cmd("EVAL")
+                    .arg(script)
+                    .arg(2)
+                    .arg(&self.key)
+                    .arg(key)
+                    .arg(&self.owner)
+                    .arg(if value.is_some() { "set" } else { "delete" })
+                    .arg(value.unwrap_or("")),
+            )
+            .await?;
+        if result == -1 {
+            return Err(anyhow!("Authorization lease expired"));
+        }
+        Ok(result == 1)
+    }
+}
+impl Drop for OwnedLease {
+    fn drop(&mut self) {
+        let store = self.store.clone();
+        let key = self.key.clone();
+        let owner = self.owner.clone();
+        tokio::spawn(async move {
+            let _: Result<i64> = store.command(redis::cmd("EVAL").arg("if redis.call('GET',KEYS[1]) == ARGV[1] then return redis.call('DEL',KEYS[1]) end; return 0").arg(1).arg(key).arg(owner)).await;
+        });
+    }
 }
 
 /// Preparation is bounded to 2.5s, well inside the 30/60s compatible lock TTL.

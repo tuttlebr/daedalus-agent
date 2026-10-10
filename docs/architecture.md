@@ -13,8 +13,10 @@ duplicate command IDs are idempotent, and conflicting reuse is rejected.
 
 Rust also owns YAML configuration, model/profile selection, history budgeting,
 automatic Hindsight context, tool-output compaction/cache writes and run state.
-Its native clock needs no tool service. Shared protocol types are generated for
-Rust, TypeScript and Python. The [P0/P1 migration record](rust-migration.md)
+Its native clock and MCP clients need no Python tool service. Rust also owns
+Google OAuth, exact-call approvals, execution receipts and per-user sessions.
+Shared protocol types are generated for Rust, TypeScript and Python. The
+[migration record](rust-migration.md)
 describes the compatibility fixtures, remaining Python ownership and rollback.
 
 Responses streams from compatible gateways may omit envelope metadata. The
@@ -71,8 +73,9 @@ kubectl -n daedalus logs deployment/daedalus-backend-default -c backend --since=
 `builder/daedalus_runtime` runs Python tools on loopback port 8001. The Rust
 process is the public backend on port 8000. The supervisor starts both, waits
 for Python startup, forwards termination signals, and exits if either fails.
-Python owns the typed native tool registry, official MCP client sessions,
-Google OAuth, exact-call approvals, retrieval, images, and other existing APIs.
+Python owns the remaining typed native tool registry, retrieval, images, and
+unmigrated APIs. Axum handles MCP authorization routes explicitly; remaining
+public routes still use the transitional proxy.
 Internal tool endpoints require the shared internal credential and are blocked
 at the public Rust proxy. Tool identities come from authenticated request
 context, never model arguments.
@@ -80,7 +83,8 @@ context, never model arguments.
 For Rust-prepared runs, Python supplies a catalogue and executes leaf calls with
 an explicit versioned context; it does not own a second agent run. The full
 image still requires that service. The separate `rust-minimal` image starts the
-binary directly with only the native clock enabled and omits Python entirely.
+binary directly with the native clock, MCP and authorization enabled and omits
+Python entirely. The autonomous worker remains Python until P4.
 
 Steering uses `steer_job` over the existing WebSocket connection. The server
 revalidates the login and stored job owner, then forwards a UUID command to

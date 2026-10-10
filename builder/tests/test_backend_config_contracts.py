@@ -1334,6 +1334,8 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
     assert allowlist_match is not None
     allowlist = re.compile(allowlist_match.group(1))
     for active_name in (
+        "DAEDALUS_PREPARATION",
+        "DAEDALUS_AUTHORIZATION",
         "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS",
         "X_MCP_BEARER_TOKEN",
         "HUE_MCP_TOKEN",
@@ -1356,6 +1358,20 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         "DISTILL_LLM_MODEL_API_KEY",
     ):
         assert allowlist.fullmatch(stale_name) is None, stale_name
+
+
+def test_migration_rollback_selectors_are_scoped_to_backend_deployment():
+    deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    selectors = {"DAEDALUS_PREPARATION", "DAEDALUS_AUTHORIZATION"}
+    for group in ("BACKEND", "FRONTEND", "STREAM_WORKER"):
+        match = re.search(rf"{group}_SECRET_KEYS=\((.*?)\n  \)", deploy, re.S)
+        assert match is not None
+        keys = set(match.group(1).split())
+        assert (selectors <= keys) if group == "BACKEND" else not (selectors & keys)
+    compose = yaml.safe_load(DOCKER_COMPOSE.read_text(encoding="utf-8"))
+    assert compose["services"]["backend"]["env_file"] == [
+        "${DAEDALUS_COMPOSE_ENV_FILE:-.env}"
+    ]
 
 
 def test_hindsight_is_the_only_durable_memory_backend():

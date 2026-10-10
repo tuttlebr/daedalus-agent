@@ -42,15 +42,26 @@ loopback `DAEDALUS_TOOLS_PORT` (8001 by default) for Python. Do not expose it as
 separate Service. Optional runtime logging uses `RUST_LOG` and `LOG_LEVEL`.
 Existing frontend `NAT_*` transport settings remain compatibility settings.
 
-Rust preparation is now the default. `DAEDALUS_PREPARATION=python` selects the
-retained preparation implementation for an entire deployment; never retry a
-failed run through it automatically. The full image still needs Python for
-unmigrated tools and APIs. For a clock/text-only profile, build Docker target
+Rust preparation and MCP authorization are now the default.
+`DAEDALUS_PREPARATION=python` selects both retained Python implementations;
+`DAEDALUS_AUTHORIZATION=python` retains just Python MCP/OAuth with Rust
+preparation. Select an implementation for an entire deployment; never retry a
+failed run through it automatically. Put selectors in the deployment `.env`
+file; both Compose and `make deploy` pass them to the backend. Direct Helm
+deployments can use `backend.default.env.data` or the existing backend Secret.
+Leave authorization unset when selecting Python preparation, or explicitly set
+it to `python` as well. The full image still needs Python for
+unmigrated native tools, APIs and the autonomous worker. For clock/text and MCP
+profiles, build Docker target
 `rust-minimal` and provide `DAEDALUS_CONFIG_FILE`, the internal token and model
 settings; its direct binary entrypoint requires no Python service. Required
 unsupported tools fail startup. Run `daedalus-runtime --check-config` to validate
 the parsed Rust configuration without starting services. See the
 [migration record](rust-migration.md) for image, rollback and validation commands.
+OAuth callbacks, resets and approval execution/polling now terminate in Axum.
+Keep callback and execution polling affinity to their originating process; drain
+active runs and OAuth/approval waits before changing implementations. Grant keys,
+refresh locks and receipt formats remain compatible with the rollback image.
 
 `DAEDALUS_LLM_TIMEOUT` sets the model request timeout in seconds, from 1 to 3600.
 The runtime also enforces a separate 30-minute deadline for the entire agent

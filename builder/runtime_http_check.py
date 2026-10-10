@@ -587,6 +587,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
         path.chmod(0o644)
         env = {
             "DAEDALUS_PREPARATION": preparation,
+            "DAEDALUS_AUTHORIZATION": "rust" if preparation == "rust" else "python",
             "DAEDALUS_INTERNAL_API_TOKEN": f"  {token}  ",
             "DAEDALUS_MEMORY_MODE": "disabled",
             "DAEDALUS_PORT": str(runtime_port),
@@ -1161,12 +1162,25 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         and record.get("span", {}).get("run_id") == "basic-run"
                         for record in records
                     ), name
-                assert any(
-                    event.get("event") == "tool_execution_finished"  # nosec B101 - executable contract check
-                    and event.get("run_id")
-                    == ("basic-run" if preparation == "python" else "tool-run")
-                    for event in events
-                )
+                if preparation == "python":
+                    assert any(
+                        event.get("event") == "tool_execution_finished"
+                        and event.get("run_id") == "basic-run"
+                        for event in events
+                    )  # nosec B101 - baseline Python dispatch owns this lifecycle
+                else:
+                    assert any(
+                        record.get("fields", {}).get("event") == "tool_call_finished"
+                        and record.get("fields", {}).get("tool")
+                        == "fixture_mcp__slow_read"
+                        and record.get("span", {}).get("run_id") == "tool-run"
+                        for record in records
+                    )  # nosec B101 - migrated MCP must correlate in Rust
+                    assert not any(
+                        event.get("event") == "tool_execution_finished"
+                        and event.get("run_id") == "tool-run"
+                        for event in events
+                    ), "Rust MCP dispatch must not invoke the Python executor"  # nosec B101
                 assert any(
                     event.get("event") == "model_retry_scheduled"  # nosec B101 - executable contract check
                     and event.get("http_status") == 503

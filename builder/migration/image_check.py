@@ -173,8 +173,11 @@ def environment(
     token=None,
     api_type="responses",
     resource_limits=False,
+    peers=None,
+    configure=None,
+    extra_env=None,
 ):
-    peers = MemoryPeers()
+    peers = peers or MemoryPeers()
 
     class PeerServer(ThreadingHTTPServer):
         request_queue_size = 128
@@ -211,6 +214,8 @@ def environment(
             },
         }
         config["llms"]["main"]["api_type"] = api_type
+        if configure:
+            configure(config, server.server_port, runtime_port)
         (root / "config.yaml").write_text(yaml.safe_dump(config))
         run(
             "openssl",
@@ -343,7 +348,9 @@ def environment(
                 "HINDSIGHT_API_KEY": "synthetic-hindsight-key",
                 "REDIS_URL": f"rediss://backend:synthetic-backend@localhost:{redis_port}?ssl_ca_certs=/fixture/ca.crt",
                 "DAEDALUS_PREPARATION": "rust" if minimal else "python",
+                "DAEDALUS_AUTHORIZATION": "rust" if minimal else "python",
             }
+            env.update(extra_env(server.server_port) if extra_env else {})
             command = [
                 "docker",
                 "run",
@@ -398,6 +405,7 @@ def environment(
                         "container": backend_name,
                         "process": process,
                         "root": root,
+                        "environment": env,
                         "readiness_ms": (time.monotonic() - started) * 1000,
                     }
         finally:

@@ -72,6 +72,8 @@ def test_rust_migration_gates_have_ci_and_local_parity():
     assert "--compare-image $(MIGRATION_BASELINE_IMAGE)" in makefile
     assert "--redis-image $(MIGRATION_REDIS_IMAGE)" in makefile
     assert "--target rust-minimal" in makefile
+    assert "builder/migration/authorization_check.py" in makefile
+    assert "--report $(MIGRATION_REPORT_DIR)/authorization.json" in makefile
     assert (
         "--locked --manifest-path builder/runtime/Cargo.toml --all-targets -- -D warnings"
         in makefile

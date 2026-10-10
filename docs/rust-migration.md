@@ -1,24 +1,27 @@
-# Rust migration: P0 and P1
+# Rust migration: P0 through P2
 
-Implementation tracking: [issue 2](https://github.com/tuttlebr/daedalus-agent/issues/2).
+Implementation tracking: [P0/P1 issue 2](https://github.com/tuttlebr/daedalus-agent/issues/2)
+and [P2 issue 3](https://github.com/tuttlebr/daedalus-agent/issues/3).
 The retained source baseline is `7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b`.
-This release moves preparation into Rust. It does **not** claim the Rust core or
+Preparation and MCP authorization now run in Rust. This does **not** claim the Rust core or
 complete backend milestone: the full image still contains the Python executor,
 API adapters, and autonomous worker. The separate `rust-minimal` image starts,
-prepares memory context, chats, calls its native clock, steers, and stops without
-Python. Configuring another required tool in that image fails startup.
+prepares memory context, chats, calls its native clock and MCP tools, handles
+Google OAuth and exact approvals, steers, and stops without Python. Configuring
+a required native tool that still needs the Python executor fails startup.
 
 ## Implementation and rollback boundaries
 
 The existing Cargo package contains configuration/YAML, preparation, memory,
 output storage, Redis, generated protocol, telemetry, and agent modules. Rig
 remains pinned at 0.43.0. Model prompts, provider endpoints, frontend transports,
-Redis key derivation, output compression, and OAuth ownership remain unchanged.
+Redis key derivation and output compression remain unchanged. Rust owns MCP
+sessions, OAuth grants/callbacks, approval decisions and execution receipts.
 
 `DAEDALUS_PREPARATION=rust` is the default. The Rust run owns model selection,
 history budgeting, memory insertion, tool exposure, accumulated tool state,
 compaction, and its terminal telemetry span. The clock runs inside Rust.
-Python returns schemas from `/runtime/v1/catalog` and executes bounded leaf
+Python returns native schemas from `/runtime/v1/catalog` and executes bounded leaf
 calls at `/runtime/v1/tools/call`. Both endpoints require internal authentication
 and remain blocked on the public port. The versioned call context contains the
 query, explicitly exposed tool names, and per-executor state. Identity comes
@@ -27,14 +30,20 @@ does not create an authoritative run or select the next model. State updates
 return to Rust even when a leaf reports an error. Calls sharing a native factory
 or MCP group serialize their state updates. Stop closes the owning transport.
 
-The full image retains its Python supervisor and broad public API proxy until
-P3/P4. OAuth callback and approval polling URLs continue to use the originating
+The full image retains its Python supervisor and the remaining public API proxy
+until P3/P4. Axum now owns `/auth/redirect`, Google connection reset,
+`/v1/mcp-approvals/{request_id}/execute`, and `/executions/{id}` explicitly.
+OAuth callback and approval polling URLs continue to use the originating
 backend. Never distribute a run, its controls, approval polling, and OAuth
 continuation across versions without proven affinity. Use a drained cutover.
 
 Rollback uses the retained baseline image and compatible configuration. An
 operator can also select `DAEDALUS_PREPARATION=python` on the full candidate
-image at deployment time. There is no per-request fallback or automatic replay
+image at deployment time; this also selects Python authorization unless an
+explicit incompatible selector is supplied, which fails startup.
+`DAEDALUS_AUTHORIZATION=python` can independently retain Python MCP with Rust
+preparation for a deployment. Both selectors default to Rust. There is no
+per-request fallback or automatic replay
 through Python. Stop new work, drain/cancel active runs, retain receipts and
 uncertain writes, and restore the image/configuration. Do not restore an old
 Redis snapshot over newer production writes. P1 keeps the worker implementation
@@ -45,6 +54,64 @@ SIGTERM, cancels active runs, and bounds telemetry shutdown. Readiness checks
 the internal credential and configured Redis; Hindsight follows the existing
 `degraded`/`required` policy. Unsupported public capabilities return HTTP 503
 with `capability_unavailable`; internal migration routes return 404.
+
+## P2 authorization boundary
+
+The pinned `rmcp` 3.5.1 client now runs in production. Application code retains
+identity, Google OAuth, exposure policy, per-user session ownership, deadlines,
+and approval decisions. The SDK handles Streamable HTTP and MCP messages. Its
+automatic session reinitialization/replay and multi-round tool helpers are
+disabled. A bounded HTTP adapter retains extension fields in tool results and
+limits JSON/SSE input before collecting it. Remote transport errors never
+become instructions to retry a mutation. Stop closes the owning SDK transport.
+
+`jsonschema` 0.58.6 (MIT) validates tool inputs and declared structured outputs.
+HTTP/file reference resolution is disabled; local schema references work.
+Unsupported external references fail before dispatch. The compatibility fixture
+captures Python Unicode 15 casefolding, canonical JSON including 2,048 sampled
+binary64 values, OAuth key vectors and legacy/v2 records, exposure/approval
+policies, and result envelopes. Rust and frontend key consumers use the same
+baseline fixture. Generate it only with the immutable baseline image using
+`builder/migration/export_authorization.py`; candidate output is never the oracle.
+
+Google grants keep the `nat/object_store/...` keys and existing v2 write format.
+Readers accept the legacy base64 envelope. Refresh preserves missing refresh
+tokens/scopes, rotates grants under the existing Redis lease key, and checks
+lease ownership when saving or releasing. A stale owner cannot overwrite a
+successor. Legacy timezone-free expiry dates retain Python's local-time and
+daylight-saving fold behavior; both image profiles keep the baseline's
+`America/New_York` process timezone. Application and dependency logs exclude credentials and user/tool
+content, including when dependency trace logging is requested.
+
+These deliberate boundary changes have explicit acceptance cases:
+
+- Exact execution consumes an approval atomically even when that operation is
+  auto-approved for ordinary agent calls. The direct API rejects a server name
+  containing `__` and the discovery-only `connect` operation.
+- Invalid execution request bodies return a redacted 422 envelope without
+  reflecting submitted arguments or credentials.
+- MCP execution lifecycle evidence comes from Rust's correlated
+  `tool_call_started`/`tool_call_finished` events. Python leaf events remain for
+  native calls; the harness rejects Python MCP dispatch for a Rust-owned run.
+- Protocol response sizes, schema references and session capacity are bounded.
+  Expired sessions and malformed structured results report an uncertain outcome
+  without a success receipt or automatic replay.
+
+The optional `DAEDALUS_GOOGLE_OAUTH_AUTHORIZE_URL` and
+`DAEDALUS_GOOGLE_OAUTH_TOKEN_URL` are trusted operator endpoint overrides for
+scripted peers. Defaults remain Google's endpoints. Only HTTPS or loopback HTTP
+is accepted, with no embedded credentials, query or fragment. Production
+deployments should leave these overrides unset.
+
+`make migration` additionally runs `authorization_check.py` against the direct
+Python-free image, two backend processes, two synthetic users, scripted MCP/OAuth
+peers and disposable TLS Redis with backend ACLs. It covers exact-approval races,
+uncertain mutations, OAuth refresh/callback/reset/cancellation, refresh lease
+loss, fail-closed Redis errors, and the retained image reading Rust-written
+grants and receipts, and Rust consuming baseline-written approvals and grants.
+SIGTERM also terminates an in-progress direct execution without a success receipt.
+These are C04-C08/C14/C16 contracts; native tools, document/media paths,
+and the autonomous worker still require P3-P5.
 
 ## P0 baseline and decisions
 
@@ -72,7 +139,9 @@ Each retention tag was checked against the immutable digest before release.
 The inventory records baseline Cargo packages, production lockfile hashes,
 uncompressed image size, and compressed layer bytes for `linux/amd64`.
 
-The P0 dependency results select interfaces, not application parity:
+The following records the original P0 dependency decisions. The P2 boundary
+and acceptance harness above supersede the deferred MCP/authorization work;
+the remaining integration decisions still apply.
 
 | Dependency       | Probe, packaging and license                                                                                                                                                                                                                                                      | Decision and remaining work                                                                                                                                                                                      |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -100,11 +169,13 @@ create additional staffing. Planning ranges for later implementation are P2
 engineering time and working disposable services. The Milvus failure increases
 P5 uncertainty. These are provisional effort estimates, not delivery dates.
 
-The full-profile exceptions are all owned by the backend maintainer: native
-tools/API adapters (existing Python image cost; reconsider in P3), MCP/OAuth/
-approvals (existing sessions/Redis; P2), autonomous worker (existing worker
+The remaining full-profile exceptions are all owned by the backend maintainer:
+native tools/API adapters (existing Python image cost; reconsider in P3),
+autonomous worker (existing worker
 replica; P4), and document/retrieval/media/C2PA (existing service dependencies;
-P5). No new specialized service is deployed by P1. A later isolated adapter
+P5). P2 removes Python ownership of MCP/OAuth/approvals while retaining the
+deployment-time Python selector for rollback. No new specialized service is
+deployed by P1/P2. A later isolated adapter
 must record its separate image/resources and remain optional for core readiness.
 
 ## Matrix ownership and test layers
@@ -112,7 +183,8 @@ must record its separate image/resources and remain optional for core readiness.
 The owner for every row is Brandon Tuttle, acting in the role below. P0 captures
 existing evidence and gaps for every row; it does not require the future Rust
 implementation of C01-C16. Existing Python tests alone never satisfy a candidate
-case. The following is also the fixture work queue for P2-P5.
+case. The table records P0/P1 evidence; the P2 boundary above adds the surviving
+Rust authorization cases. Remaining entries are the fixture work queue for P3-P5.
 
 | Case                | Owner role    | P0/P1 evidence and planned surviving layer                                                                                                                                                                                                     |
 | ------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

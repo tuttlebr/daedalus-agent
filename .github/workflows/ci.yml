@@ -35,6 +35,7 @@ jobs:
       - name: Rust contracts and coverage
         run: make rust-check rust-coverage
       - name: Differential, image and rollback contracts
+        # Includes two-runtime MCP/OAuth races and rollback grant readers.
         run: make migration
       - name: Browser against candidate image
         run: make candidate-browser

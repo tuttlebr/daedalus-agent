@@ -15,6 +15,7 @@ pub struct Preparation {
     pub memory: Memory,
     pub outputs: OutputStore,
     pub telemetry: Option<crate::telemetry::Telemetry>,
+    pub mcp: Option<Arc<crate::mcp::Mcp>>,
 }
 
 pub struct ModelSelection {
@@ -279,6 +280,11 @@ pub fn base_prepare(
 impl Preparation {
     pub fn new(config: Config, http: reqwest::Client) -> Result<Arc<Self>> {
         Ok(Arc::new(Self {
+            mcp: if config.variable("DAEDALUS_AUTHORIZATION", "rust") == "rust" {
+                Some(crate::mcp::Mcp::new(&config)?)
+            } else {
+                None
+            },
             telemetry: crate::telemetry::Telemetry::new(&config)?,
             outputs: OutputStore::new(&config)?,
             memory: Memory::new(&config, http)?,
@@ -306,10 +312,13 @@ impl Preparation {
         ))?;
         let mut schemas = HashMap::new();
         let mut external = Vec::new();
+        let mut groups = Vec::new();
         for name in &selected {
             let raw = &self.config.raw["functions"][name];
             if raw["_type"] == "current_datetime" {
                 schemas.insert(name.clone(), vec![clock_schema(name, raw)]);
+            } else if self.mcp.is_some() && self.config.raw["function_groups"].get(name).is_some() {
+                groups.push(name.clone());
             } else {
                 external.push(name.clone());
             }
@@ -330,6 +339,12 @@ impl Preparation {
                     .ok_or_else(|| anyhow!("Required tool catalogue missing"))?;
                 schemas.insert(name, entries.clone());
             }
+        }
+        if let Some(mcp) = &self.mcp {
+            schemas.extend(
+                mcp.catalogue(&groups, header(headers, "x-user-id"), true)
+                    .await,
+            );
         }
         // Python orders all native tools before MCP tools; preserve this model-facing contract.
         for is_group in [false, true] {

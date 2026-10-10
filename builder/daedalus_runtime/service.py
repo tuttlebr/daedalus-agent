@@ -399,20 +399,29 @@ def create_app(config_path: str | None = None) -> FastAPI:
         )
         async with httpx.AsyncClient(timeout=30, follow_redirects=False) as http:
             oauth = GoogleOAuth(redis, http)
-            mcp = MCPManager(config, oauth)
+            authorization = os.getenv(
+                "DAEDALUS_AUTHORIZATION",
+                "python"
+                if os.getenv("DAEDALUS_PREPARATION", "rust") == "python"
+                else "rust",
+            )
+            if authorization not in {"rust", "python"}:
+                raise ValueError("DAEDALUS_AUTHORIZATION must be rust or python")
+            mcp = MCPManager(config, oauth, enabled=authorization == "python")
             service = ToolService(config, registry, mcp)
             app.state.tools, app.state.mcp, app.state.oauth = service, mcp, oauth
             from daedalus_runtime.executions import Executions
 
             app.state.executions = Executions(mcp)
-            reaper = asyncio.create_task(mcp.reap())
+            reaper = asyncio.create_task(mcp.reap()) if mcp.enabled else None
             try:
                 static_groups = [
                     name
                     for name in mcp.groups
                     if mcp._auth(name).get("_type") != "mcp_oauth2"
                 ]
-                await mcp.catalogue(static_groups, "runtime-readiness")
+                if mcp.enabled:
+                    await mcp.catalogue(static_groups, "runtime-readiness")
                 log_event(
                     "tool_service_ready",
                     elapsed_ms=round((time.monotonic() - starting) * 1000, 1),
@@ -422,9 +431,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
                 yield
             finally:
                 log_event("tool_service_stopping", active_runs=len(service.runs))
-                reaper.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await reaper
+                if reaper is not None:
+                    reaper.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await reaper
                 await app.state.executions.close()
                 await oauth.close()
                 await mcp.close()

@@ -18,14 +18,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo test --locked && cargo build --release --locked && \
     cp target/release/daedalus-runtime /daedalus-runtime
 
-# P1 minimal profile. This is not the P4 Rust core image: MCP and the worker
-# still use the explicitly selected transitional backend image below.
+# Rust preparation and MCP/OAuth profile. Native Python tools and the worker
+# still use the transitional backend image below until P3/P4.
 FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG}@${BASE_IMAGE_DIGEST} AS rust-minimal
 RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates tzdata && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
-ENV DAEDALUS_PREPARATION=rust DAEDALUS_TOOL_EXECUTOR=disabled
+ENV DAEDALUS_PREPARATION=rust DAEDALUS_TOOL_EXECUTOR=disabled TZ=America/New_York
 USER 65532:65532
 EXPOSE 8000
 ENTRYPOINT ["/workspace/daedalus-runtime"]

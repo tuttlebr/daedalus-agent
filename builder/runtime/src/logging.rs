@@ -5,21 +5,33 @@ use std::fmt;
 use anyhow::Error;
 use rig_core::error::ProviderError;
 use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub fn init() {
     let level = std::env::var("LOG_LEVEL")
         .ok()
         .and_then(|value| value.parse::<LevelFilter>().ok())
         .unwrap_or(LevelFilter::INFO);
-    tracing_subscriber::fmt()
+    let layer = tracing_subscriber::fmt::layer()
         .json()
         .with_ansi(false)
         .with_span_list(false)
-        .with_env_filter(
+        .with_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("daedalus_runtime={level}").into()),
+                .unwrap_or_else(|_| format!("daedalus_runtime={level}").into())
+                // The SDK logs remote bodies, session IDs and URLs at several
+                // levels. RUST_LOG must never expose credentials or tool input.
+                .add_directive("rmcp=off".parse().unwrap())
+                .add_directive("reqwest=off".parse().unwrap())
+                .add_directive("hyper=off".parse().unwrap())
+                .add_directive("hyper_util=off".parse().unwrap())
+                .add_directive("h2=off".parse().unwrap()),
         )
-        .init();
+        // More-specific RUST_LOG directives cannot override this boundary.
+        .with_filter(tracing_subscriber::filter::filter_fn(|metadata| {
+            metadata.target().starts_with("daedalus_runtime")
+        }));
+    tracing_subscriber::registry().with(layer).init();
 }
 
 #[derive(Debug, Clone, Copy)]

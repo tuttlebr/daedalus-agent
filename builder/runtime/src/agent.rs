@@ -76,7 +76,7 @@ fn error_limit() -> usize {
     4
 }
 
-#[derive(Deserialize, Default)]
+#[derive(serde::Serialize, Deserialize, Default)]
 pub struct ToolOutcome {
     pub content: String,
     #[serde(default)]
@@ -736,6 +736,39 @@ impl Agent {
         context: Value,
     ) -> Result<ToolOutcome> {
         let (name, arguments) = invocation;
+        if let Some(preparation) = &preparation
+            && let Some(mcp) = &preparation.mcp
+            && mcp.owns(name)
+        {
+            let user = crate::preparation::header(&headers, "x-user-id");
+            let token = crate::preparation::header(&headers, "x-daedalus-approval-token");
+            let emit = crate::oauth::Emitter::Chat(events.clone());
+            let call = mcp.call(name, arguments, user, token, &emit);
+            tokio::pin!(call);
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+            heartbeat.tick().await;
+            let mut outcome = loop {
+                tokio::select! {
+                    outcome = &mut call => break outcome,
+                    _ = heartbeat.tick() => events.raw(": tool active\n\n".into()).await?,
+                }
+            };
+            if !outcome.terminal {
+                outcome.content = preparation
+                    .outputs
+                    .optimize(
+                        user,
+                        name,
+                        context["query"].as_str().unwrap_or(""),
+                        &outcome.content,
+                    )
+                    .await;
+            }
+            if legacy_tool_event_size(&json!({"event":"result","data":outcome})) > 8 * 1024 * 1024 {
+                bail!("Tool event exceeds size limit");
+            }
+            return Ok(outcome);
+        }
         if let Some(preparation) = &preparation
             && preparation.config.raw["functions"][name]["_type"] == "current_datetime"
         {

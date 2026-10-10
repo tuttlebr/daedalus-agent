@@ -1,15 +1,24 @@
 //! Daedalus's interruptible agent runtime. Python is a leaf-tool service.
 
 mod agent;
+mod authorization;
+mod authorization_routes;
+#[cfg(test)]
+mod authorization_tests;
 mod config;
 mod control;
 mod events;
 mod logging;
+mod mcp;
+mod mcp_http;
+#[cfg(test)]
+mod mcp_tests;
 mod memory;
 #[cfg(test)]
 mod migration;
 #[cfg(test)]
 mod migration_spikes;
+mod oauth;
 mod output;
 mod preparation;
 mod protocol;
@@ -54,6 +63,7 @@ struct App {
     insecure: bool,
     runs: Runs,
     preparation: Option<Arc<preparation::Preparation>>,
+    executions: Arc<authorization_routes::Executions>,
 }
 
 fn error(status: u16, message: &str) -> Response {
@@ -415,6 +425,16 @@ fn router(app: App) -> Router {
             post(control).layer(DefaultBodyLimit::max(32 * 1024)),
         )
         .route("/health/ready", get(readiness))
+        .route("/auth/redirect", get(authorization_routes::callback))
+        .route(
+            "/v1/google-workspace/connections/{service}",
+            axum::routing::delete(authorization_routes::reset),
+        )
+        .route(
+            "/v1/mcp-approvals/{request_id}/execute",
+            post(authorization_routes::execute),
+        )
+        .route("/executions/{id}", get(authorization_routes::get_execution))
         .fallback(proxy)
         .with_state(app)
 }
@@ -430,7 +450,7 @@ async fn readiness(State(app): State<App>) -> Response {
     if app.internal_token.is_empty() && !app.insecure {
         return error(503, "Internal authentication is not configured");
     }
-    let Some(preparation) = &app.preparation else {
+    let Some(preparation) = &app.preparation.clone() else {
         return proxy(
             State(app),
             Request::builder()
@@ -441,7 +461,7 @@ async fn readiness(State(app): State<App>) -> Response {
         .await;
     };
     if preparation.config.python_tools {
-        return proxy(
+        let response = proxy(
             State(app),
             Request::builder()
                 .uri("/health/ready")
@@ -449,6 +469,7 @@ async fn readiness(State(app): State<App>) -> Response {
                 .unwrap(),
         )
         .await;
+        return mcp_readiness(preparation, response).await;
     }
     // Minimal chat only requires Redis if configured; memory/output caches remain
     // optional. Full-profile readiness retains its required dependency policy.
@@ -482,7 +503,32 @@ async fn readiness(State(app): State<App>) -> Response {
         }
         degraded = !available;
     }
-    Json(json!({"status":if degraded {"degraded"} else {"ready"},"runtime":"rust","memory":memory,"capabilities":{"current_datetime":true,"python_executor":false}})).into_response()
+    mcp_readiness(preparation, Json(json!({"status":if degraded {"degraded"} else {"ready"},"runtime":"rust","memory":memory,"capabilities":{"current_datetime":true,"python_executor":false}})).into_response()).await
+}
+
+async fn mcp_readiness(preparation: &preparation::Preparation, response: Response) -> Response {
+    let Some(mcp) = &preparation.mcp else {
+        return response;
+    };
+    let status = response.status();
+    let bytes = match to_bytes(response.into_body(), 1024 * 1024).await {
+        Ok(bytes) => bytes,
+        Err(_) => return error(503, "Readiness unavailable"),
+    };
+    let mut body: Value = match serde_json::from_slice(&bytes) {
+        Ok(body) => body,
+        Err(_) => return error(503, "Readiness unavailable"),
+    };
+    body["mcp"] = mcp.capabilities();
+    if body["mcp"]["missing_required"]
+        .as_array()
+        .is_some_and(|v| !v.is_empty())
+    {
+        body["status"] = json!("unready");
+        body["reason"] = json!("required_mcp_capability_unavailable");
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response();
+    }
+    (status, Json(body)).into_response()
 }
 
 #[tokio::main]
@@ -498,7 +544,13 @@ async fn main() -> anyhow::Result<()> {
             let path = std::env::var("DAEDALUS_CONFIG_FILE")
                 .unwrap_or_else(|_| "/workspace/config.yaml".into());
             let config = config::Config::from_path(std::path::Path::new(&path))?;
+            if config.variable("DAEDALUS_AUTHORIZATION", "rust") == "rust" {
+                mcp::validate(&config)?;
+            }
             if std::env::args().any(|arg| arg == "--check-config") {
+                if config.variable("DAEDALUS_AUTHORIZATION", "rust") == "rust" {
+                    oauth::GoogleOAuth::new(&config)?;
+                }
                 println!(
                     "Configuration valid; preparation=rust; python_executor_required={}",
                     config.python_tools
@@ -507,7 +559,12 @@ async fn main() -> anyhow::Result<()> {
             }
             Some(preparation::Preparation::new(config, http.clone())?)
         }
-        "python" => None,
+        "python" => {
+            if std::env::var("DAEDALUS_AUTHORIZATION").is_ok_and(|v| v != "python") {
+                anyhow::bail!("Python preparation requires Python authorization");
+            }
+            None
+        }
         _ => anyhow::bail!("DAEDALUS_PREPARATION must be rust or python"),
     };
     let app = App {
@@ -528,6 +585,7 @@ async fn main() -> anyhow::Result<()> {
         ),
         runs: Arc::new(Mutex::new(HashMap::new())),
         preparation,
+        executions: Arc::default(),
     };
     let host = std::env::var("DAEDALUS_HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = std::env::var("DAEDALUS_PORT").unwrap_or_else(|_| "8000".into());
@@ -539,6 +597,16 @@ async fn main() -> anyhow::Result<()> {
     );
     let shutdown_preparation = app.preparation.clone();
     let shutdown_runs = app.runs.clone();
+    let shutdown_executions = app.executions.clone();
+    let shutdown_mcp = app.preparation.as_ref().and_then(|p| p.mcp.clone());
+    let maintenance = shutdown_mcp.clone().map(|mcp| {
+        tokio::spawn(async move {
+            loop {
+                mcp.maintain().await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        })
+    });
     axum::serve(listener, router(app))
         .with_graceful_shutdown(async move {
             let mut terminate =
@@ -548,6 +616,14 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(event = "runtime_stopping", component = "rust_agent");
             for handle in shutdown_runs.lock().await.values() {
                 let _ = handle.cancellation.send(true);
+            }
+            shutdown_executions.close().await;
+            if let Some(maintenance) = maintenance {
+                maintenance.abort();
+                let _ = maintenance.await;
+            }
+            if let Some(mcp) = shutdown_mcp {
+                mcp.close();
             }
         })
         .await?;

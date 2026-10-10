@@ -1,8 +1,12 @@
+import type { GoogleWorkspaceServiceId } from '@/utils/app/googleWorkspace';
+
 import {
   getGoogleWorkspaceConnections,
   googleWorkspaceTokenKey,
   resetGoogleWorkspaceConnection,
 } from '@/server/googleWorkspaceConnections';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +19,31 @@ vi.mock('@/server/session/redis', () => ({
 }));
 
 describe('Google Workspace connection state', () => {
+  it('agrees with the frozen Python-to-Rust grant key vectors', () => {
+    const fixtures = JSON.parse(
+      readFileSync(
+        resolve(
+          process.cwd(),
+          '../builder/runtime/tests/fixtures/authorization.json',
+        ),
+        'utf8',
+      ),
+    );
+    for (const fixture of fixtures.cases.filter(
+      (item: any) => item.operation === 'oauth-key',
+    )) {
+      expect(
+        googleWorkspaceTokenKey(
+          fixture.input.service as GoogleWorkspaceServiceId,
+          fixture.input.user,
+        ),
+      ).toBe(
+        typeof fixture.expected === 'string'
+          ? fixture.expected
+          : fixture.expected.$string_parts.join(''),
+      );
+    }
+  });
   beforeEach(() => {
     mocks.exec.mockReset();
     mocks.pipeline.mockReset().mockReturnValue({ exec: mocks.exec });

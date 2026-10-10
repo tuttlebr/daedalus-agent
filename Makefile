@@ -73,7 +73,7 @@ migration-baseline: ## rebuild a retained source baseline when no immutable imag
 			-t $(MIGRATION_BASELINE_IMAGE) "$$baseline_dir/builder"; \
 	fi
 
-migration: migration-baseline ## differential, Python-free image, TLS/ACL and rollback contracts
+migration: migration-baseline ## differential, Python-free MCP/OAuth, TLS/ACL and rollback contracts
 	docker build -t $(MIGRATION_REDIS_IMAGE) ./redis
 	docker buildx build --load --target backend --build-context skills=./skills -t $(RUNTIME_IMAGE) ./builder
 	docker buildx build --load --target rust-minimal --build-context skills=./skills -t $(MIGRATION_MINIMAL_IMAGE) ./builder
@@ -81,6 +81,7 @@ migration: migration-baseline ## differential, Python-free image, TLS/ACL and ro
 	mkdir -p $(MIGRATION_REPORT_DIR)
 	$(MIGRATION_PYTHON) builder/migration/differential.py --baseline $(MIGRATION_BASELINE_IMAGE) --candidate $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --output $(MIGRATION_REPORT_DIR)/differential
 	$(MIGRATION_PYTHON) builder/migration/image_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --compare-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/minimal.json
+	$(MIGRATION_PYTHON) builder/migration/authorization_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/authorization.json
 
 candidate-browser: ## real frontend/stream worker against the Python-free candidate image
 	cd frontend && E2E_CANDIDATE_IMAGE=$(MIGRATION_MINIMAL_IMAGE) E2E_CANDIDATE_REDIS_IMAGE=$(MIGRATION_REDIS_IMAGE) E2E_PYTHON=$(MIGRATION_PYTHON) npm run e2e -- --project=chromium

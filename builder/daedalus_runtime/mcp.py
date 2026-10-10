@@ -96,7 +96,8 @@ class Connection:
 
 
 class MCPManager:
-    def __init__(self, config: dict, oauth: GoogleOAuth):
+    def __init__(self, config: dict, oauth: GoogleOAuth, *, enabled: bool = True):
+        self.enabled = enabled
         self.config = config
         self.groups = config.get("function_groups", {})
         self.oauth = oauth
@@ -215,6 +216,9 @@ class MCPManager:
     async def catalogue(
         self, names: list[str], user: str, *, initial: bool = False
     ) -> list[dict]:
+        if not self.enabled:
+            raise RuntimeError("MCP authorization is owned by Rust")
+
         async def discover(name):
             # Defer only the run's model-facing catalogue. Startup/readiness
             # still verifies the real transport and complete tool catalogue.
@@ -265,6 +269,8 @@ class MCPManager:
         ]
 
     async def call(self, full_name: str, arguments: dict, user: str, emit):
+        if not self.enabled:
+            raise RuntimeError("MCP authorization is owned by Rust")
         name, separator, tool_name = full_name.partition("__")
         if not separator or name not in self.groups:
             raise ValueError("Unknown MCP tool")
@@ -355,6 +361,8 @@ class MCPManager:
             }
 
     async def reset(self, service, user):
+        if not self.enabled:
+            raise RuntimeError("MCP authorization is owned by Rust")
         names = [
             name
             for name in self.groups
@@ -387,6 +395,13 @@ class MCPManager:
         }
 
     def capability_status(self):
+        if not self.enabled:
+            return {
+                "available": [],
+                "missing_required": [],
+                "unavailable_optional": [],
+                "owner": "rust",
+            }
         required = {
             name.strip()
             for name in os.getenv("DAEDALUS_REQUIRED_MCP_GROUPS", "").split(",")

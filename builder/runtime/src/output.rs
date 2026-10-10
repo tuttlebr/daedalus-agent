@@ -226,7 +226,7 @@ fn parsed(content: &str) -> Option<(Value, String, String)> {
 
 /// Python's compact JSON formatting: preserve big integers and normalize only
 /// floats, including signed, two-digit exponents. Full raw output stays cached.
-fn compact(value: &Value) -> String {
+pub fn compact(value: &Value) -> String {
     match value {
         Value::Array(values) => format!(
             "[{}]",
@@ -240,16 +240,59 @@ fn compact(value: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
-        Value::Number(number) if number.is_f64() => {
-            let text = format!("{:?}", number.as_f64().unwrap());
-            if let Some((mantissa, exponent)) = text.split_once('e') {
-                let exponent: i32 = exponent.parse().unwrap();
-                format!("{mantissa}e{exponent:+03}")
-            } else {
-                text
-            }
-        }
+        Value::Number(number) if number.is_f64() => python_float(number.as_f64().unwrap()),
         _ => value.to_string(),
+    }
+}
+
+/// CPython JSON uses the shortest round-tripping decimal with ties to even.
+/// Rust's Debug formatter chooses a different shortest decimal for some ties.
+/// serde_json's formatter has the matching tie rule; apply Python's decimal
+/// notation thresholds, trailing .0 and minimum two-digit signed exponent.
+fn python_float(value: f64) -> String {
+    if value == 0.0 {
+        return if value.is_sign_negative() {
+            "-0.0"
+        } else {
+            "0.0"
+        }
+        .into();
+    }
+    let text = serde_json::to_string(&value).unwrap();
+    let sign = if text.starts_with('-') { "-" } else { "" };
+    let text = text.trim_start_matches('-');
+    let (mantissa, exponent) = text
+        .split_once('e')
+        .map(|(m, e)| (m, e.parse::<i32>().unwrap()))
+        .unwrap_or((text, 0));
+    let point = mantissa.find('.').unwrap_or(mantissa.len()) as i32;
+    let all = mantissa.replace('.', "");
+    let leading = all.bytes().take_while(|b| *b == b'0').count();
+    let digits = all[leading..].trim_end_matches('0');
+    let power = exponent + point - leading as i32 - 1;
+    if !(-4..16).contains(&power) {
+        let tail = if digits.len() > 1 {
+            format!(".{}", &digits[1..])
+        } else {
+            String::new()
+        };
+        format!("{sign}{}{tail}e{power:+03}", &digits[..1])
+    } else {
+        let point = power + 1;
+        if point <= 0 {
+            format!("{sign}0.{}{digits}", "0".repeat((-point) as usize))
+        } else if point as usize >= digits.len() {
+            format!(
+                "{sign}{digits}{}.0",
+                "0".repeat(point as usize - digits.len())
+            )
+        } else {
+            format!(
+                "{sign}{}.{}",
+                &digits[..point as usize],
+                &digits[point as usize..]
+            )
+        }
     }
 }
 pub fn indices(items: &[Value], max_items: usize, query: &str) -> Vec<usize> {
