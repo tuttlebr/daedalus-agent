@@ -64,7 +64,19 @@ pub fn retryable(error: &ProviderError) -> bool {
 }
 
 #[derive(Clone)]
-pub struct CompatibleOpenAi(pub OpenAiWire);
+pub struct CompatibleOpenAi(pub OpenAiWire, pub Option<http::HeaderValue>);
+
+impl CompatibleOpenAi {
+    /// Routing affinity is scoped like provider cache affinity, but sent as a
+    /// gateway header. Keep it on this run's wire rather than a shared client.
+    pub fn for_session(wire: OpenAiWire, user: &str, conversation: &str, run_id: &str) -> Self {
+        let key = cache_affinity_key(user, conversation, run_id);
+        Self(
+            wire,
+            Some(key.parse().expect("SHA-256 hex is a valid header")),
+        )
+    }
+}
 
 impl Wire for CompatibleOpenAi {
     type Op = Completion;
@@ -77,7 +89,14 @@ impl Wire for CompatibleOpenAi {
     }
 
     fn encode(&self, request: CompletionRequest, mode: Mode) -> Result<Encoded, EncodeError> {
-        self.0.encode(request, mode)
+        let mut encoded = self.0.encode(request, mode)?;
+        if let Some(session) = &self.1 {
+            encoded
+                .request
+                .headers_mut()
+                .insert("x-switchyard-session-id", session.clone());
+        }
+        Ok(encoded)
     }
 
     fn decoder<'id>(&self) -> Self::Decoder<'id> {
@@ -211,10 +230,49 @@ mod tests {
     }
 
     fn wire() -> CompatibleOpenAi {
-        CompatibleOpenAi(OpenAiWire::new(
-            OpenAIConfig::new("fixture").with_route(Route::Responses),
-            "fixture",
-        ))
+        CompatibleOpenAi(
+            OpenAiWire::new(
+                OpenAIConfig::new("fixture").with_route(Route::Responses),
+                "fixture",
+            ),
+            None,
+        )
+    }
+
+    #[test]
+    fn routing_session_header_is_scoped_and_keeps_provider_auth() {
+        for route in [Route::Responses, Route::Chat] {
+            let mut previous = None;
+            for (user, conversation, run) in [
+                ("alice", "thread", "run-1"),
+                ("alice", "thread", "run-2"),
+                ("bob", "thread", "run-1"),
+                ("alice", "other-thread", "run-1"),
+                ("alice", "", "run-1"),
+                ("alice", "", "run-2"),
+            ] {
+                let key = cache_affinity_key(user, conversation, run);
+                let wire = CompatibleOpenAi::for_session(
+                    OpenAiWire::new(OpenAIConfig::new("fixture").with_route(route), "fixture"),
+                    user,
+                    conversation,
+                    run,
+                );
+                for mode in [Mode::Streaming, Mode::Unary] {
+                    let encoded = wire
+                        .encode(CompletionRequest::new("fixture"), mode)
+                        .unwrap();
+                    assert_eq!(encoded.request.headers()["x-switchyard-session-id"], key);
+                    assert_eq!(encoded.request.headers()["authorization"], "Bearer fixture");
+                }
+                if run == "run-2" && !conversation.is_empty() {
+                    assert_eq!(previous, Some(key.clone()));
+                } else if let Some(prior) = &previous {
+                    assert_ne!(prior, &key);
+                }
+                previous = Some(key);
+            }
+        }
     }
 
     #[test]

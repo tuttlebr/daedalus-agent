@@ -338,7 +338,12 @@ impl Agent {
             );
             let model = provider.completion(&model_name);
             let model = rig_core::driver::Model::new(
-                crate::provider::CompatibleOpenAi(model.wire),
+                crate::provider::CompatibleOpenAi::for_session(
+                    model.wire,
+                    &self.handle.user,
+                    &self.handle.conversation,
+                    &self.events.run_id,
+                ),
                 model.transport,
             );
             let mut stream = model.stream(request).context(Phase("model_request"))?;

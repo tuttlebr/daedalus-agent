@@ -30,6 +30,7 @@ import yaml
 class Peers:
     def __init__(self):
         self.requests = []
+        self.routing_sessions = []
         self.calls = []
         self.model_waiting = threading.Event()
         self.model_disconnected = threading.Event()
@@ -175,6 +176,9 @@ class Peers:
                     self.reply({"error": "unexpected endpoint"}, 404)
                     return
                 peers.requests.append(body)
+                peers.routing_sessions.append(
+                    self.headers.get("x-switchyard-session-id")
+                )
                 self.gateway = "GATEWAY" in json.dumps(body)
                 if (
                     "RETRY_MODEL" in json.dumps(body)
@@ -1221,6 +1225,13 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert (
                         private not in raw_logs
                     ), "Private content appeared in runtime logs"  # nosec B101 - executable contract check
+                assert len(peers.routing_sessions) == len(peers.requests)  # nosec B101
+                assert all(
+                    session == request["user"]
+                    for session, request in zip(
+                        peers.routing_sessions, peers.requests, strict=True
+                    )
+                ), "Routing affinity was lost across model/tool/retry rounds"  # nosec B101
                 if report:
                     # Only the clock's result is nondeterministic. Keep all model
                     # requests, tool arguments, schemas, errors and affinity IDs.

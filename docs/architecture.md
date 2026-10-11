@@ -42,6 +42,15 @@ authorization or cache-isolation boundary. Switchyard preserves this standard
 field when translating Responses to Fireworks Chat Completions; its Fireworks
 configuration must not override it with a shared static session-affinity header.
 
+The Rust provider wire also sends this opaque identity in
+`x-switchyard-session-id`, keeping Composite routing state separate from the
+provider's cache hint. The header is scoped to each run's wire, so a shared HTTP
+client cannot mix users. It stays stable across tool rounds and conversation
+follow-ups; a run without a conversation gets its own identity. Switchyard judges
+new user turns for the automatic profile and reuses that tier during tool
+continuations. Explicit profiles bypass the judge. Gateway state is in memory;
+missing state after restart defaults to the capable tier in our patched build.
+
 Backend application logs are JSON lines on stdout. They record run start/end,
 preparation, model attempts and retries, time to the first model event, tool
 execution, steering, cancellation, approval waits, and process lifecycle. A final
