@@ -230,6 +230,9 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
                     "Model response did not complete" => "Model response did not complete",
                     "Model request timed out" => "Model request timed out",
                     "Client disconnected" => "Client disconnected",
+                    _ if details.phase == "model_stream" && details.kind == "json" => {
+                        "Model response could not be decoded; completed output has been preserved"
+                    }
                     _ if details.phase == "model_stream" && details.retryable => {
                         "Model stream interrupted after retry limit; completed output has been preserved"
                     }

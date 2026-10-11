@@ -217,6 +217,10 @@ class Peers:
                 serialized = json.dumps(body.get("input", []))
                 redirected = "NEW_DIRECTION" in serialized
                 has_result = "function_call_output" in serialized
+                result_count = sum(
+                    item.get("type") == "function_call_output"
+                    for item in body.get("input", [])
+                )
                 scenario = next(
                     (
                         name
@@ -232,6 +236,11 @@ class Peers:
                             "STREAM_TOOL_CUT",
                             "STREAM_ALWAYS_FAIL",
                             "STREAM_PERMANENT",
+                            "STREAM_JSON_RECOVER",
+                            "STREAM_JSON_SYNTAX",
+                            "STREAM_JSON_ALWAYS_FAIL",
+                            "STREAM_JSON_TOOL_CUT",
+                            "STREAM_JSON_TWICE",
                         )
                         if name in serialized
                     ),
@@ -286,9 +295,17 @@ class Peers:
                     return
                 elif "TEXT_ONLY" in serialized:
                     text = "Synthetic text response 雪🌲."
-                elif not has_result or (
-                    scenario == "DEFERRED_DISCOVERY"
-                    and "RETAINED_EVIDENCE" not in serialized
+                elif (
+                    not has_result
+                    or (
+                        scenario == "DEFERRED_DISCOVERY"
+                        and "RETAINED_EVIDENCE" not in serialized
+                    )
+                    or (
+                        scenario == "STREAM_JSON_TWICE"
+                        and result_count == 1
+                        and attempt > 1
+                    )
                 ):
                     names = (
                         [
@@ -305,6 +322,8 @@ class Peers:
                         if scenario == "TOOL_STEER"
                         else ["fixture_mcp__next_read"]
                         if "LARGE_TOOL" in serialized or "LARGE_OPAQUE" in serialized
+                        else ["fixture_mcp__next_read"]
+                        if scenario == "STREAM_JSON_TWICE" and has_result
                         else ["fixture_mcp__next_read"]
                         if scenario == "STREAM_TOOL_CUT" and attempt == 1
                         else ["current_datetime_tool"]
@@ -375,7 +394,13 @@ class Peers:
                 else:
                     text = (
                         ("First part. " if attempt == 1 else "Recovered final answer.")
-                        if scenario in ("STREAM_RECOVER", "STREAM_TRUNCATED")
+                        if scenario
+                        in (
+                            "STREAM_RECOVER",
+                            "STREAM_TRUNCATED",
+                            "STREAM_JSON_RECOVER",
+                            "STREAM_JSON_SYNTAX",
+                        )
                         else ("The real datetime tool completed")
                     )
                 if text:
@@ -429,6 +454,55 @@ class Peers:
                         }
                     )
                     outputs = [item]
+                if (
+                    (
+                        scenario in ("STREAM_JSON_RECOVER", "STREAM_JSON_SYNTAX")
+                        and has_result
+                        and attempt == 1
+                    )
+                    or (scenario == "STREAM_JSON_ALWAYS_FAIL" and has_result)
+                    or (
+                        scenario == "STREAM_JSON_TOOL_CUT"
+                        and not has_result
+                        and attempt == 1
+                    )
+                    or (
+                        scenario == "STREAM_JSON_TWICE"
+                        and has_result
+                        and (result_count > 1 or attempt == 1)
+                    )
+                ):
+                    # Even a valid, completed mutation proposal must be discarded
+                    # when a later frame makes the entire response undecodable.
+                    self.event(
+                        {
+                            "type": "response.output_item.done",
+                            "output_index": 1,
+                            "sequence_number": 3,
+                            "item": {
+                                "type": "function_call",
+                                "id": "fc_unexecuted_write",
+                                "call_id": "unexecuted_write",
+                                "name": "fixture_mcp__write_item",
+                                "arguments": '{"private":"PRIVATE_TOOL_ARGUMENT"}',
+                                "status": "completed",
+                            },
+                        }
+                    )
+                    if scenario == "STREAM_JSON_SYNTAX":
+                        self.wfile.write(b'data: {"type":"PRIVATE_PROVIDER_ERROR",\n\n')
+                        self.wfile.flush()
+                    else:
+                        self.event(
+                            {
+                                "type": "response.output_text.delta",
+                                "output_index": 0,
+                                "content_index": 0,
+                                "sequence_number": 4,
+                                "delta": {"private": "PRIVATE_PROVIDER_ERROR"},
+                            }
+                        )
+                    return
                 if (
                     (
                         scenario in ("STREAM_RECOVER", "STREAM_TRUNCATED")
@@ -844,7 +918,12 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 failed = chat("PROVIDER_FAILURE", "provider-failure-run")
                 assert "Agent execution failed" in failed  # nosec B101 - executable contract check
                 assert "PRIVATE_PROVIDER_ERROR" not in failed  # nosec B101 - executable contract check
-                for scenario in ("STREAM_RECOVER", "STREAM_TRUNCATED"):
+                for scenario in (
+                    "STREAM_RECOVER",
+                    "STREAM_TRUNCATED",
+                    "STREAM_JSON_RECOVER",
+                    "STREAM_JSON_SYNTAX",
+                ):
                     before = len(peers.requests)
                     recovered = chat("GATEWAY_" + scenario, scenario.lower())
                     assert recovered.count("First part. ") == 1, recovered  # nosec B101 - executable contract check
@@ -866,11 +945,37 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
 
                     assert results(attempts[1]) == results(attempts[2])  # nosec B101 - executable contract check
                     assert "First part. " in json.dumps(attempts[2]["input"])  # nosec B101 - executable contract check
+                    assert "unexecuted_write" not in json.dumps(attempts[2]["input"])  # nosec B101 - failed proposals are discarded
+                    assert "fixture_mcp__write_item" not in peers.calls  # nosec B101 - no uncertain mutation executes
                 peers.calls.clear()
                 cut = chat("GATEWAY_STREAM_TOOL_CUT", "stream-tool-cut")
                 assert not peers.calls, peers.calls  # nosec B101 - executable contract check
                 assert "Function Start: fixture_mcp__next_read" not in cut  # nosec B101 - executable contract check
                 assert '"finish_reason":"stop"' in cut, cut  # nosec B101 - executable contract check
+                before = len(peers.requests)
+                cut = chat("GATEWAY_STREAM_JSON_TOOL_CUT", "stream-json-tool-cut")
+                assert not peers.calls, peers.calls  # nosec B101 - executable contract check
+                assert len(peers.requests) == before + 3  # nosec B101 - rejected response, clock response, final answer
+                assert cut.count("Function Start: current_datetime_tool") == 1  # nosec B101 - no tool from the rejected response ran
+                assert '"finish_reason":"stop"' in cut, cut  # nosec B101 - executable contract check
+                before = len(peers.requests)
+                failed = chat("GATEWAY_STREAM_JSON_ALWAYS_FAIL", "stream-json-limit")
+                assert len(peers.requests) == before + 3  # nosec B101 - one successful research round and exactly one decode recovery
+                assert (
+                    "Model response could not be decoded; completed output has been preserved"
+                    in failed
+                )  # nosec B101 - executable contract check
+                assert failed.count("Function Start: current_datetime_tool") == 1  # nosec B101 - completed research is retained
+                assert "Function Start: fixture_mcp__write_item" not in failed  # nosec B101 - executable contract check
+                assert '"finish_reason":"error"' in failed  # nosec B101 - executable contract check
+                peers.calls.clear()
+                before = len(peers.requests)
+                failed = chat("GATEWAY_STREAM_JSON_TWICE", "stream-json-twice")
+                assert len(peers.requests) == before + 4  # nosec B101 - successful rounds do not reset the decode recovery limit
+                assert peers.calls == ["next_read"], peers.calls  # nosec B101 - each completed tool executes once
+                assert failed.count("Function Start: current_datetime_tool") == 1  # nosec B101 - executable contract check
+                assert "Model response could not be decoded" in failed  # nosec B101 - executable contract check
+                assert '"finish_reason":"error"' in failed  # nosec B101 - executable contract check
                 for scenario, attempts in (
                     ("STREAM_ALWAYS_FAIL", 4),
                     ("STREAM_PERMANENT", 1),
@@ -882,6 +987,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert len(peers.requests) == before + attempts  # nosec B101 - executable contract check
                     if scenario == "STREAM_ALWAYS_FAIL":
                         assert "Model stream interrupted after retry limit" in failed  # nosec B101 - executable contract check
+                peers.calls.clear()
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     for scenario, run, waiting in [
                         ("MODEL_STEER", "model-run", peers.model_waiting),
@@ -1130,6 +1236,8 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     "model_call_started",
                     "model_first_event",
                     "model_call_finished",
+                    "model_call_failed",
+                    "model_frame_rejected",
                     "model_retry_scheduled",
                     "tool_call_started",
                     "tool_call_finished",
@@ -1197,6 +1305,37 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     and event.get("output_bytes") == len("First part. ")
                     for event in events
                 )  # nosec B101 - executable contract check
+                assert any(
+                    record.get("fields", {}).get("event") == "model_frame_rejected"
+                    and record.get("span", {}).get("run_id") == "stream_json_recover"
+                    and record["fields"].get("event_type")
+                    == "response.output_text.delta"
+                    and record["fields"].get("category") == "schema"
+                    for record in records
+                )  # nosec B101 - content-free structural diagnostics
+                assert any(
+                    record.get("fields", {}).get("event") == "model_frame_rejected"
+                    and record.get("span", {}).get("run_id") == "stream_json_syntax"
+                    and record["fields"].get("event_type") == "invalid_json"
+                    and record["fields"].get("category") == "eof"
+                    for record in records
+                )  # nosec B101 - invalid provider text is never logged
+                decode_retries = [
+                    record["fields"]
+                    for record in records
+                    if record.get("fields", {}).get("event") == "model_retry_scheduled"
+                    and record.get("span", {}).get("run_id") == "stream-json-limit"
+                ]
+                assert len(decode_retries) == 1, decode_retries  # nosec B101 - exactly one recovery
+                assert decode_retries[0]["decode_recoveries"] == 1  # nosec B101 - executable contract check
+                assert (
+                    sum(
+                        record.get("fields", {}).get("event") == "model_retry_scheduled"
+                        and record.get("span", {}).get("run_id") == "stream-json-twice"
+                        for record in records
+                    )
+                    == 1
+                )  # nosec B101 - a successful tool round does not replenish decode recovery
                 assert any(
                     event.get("event") == "run_failed"
                     and event.get("phase") == "model_stream"  # nosec B101 - executable contract check

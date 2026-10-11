@@ -273,6 +273,8 @@ impl Agent {
         let mut repeated_errors = 0;
         let mut iterations = 0;
         let mut retry_attempt = 0;
+        let mut decode_recoveries = 0;
+        let mut retrying_decode = false;
         let mut resume_text = false;
         let mut executor_states: HashMap<String, Value> = HashMap::new();
         let query = prepared
@@ -314,6 +316,11 @@ impl Agent {
             if resume_text {
                 request.chat_history.push(Message::user(
                     "The previous model stream was interrupted. Continue from the assistant text already delivered without repeating it. Use the completed tool results in the conversation; do not repeat completed tool actions. Tool calls from the interrupted response were not executed.",
+                ));
+            }
+            if retrying_decode {
+                request.chat_history.push(Message::user(
+                    "The previous model response could not be decoded. None of its proposed tool calls ran. Reissue a complete response with valid tool arguments using the completed results already in the conversation; do not repeat completed tool actions.",
                 ));
             }
             if final_synthesis {
@@ -406,9 +413,15 @@ impl Agent {
             let completed = match completion {
                 Ok(completed) => completed,
                 Err(error)
-                    if crate::provider::retryable(&error)
+                    if (crate::provider::retryable(&error)
+                        || (crate::provider::stream_decode_error(&error)
+                            && decode_recoveries == 0))
                         && retry_attempt < prepared.model.max_retries =>
                 {
+                    if crate::provider::stream_decode_error(&error) {
+                        decode_recoveries += 1;
+                        retrying_decode = true;
+                    }
                     retry_attempt += 1;
                     iterations -= 1;
                     // Tools only execute after a complete model response. Keep
@@ -424,6 +437,7 @@ impl Agent {
                         event = "model_retry_scheduled",
                         model_call,
                         retry_attempt,
+                        decode_recoveries,
                         delay_ms = delay.as_millis() as u64,
                         error_kind = if crate::provider::is_gateway_transport_error(&error) {
                             "upstream_transport"
@@ -446,9 +460,22 @@ impl Agent {
                     }
                     continue;
                 }
-                Err(error) => return Err(anyhow::Error::new(error).context(Phase("model_stream"))),
+                Err(error) => {
+                    tracing::warn!(
+                        event = "model_call_failed",
+                        model_call,
+                        error_kind = error.kind().code(),
+                        retry_attempt,
+                        decode_recoveries,
+                        elapsed_ms = model_started.elapsed().as_millis() as u64,
+                        received_item,
+                        output_bytes = partial.len(),
+                    );
+                    return Err(anyhow::Error::new(error).context(Phase("model_stream")));
+                }
             };
             retry_attempt = 0;
+            retrying_decode = false;
             resume_text = false;
             if completed.usage.is_reported() {
                 self.handle

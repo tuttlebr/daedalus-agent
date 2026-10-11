@@ -29,8 +29,13 @@ including Switchyard's in-stream upstream transport errors. Recovery retains
 completed tool results and any answer text already streamed, asks the model to
 continue without repeating that text, and discards tool proposals from the
 failed response. A tool only runs after the whole model response completes.
-Invalid requests, malformed responses, and explicit incomplete responses keep
-their failure status. Exhausted retries return an explicit stream interruption.
+JSON stream decoding failures allow one recovery attempt for the entire run,
+within the configured model retry budget. Validation remains strict and no
+tool proposals from the rejected response execute. Rejected frames log only
+fixed event/category labels and parser positions, without conversation content.
+Invalid requests and explicit incomplete responses keep their failure status.
+Repeated malformed responses and exhausted transport retries return explicit
+errors while preserving completed output.
 
 Each model request includes an opaque `user` value for provider prompt-cache
 affinity. It is a SHA-256 digest scoped to the authenticated user and conversation,

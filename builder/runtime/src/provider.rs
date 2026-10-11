@@ -63,6 +63,13 @@ pub fn retryable(error: &ProviderError) -> bool {
     error.is_retryable() || is_gateway_transport_error(error)
 }
 
+/// A rejected model response is safe to regenerate before any of its tools
+/// execute. Keep this separate from transport retries: one decode recovery is
+/// allowed for the entire run, within the configured model retry budget.
+pub fn stream_decode_error(error: &ProviderError) -> bool {
+    matches!(error, ProviderError::Json(_))
+}
+
 #[derive(Clone)]
 pub struct CompatibleOpenAi(pub OpenAiWire, pub Option<http::HeaderValue>);
 
@@ -123,7 +130,29 @@ impl<'id> Decoder<'id, Completion> for CompatibleDecoder<'id> {
         } else {
             frame
         };
-        self.inner.classify(frame)
+        let classified = self.inner.classify(frame);
+        if let WireEvent::Corrupt(error) = &classified {
+            let category = match error.classify() {
+                serde_json::error::Category::Io => "io",
+                serde_json::error::Category::Syntax => "syntax",
+                serde_json::error::Category::Data => "schema",
+                serde_json::error::Category::Eof => "eof",
+            };
+            // Parser messages can quote private values. Log only fixed labels
+            // and numeric positions, never the frame or the error's Display.
+            tracing::warn!(
+                event = "model_frame_rejected",
+                event_type = if self.responses {
+                    self.metadata.borrow().event_type
+                } else {
+                    "chat_completion"
+                },
+                category,
+                line = error.line(),
+                column = error.column(),
+            );
+        }
+        classified
     }
 
     fn decode(
@@ -143,6 +172,7 @@ impl<'id> Decoder<'id, Completion> for CompatibleDecoder<'id> {
 struct EnvelopeMetadata {
     sequence: u64,
     message_ids: HashMap<u64, String>,
+    event_type: &'static str,
 }
 
 impl EnvelopeMetadata {
@@ -163,8 +193,42 @@ impl EnvelopeMetadata {
     }
 
     fn normalize(&mut self, frame: WireFrame) -> WireFrame {
+        self.event_type = "invalid_json";
         let Ok(Value::Object(mut event)) = serde_json::from_str(&frame.as_str()) else {
             return frame;
+        };
+        // Select static strings; an upstream discriminator is untrusted text.
+        self.event_type = match event.get("type").and_then(Value::as_str) {
+            Some("response.created") => "response.created",
+            Some("response.in_progress") => "response.in_progress",
+            Some("response.completed") => "response.completed",
+            Some("response.incomplete") => "response.incomplete",
+            Some("response.failed") => "response.failed",
+            Some("response.output_item.added") => "response.output_item.added",
+            Some("response.output_item.done") => "response.output_item.done",
+            Some("response.content_part.added") => "response.content_part.added",
+            Some("response.content_part.done") => "response.content_part.done",
+            Some("response.output_text.delta") => "response.output_text.delta",
+            Some("response.output_text.done") => "response.output_text.done",
+            Some("response.refusal.delta") => "response.refusal.delta",
+            Some("response.refusal.done") => "response.refusal.done",
+            Some("response.function_call_arguments.delta") => {
+                "response.function_call_arguments.delta"
+            }
+            Some("response.function_call_arguments.done") => {
+                "response.function_call_arguments.done"
+            }
+            Some("response.reasoning_summary_part.added") => {
+                "response.reasoning_summary_part.added"
+            }
+            Some("response.reasoning_summary_part.done") => "response.reasoning_summary_part.done",
+            Some("response.reasoning_summary_text.delta") => {
+                "response.reasoning_summary_text.delta"
+            }
+            Some("response.reasoning_summary_text.done") => "response.reasoning_summary_text.done",
+            Some("response.reasoning_text.delta") => "response.reasoning_text.delta",
+            Some("response.reasoning_text.done") => "response.reasoning_text.done",
+            _ => "other",
         };
         let Some(kind) = event.get("type").and_then(Value::as_str) else {
             return frame;
@@ -304,6 +368,20 @@ mod tests {
             assert!(!retryable(&ProviderError::from_provider_body(
                 body.to_string()
             )));
+        }
+    }
+
+    #[test]
+    fn decode_recovery_is_separate_from_transport_and_request_failures() {
+        let malformed = ProviderError::from(serde_json::from_str::<Value>("{").unwrap_err());
+        assert!(stream_decode_error(&malformed));
+        assert!(!retryable(&malformed));
+        for error in [
+            ProviderError::from_http_response(http::StatusCode::BAD_REQUEST, "private"),
+            ProviderError::from_http_response(http::StatusCode::UNAUTHORIZED, "private"),
+            ProviderError::Truncated,
+        ] {
+            assert!(!stream_decode_error(&error));
         }
     }
 
