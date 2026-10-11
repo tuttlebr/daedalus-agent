@@ -382,7 +382,9 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
 
           if (status.partialImageIds.length > 0) {
             setPartialGallery(
-              galleryFromJob(status, status.partialImageIds, true),
+              // Streaming is enabled for one output. These IDs are successive
+              // revisions of that output, not additional output slots.
+              galleryFromJob(status, status.partialImageIds.slice(-1), true),
             );
           }
 

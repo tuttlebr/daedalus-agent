@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 
 import { queryKeys } from './keys';
 
@@ -21,5 +22,8 @@ export function useImageHistory() {
 
 export function useInvalidateImageHistory() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: queryKeys.images.history });
+  return useCallback(
+    () => qc.invalidateQueries({ queryKey: queryKeys.images.history }),
+    [qc],
+  );
 }

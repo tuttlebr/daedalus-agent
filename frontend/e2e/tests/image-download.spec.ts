@@ -23,10 +23,7 @@ test('Create saves original images while keeping its page and selection', async 
   await assertAuthenticatedSession(page);
   const imageId = randomUUID();
   const filename = `daedalus-${imageId}.png`;
-  const original = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=',
-    'base64',
-  );
+  const original = await readFile('public/icons/icon-512x512.png');
   const redis = new Redis(
     process.env.E2E_REDIS_URL ||
       'redis://default:e2e-redis-password@127.0.0.1:16379',

@@ -4,7 +4,14 @@ import {
   IconExclamationCircle,
   IconDownload,
 } from '@tabler/icons-react';
-import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  memo,
+  useCallback,
+  useMemo,
+} from 'react';
 
 import { useFileSave } from '@/hooks/useFileSave';
 
@@ -44,6 +51,10 @@ interface OptimizedImageProps {
   base64Data?: string;
   alt?: string;
   className?: string;
+  /** Override image sizing independently of its wrapper. */
+  imageClassName?: string;
+  showLoadingPlaceholder?: boolean;
+  onLoad?: () => void;
   useThumbnail?: boolean; // Default true - use thumbnail for display
   /** Consumers with their own inspector should not render a second action bar. */
   showControls?: boolean;
@@ -51,12 +62,15 @@ interface OptimizedImageProps {
   enableFullscreen?: boolean;
 }
 
-export const OptimizedImage = memo(
+const ImageView = memo(
   ({
     imageRef,
     base64Data,
     alt = 'Image attachment',
     className = '',
+    imageClassName,
+    showLoadingPlaceholder = true,
+    onLoad,
     useThumbnail = true, // Use thumbnail by default for better performance
     showControls = true,
     enableFullscreen = true,
@@ -74,13 +88,10 @@ export const OptimizedImage = memo(
     const imgRef = useRef<HTMLImageElement>(null);
     const observerRef = useRef<IntersectionObserver | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const loadedRef = useRef(false); // Track if image has been loaded
-    const unmountingRef = useRef(false); // Track if component is unmounting
+    const [retryAttempt, setRetryAttempt] = useState(0);
 
     // Get the image source - use blob URL if available, otherwise fallback
-    const imageSrc =
-      blobUrl ||
-      (imageRef ? getImageUrl(imageRef, useThumbnail) : base64Data || '');
+    const imageSrc = blobUrl || (!imageRef ? base64Data || '' : '');
 
     // Set up Intersection Observer for lazy loading
     useEffect(() => {
@@ -110,10 +121,11 @@ export const OptimizedImage = memo(
 
     // Fetch thumbnail as blob when visible
     useEffect(() => {
-      if (!isVisible || !imageRef || blobUrl) return;
+      if (!isVisible || !imageRef) return;
 
       let cancelled = false;
-      loadedRef.current = false; // Reset loaded state for new image
+      let acquiredUrl: string | null = null;
+      setBlobUrl(null);
 
       const loadImageAsBlob = async () => {
         try {
@@ -124,6 +136,7 @@ export const OptimizedImage = memo(
           const url = await fetchImageAsBlob(imageRef, useThumbnail);
 
           if (!cancelled) {
+            acquiredUrl = url;
             setBlobUrl(url);
           } else {
             revokeImageBlob(getBlobCacheKey(imageRef, useThumbnail), url);
@@ -133,7 +146,6 @@ export const OptimizedImage = memo(
           if (!cancelled) {
             setError(true);
             setIsLoading(false);
-            loadedRef.current = true; // Mark as "loaded" even on error
           }
         }
       };
@@ -142,84 +154,38 @@ export const OptimizedImage = memo(
 
       return () => {
         cancelled = true;
-      };
-    }, [isVisible, imageRef, blobUrl, useThumbnail]);
-
-    // Unmount tracker kept in its own empty-deps effect so dependency-change
-    // cleanups below don't flip this flag and poison handleImageLoad/Error.
-    useEffect(() => {
-      unmountingRef.current = false;
-      return () => {
-        unmountingRef.current = true;
-      };
-    }, []);
-
-    // Cleanup blob URL on unmount or when imageRef/blobUrl changes
-    useEffect(() => {
-      const currentBlobUrl = blobUrl;
-      const currentFullBlobUrl = fullBlobUrl;
-      const currentImageRef = imageRef;
-      const currentUseThumbnail = useThumbnail;
-
-      return () => {
-        // Revoke thumbnail blob
-        if (currentBlobUrl && currentImageRef) {
-          revokeImageBlob(
-            getBlobCacheKey(currentImageRef, currentUseThumbnail),
-            currentBlobUrl,
-          );
-        }
-
-        // Revoke full resolution blob if it was loaded
-        if (currentFullBlobUrl && currentImageRef) {
-          revokeImageBlob(
-            getBlobCacheKey(currentImageRef, false),
-            currentFullBlobUrl,
-          );
+        if (acquiredUrl) {
+          revokeImageBlob(getBlobCacheKey(imageRef, useThumbnail), acquiredUrl);
         }
       };
-    }, [blobUrl, fullBlobUrl, imageRef, useThumbnail]);
+    }, [isVisible, imageRef, useThumbnail, retryAttempt]);
 
-    const handleImageLoad = () => {
-      setIsLoading(false);
-      setError(false);
-      loadedRef.current = true;
-
-      // If component is unmounting and image just loaded, revoke now
-      if (unmountingRef.current && blobUrl && imageRef) {
-        revokeImageBlob(getBlobCacheKey(imageRef, useThumbnail), blobUrl);
+    const handleImageLoad = async (
+      event: React.SyntheticEvent<HTMLImageElement>,
+    ) => {
+      const image = event.currentTarget;
+      try {
+        await image.decode?.();
+        if (!image.isConnected) return;
+        setIsLoading(false);
+        setError(false);
+        onLoad?.();
+      } catch {
+        if (image.isConnected) handleImageError();
       }
     };
 
     const handleImageError = useCallback(() => {
       logger.error('Failed to load image');
-
-      // If we have a blob URL that failed (might have been revoked), try to refetch
-      if (blobUrl && imageRef) {
-        setBlobUrl(null); // Clear the invalid blob URL to trigger refetch
-        setIsLoading(true);
-        setError(false);
-        loadedRef.current = false;
-
-        // Refetch the image (with thumbnail setting)
-        fetchImageAsBlob(imageRef, useThumbnail)
-          .then((newUrl) => {
-            if (!unmountingRef.current) {
-              setBlobUrl(newUrl);
-            }
-          })
-          .catch((err) => {
-            logger.error('Refetch also failed:', err);
-            if (!unmountingRef.current) {
-              setIsLoading(false);
-              setError(true);
-            }
-          });
+      // Retry through the same resource-owning effect, so a retry cannot
+      // acquire a second untracked blob or publish after unmount.
+      if (imageRef && retryAttempt === 0) {
+        setRetryAttempt(1);
       } else {
         setIsLoading(false);
         setError(true);
       }
-    }, [blobUrl, imageRef, useThumbnail]);
+    }, [imageRef, retryAttempt]);
 
     const toggleFullscreen = useCallback((e: React.MouseEvent) => {
       e.stopPropagation();
@@ -228,15 +194,18 @@ export const OptimizedImage = memo(
     }, []);
 
     useEffect(() => {
-      if (!isFullscreen || !imageRef || fullBlobUrl || !useThumbnail) return;
+      setFullBlobUrl(null);
+      if (!isFullscreen || !imageRef || !useThumbnail) return;
 
       let cancelled = false;
+      let acquiredUrl: string | null = null;
       setFullResolutionLoading(true);
 
       const loadFullResolution = async () => {
         try {
           const url = await fetchImageAsBlob(imageRef, false); // false = full resolution
           if (!cancelled) {
+            acquiredUrl = url;
             setFullBlobUrl(url);
           } else {
             revokeImageBlob(getBlobCacheKey(imageRef, false), url);
@@ -255,8 +224,11 @@ export const OptimizedImage = memo(
 
       return () => {
         cancelled = true;
+        if (acquiredUrl) {
+          revokeImageBlob(getBlobCacheKey(imageRef, false), acquiredUrl);
+        }
       };
-    }, [isFullscreen, imageRef, fullBlobUrl, useThumbnail]);
+    }, [isFullscreen, imageRef, useThumbnail]);
 
     const handleDownload = async (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -286,7 +258,7 @@ export const OptimizedImage = memo(
           className={`relative inline-block max-w-full group ${className}`}
         >
           {/* Placeholder while loading or before visible */}
-          {(!isVisible || isLoading) && !error && (
+          {showLoadingPlaceholder && (!isVisible || isLoading) && !error && (
             <ImageSkeleton
               aspectRatio="landscape"
               className="min-h-[200px] sm:min-h-[300px] w-full max-w-md"
@@ -305,7 +277,7 @@ export const OptimizedImage = memo(
           )}
 
           {/* Actual image (hidden until loaded) */}
-          {isVisible && !error && (
+          {isVisible && !error && imageSrc && (
             <>
               <img
                 ref={imgRef}
@@ -318,7 +290,7 @@ export const OptimizedImage = memo(
                 ${
                   enableFullscreen ? 'cursor-pointer hover:shadow-lg' : ''
                 } transition-shadow duration-200
-                ${className}
+                ${imageClassName ?? className}
               `}
                 style={{
                   opacity: isLoading ? 0 : 1,
@@ -449,9 +421,33 @@ export const OptimizedImage = memo(
       prevProps.showControls === nextProps.showControls &&
       prevProps.enableFullscreen === nextProps.enableFullscreen &&
       prevProps.className === nextProps.className &&
+      prevProps.imageClassName === nextProps.imageClassName &&
+      prevProps.showLoadingPlaceholder === nextProps.showLoadingPlaceholder &&
+      prevProps.onLoad === nextProps.onLoad &&
       prevProps.alt === nextProps.alt
     );
   },
 );
 
+// Image identity owns all loading, error, fullscreen, and blob state. A new
+// result must never inherit the previous result's decoded URL. Stabilizing the
+// reference also keeps presentation-only changes from releasing a live blob.
+export const OptimizedImage = memo(function OptimizedImage(
+  props: OptimizedImageProps,
+) {
+  const { imageId, sessionId, userId, mimeType, url } = props.imageRef ?? {};
+  const imageRef = useMemo(
+    () =>
+      imageId !== undefined && sessionId !== undefined
+        ? { imageId, sessionId, userId, mimeType, url }
+        : undefined,
+    [imageId, sessionId, userId, mimeType, url],
+  );
+  const identity = imageRef
+    ? JSON.stringify([imageId, sessionId, userId, props.useThumbnail ?? true])
+    : 'inline';
+  return <ImageView {...props} imageRef={imageRef} key={identity} />;
+});
+
+ImageView.displayName = 'ImageView';
 OptimizedImage.displayName = 'OptimizedImage';

@@ -115,7 +115,8 @@ export function OutputActionSheet({
               useThumbnail
               showControls={false}
               enableFullscreen={false}
-              className="h-48 w-full object-contain"
+              className="h-48 w-full"
+              imageClassName="h-full w-full object-contain"
             />
           </div>
 

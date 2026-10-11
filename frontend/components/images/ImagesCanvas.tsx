@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useRef, useState } from 'react';
 
 import { useIsMobile, useMediaQuery } from '@/hooks/useMediaQuery';
 
@@ -83,7 +83,7 @@ export const ImagesCanvas = memo(function ImagesCanvas({
           const img = images[idx];
           return (
             <div
-              key={img ? img.imageId : `empty-${cols}-${idx}`}
+              key={`output-${idx}`}
               className="relative group aspect-square overflow-hidden rounded-2xl border border-separator bg-panel"
             >
               {img ? (
@@ -162,12 +162,20 @@ const CanvasTile = memo(function CanvasTile({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const ref = generatedRef(image);
+  const [loadedImage, setLoadedImage] = useState<GalleryImage | null>(null);
+  const requestedId = useRef(image.imageId);
+  requestedId.current = image.imageId;
+  const ready = loadedImage?.imageId === image.imageId;
+  const previous = !ready ? loadedImage : null;
+  const visibleImage = previous ?? image;
+  const layers = previous ? [previous, image] : [image];
 
   return (
     <button
       type="button"
       onClick={onSelect}
+      disabled={!ready || image.partial}
+      aria-busy={!ready}
       className={classNames(
         'absolute inset-0 block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus',
         selected && 'ring-2 ring-inset ring-focus',
@@ -175,22 +183,41 @@ const CanvasTile = memo(function CanvasTile({
       aria-label="Open generated image actions"
       aria-pressed={selected}
     >
-      <OptimizedImage
-        imageRef={ref}
-        alt={image.prompt}
-        useThumbnail
-        showControls={false}
-        enableFullscreen={false}
-        className="w-full h-full bg-black/40 object-contain"
-      />
-      {image.partial && (
+      {layers.map((layer) => (
+        <div key={layer.imageId} className="absolute inset-0">
+          <OptimizedImage
+            imageRef={generatedRef(layer)}
+            alt={layer.prompt}
+            useThumbnail
+            showControls={false}
+            enableFullscreen={false}
+            showLoadingPlaceholder={!previous}
+            className="h-full w-full"
+            imageClassName="h-full w-full object-contain"
+            onLoad={() => {
+              if (requestedId.current === layer.imageId) setLoadedImage(layer);
+            }}
+          />
+        </div>
+      ))}
+      {visibleImage.partial && (
         <div className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[0.75rem] font-medium uppercase tracking-wider text-white">
           Partial
         </div>
       )}
-      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 text-left text-[0.75rem] font-medium text-white opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-        {selected ? 'Selected · view actions' : 'Tap to view actions'}
-      </span>
+      {previous && (
+        <span
+          role="status"
+          className="absolute bottom-2 left-2 rounded-full bg-black/70 px-2 py-1 text-xs text-white"
+        >
+          {image.partial ? 'Updating preview' : 'Loading final image'}
+        </span>
+      )}
+      {ready && !image.partial && (
+        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-8 text-left text-[0.75rem] font-medium text-white opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+          {selected ? 'Selected · view actions' : 'Tap to view actions'}
+        </span>
+      )}
     </button>
   );
 });
