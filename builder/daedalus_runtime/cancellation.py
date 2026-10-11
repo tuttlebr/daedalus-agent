@@ -1,8 +1,20 @@
 """Propagate HTTP disconnects into request work, including before headers."""
 
 import asyncio
+import contextlib
 
+from anyio import CancelScope
 from daedalus_runtime.logging import log_event
+
+
+async def cancel_and_join(task):
+    """Cancel once, letting child transports finish closing inside ASGI scopes."""
+    task.cancel()
+    # Starlette can repeatedly cancel a streaming task while its generator is
+    # unwinding. A second cancellation can interrupt a child's socket cleanup.
+    with CancelScope(shield=True):
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 class CancelOnDisconnect:

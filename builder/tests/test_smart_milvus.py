@@ -530,7 +530,8 @@ class TestAsyncMilvusCalls:
                 return [0.1, 0.2]
 
         class FakeBuilder:
-            async def get_embedder(self, **_kwargs):
+            async def get_embedder(self, name, *, wrapper_type=None):
+                assert name == "embedder"
                 return RecordingEmbedder()
 
         monkeypatch.setattr(pymilvus, "MilvusClient", RecordingClient, raising=False)

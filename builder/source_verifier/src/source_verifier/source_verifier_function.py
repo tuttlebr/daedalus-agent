@@ -336,6 +336,13 @@ class SourceVerifierConfig(ToolConfig, name="source_verifier"):
             "The name must identify an entry in the workflow's llms section."
         ),
     )
+    max_concurrency: int = Field(
+        default=1,
+        ge=1,
+        le=8,
+        strict=True,
+        description="Maximum simultaneous claim checks per tool instance. Set to 1 to serialize.",
+    )
     max_source_chars: int = Field(
         default=80000,
         ge=1000,
@@ -892,6 +899,9 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
         llm_name=str(config.llm_name),
         invoke=_invoke_critic,
     )
+    # Bound aggregate fetch/model work across runs sharing this tool instance.
+    # The runtime also bounds same-batch dispatch; cancellation releases a slot.
+    verification_slots = asyncio.Semaphore(config.max_concurrency)
 
     # ------------------------------------------------------------------
     # Tool 1 -- verify_claim
@@ -1390,7 +1400,8 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                 }
             )
         if operation == "verify_claim":
-            return await verify_claim(claim, source_url, context)
+            async with verification_slots:
+                return await verify_claim(claim, source_url, context)
         if operation == "plan_sources":
             return await plan_sources(
                 research_question, selected_sources_json, disabled_sources_json, depth

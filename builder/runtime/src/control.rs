@@ -61,7 +61,7 @@ impl Command {
 }
 
 pub struct RunHandle {
-    pub telemetry: Mutex<Option<opentelemetry_sdk::trace::Span>>,
+    pub telemetry: Mutex<Option<crate::telemetry::RunSpan>>,
     pub user: String,
     pub conversation: String,
     pub sender: mpsc::Sender<Command>,

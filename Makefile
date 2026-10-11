@@ -80,6 +80,7 @@ migration: migration-baseline ## differential, Python-free MCP/OAuth, TLS/ACL an
 	docker run --rm --network none -e PYTHONPATH=/workspace -v $(CURDIR)/builder/migration:/migration:ro -v $(CURDIR)/builder/runtime/tests/fixtures:/fixtures:ro --entrypoint python $(RUNTIME_IMAGE) /migration/executor_contract.py
 	mkdir -p $(MIGRATION_REPORT_DIR)
 	$(MIGRATION_PYTHON) builder/migration/differential.py --baseline $(MIGRATION_BASELINE_IMAGE) --candidate $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --output $(MIGRATION_REPORT_DIR)/differential
+	$(MIGRATION_PYTHON) builder/migration/leaf_check.py --image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/leaf.json
 	$(MIGRATION_PYTHON) builder/migration/image_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --compare-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/minimal.json
 	$(MIGRATION_PYTHON) builder/migration/authorization_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/authorization.json
 

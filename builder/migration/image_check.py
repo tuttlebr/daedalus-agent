@@ -176,6 +176,7 @@ def environment(
     peers=None,
     configure=None,
     extra_env=None,
+    fixture_files=None,
 ):
     peers = peers or MemoryPeers()
 
@@ -190,6 +191,8 @@ def environment(
     with tempfile.TemporaryDirectory(prefix="daedalus-p1-") as directory:
         root = Path(directory)
         root.chmod(0o755)
+        for name, content in (fixture_files or {}).items():
+            (root / name).write_text(content)
         redis_port, runtime_port = free_port(), port or free_port()
         token = token or uuid.uuid4().hex
         config = {

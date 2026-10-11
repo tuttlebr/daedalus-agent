@@ -68,6 +68,15 @@ The runtime also enforces a separate 30-minute deadline for the entire agent
 run, including model and tool calls. Invalid configuration logs identify fields
 and validation categories while omitting configured values and credentials.
 
+`functions.source_verifier_tool.max_concurrency` controls independent claim
+checks (integer 1–8, default 1). The shipped workflow enables two. Set it to
+`1` to return to serial verification; `workflow.parallel_tool_calls: false`
+also serializes dispatch within each run. The Python tool instance applies
+the same claim-check limit across concurrent runs. Other stateful tools retain
+their existing serialization. `make migration` includes the built-image
+retrieval, result-binding, concurrency, steering, and cancellation checks in
+`builder/migration/leaf_check.py`.
+
 Existing sessions, Redis conversations, tool output caches, and Google grants
 are retained. The backend image and frontend must be rolled out together to
 enable the steering composer. Existing custom YAML overlays must use

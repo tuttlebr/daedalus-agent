@@ -28,7 +28,10 @@ query, explicitly exposed tool names, and per-executor state. Identity comes
 from authenticated headers. Python constructs an ephemeral call context; it
 does not create an authoritative run or select the next model. State updates
 return to Rust even when a leaf reports an error. Calls sharing a native factory
-or MCP group serialize their state updates. Stop closes the owning transport.
+or MCP group serialize their state updates. Stateless source verification can
+overlap within its configured concurrency bound and does not merge executor
+snapshots. Stop closes the owning transport and joins Python cleanup under a
+shield against repeated streaming cancellation.
 
 The full image retains its Python supervisor and the remaining public API proxy
 until P3/P4. Axum now owns `/auth/redirect`, Google connection reset,

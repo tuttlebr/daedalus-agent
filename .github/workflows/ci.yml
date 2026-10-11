@@ -28,7 +28,7 @@ jobs:
         run: |
           rustup toolchain install 1.95.0 --profile minimal --component rustfmt,clippy
           rustup default 1.95.0
-          pip install httpx PyYAML redis
+          pip install httpx PyYAML redis opentelemetry-proto==1.44.0
           cd frontend
           npm ci --legacy-peer-deps
           npx playwright install --with-deps chromium

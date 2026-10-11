@@ -2561,7 +2561,7 @@ async def nv_ingest_function(
                     from smart_milvus.smart_milvus_function import MilvusRetriever
 
                     embedder = await builder.get_embedder(
-                        embedder_name=config.embedder_name,
+                        config.embedder_name,
                         wrapper_type=LLMFramework.LANGCHAIN,
                     )
                     milvus_client = _retrieval_client_cache.get("milvus")

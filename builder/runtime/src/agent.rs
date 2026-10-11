@@ -1,6 +1,6 @@
 //! Application-owned model/tool loop. Steering is processed during every wait.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -238,6 +238,7 @@ impl Agent {
             && let Some(telemetry) = &preparation.telemetry
         {
             let span = telemetry.start(&prepared, selection.as_ref().unwrap());
+            tracing::info!(event = "telemetry_started", trace_id = %span.trace_id());
             self.headers
                 .insert("traceparent", crate::telemetry::traceparent(&span));
             self.headers.remove("tracestate");
@@ -496,7 +497,7 @@ impl Agent {
             let batch_revision = self.revision;
             let mut queued = VecDeque::from(calls);
             let mut active = FuturesUnordered::new();
-            let mut active_groups = HashSet::new();
+            let mut active_groups = HashMap::<String, usize>::new();
             let concurrency = if prepared.parallel_tool_calls { 8 } else { 1 };
             let mut terminal = None;
             while !queued.is_empty() || !active.is_empty() {
@@ -507,8 +508,11 @@ impl Agent {
                         || terminal.is_some();
                     let position = queued.iter().position(|call| {
                         redirected
-                            || !active_groups
-                                .contains(self.execution_group(&call.function.name).as_str())
+                            || active_groups
+                                .get(&self.execution_group(&call.function.name))
+                                .copied()
+                                .unwrap_or(0)
+                                < self.execution_concurrency(&call.function.name)
                     });
                     let Some(position) = position else {
                         break;
@@ -545,7 +549,7 @@ impl Agent {
                         .fetch_add(1, Ordering::Relaxed)
                         + 1;
                     let group = self.execution_group(&name);
-                    active_groups.insert(group.clone());
+                    *active_groups.entry(group.clone()).or_default() += 1;
                     self.events
                         .tool(&id, &name, false, call.function.arguments.clone())
                         .await?;
@@ -615,9 +619,13 @@ impl Agent {
                 };
                 let mut outcome = outcome?;
                 let name = call.function.name.to_string();
+                let group = self.execution_group(&name);
                 if preparation.is_some() {
-                    executor_states
-                        .insert(self.execution_group(&name), outcome.executor_state.clone());
+                    // The verifier is read-only and has no run-scoped executor state.
+                    // Never replace shared state with a concurrent call's snapshot.
+                    if group != "native:source_verifier" {
+                        executor_states.insert(group.clone(), outcome.executor_state.clone());
+                    }
                     if let Some(preparation) = &preparation {
                         // A leaf reports successful skill loading; only Rust resolves routing policy.
                         let selection = selection.as_mut().unwrap();
@@ -628,7 +636,7 @@ impl Agent {
                         }
                     }
                 }
-                active_groups.remove(&self.execution_group(&name));
+                *active_groups.get_mut(&group).expect("active group exists") -= 1;
                 // An approval marker terminates the frontend stream. Defer it until
                 // every already-started call has returned its result.
                 let visible =
@@ -724,6 +732,12 @@ impl Agent {
             return format!("native:{kind}");
         }
         name.split("__").next().unwrap_or_default().to_owned()
+    }
+
+    fn execution_concurrency(&self, name: &str) -> usize {
+        self.preparation
+            .as_ref()
+            .map_or(1, |preparation| preparation.config.tool_concurrency(name))
     }
 
     async fn tool_response(

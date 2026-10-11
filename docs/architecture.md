@@ -86,6 +86,14 @@ image still requires that service. The separate `rust-minimal` image starts the
 binary directly with the native clock, MCP and authorization enabled and omits
 Python entirely. The autonomous worker remains Python until P4.
 
+When `parallel_tool_calls` is enabled, the runtime admits up to eight tool calls
+at once. Stateful calls sharing a native tool type or MCP group remain serial.
+The shipped workflow allows two simultaneous stateless source-verifier calls;
+its Python semaphore also bounds claim checks across runs sharing that tool
+instance. Results remain bound to their call IDs even when completion order
+differs. Verifier calls do not replace run-scoped executor snapshots. Stopping
+a run cancels active calls and waits for their transport cleanup.
+
 Steering uses `steer_job` over the existing WebSocket connection. The server
 revalidates the login and stored job owner, then forwards a UUID command to
 `POST /v1/runs/{run_id}/control`. During model generation, steering closes that
@@ -111,3 +119,9 @@ It omits prompts, tool arguments, results, identities, and credentials. The run
 records how many responses actually reported usage so missing usage is not
 mistaken for a measured zero. Steering and completion remain independent of
 telemetry availability.
+Routing attributes are retained as the current selection and written once at
+termination, alongside the outcome and counters. Repeated tool calls therefore
+cannot exhaust the span attribute limit and discard terminal metrics.
+The `telemetry_started` lifecycle log records the Phoenix `trace_id` inside the
+existing run context, allowing exact trace-to-run correlation without exporting
+user or conversation identifiers.

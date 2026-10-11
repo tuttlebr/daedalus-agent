@@ -197,7 +197,7 @@ async def domain_retriever_function(
                 return retriever
 
             embedder = await builder.get_embedder(
-                embedder_name=config.embedding_model,
+                config.embedding_model,
                 wrapper_type=LLMFramework.LANGCHAIN,
             )
             # pymilvus constructs channels and may perform connection setup in

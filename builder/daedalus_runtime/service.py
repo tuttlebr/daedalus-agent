@@ -17,7 +17,7 @@ from typing import Literal
 
 import httpx
 from daedalus_runtime.approval import configure_mcp_approval_policy
-from daedalus_runtime.cancellation import CancelOnDisconnect
+from daedalus_runtime.cancellation import CancelOnDisconnect, cancel_and_join
 from daedalus_runtime.config import (
     describe_validation_error,
     load_config,
@@ -650,9 +650,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
                     if event["event"] == "result":
                         break
             finally:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+                await cancel_and_join(task)
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 

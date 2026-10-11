@@ -17,8 +17,17 @@ pub struct Telemetry {
     provider: SdkTracerProvider,
     tracer: SdkTracer,
 }
-pub fn traceparent(span: &opentelemetry_sdk::trace::Span) -> http::HeaderValue {
-    let context = span.span_context();
+pub struct RunSpan {
+    span: opentelemetry_sdk::trace::Span,
+    routing: Vec<KeyValue>,
+}
+impl RunSpan {
+    pub fn trace_id(&self) -> opentelemetry::trace::TraceId {
+        self.span.span_context().trace_id()
+    }
+}
+pub fn traceparent(span: &RunSpan) -> http::HeaderValue {
+    let context = span.span.span_context();
     format!(
         "00-{}-{}-{:02x}",
         context.trace_id(),
@@ -91,7 +100,7 @@ impl Telemetry {
         &self,
         prepared: &PreparedRun,
         selection: &crate::preparation::ModelSelection,
-    ) -> opentelemetry_sdk::trace::Span {
+    ) -> RunSpan {
         let mut span = self.tracer.start("daedalus.agent");
         span.set_attributes([
             KeyValue::new("openinference.span.kind", "AGENT"),
@@ -108,6 +117,10 @@ impl Telemetry {
                 crate::logging::label(&prepared.model.model_name).to_owned(),
             ),
         ]);
+        let mut span = RunSpan {
+            span,
+            routing: Vec::new(),
+        };
         routing(&mut span, selection);
         span
     }
@@ -122,11 +135,10 @@ impl Telemetry {
         .await;
     }
 }
-pub fn routing(
-    span: &mut opentelemetry_sdk::trace::Span,
-    selection: &crate::preparation::ModelSelection,
-) {
-    span.set_attributes([
+pub fn routing(span: &mut RunSpan, selection: &crate::preparation::ModelSelection) {
+    // The SDK appends repeated keys and counts them toward the attribute limit.
+    // Keep only the latest routing state and export it once at termination.
+    span.routing = vec![
         KeyValue::new(
             "requested_model_profile",
             selection
@@ -137,15 +149,17 @@ pub fn routing(
         KeyValue::new("effective_model_profile", selection.effective.clone()),
         KeyValue::new("model_selection_source", selection.source),
         KeyValue::new("model_promotion_count", selection.promotion_count),
-    ]);
+    ];
     if let Some(skill) = &selection.triggering_skill {
-        span.set_attribute(KeyValue::new(
+        span.routing.push(KeyValue::new(
             "model_triggering_skill",
             crate::logging::label(skill).to_owned(),
         ));
     }
 }
-pub fn finish(span: &mut opentelemetry_sdk::trace::Span, outcome: &str, metrics: &Value) {
+pub fn finish(run: &mut RunSpan, outcome: &str, metrics: &Value) {
+    let span = &mut run.span;
+    span.set_attributes(std::mem::take(&mut run.routing));
     span.set_attribute(KeyValue::new("outcome", outcome.to_string()));
     for name in [
         "model_calls",

@@ -149,6 +149,16 @@ pub fn names(value: Option<&Value>) -> Result<Vec<String>> {
 }
 
 impl Config {
+    /// Only the stateless, application-owned verifier can overlap same-kind calls.
+    pub fn tool_concurrency(&self, name: &str) -> usize {
+        let function = &self.raw["functions"][name];
+        if function["_type"] == "source_verifier" {
+            function["max_concurrency"].as_u64().unwrap_or(1) as usize
+        } else {
+            1
+        }
+    }
+
     pub fn from_path(path: &Path) -> Result<Self> {
         let env = std::env::vars().collect();
         let policy_raw = load_with_policy(path, &env, true)?;
@@ -245,6 +255,12 @@ impl Config {
             bail!("Configured required tools need the transitional Python executor");
         }
         for (name, function) in functions {
+            if function["_type"] == "source_verifier"
+                && let Some(value) = function.get("max_concurrency")
+                && !value.as_u64().is_some_and(|n| (1..=8).contains(&n))
+            {
+                bail!("Invalid source verifier max_concurrency: expected an integer from 1 to 8");
+            }
             if function["_type"] == "current_datetime" {
                 if function
                     .as_object()

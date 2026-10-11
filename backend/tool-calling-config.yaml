@@ -916,6 +916,7 @@ functions:
     verbose: false
   source_verifier_tool:
     _type: source_verifier
+    max_concurrency: 2
     llm_name: tool_calling_llm
     max_source_chars: 80000
     fetch_timeout: 20.0
