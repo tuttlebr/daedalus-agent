@@ -73,10 +73,7 @@ describe('/api/autonomy/runs', () => {
 
     await handler(req, res);
 
-    expect(mocks.enqueueRun).toHaveBeenCalledWith(
-      'alice',
-      { prompt: 'go' },
-    );
+    expect(mocks.enqueueRun).toHaveBeenCalledWith('alice', { prompt: 'go' });
     expect(res.status).toHaveBeenCalledWith(202);
     expect(res.json).toHaveBeenCalledWith({ id: 'request_1', queuedAt: 1 });
   });
@@ -97,10 +94,10 @@ describe('/api/autonomy/runs', () => {
 
     await handler(req, res);
 
-    expect(mocks.enqueueAllActiveGoals).toHaveBeenCalledWith(
-      'alice',
-      { scope: 'all_active_goals', prompt: 'note' },
-    );
+    expect(mocks.enqueueAllActiveGoals).toHaveBeenCalledWith('alice', {
+      scope: 'all_active_goals',
+      prompt: 'note',
+    });
     expect(mocks.enqueueRun).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(202);
     expect(res.json).toHaveBeenCalledWith({

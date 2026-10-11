@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { imageHistoryKey } from '@/server/images/requestHelpers';
-
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
@@ -48,7 +47,6 @@ interface GeneratedImageRecord {
   user?: string;
   sessionId?: string;
 }
-
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);

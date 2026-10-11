@@ -21,7 +21,9 @@ export default async function handler(
   if (req.method === 'DELETE') {
     const id = req.query.id;
     if (typeof id !== 'string' || !id.trim()) {
-      return res.status(400).json({ error: 'A queued request id is required.' });
+      return res
+        .status(400)
+        .json({ error: 'A queued request id is required.' });
     }
     const cancelled = await cancelQueuedRequest(userId, id);
     if (!cancelled) {

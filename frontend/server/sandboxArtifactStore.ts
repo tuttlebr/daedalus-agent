@@ -80,7 +80,6 @@ export interface PublishedSandboxArtifact {
   downloadUrl: string;
 }
 
-
 function normalizedArtifactPath(value: string): string {
   if (
     !value ||

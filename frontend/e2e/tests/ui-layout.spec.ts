@@ -591,7 +591,10 @@ test('HTML source images survive saving, reload and fullscreen', async ({
     .poll(async () => {
       const response = await page.request.get(
         '/api/session/selectedConversation',
+        // This read is safe to retry when the disposable TLS connection resets.
+        { maxRetries: 2 },
       );
+      expect(response.ok()).toBeTruthy();
       return JSON.stringify(await response.json());
     })
     .toContain('data:image/png;base64,');
@@ -621,6 +624,8 @@ test('fullscreen preserves HTML preview and Markdown formatting', async ({
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium');
   await login(page);
+  // Server-side selection survives login and may belong to a previous test.
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
 
   await sendMessage(page, 'E2E_HTML');
   await expect(page.getByText('HTML preview')).toBeVisible();
