@@ -51,6 +51,98 @@ async function sendMessage(
   }
 }
 
+test('runs five independent chats and reports the limit only on the sixth submission', async ({
+  page,
+}) => {
+  await login(page);
+  const jobs: string[] = [];
+  try {
+    for (let index = 0; index < 5; index += 1) {
+      await page.getByRole('button', { name: 'New chat', exact: true }).click();
+      await expect(
+        page.getByText('five chats running', { exact: false }),
+      ).toHaveCount(0);
+      const submission = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          response.url().endsWith('/api/chat/async'),
+      );
+      await sendMessage(page, `E2E_CANCEL concurrent chat ${index}`);
+      jobs.push((await (await submission).json()).jobId);
+      await expect(
+        page.getByText('E2E cancellation pending', { exact: true }).last(),
+      ).toBeVisible();
+    }
+    await expect
+      .poll(async () => {
+        const statuses = await Promise.all(
+          jobs.map((jobId) =>
+            browserGet(page, `/api/chat/async?jobId=${jobId}`),
+          ),
+        );
+        return statuses.filter((response) => {
+          const status = JSON.parse(response.body);
+          return (
+            status.status === 'streaming' &&
+            status.partialResponse?.includes('E2E cancellation pending')
+          );
+        }).length;
+      })
+      .toBe(5);
+
+    await page.getByRole('button', { name: 'New chat', exact: true }).click();
+    await expect(
+      page.getByText('five chats running', { exact: false }),
+    ).toHaveCount(0);
+    const sixth = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith('/api/chat/async'),
+    );
+    await page
+      .getByPlaceholder('Send a message...')
+      .fill('E2E_CANCEL sixth concurrent chat');
+    await page.getByRole('button', { name: 'Send message' }).click();
+    expect((await sixth).status()).toBe(429);
+    await expect(
+      page.getByText('five chats running', { exact: false }),
+    ).toBeVisible();
+
+    const cancel = await page.request.delete(
+      `/api/chat/async?jobId=${jobs[0]}`,
+    );
+    expect(cancel.ok()).toBeTruthy();
+    // Stop is acknowledged before the worker flushes and finalizes its output.
+    await expect
+      .poll(async () => {
+        const response = await browserGet(
+          page,
+          `/api/chat/async?jobId=${jobs[0]}`,
+        );
+        return JSON.parse(response.body).status;
+      })
+      .toBe('error');
+    await page.getByRole('button', { name: 'New chat', exact: true }).click();
+    const replacement = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith('/api/chat/async'),
+    );
+    await sendMessage(page, 'E2E_CANCEL replacement concurrent chat');
+    jobs.push((await (await replacement).json()).jobId);
+    await expect(
+      page.getByText('E2E cancellation pending', { exact: true }).last(),
+    ).toBeVisible();
+    for (const jobId of jobs.slice(1, 5)) {
+      const response = await browserGet(page, `/api/chat/async?jobId=${jobId}`);
+      expect(JSON.parse(response.body).status).toBe('streaming');
+    }
+  } finally {
+    for (const jobId of jobs)
+      await page.request.delete(`/api/chat/async?jobId=${jobId}`);
+  }
+});
+
 function isJobStatusGet(response: Response) {
   return (
     response.request().method() === 'GET' &&

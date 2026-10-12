@@ -43,6 +43,7 @@ import type {
   AsyncJobStatus,
   StreamFailureSnapshot,
 } from './types';
+import { releaseUserJobGuard } from './userJobGuard';
 
 import {
   MAX_PUSH_SUBSCRIPTIONS,
@@ -354,6 +355,7 @@ export async function resumePendingFinalization(
     }
 
     if (!journal.conversationGuardReleasedAt) {
+      await releaseUserJobGuard(journal.userId, journal.jobId);
       if (journal.conversation) {
         await releaseConversationJobGuard(
           journal.userId,

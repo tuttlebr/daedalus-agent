@@ -33,7 +33,14 @@ vi.mock('@/utils/app/conversation', () => ({
 }));
 
 vi.mock('@/components/chat/AgentHeartbeat', () => ({
-  AgentHeartbeat: () => <div data-testid="heartbeat" />,
+  AgentHeartbeat: ({ currentActivityText, completedStepCategories }: any) => (
+    <div data-testid="heartbeat">
+      {currentActivityText || 'Thinking...'}
+      <span data-testid="activity-categories">
+        {completedStepCategories.join(',')}
+      </span>
+    </div>
+  ),
 }));
 
 vi.mock('@/components/chat/ChatInput', () => ({
@@ -89,6 +96,88 @@ describe('ChatView OAuth banner', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     document.body.innerHTML = '';
+  });
+
+  it('keeps activity and completion scoped to each concurrently running conversation', async () => {
+    const store = useConversationStore.getState();
+    store.addConversation({
+      id: 'conv-2',
+      name: 'Second running chat',
+      folderId: null,
+      messages: [
+        { id: 'user-2', role: 'user', content: 'different question' },
+        { id: 'assistant-2', role: 'assistant', content: '' },
+      ],
+    });
+    store.setStreaming('conv-2', true);
+    const { root, container } = renderChatView();
+    const categories = () =>
+      container.querySelector('[data-testid="activity-categories"]')
+        ?.textContent;
+
+    act(() => {
+      mocks.asyncOptions.onIntermediateStep({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        step: {
+          payload: {
+            event_type: 'TOOL_START',
+            UUID: 'tool-1',
+            name: 'research',
+          },
+        },
+      });
+    });
+    expect(categories()).toBe('TOOL');
+
+    act(() => store.selectConversation('conv-2'));
+    expect(categories()).toBe('');
+    expect(
+      container.querySelector('[data-testid="heartbeat"]')?.textContent,
+    ).toBe('Thinking...');
+    act(() => {
+      mocks.asyncOptions.onIntermediateStep({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        step: {
+          payload: {
+            event_type: 'TOOL_END',
+            UUID: 'tool-1',
+            data: { output: 'old chat result' },
+          },
+        },
+      });
+    });
+    expect(categories()).toBe('');
+    act(() => {
+      mocks.asyncOptions.onIntermediateStep({
+        conversationId: 'conv-2',
+        assistantMessageId: 'assistant-2',
+        step: { payload: { event_type: 'LLM_START', UUID: 'model-2' } },
+      });
+    });
+    expect(categories()).toBe('LLM');
+
+    act(() => store.selectConversation('conv-1'));
+    expect(categories()).toBe('TOOL,TOOL');
+    act(() => store.selectConversation('conv-2'));
+    act(() =>
+      mocks.asyncOptions.onComplete(
+        'first chat done',
+        [],
+        undefined,
+        'conv-1',
+        { assistantMessageId: 'assistant-1' },
+      ),
+    );
+    expect(categories()).toBe('LLM');
+    expect(
+      useConversationStore.getState().streamingConversationIds.has('conv-2'),
+    ).toBe(true);
+    expect(container.querySelector('[role="status"]')?.textContent).not.toBe(
+      'Response complete',
+    );
+    act(() => root.unmount());
   });
 
   it('keeps buffered assistant text and tool evidence when an error has no snapshot', async () => {

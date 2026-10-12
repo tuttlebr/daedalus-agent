@@ -222,12 +222,58 @@ export const ChatView = memo(() => {
     (s) => s.enableIntermediateSteps,
   );
 
-  // Streaming state
-  const [activityText, setActivityText] = useState('');
-  const [streamAnnouncement, setStreamAnnouncement] = useState('');
-  const [stepCategories, setStepCategories] = useState<
-    IntermediateStepCategory[]
-  >([]);
+  // Background runs keep their own activity when the user switches chats.
+  const [activityByConversation, setActivityByConversation] = useState<
+    Record<
+      string,
+      {
+        text?: string;
+        announcement?: string;
+        categories?: IntermediateStepCategory[];
+      }
+    >
+  >({});
+  const setActivityText = useCallback((convId: string, text: string) => {
+    setActivityByConversation((current) => ({
+      ...current,
+      [convId]: { ...current[convId], text },
+    }));
+  }, []);
+  const setStreamAnnouncement = useCallback(
+    (convId: string, announcement: string) => {
+      setActivityByConversation((current) => ({
+        ...current,
+        [convId]: { ...current[convId], announcement },
+      }));
+    },
+    [],
+  );
+  const setStepCategories = useCallback(
+    (
+      convId: string,
+      categories:
+        | IntermediateStepCategory[]
+        | ((current: IntermediateStepCategory[]) => IntermediateStepCategory[]),
+    ) => {
+      setActivityByConversation((current) => ({
+        ...current,
+        [convId]: {
+          ...current[convId],
+          categories:
+            typeof categories === 'function'
+              ? categories(current[convId]?.categories || [])
+              : categories,
+        },
+      }));
+    },
+    [],
+  );
+  const selectedActivity = selectedConversationId
+    ? activityByConversation[selectedConversationId]
+    : undefined;
+  const activityText = selectedActivity?.text || '';
+  const streamAnnouncement = selectedActivity?.announcement || '';
+  const stepCategories = selectedActivity?.categories || [];
   const [oauthPrompts, setOauthPrompts] = useState<OAuthPromptState[]>([]);
   const [visibleMessageCount, setVisibleMessageCount] = useState(
     INITIAL_VISIBLE_MESSAGES,
@@ -521,8 +567,9 @@ export const ChatView = memo(() => {
       if (!steps?.length) return;
 
       const lastStep = steps[steps.length - 1];
-      setActivityText(getCompactActivityText(lastStep));
+      setActivityText(convId, getCompactActivityText(lastStep));
       setStepCategories(
+        convId,
         steps.map(getStepCategory).slice(-MAX_HEARTBEAT_CATEGORIES),
       );
 
@@ -534,7 +581,7 @@ export const ChatView = memo(() => {
         assistantMessageId,
       );
     },
-    [updateAssistantMessage],
+    [updateAssistantMessage, setActivityText, setStepCategories],
   );
 
   const appendStreamingStep = useCallback(
@@ -559,8 +606,8 @@ export const ChatView = memo(() => {
         step,
       );
 
-      setActivityText(getCompactActivityText(step));
-      setStepCategories((current) =>
+      setActivityText(convId, getCompactActivityText(step));
+      setStepCategories(convId, (current) =>
         [...current, getStepCategory(step)].slice(-MAX_HEARTBEAT_CATEGORIES),
       );
       updateAssistantMessage(
@@ -571,7 +618,7 @@ export const ChatView = memo(() => {
         assistantMessageId,
       );
     },
-    [updateAssistantMessage],
+    [updateAssistantMessage, setActivityText, setStepCategories],
   );
 
   const flushPendingStreamingUpdates = useCallback(
@@ -727,10 +774,10 @@ export const ChatView = memo(() => {
             },
             event.intermediateSteps,
           );
-          setActivityText('Generating response');
+          setActivityText(convId, 'Generating response');
           finishOAuthPromptsForJob(convId, event.jobId, true, true);
         },
-        [finishOAuthPromptsForJob, queueStreamingUpdate],
+        [finishOAuthPromptsForJob, queueStreamingUpdate, setActivityText],
       ),
 
       onIntermediateStep: useCallback(
@@ -768,7 +815,7 @@ export const ChatView = memo(() => {
                 ),
             );
             setStreaming(convId, true);
-            setActivityText('Authorization check');
+            setActivityText(convId, 'Authorization check');
             if (prompts.length === 0) {
               return;
             }
@@ -845,9 +892,10 @@ export const ChatView = memo(() => {
                 );
               }
               setStreaming(convId, false);
-              setActivityText('');
-              setStepCategories([]);
+              setActivityText(convId, '');
+              setStepCategories(convId, []);
               setStreamAnnouncement(
+                convId,
                 status.status === 'completed'
                   ? 'Response complete'
                   : 'Response interrupted',
@@ -883,7 +931,7 @@ export const ChatView = memo(() => {
               content: status.partialResponse,
               replace: true,
             });
-            setActivityText('Generating response');
+            setActivityText(convId, 'Generating response');
           }
         },
         [
@@ -894,6 +942,9 @@ export const ChatView = memo(() => {
           finishOAuthPromptsForJob,
           flushPendingStreamingUpdates,
           queueStreamingUpdate,
+          setActivityText,
+          setStepCategories,
+          setStreamAnnouncement,
         ],
       ),
 
@@ -926,9 +977,9 @@ export const ChatView = memo(() => {
 
           // Stop streaming
           setStreaming(convId, false);
-          setActivityText('');
-          setStepCategories([]);
-          setStreamAnnouncement('Response complete');
+          setActivityText(convId, '');
+          setStepCategories(convId, []);
+          setStreamAnnouncement(convId, 'Response complete');
           finishOAuthPromptsForJob(convId, meta?.jobId, true);
 
           // Save to Redis
@@ -944,6 +995,9 @@ export const ChatView = memo(() => {
           updateAssistantMessage,
           finishOAuthPromptsForJob,
           flushPendingStreamingUpdates,
+          setActivityText,
+          setStepCategories,
+          setStreamAnnouncement,
         ],
       ),
 
@@ -993,9 +1047,9 @@ export const ChatView = memo(() => {
           }
 
           setStreaming(convId, false);
-          setActivityText('');
-          setStepCategories([]);
-          setStreamAnnouncement('Response interrupted');
+          setActivityText(convId, '');
+          setStepCategories(convId, []);
+          setStreamAnnouncement(convId, 'Response interrupted');
           clearOpenedOAuthPromptsForConversation(convId);
           setOauthPrompts((current) =>
             withoutOAuthPromptsForConversation(current, convId),
@@ -1007,6 +1061,9 @@ export const ChatView = memo(() => {
           addMessage,
           clearOpenedOAuthPromptsForConversation,
           flushPendingStreamingUpdates,
+          setActivityText,
+          setStepCategories,
+          setStreamAnnouncement,
         ],
       ),
     });
@@ -1047,9 +1104,9 @@ export const ChatView = memo(() => {
 
       // Mark as streaming
       setStreaming(convId, true);
-      setActivityText('Starting...');
-      setStepCategories([]);
-      setStreamAnnouncement('Response started');
+      setActivityText(convId, 'Starting...');
+      setStepCategories(convId, []);
+      setStreamAnnouncement(convId, 'Response started');
       clearOpenedOAuthPromptsForConversation(convId);
       setOauthPrompts((current) =>
         withoutOAuthPromptsForConversation(current, convId),
@@ -1097,7 +1154,7 @@ export const ChatView = memo(() => {
           assistantMessageId,
         );
         setStreaming(convId, false);
-        setActivityText('');
+        setActivityText(convId, '');
         clearOpenedOAuthPromptsForConversation(convId);
         setOauthPrompts((current) =>
           withoutOAuthPromptsForConversation(current, convId),
@@ -1117,6 +1174,9 @@ export const ChatView = memo(() => {
       userId,
       scrollToBottom,
       clearOpenedOAuthPromptsForConversation,
+      setActivityText,
+      setStepCategories,
+      setStreamAnnouncement,
     ],
   );
 
@@ -1161,13 +1221,13 @@ export const ChatView = memo(() => {
             ? error.message
             : 'Could not stop the response. Please try again.';
         toast.error(message);
-        setStreamAnnouncement(message);
+        setStreamAnnouncement(selectedConversationId, message);
         return;
       }
       setStreaming(selectedConversationId, false);
-      setActivityText('');
-      setStepCategories([]);
-      setStreamAnnouncement('Response stopped');
+      setActivityText(selectedConversationId, '');
+      setStepCategories(selectedConversationId, []);
+      setStreamAnnouncement(selectedConversationId, 'Response stopped');
       clearOpenedOAuthPromptsForConversation(selectedConversationId);
       setOauthPrompts((current) =>
         withoutOAuthPromptsForConversation(current, selectedConversationId),
@@ -1179,6 +1239,9 @@ export const ChatView = memo(() => {
     setStreaming,
     flushPendingStreamingUpdates,
     clearOpenedOAuthPromptsForConversation,
+    setActivityText,
+    setStepCategories,
+    setStreamAnnouncement,
   ]);
 
   const messages = selectedConversation?.messages || [];

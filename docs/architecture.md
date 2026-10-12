@@ -5,6 +5,18 @@ server. Redis owns queued jobs, streamed output, conversation history, and
 approval records. The stream worker calls the Rust backend's
 `POST /v1/chat/completions` endpoint.
 
+Each authenticated user can submit up to five chats concurrently across tabs
+and frontend instances. Redis atomically reserves a slot before enqueueing,
+including pending jobs, and the owning worker renews that reservation while
+running. Finalization, OAuth handoff and failed submission release it. Separate
+conversations run independently; each conversation retains one active response.
+The Rust service also enforces five runs per user within its process. The shared
+stream worker has five execution slots by default and can be scaled for shared
+load. The frontend displays the limit only when a sixth submission is rejected.
+Activity text, tool categories and accessibility announcements are scoped to
+their conversation, so background runs cannot replace the selected chat's
+indicator or clear it when another run completes.
+
 `builder/runtime` uses Rig for OpenAI Responses or Chat Completions, Tokio for
 concurrency, and Axum for HTTP. Its application-owned loop controls model calls,
 bounded tool batches, steering, cancellation, and terminal events. It never

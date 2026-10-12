@@ -95,7 +95,7 @@ spec:
             - name: BACKEND_API_PATH
               value: {{ (get (.Values.frontend.env.overrides | default dict) "BACKEND_API_PATH") | default "/v1/chat/completions" | quote }}
             - name: STREAM_WORKER_CONCURRENCY
-              value: {{ .Values.frontend.streamWorker.concurrency | default 4 | quote }}
+              value: {{ .Values.frontend.streamWorker.concurrency | default 5 | quote }}
             - name: STREAM_WORKER_LEASE_TTL_SECONDS
               value: {{ .Values.frontend.streamWorker.leaseTtlSeconds | default 30 | quote }}
             - name: STREAM_WORKER_HEARTBEAT_SECONDS

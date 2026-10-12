@@ -33,6 +33,10 @@ import {
   type AsyncJobRequest,
   type AsyncJobStatus,
 } from '@/server/chat/types';
+import {
+  releaseUserJobGuard,
+  userJobGuardKey,
+} from '@/server/chat/userJobGuard';
 import { positiveIntegerFromEnv } from '@/server/config/env';
 import {
   getRedis,
@@ -77,7 +81,7 @@ export function streamWorkerOptionsFromEnv(): StreamWorkerOptions {
   const leaseTtlMs =
     positiveIntegerFromEnv('STREAM_WORKER_LEASE_TTL_SECONDS', 30) * 1000;
   return {
-    concurrency: positiveIntegerFromEnv('STREAM_WORKER_CONCURRENCY', 4),
+    concurrency: positiveIntegerFromEnv('STREAM_WORKER_CONCURRENCY', 5),
     leaseTtlMs,
     heartbeatMs: Math.min(
       positiveIntegerFromEnv(
@@ -260,6 +264,7 @@ export async function processStreamQueueEntry(
               jobRequest.conversationId,
             )
           : undefined,
+        userJobGuardKey(jobRequest.userId),
       )
         .then((renewed) => {
           if (!renewed) abortForLostLease();
@@ -328,6 +333,7 @@ export async function processStreamQueueEntry(
         : 'finalization_pending';
     }
     if (status?.status === 'oauth_required') {
+      await releaseUserJobGuard(jobRequest.userId, entry.jobId);
       await acknowledgeStreamQueueEntry(entry);
       if (jobRequest.conversationId) {
         await releaseConversationJobGuard(

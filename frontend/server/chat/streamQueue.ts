@@ -6,6 +6,7 @@ import {
   streamStepsKey,
 } from './streamState';
 import type { StreamQueuePayload } from './types';
+import { USER_JOB_GUARD_TTL_SECONDS } from './userJobGuard';
 
 import {
   getRedis,
@@ -157,7 +158,7 @@ redis.call('pexpire', KEYS[1], ARGV[2])
 for index = 2, 10 do
   redis.call('expire', KEYS[index], ARGV[3])
 end
-if KEYS[11] then
+if KEYS[11] and KEYS[11] ~= '' then
   local guard = redis.call('get', KEYS[11])
   if guard then
     local ok, value = pcall(cjson.decode, guard)
@@ -165,6 +166,13 @@ if KEYS[11] then
       redis.call('expire', KEYS[11], ARGV[5])
     end
   end
+end
+if KEYS[12] then
+  local clock = redis.call('TIME')
+  local now = clock[1] * 1000 + math.floor(clock[2] / 1000)
+  -- A late heartbeat must not re-add a job released by finalization.
+  redis.call('ZADD', KEYS[12], 'XX', now + ARGV[6] * 1000, ARGV[4])
+  redis.call('EXPIRE', KEYS[12], ARGV[6])
 end
 return 1
 `;
@@ -175,6 +183,7 @@ export async function renewStreamLease(
   ttlMs: number,
   client: Redis = getRedis(),
   conversationGuardKey?: string,
+  userGuardKey?: string,
 ): Promise<boolean> {
   // Every key needed to recover a running job must outlive that job, even
   // while a long tool call produces no new response/step writes.
@@ -189,7 +198,10 @@ export async function renewStreamLease(
     legacyStreamStepsKey(jobId),
     sessionKey(['async-job-abort', jobId]),
     sessionKey(['async-job-finalization', jobId]),
-    ...(conversationGuardKey ? [conversationGuardKey] : []),
+    ...(conversationGuardKey || userGuardKey
+      ? [conversationGuardKey || '']
+      : []),
+    ...(userGuardKey ? [userGuardKey] : []),
   ];
   return (
     (await client.eval(
@@ -201,6 +213,7 @@ export async function renewStreamLease(
       JOB_EXPIRY_SECONDS,
       jobId,
       CONVERSATION_JOB_GUARD_TTL_SECONDS,
+      USER_JOB_GUARD_TTL_SECONDS,
     )) === 1
   );
 }

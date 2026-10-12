@@ -166,6 +166,12 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         {
             return error(409, "A run is already active for this conversation");
         }
+        if runs.values().filter(|run| run.user == handle.user).count() >= 5 {
+            return error(
+                429,
+                "You already have five chats running. Wait for one to finish or stop a response before starting another.",
+            );
+        }
         if runs.len() >= 64 {
             return error(429, "Agent capacity reached");
         }

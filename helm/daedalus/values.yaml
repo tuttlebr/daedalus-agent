@@ -306,7 +306,7 @@ frontend:
       overrides:
         # Outlive the backend's 10-minute interactive OAuth deadline.
         MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS: '660000'
-    concurrency: 4
+    concurrency: 5
     leaseTtlSeconds: 30
     heartbeatSeconds: 10
     cancelPollSeconds: 1

@@ -45,6 +45,10 @@ import {
   type DocumentIngestProgress,
 } from '@/server/chat/types';
 import {
+  acquireUserJobGuard,
+  releaseUserJobGuard,
+} from '@/server/chat/userJobGuard';
+import {
   cancelSubmission,
   registerSubmission,
   submissionCancelled,
@@ -296,6 +300,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     jobId: string;
   } | null = null;
   let jobEnqueued = false;
+  let acquiredUserGuard: { userId: string; jobId: string } | null = null;
 
   try {
     const {
@@ -432,6 +437,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         jobId,
       };
     }
+
+    if (!(await acquireUserJobGuard(verifiedUsername, jobId))) {
+      throw new ApiRouteError(
+        429,
+        'You already have five chats running. Wait for one to finish or stop a response before starting another.',
+        'active_chat_limit',
+      );
+    }
+    acquiredUserGuard = { userId: verifiedUsername, jobId };
 
     // Publish a provisional status immediately after the guard. This closes the
     // initialization window used for stale-owner recovery while backend
@@ -597,6 +611,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         jsonDel(sessionKey(['async-job-request', createdJobId])),
         jsonDel(sessionKey(['async-job-status', createdJobId])),
         jsonDel(streamPayloadKey(createdJobId)),
+        ...(acquiredUserGuard
+          ? [
+              releaseUserJobGuard(
+                acquiredUserGuard.userId,
+                acquiredUserGuard.jobId,
+              ),
+            ]
+          : []),
         ...(acquiredConversationGuard
           ? [
               releaseConversationJobGuard(

@@ -17,8 +17,14 @@ const mocks = vi.hoisted(() => ({
   startBackgroundDocumentIngest: vi.fn(),
   startBackgroundStreamReader: vi.fn(),
   releaseConversationJobGuard: vi.fn(),
+  releaseUserJobGuard: vi.fn(),
   finalizeError: vi.fn(),
   resumePendingFinalization: vi.fn(),
+}));
+
+vi.mock('@/server/chat/userJobGuard', () => ({
+  userJobGuardKey: (userId: string) => `user-guard:${userId}`,
+  releaseUserJobGuard: mocks.releaseUserJobGuard,
 }));
 
 vi.mock('@/server/chat/conversationJobGuard', () => ({
@@ -218,6 +224,7 @@ describe('durable stream worker entry processing', () => {
       processStreamQueueEntry(entry, options, undefined, 'owner-oauth'),
     ).resolves.toBe('oauth_required');
 
+    expect(mocks.releaseUserJobGuard).toHaveBeenCalledWith('testuser', 'job-1');
     expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
     expect(mocks.releaseConversationJobGuard).toHaveBeenCalledWith(
       'testuser',

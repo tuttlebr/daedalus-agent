@@ -1009,6 +1009,89 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert "Visible answer after active model generation." in active  # nosec B101 - completion still delivers the answer
                 assert '"finish_reason":"stop"' in active  # nosec B101 - executable contract check
                 assert len(peers.requests) == before + 1  # nosec B101 - activity does not trigger another model call
+                # Hold five separate conversations at the provider boundary.
+                peers.release_model.clear()
+                quota_headers = {"x-user-id": "quota-user"}
+                quota_runs = [f"quota-run-{index}" for index in range(5)]
+                before = len(peers.requests)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+                    futures = {
+                        run: pool.submit(
+                            chat, "MODEL_STEER", run, extra_headers=quota_headers
+                        )
+                        for run in quota_runs
+                    }
+                    try:
+                        deadline = time.monotonic() + 15
+                        while len(peers.requests) < before + 5:
+                            assert time.monotonic() < deadline  # nosec B101 - five actual provider streams start
+                            time.sleep(0.05)
+                        assert all(not future.done() for future in futures.values())  # nosec B101 - streams overlap
+                        for conversation, expected in [
+                            ("quota-sixth", 429),
+                            (quota_runs[0], 409),
+                        ]:
+                            rejected = client.post(
+                                base + "/v1/chat/completions",
+                                headers={
+                                    **headers,
+                                    **quota_headers,
+                                    "x-daedalus-request-id": "quota-rejected",
+                                    "x-conversation-id": conversation,
+                                },
+                                json={
+                                    "stream": True,
+                                    "messages": [{"role": "user", "content": "BASIC"}],
+                                },
+                            )
+                            assert rejected.status_code == expected, rejected.text  # nosec B101 - capacity and conversation ownership
+                        assert len(peers.requests) == before + 5  # nosec B101 - rejection never calls the model
+                        futures["quota-other-user"] = pool.submit(
+                            chat,
+                            "MODEL_STEER",
+                            "quota-other-user",
+                            extra_headers={"x-user-id": "quota-other-user"},
+                        )
+                        deadline = time.monotonic() + 15
+                        while len(peers.requests) < before + 6:
+                            assert time.monotonic() < deadline  # nosec B101 - another user has independent capacity
+                            time.sleep(0.05)
+                        stopped = client.post(
+                            base + f"/v1/runs/{quota_runs[0]}/control",
+                            headers={**headers, **quota_headers},
+                            json={"type": "cancel", "command_id": str(uuid.uuid4())},
+                        )
+                        assert stopped.is_success  # nosec B101 - cancel only this chat
+                        assert "Run cancelled by user" in futures[quota_runs[0]].result(
+                            timeout=10
+                        )  # nosec B101 - cancellation completes
+                        assert "The real datetime tool completed" in chat(
+                            "BASIC", "quota-replacement", extra_headers=quota_headers
+                        )  # nosec B101 - freed capacity admits another chat
+                        assert all(
+                            not future.done()
+                            for run, future in futures.items()
+                            if run != quota_runs[0]
+                        )  # nosec B101 - other streams stay active
+                    finally:
+                        for run, future in futures.items():
+                            if not future.done():
+                                client.post(
+                                    base + f"/v1/runs/{run}/control",
+                                    headers={
+                                        **headers,
+                                        "x-user-id": "quota-other-user"
+                                        if run == "quota-other-user"
+                                        else "quota-user",
+                                    },
+                                    json={
+                                        "type": "cancel",
+                                        "command_id": str(uuid.uuid4()),
+                                    },
+                                )
+                        peers.release_model.set()
+                        for future in futures.values():
+                            future.result(timeout=10)
                 peers.calls.clear()
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     for scenario, run, waiting in [

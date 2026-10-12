@@ -828,6 +828,82 @@ describe('chat/async backend pinning helpers', () => {
     );
   });
 
+  it('rejects the sixth chat before queueing and releases its conversation guard', async () => {
+    const originalEval = mocks.redisEval.getMockImplementation()!;
+    mocks.redisEval.mockImplementation(async (script: string, ...args: any[]) =>
+      script.includes('ACQUIRE_USER_JOB_GUARD')
+        ? 0
+        : originalEval(script, ...args),
+    );
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        userId: 'spoofed-user',
+        conversationId: 'conv-sixth',
+        messages: [{ role: 'user', content: 'another chat' }],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.json).toHaveBeenCalledWith({
+      error: expect.stringContaining('five chats running'),
+      reason: 'active_chat_limit',
+    });
+    expect(mocks.redisEval).toHaveBeenCalledWith(
+      expect.stringContaining('ACQUIRE_USER_JOB_GUARD'),
+      1,
+      'daedalus:async-user-jobs:testuser',
+      expect.any(String),
+      5,
+      7200,
+    );
+    expect(mocks.redisEval).toHaveBeenCalledWith(
+      expect.stringContaining('RELEASE_CONVERSATION_JOB_GUARD'),
+      1,
+      expect.any(String),
+      'testuser',
+      'conv-sixth',
+      expect.any(String),
+    );
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
+  it('releases the user slot when queue submission fails', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    mocks.redisXadd.mockRejectedValueOnce(new Error('Queue unavailable'));
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-queue-failure',
+        messages: [{ role: 'user', content: 'new chat' }],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+    await handler(req, res);
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(mocks.redisEval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('ZREM'"),
+      1,
+      'daedalus:async-user-jobs:testuser',
+      expect.any(String),
+    );
+  });
+
   it('rejects a second active job for the same user conversation', async () => {
     mocks.redisSet.mockResolvedValueOnce(null);
     mocks.redisGet.mockResolvedValueOnce(
