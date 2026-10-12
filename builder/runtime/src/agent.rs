@@ -307,6 +307,14 @@ impl Agent {
             iterations += 1;
             let final_synthesis = prepared.daily_summary
                 && started.elapsed().as_secs_f64() >= prepared.research_budget_seconds;
+            // A named capability deserves one evidence check if the model
+            // answers without calling anything. This is still auto selection:
+            // mentions, quotations and prohibitions never force execution.
+            let review_tool_omission = iterations == 1
+                && self.revision == 0
+                && matches!(requirement, crate::tool_contracts::Requirement::Auto)
+                && initial_menu.is_some();
+            let withhold_text = requirement.pending() || review_tool_omission;
             let tools: Vec<_> = prepared
                 .tools
                 .iter()
@@ -420,7 +428,7 @@ impl Agent {
                             if let Item::Event(StreamEvent::Text { text, .. }) = item {
                                 last_activity = Instant::now();
                                 partial.push_str(&text);
-                                if !requirement.pending() {
+                                if !withhold_text {
                                     self.events.delta(&text).await?;
                                 }
                             } else if last_activity.elapsed() >= Duration::from_secs(15) {
@@ -448,7 +456,7 @@ impl Agent {
                 // Keep text already shown to the user in the next request.
                 drop(stream);
                 retry_attempt = 0;
-                if !partial.is_empty() && !requirement.pending() {
+                if !partial.is_empty() && !withhold_text {
                     history.push(Message::assistant(partial));
                 }
                 continue;
@@ -475,7 +483,7 @@ impl Agent {
                     // prior results and visible text, but discard every tool
                     // proposal from this failed attempt, even a finished item.
                     let output_bytes = partial.len();
-                    if !partial.is_empty() && !requirement.pending() {
+                    if !partial.is_empty() && !withhold_text {
                         history.push(Message::assistant(partial));
                         resume_text = true;
                     }
@@ -557,6 +565,11 @@ impl Agent {
                 output_tokens = completed.usage.output_tokens
             );
             self.drain().await?;
+            if calls.is_empty() && review_tool_omission && self.pending.is_empty() {
+                tracing::info!(event = "tool_omission_review");
+                history.push(Message::user("No tool has executed for this request. Your proposed answer was withheld for one evidence check. Re-read the user's request: if it asks you to invoke an available capability, call it and answer from the actual result. Do not invent or simulate evidence, even for a synthetic test. If the request merely discusses or quotes a tool, forbids tool use, or needs clarification, answer directly without invoking it. This check does not authorize extra actions."));
+                continue;
+            }
             if calls.is_empty() && requirement.pending() {
                 missing_tool_recoveries += 1;
                 tracing::warn!(

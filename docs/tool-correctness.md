@@ -47,6 +47,14 @@ retain the complete catalog. Explicit API tool-choice requirements take priority
 Steering also restores the complete catalog so a redirected request is not limited
 by names in the original message.
 
+For an automatic first response to a request naming an available tool, text is
+held until tool selection completes. If the model proposes an answer without any
+calls, it gets one evidence review before answering. The unverified draft is
+discarded. The review keeps automatic selection and explicitly permits answering
+without tools for discussion, quoted instructions, prohibitions, or clarification.
+It neither infers authorization nor forces a call. This adds a model round for
+such no-call responses; semantic correctness still requires evaluation.
+
 `daedalus_runtime/tool_contracts.py` projects each native dispatcher's actual
 parameter types into operation-specific constraints. The published schema and
 Python invocation validator are the same contract. Disabled operations and their

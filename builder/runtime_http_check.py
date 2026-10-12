@@ -235,6 +235,7 @@ class Peers:
                             "CONTRACT_REUSED",
                             "REQUIRED_MISSING",
                             "REQUIRED_RECOVER",
+                            "OMITTED_TOOL_RECOVER",
                             "MODEL_STEER",
                             "MODEL_PROGRESS",
                             "TOOL_STEER",
@@ -319,7 +320,9 @@ class Peers:
                         )
                     text = "Visible answer after active model generation."
                 elif scenario == "REQUIRED_MISSING" or (
-                    scenario == "REQUIRED_RECOVER" and not has_result and attempt == 1
+                    scenario in ("REQUIRED_RECOVER", "OMITTED_TOOL_RECOVER")
+                    and not has_result
+                    and attempt == 1
                 ):
                     text = "UNSUPPORTED_CLAIM_WITHOUT_TOOL"
                 elif "TEXT_ONLY" in serialized:
@@ -1005,6 +1008,22 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer  # nosec B101
                 assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
                 assert "The real datetime tool completed" in answer, answer  # nosec B101
+                before = len(peers.requests)
+                answer = chat(
+                    "OMITTED_TOOL_RECOVER Call current_datetime_tool with no arguments.",
+                    "omitted-tool-recover",
+                )
+                assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer  # nosec B101
+                assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
+                assert "The real datetime tool completed" in answer, answer  # nosec B101
+                assert len(peers.requests) - before == 3  # nosec B101
+                assert all(
+                    request["tool_choice"] == "auto"
+                    for request in peers.requests[before:]
+                )  # nosec B101 - evidence review never forces permission or execution
+                assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in json.dumps(
+                    peers.requests[before + 1]
+                )  # nosec B101 - do not reinforce an unverified proposed answer
                 answer = chat("BASIC", "tools-disabled", tool_choice="none")
                 assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
                 before = len(peers.requests)
@@ -1019,11 +1038,18 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 }, first_names  # nosec B101
                 assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
                 assert len(peers.requests[before + 1]["tools"]) > len(first_names)  # nosec B101
+                before = len(peers.requests)
                 answer = chat(
                     "TEXT_ONLY Explain current_datetime_tool without calling any tools.",
                     "named-clock-explanation",
                 )
                 assert "Function Start:" not in answer, answer  # nosec B101
+                assert len(peers.requests) - before == 2  # nosec B101
+                assert answer.count("Synthetic text response") == 1  # nosec B101
+                assert all(
+                    request["tool_choice"] == "auto"
+                    for request in peers.requests[before:]
+                )  # nosec B101
                 before = len(peers.requests)
                 peers.calls.clear()
                 answer = chat(
