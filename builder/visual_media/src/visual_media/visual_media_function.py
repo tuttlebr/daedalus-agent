@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from typing import Any, Literal
 
 import httpx
@@ -177,8 +178,22 @@ class VisualMediaInput(BaseModel):
     )
     options: ImageOptions | None = None
     guidance: Literal["auto", "exact"] = "auto"
-    imageRef: str | dict | list[dict] | None = None
-    image_url: str | None = None
+    imageRef: str | dict | list[dict] | None = Field(
+        default=None,
+        description=(
+            "Stored image reference (object or JSON string) for edit/analyze. "
+            "Analyze also accepts the exact /api/generated-image/{id} path or "
+            "image Markdown returned by generate/edit."
+        ),
+    )
+    image_url: str | None = Field(
+        default=None,
+        description=(
+            "Public image URL for analyze, or the /api/generated-image/{id} "
+            "path returned by generate/edit. App image references are loaded "
+            "from storage using the authenticated request identity."
+        ),
+    )
     videoRef: str | dict | None = None
     video_url: str | None = None
     question: str = ""
@@ -203,6 +218,25 @@ def _chat_completions_url(base_url: str) -> str:
     if base.endswith("/chat/completions"):
         return base
     return base + "/chat/completions"
+
+
+def _generated_image_ref(value: str | None) -> dict | None:
+    """Recognize only the local image route emitted by generate/edit.
+
+    This is a storage reference, never a URL to fetch. Keep the ID syntax in
+    sync with the frontend generated-image route; arbitrary relative paths and
+    absolute URLs must still go through the public URL guard.
+    """
+    if not value:
+        return None
+    value = value.strip()
+    markdown = re.fullmatch(r"!\[[^\]\r\n]*\]\(([^\s()]+)\)", value)
+    if markdown:
+        value = markdown.group(1)
+    match = re.fullmatch(r"/api/generated-image/([a-fA-F0-9-]+)", value)
+    if match:
+        return {"imageId": match.group(1), "sessionId": "generated"}
+    return None
 
 
 def _validate_analyze_url(url: str | None) -> str | None:
@@ -567,8 +601,9 @@ async def visual_media_function(
             operation: One of "generate", "edit", or "analyze".
             prompt: Text prompt for generate/edit. Used as question fallback
                 for analyze.
-            imageRef: Uploaded image reference for edit/analyze.
-            image_url: Public image URL for analyze.
+            imageRef: Stored image reference for edit/analyze. Analyze also
+                accepts a returned generated-image path or image Markdown.
+            image_url: Public image URL or returned generated-image path for analyze.
             videoRef: Uploaded video reference for analyze.
             video_url: Public video URL for analyze.
             question: Analysis question. Falls back to prompt.
@@ -579,6 +614,15 @@ async def visual_media_function(
         """
         op = (operation or "").strip().lower()
         try:
+            if op == "analyze":
+                # Normalize before resolving identity: app paths require the
+                # same authenticated ownership checks as explicit imageRef.
+                generated_ref = _generated_image_ref(image_url)
+                if generated_ref:
+                    imageRef, image_url = generated_ref, None
+                elif isinstance(imageRef, str):
+                    imageRef = _generated_image_ref(imageRef) or imageRef
+
             effective_user_id: str | None = None
             needs_identity = (
                 bool(user_id)
