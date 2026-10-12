@@ -226,6 +226,9 @@ class Peers:
                         name
                         for name in (
                             "CONTRACT_REPAIR",
+                            "CONTRACT_MULTI_REPAIR",
+                            "CONTRACT_LATER_REPAIR",
+                            "CONTRACT_REPEAT_AFTER_PROGRESS",
                             "CONTRACT_BAD_BATCH_ALWAYS",
                             "CONTRACT_UNKNOWN",
                             "CONTRACT_DUPLICATE",
@@ -323,6 +326,14 @@ class Peers:
                     text = "Synthetic text response 雪🌲."
                 elif (
                     not has_result
+                    or (
+                        scenario in ("CONTRACT_MULTI_REPAIR", "CONTRACT_LATER_REPAIR")
+                        and result_count < 4
+                    )
+                    or (
+                        scenario == "CONTRACT_REPEAT_AFTER_PROGRESS"
+                        and result_count < 3
+                    )
                     or scenario == "CONTRACT_BAD_BATCH_ALWAYS"
                     or (
                         scenario
@@ -340,7 +351,21 @@ class Peers:
                     )
                 ):
                     names = (
-                        ["fixture_mcp__write_item", "current_datetime_tool"]
+                        [
+                            "current_datetime_tool"
+                            if result_count < 2
+                            else "agent_skills_tool"
+                        ]
+                        if scenario == "CONTRACT_MULTI_REPAIR"
+                        else ["current_datetime_tool"]
+                        if scenario == "CONTRACT_LATER_REPAIR"
+                        else [
+                            "fixture_mcp__next_read"
+                            if result_count == 1
+                            else "current_datetime_tool"
+                        ]
+                        if scenario == "CONTRACT_REPEAT_AFTER_PROGRESS"
+                        else ["fixture_mcp__write_item", "current_datetime_tool"]
                         if scenario == "CONTRACT_BAD_BATCH_ALWAYS"
                         else ["fixture_mcp__next_read", "current_datetime_tool"]
                         if scenario in ("CONTRACT_REPAIR", "CONTRACT_DUPLICATE")
@@ -394,8 +419,19 @@ class Peers:
                         if name == "current_datetime_tool" and (
                             scenario == "CONTRACT_BAD_BATCH_ALWAYS"
                             or (scenario == "CONTRACT_REPAIR" and not has_result)
+                            or (
+                                scenario
+                                in (
+                                    "CONTRACT_MULTI_REPAIR",
+                                    "CONTRACT_LATER_REPAIR",
+                                    "CONTRACT_REPEAT_AFTER_PROGRESS",
+                                )
+                                and result_count in (0, 2)
+                            )
                         ):
                             arguments = '{"extra":"PRIVATE_INVALID_ARGUMENT"}'
+                        if scenario == "CONTRACT_MULTI_REPAIR" and result_count == 2:
+                            arguments = '{"operation":"load_skill"}'
                         item = {
                             "type": "function_call",
                             "id": f"fc_{index}",
@@ -927,6 +963,17 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert peers.calls == (
                         ["next_read"] if scenario == "CONTRACT_REPAIR" else []
                     ), peers.calls  # nosec B101
+                peers.calls.clear()
+                for scenario in ("CONTRACT_MULTI_REPAIR", "CONTRACT_LATER_REPAIR"):
+                    before = len(peers.requests)
+                    answer = chat(scenario, scenario.lower())
+                    assert '"finish_reason":"stop"' in answer, answer  # nosec B101
+                    assert answer.count("Function Complete:") == 2, answer  # nosec B101
+                    assert len(peers.requests) - before == 5  # nosec B101
+                    assert not peers.calls  # nosec B101
+                answer = chat("CONTRACT_REPEAT_AFTER_PROGRESS", "repeated-validation")
+                assert "Tool arguments remained invalid" in answer, answer  # nosec B101
+                assert peers.calls == ["next_read"], peers.calls  # nosec B101
                 peers.calls.clear()
                 answer = chat("CONTRACT_BAD_BATCH_ALWAYS", "invalid-batch")
                 assert "Tool arguments remained invalid" in answer, answer  # nosec B101
@@ -1566,6 +1613,19 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     and event.get("outcome") == "cancelled"
                     for event in events
                 )  # nosec B101 - executable contract check
+                rejected = [
+                    event
+                    for event in events
+                    if event.get("event") == "tool_batch_rejected"
+                ]
+                assert rejected and any(
+                    event["recovery_exhausted"] for event in rejected
+                )  # nosec B101
+                assert all(
+                    set(problem) == {"tool", "constraint"}
+                    for event in rejected
+                    for problem in json.loads(event["problems"])
+                )  # nosec B101 - structural diagnostics contain no call arguments
                 for private in (
                     token,
                     "PRIVATE_PROMPT",
@@ -1574,6 +1634,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     "PRIVATE_MODEL_CREDENTIAL",
                     "PRIVATE_AUTONOMOUS_CREDENTIAL",
                     "PRIVATE_TOOL_ARGUMENT",
+                    "PRIVATE_INVALID_ARGUMENT",
                     "RETAINED_EVIDENCE",
                     "The real datetime tool completed",
                     "First part. ",

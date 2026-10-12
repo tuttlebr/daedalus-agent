@@ -108,6 +108,36 @@ impl Requirement {
 }
 
 #[derive(Default)]
+pub struct Recovery {
+    pending: HashSet<String>,
+}
+
+impl Recovery {
+    /// Each tool gets one correction until a fully valid batch contains it.
+    /// Valid siblings in a rejected batch did not run and cannot reset recovery.
+    /// Unrelated successful calls also cannot hide a repeated invalid proposal.
+    pub fn exhausted(&mut self, calls: &[ToolCall], problems: &[String]) -> bool {
+        let invalid: HashSet<_> = calls
+            .iter()
+            .zip(problems)
+            .filter(|(_, problem)| !problem.is_empty())
+            .map(|(call, _)| call.function.name.to_string())
+            .collect();
+        if invalid.is_empty() {
+            for call in calls {
+                self.pending.remove(call.function.name.as_str());
+            }
+            return false;
+        }
+        let mut exhausted = false;
+        for name in invalid {
+            exhausted |= !self.pending.insert(name);
+        }
+        exhausted
+    }
+}
+
+#[derive(Default)]
 pub struct Catalog {
     entries: HashMap<String, (Value, String, jsonschema::Validator)>,
     call_ids: HashSet<String>,
@@ -209,6 +239,24 @@ mod tests {
         changed.name = "other".into();
         changed.description.clear();
         assert!(catalog.add(&changed).is_err());
+    }
+
+    #[test]
+    fn recovery_is_per_tool_and_only_a_valid_batch_restores_it() {
+        let mut recovery = Recovery::default();
+        let clock = || call("clock-id", "clock", json!({}));
+        let search = || call("search-id", "search", json!({}));
+        let bad = || "Invalid argument".to_string();
+        assert!(!recovery.exhausted(&[clock(), clock()], &[bad(), bad()]));
+        // Distinct errors can be corrected independently, but a held valid
+        // sibling in a rejected batch cannot consume or restore an allowance.
+        assert!(!recovery.exhausted(&[clock(), search()], &[String::new(), bad()]));
+        assert!(!recovery.exhausted(&[search()], &[String::new()]));
+        assert!(recovery.exhausted(&[clock()], &[bad()]));
+        // Correcting that tool permits a later stage to recover independently.
+        assert!(!recovery.exhausted(&[clock()], &[String::new()]));
+        assert!(!recovery.exhausted(&[clock()], &[bad()]));
+        assert!(recovery.exhausted(&[clock()], &[bad()]));
     }
 
     #[test]

@@ -57,8 +57,13 @@ ownership, URL, capability, and service checks still apply.
 
 The Rust loop compiles catalog validators once per run and validates every call
 in a completed model batch before scheduling any call in that batch. An invalid
-batch executes nothing and receives structured correction feedback. A second
-invalid batch ends the run. Missing, duplicate, and reused provider call IDs end
+batch executes nothing and receives structured correction feedback. Each invalid
+tool gets one correction; a second invalid proposal for that tool ends the run.
+A fully valid batch containing that tool restores its correction allowance.
+Successful unrelated calls and valid siblings in a rejected batch cannot reset
+it. Separate tools and later corrected stages retain their own recovery. Rejection
+logs identify only advertised tools and schema constraints, never argument values.
+Missing, duplicate, and reused provider call IDs end
 the run immediately. IDs from rejected batches must not be reused. Interrupted
 or undecodable model responses still never execute proposed calls.
 

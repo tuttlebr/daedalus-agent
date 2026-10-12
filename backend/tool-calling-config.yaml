@@ -998,6 +998,9 @@ functions:
       is advisory: reuse completed reads, honor disabled sources and existing
       authorization, and do not request approval again based on a broad-topic
       hint. It performs no source reads and does not prove availability.
+      All *_json fields require strings containing JSON-encoded arrays or
+      comma-separated text; never supply an array value. For example,
+      selected_sources_json="curated_feeds,perplexity_search,known_url_scrape".
       operation=audit_citations with answer_markdown and optional
       source_urls_json, require_references
       checks [N] citations, validates reference URLs, rejects placeholder or

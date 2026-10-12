@@ -40,6 +40,17 @@
     },
     "pairs": 60,
     "regressions": [],
-    "interpretation": "Default performance screening rejects per-stratum p95 regressions. This change is accepted only for the separately frozen correctness gate; no latency improvement is claimed."
+    "interpretation": "Default performance screening rejects per-stratum p95 regressions. The bounded correctness suite passed, but subsequent daily-briefing failure revoked deployment acceptance; no latency improvement is claimed."
+  },
+  "production_followup": {
+    "revision": 62,
+    "bounded_suite": {
+      "attempts": 60,
+      "passed": 60
+    },
+    "acceptance": "revoked",
+    "reason": "A later invalid tool batch exhausted a global correction allowance despite successful correction earlier in the briefing. The multi-stage workload was missing from the bounded suite.",
+    "rollback_revision": 63,
+    "remediation": "Per-tool recovery restored by a fully valid batch containing that tool, built-image multi-stage regressions, and a complete authenticated briefing canary before redeployment."
   }
 }

@@ -286,6 +286,7 @@ impl Agent {
         let started = Instant::now();
         let mut error_counts = HashMap::<String, usize>::new();
         let mut invalid_batches = 0;
+        let mut validation_recovery = crate::tool_contracts::Recovery::default();
         let mut iterations = 0;
         let mut retry_attempt = 0;
         let mut decode_recoveries = 0;
@@ -586,19 +587,30 @@ impl Agent {
             }
             let batch_revision = self.revision;
             let problems = catalog.check_batch(&calls, &tools)?;
+            let recovery_exhausted = validation_recovery.exhausted(&calls, &problems);
             if problems.iter().any(|problem| !problem.is_empty()) {
                 invalid_batches += 1;
+                let diagnostics: Vec<_> = calls.iter().zip(&problems)
+                    .filter(|(_, problem)| !problem.is_empty())
+                    .map(|(call, problem)| json!({
+                        "tool": if tools.iter().any(|tool| tool.name == call.function.name.as_str()) {
+                            call.function.name.as_str()
+                        } else { "<unavailable>" },
+                        "constraint": problem
+                    })).collect();
                 tracing::warn!(
                     event = "tool_batch_rejected",
                     attempt = invalid_batches,
-                    calls = calls.len()
+                    calls = calls.len(),
+                    recovery_exhausted,
+                    problems = %json!(diagnostics)
                 );
                 for (call, problem) in calls.into_iter().zip(problems) {
                     history.push(Message::tool_result(call.id, call.function.name,
                         json!({"status":"error", "executed":false, "error":"invalid_tool_batch",
                             "detail":if problem.is_empty() {"Another call in this batch was invalid. No calls ran."} else {&problem}}).to_string()));
                 }
-                if invalid_batches >= 2 {
+                if recovery_exhausted {
                     bail!("Tool arguments remained invalid after correction");
                 }
                 history.push(Message::user("No calls in the rejected batch ran. Correct the arguments using the advertised schemas and use fresh call IDs. Read earlier results before making dependent calls."));

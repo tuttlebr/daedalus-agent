@@ -62,6 +62,8 @@ _DISPATCH_DESCRIPTION = (
     "disabled_sources_json, and depth to recommend a source strategy. "
     "operation=audit_citations uses answer_markdown, optional source_urls_json, "
     "and require_references to check numbered Markdown citations. "
+    "All *_json fields are strings containing JSON-encoded arrays or "
+    "comma-separated text; never pass an array value. "
     "Planning does not gather evidence or authorize extra work; citation auditing "
     "does not establish factual support or validate briefing HTML."
 )
@@ -80,14 +82,21 @@ class SourceVerifierInput(BaseModel):
     context: str = Field(default="", description="Optional claim context.")
     research_question: str = Field(default="", description="Required for plan_sources.")
     selected_sources_json: str = Field(
-        default="", description="Source IDs as a JSON array or comma-separated text."
+        default="",
+        description="String containing a JSON-encoded array of source IDs or comma-separated IDs; not an array value.",
     )
-    disabled_sources_json: str = Field(default="", description="Source IDs to exclude.")
+    disabled_sources_json: str = Field(
+        default="",
+        description="String containing a JSON-encoded array of excluded source IDs or comma-separated IDs; not an array value.",
+    )
     depth: Literal["auto", "quick", "deep"] = "auto"
     answer_markdown: str = Field(
         default="", description="Required for audit_citations."
     )
-    source_urls_json: str = Field(default="", description="Observed source URL ledger.")
+    source_urls_json: str = Field(
+        default="",
+        description="String containing a JSON-encoded array of observed source URLs or comma-separated URLs; not an array value.",
+    )
     require_references: bool = True
 
 
@@ -1044,10 +1053,11 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
 
         Args:
             research_question: The user's research request.
-            selected_sources_json: Optional JSON/list/comma source IDs to use.
+            selected_sources_json: String containing a JSON-encoded array or
+                comma-separated source IDs to use; never an array value.
                 When omitted, default-enabled sources are available.
-            disabled_sources_json: Optional JSON/list/comma source IDs to
-                exclude for this request.
+            disabled_sources_json: String containing a JSON-encoded array or
+                comma-separated source IDs to exclude; never an array value.
             depth: auto, quick, or deep.
 
         Returns:
@@ -1186,9 +1196,10 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
 
         Args:
             answer_markdown: Draft answer or report with inline [N] citations.
-            source_urls_json: Optional JSON/list/text of source URLs observed in
-                tool outputs. When provided, every reference URL must match it
-                after lightweight normalization.
+            source_urls_json: String containing a JSON-encoded array or
+                comma-separated source URLs observed in tool outputs; never an
+                array value. Every reference URL must match it after lightweight
+                normalization when provided.
             require_references: If true, fail when a references/sources section
                 is missing or no valid citations remain.
 
