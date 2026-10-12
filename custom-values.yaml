@@ -218,6 +218,8 @@ frontend:
     type: ClusterIP
     port: 3000
   streamWorker:
+    # Five active chats for each of the two configured accounts.
+    replicas: 2
     env:
       fromSecret: 'daedalus-stream-worker-env'
       createSecret: false

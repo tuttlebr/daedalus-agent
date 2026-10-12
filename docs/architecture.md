@@ -10,9 +10,11 @@ and frontend instances. Redis atomically reserves a slot before enqueueing,
 including pending jobs, and the owning worker renews that reservation while
 running. Finalization, OAuth handoff and failed submission release it. Separate
 conversations run independently; each conversation retains one active response.
-The Rust service also enforces five runs per user within its process. The shared
-stream worker has five execution slots by default and can be scaled for shared
-load. The frontend displays the limit only when a sixth submission is rejected.
+The Rust service also enforces five runs per user within its process. Each
+stream worker has five execution slots by default. The production values run
+two workers, giving both configured accounts capacity for five concurrent chats.
+Redis admission applies across workers. The frontend displays the limit only
+when a sixth submission is rejected.
 Activity text, tool categories and accessibility announcements are scoped to
 their conversation, so background runs cannot replace the selected chat's
 indicator or clear it when another run completes.
