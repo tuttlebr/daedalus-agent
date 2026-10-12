@@ -226,6 +226,7 @@ class Peers:
                         name
                         for name in (
                             "MODEL_STEER",
+                            "MODEL_PROGRESS",
                             "TOOL_STEER",
                             "APPROVAL",
                             "SKILL_ROUTE",
@@ -293,6 +294,20 @@ class Peers:
                         peers.model_disconnected, peers.release_model
                     )
                     return
+                elif scenario == "MODEL_PROGRESS":
+                    for sequence in range(2):
+                        if sequence:
+                            time.sleep(16)
+                        self.event(
+                            {
+                                "type": "response.reasoning_text.delta",
+                                "output_index": 0,
+                                "item_id": "rs_progress",
+                                "sequence_number": sequence,
+                                "delta": "PRIVATE_MODEL_REASONING",
+                            }
+                        )
+                    text = "Visible answer after active model generation."
                 elif "TEXT_ONLY" in serialized:
                     text = "Synthetic text response 雪🌲."
                 elif (
@@ -987,6 +1002,13 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert len(peers.requests) == before + attempts  # nosec B101 - executable contract check
                     if scenario == "STREAM_ALWAYS_FAIL":
                         assert "Model stream interrupted after retry limit" in failed  # nosec B101 - executable contract check
+                before = len(peers.requests)
+                active = chat("GATEWAY_MODEL_PROGRESS", "model-progress")
+                assert ": model active\n\n" in active, active  # nosec B101 - hidden model progress keeps the frontend connection alive
+                assert "PRIVATE_MODEL_REASONING" not in active  # nosec B101 - reasoning never crosses the UI boundary
+                assert "Visible answer after active model generation." in active  # nosec B101 - completion still delivers the answer
+                assert '"finish_reason":"stop"' in active  # nosec B101 - executable contract check
+                assert len(peers.requests) == before + 1  # nosec B101 - activity does not trigger another model call
                 peers.calls.clear()
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     for scenario, run, waiting in [
@@ -1352,6 +1374,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     token,
                     "PRIVATE_PROMPT",
                     "PRIVATE_PROVIDER_ERROR",
+                    "PRIVATE_MODEL_REASONING",
                     "PRIVATE_MODEL_CREDENTIAL",
                     "PRIVATE_AUTONOMOUS_CREDENTIAL",
                     "PRIVATE_TOOL_ARGUMENT",

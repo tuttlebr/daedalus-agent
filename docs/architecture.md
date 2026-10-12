@@ -37,6 +37,11 @@ Invalid requests and explicit incomplete responses keep their failure status.
 Repeated malformed responses and exhausted transport retries return explicit
 errors while preserving completed output.
 
+Hidden reasoning and tool-argument events send content-free SSE activity comments
+at most once every 15 seconds. These keep the frontend's stream idle watchdog
+from treating a working model as disconnected. A provider that stops emitting
+events sends no comments, and model and whole-run deadlines still apply.
+
 Each model request includes an opaque `user` value for provider prompt-cache
 affinity. It is a SHA-256 digest scoped to the authenticated user and conversation,
 stable across model rounds, retries, profile promotions, and later conversation

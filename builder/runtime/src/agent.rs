@@ -362,6 +362,7 @@ impl Agent {
             let mut interrupted = false;
             let mut stream_error = None;
             let mut received_item = false;
+            let mut last_activity = Instant::now();
             loop {
                 tokio::select! {
                     biased;
@@ -380,8 +381,15 @@ impl Agent {
                             }
                             received_item = true;
                             if let Item::Event(StreamEvent::Text { text, .. }) = item {
+                                last_activity = Instant::now();
                                 partial.push_str(&text);
                                 self.events.delta(&text).await?;
+                            } else if last_activity.elapsed() >= Duration::from_secs(15) {
+                                // Reasoning and argument fragments are private,
+                                // but their arrival proves the stream is active.
+                                // A silent provider emits no activity comments.
+                                self.events.raw(": model active\n\n".into()).await?;
+                                last_activity = Instant::now();
                             }
                         },
                     },
