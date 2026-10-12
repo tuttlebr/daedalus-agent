@@ -81,6 +81,15 @@ calls intervene. Approval, cancellation, and uncertain-write protections are
 unchanged; schema validation does not authorize an action or prove semantic
 success.
 
+An explicitly read-only MCP tool whose destructive metadata or arguments
+conflict with that policy returns a nonterminal source error without executing.
+It never creates an approval that the direct-execution endpoint would reject.
+Other sources and synthesis can continue. Correct the connector metadata before
+retrying the read; remote hints still cannot authorize a locally unapproved tool.
+The approval UI retains backend rejection details rather than replacing them
+with a generic failure. Exact-action credentials and mutation non-replay remain
+required.
+
 The chat API accepts `tool_choice: "auto"`, `"none"`, `"required"`, or a named
 function in Chat Completions or Responses form. Required/named choices require
 one successful matching tool execution before accepting answer text; after that,

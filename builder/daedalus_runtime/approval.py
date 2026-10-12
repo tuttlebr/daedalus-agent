@@ -541,6 +541,14 @@ def _validate_mcp_approval(
         is_mutating = True
     if not is_mutating:
         return True, "read-only"
+    if policy == _READ_ONLY_APPROVAL_POLICY:
+        # Direct execution rejects read-only tools. A conflicting source must
+        # not issue an impossible approval and terminate the whole workflow.
+        return False, (
+            "MCP read-only policy conflicts with destructive tool metadata or "
+            "arguments. The call was not executed; this source is unavailable "
+            "until its configuration is corrected."
+        )
 
     # A typed adapter may validate and dump the remote MCP input schema
     # before MCPToolClient.acall(). A synthetic approval_token argument is

@@ -462,6 +462,15 @@ impl Approvals {
         if self.policies.allowed(server, tool, args, annotations) {
             return Gate::Allowed(None);
         }
+        if self.policies.read_only(server, tool) {
+            // The direct-execution route deliberately rejects read-only tools.
+            // Do not issue an approval that cannot be executed. Return a source
+            // error so the agent can continue with its other evidence instead.
+            return Gate::Denied(
+                "MCP read-only policy conflicts with destructive tool metadata or arguments. The call was not executed; this source is unavailable until its configuration is corrected.".into(),
+                false,
+            );
+        }
         if user.is_empty() {
             return Gate::Denied("authenticated approval context is required before an execution credential can be created".into(),false);
         }

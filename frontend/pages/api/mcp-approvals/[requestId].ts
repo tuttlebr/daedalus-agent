@@ -193,6 +193,8 @@ async function handlePost(
     const error =
       typeof payload.error === 'string'
         ? payload.error
+        : typeof payload.detail === 'string'
+        ? payload.detail
         : 'The approved operation failed';
     await persistState({
       requestId,

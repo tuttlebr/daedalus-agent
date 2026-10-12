@@ -541,7 +541,26 @@ def test_destructive_hint_tightens_exact_local_read_only_registration():
         server_name="gmail_mcp_server",
     )
     assert ok is False
-    assert "execution credential" in reason
+    assert "read-only policy conflicts" in reason
+    assert "call was not executed" in reason
+
+
+@pytest.mark.parametrize("token", [None, "unused-credential"])
+def test_read_only_conflict_never_creates_an_unexecutable_approval(monkeypatch, token):
+    def unexpected_approval(*args, **kwargs):
+        pytest.fail("A read-only conflict must not persist an approval")
+
+    monkeypatch.setattr(mcp_patches, "_create_mcp_approval_marker", unexpected_approval)
+    ok, reason = mcp_patches._validate_mcp_approval(
+        "getClusterSummary",
+        {},
+        annotations=_Annotations(readOnlyHint=False, destructiveHint=True),
+        server_name="k8s_mcp_server",
+        approval_token=token,
+    )
+    assert not ok
+    assert "read-only policy conflicts" in reason
+    assert "<!--daedalus-mcp-approval:" not in reason
 
 
 def test_destructive_hint_via_dict_annotations():

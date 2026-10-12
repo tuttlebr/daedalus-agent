@@ -124,13 +124,24 @@ class Peers:
                                 {
                                     "name": name,
                                     "description": name,
+                                    "annotations": {
+                                        "readOnlyHint": name
+                                        in ("slow_read", "next_read"),
+                                        "destructiveHint": name
+                                        in ("write_item", "conflicting_read"),
+                                    },
                                     "inputSchema": {
                                         "type": "object",
                                         "properties": {"private": {"type": "string"}},
                                         "additionalProperties": False,
                                     },
                                 }
-                                for name in ("slow_read", "next_read", "write_item")
+                                for name in (
+                                    "slow_read",
+                                    "next_read",
+                                    "write_item",
+                                    "conflicting_read",
+                                )
                             ]
                         }
                     elif method == "tools/call":
@@ -240,6 +251,7 @@ class Peers:
                             "MODEL_PROGRESS",
                             "TOOL_STEER",
                             "APPROVAL",
+                            "POLICY_CONFLICT",
                             "SKILL_ROUTE",
                             "DEFERRED_DISCOVERY",
                             "INCOMPLETE",
@@ -386,6 +398,8 @@ class Peers:
                         if scenario == "SKILL_ROUTE"
                         else ["fixture_mcp__write_item", "fixture_second__slow_read"]
                         if scenario == "APPROVAL"
+                        else ["fixture_mcp__conflicting_read", "current_datetime_tool"]
+                        if scenario == "POLICY_CONFLICT"
                         else ["fixture_mcp__slow_read", "fixture_mcp__next_read"]
                         if scenario == "TOOL_STEER"
                         else ["fixture_mcp__next_read"]
@@ -688,7 +702,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 },
                 "tool_overrides": {
                     name: {"approval_policy": "read_only"}
-                    for name in ("slow_read", "next_read")
+                    for name in ("slow_read", "next_read", "conflicting_read")
                 },
             }
         },
@@ -724,6 +738,10 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
         "discovery_description": "Read fixture evidence after discovering its tools.",
         "initial_tools": ["slow_read"],
         "include": ["slow_read", "next_read"],
+        "tool_overrides": {
+            name: {"approval_policy": "read_only"}
+            for name in ("slow_read", "next_read")
+        },
     }
     config["workflow"]["tools"].append("fixture_deferred")
     container = None
@@ -1106,6 +1124,11 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert [
                         request["model"] for request in peers.requests[before:]
                     ] == ["fixture/autonomy", "fixture/autonomy"]  # nosec B101
+                conflict = chat("POLICY_CONFLICT", "policy-conflict-run")
+                assert "read-only policy conflicts" in conflict  # nosec B101
+                assert "The real datetime tool completed" in conflict  # nosec B101
+                assert "mcp_approval_required" not in conflict  # nosec B101
+                assert "conflicting_read" not in peers.calls  # nosec B101
                 retried = chat("RETRY_MODEL", "retry-run")
                 assert "The real datetime tool completed" in retried  # nosec B101 - executable contract check
                 assert (  # nosec B101 - executable contract check
