@@ -45,9 +45,52 @@ Apply draft, waiver, or trade workflows only where the edition calls for them.
 Creating a recap authorizes research and artifact creation, not lineup changes,
 transactions, or sending the publication to managers.
 
+## Known user teams and league selection
+
+The user has explicitly identified these teams for the current football season
+(2026 when supplied). Treat these mappings as established user context, not as
+connector defaults or a claim inferred from account ownership:
+
+| League              | User's team          | `league_id` | `team_id` | Supplied season |
+| ------------------- | -------------------- | ----------- | --------- | --------------- |
+| Fowling Friends     | Jenkins              | 1891018363  | 3         | 2026            |
+| Driveway Tailgaters | Triskelion Gamesters | 2006081640  | 4         | 2026            |
+
+Select the matching row when either the league or team is named. Do not ask the
+user to identify these teams again. Explicit conversation context and later user
+corrections take precedence. If neither league is selected and the task needs
+one, ask which of these two leagues; if both are requested, process each with
+separate settings, rosters, scores, and recommendations. Connector defaults
+must not override these mappings or silently substitute one league for another.
+
+Use `current_datetime_tool` and ESPN's season/schedule evidence to resolve the
+current football season. Start current-season requests with 2026 while that is
+the active season; do not permanently freeze future requests to 2026 or advance
+seasons solely because January changes the calendar year. Honor an explicit
+historical season and verify the team identity in that season's `get_teams`
+response. Verify current names and IDs through live league/team reads; report a
+mismatch or access failure without inventing a replacement mapping.
+
+Pass IDs and season as JSON **integers**, never quoted strings, team/league names,
+URLs, or placeholder values. For 2026, Fowling Friends league reads use
+`{"league_id":1891018363,"season":2026}` and Jenkins roster reads additionally
+use `"team_id":3`; Driveway Tailgaters reads use
+`{"league_id":2006081640,"season":2026}` and Triskelion Gamesters roster reads
+additionally use `"team_id":4`. `league_id` must be positive; `season` must be an
+integer from 2019 through 2100. Inspect each leaf schema and supply only supported
+fields. Keep these IDs private to connector calls and the working ledger, out of
+public research queries and published artifacts.
+
+For recaps, the mapped team is the user's editorial perspective, not a filter
+on league coverage. Omit `team_id` from league-wide scoreboard reads; cover every
+matchup and manager fairly. Use the mapped `team_id` for user-specific roster
+reads and clearly separate editions when reporting both leagues.
+
 ## 1. Establish the edition
 
-- Reuse an explicitly selected league. Otherwise check `account_status`, then
+- Reuse an explicitly selected league or resolve a named team with the known
+  mappings above. If neither identifies the league, ask which known league is
+  intended. For an unlisted league, check `account_status`, then
   `get_league` and `get_teams`. The configured default is a starting point;
   `account_status` does not enumerate account memberships. If multiple known
   leagues are plausible, ask the user to choose. Do not guess ownership or

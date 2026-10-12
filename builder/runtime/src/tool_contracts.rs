@@ -189,16 +189,23 @@ impl Catalog {
             if !allowed.iter().any(|tool| tool.name == name) {
                 return "Tool is unavailable in this phase. Choose an advertised tool.".into();
             }
-            let Some((_, _, validator)) = self.entries.get(name) else {
+            let Some((schema, _, validator)) = self.entries.get(name) else {
                 return "Tool is unavailable. Choose an advertised tool.".into();
             };
             if !call.function.arguments.is_object() {
                 return "Arguments must be a JSON object.".into();
             }
-            // Schema paths explain the constraint without echoing private
-            // argument values or arbitrary property names from invalid input.
+            // Use only advertised schema content, never validation error Display:
+            // the latter can echo private argument values. Include constraints
+            // so union failures explain the accepted types and bounds.
             let paths: Vec<_> = validator.iter_errors(&call.function.arguments)
-                .take(4).map(|error| error.schema_path().to_string()).collect();
+                .take(4).map(|error| {
+                    let path = error.schema_path().to_string();
+                    match schema.pointer(&path) {
+                        Some(constraint) => format!("{path}: {constraint}"),
+                        None => path,
+                    }
+                }).collect();
             if paths.is_empty() { String::new() } else {
                 format!("Arguments violate the tool schema at {}. Supply only valid operation fields.", paths.join(", "))
             }
@@ -291,6 +298,47 @@ mod tests {
             .unwrap()
             .pending()
         );
+    }
+
+    #[test]
+    fn nullable_integer_feedback_includes_types_and_bounds_without_arguments() {
+        let nullable = ToolDefinition {
+            parameters: json!({"type":"object","properties":{
+                "league_id":{"anyOf":[{"type":"integer","exclusiveMinimum":0},{"type":"null"}]},
+                "season":{"anyOf":[{"type":"integer","minimum":2019,"maximum":2100},{"type":"null"}]}
+            }}),
+            ..tool()
+        };
+        let mut catalog = Catalog::default();
+        catalog.add(&nullable).unwrap();
+        let errors = catalog
+            .check_batch(
+                &[call(
+                    "bad",
+                    "read",
+                    json!({"league_id":"private-league", "season":0}),
+                )],
+                std::slice::from_ref(&nullable),
+            )
+            .unwrap();
+        assert!(errors[0].contains("integer"));
+        assert!(errors[0].contains("null"));
+        assert!(errors[0].contains("exclusiveMinimum"));
+        assert!(errors[0].contains("2019"));
+        assert!(errors[0].contains("2100"));
+        assert!(!errors[0].contains("private-league"));
+        for (id, args) in [
+            ("omit", json!({})),
+            ("null", json!({"league_id":null,"season":null})),
+            ("valid", json!({"league_id":123,"season":2026})),
+        ] {
+            assert!(
+                catalog
+                    .check_batch(&[call(id, "read", args)], std::slice::from_ref(&nullable))
+                    .unwrap()[0]
+                    .is_empty()
+            );
+        }
     }
 
     #[test]

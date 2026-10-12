@@ -29,10 +29,46 @@ availability, or absence claims. Do not infer legal lineups from a truncated
 roster. Use memory only when personalization matters; never write private
 league data or new findings to memory merely because this skill was loaded.
 
+## Known user teams and league selection
+
+The user has explicitly identified these teams for the current football season
+(2026 when supplied). Treat these mappings as established user context, not as
+connector defaults or a claim inferred from account ownership:
+
+| League              | User's team          | `league_id` | `team_id` | Supplied season |
+| ------------------- | -------------------- | ----------- | --------- | --------------- |
+| Fowling Friends     | Jenkins              | 1891018363  | 3         | 2026            |
+| Driveway Tailgaters | Triskelion Gamesters | 2006081640  | 4         | 2026            |
+
+Select the matching row when either the league or team is named. Do not ask the
+user to identify these teams again. Explicit conversation context and later user
+corrections take precedence. If neither league is selected and the task needs
+one, ask which of these two leagues; if both are requested, process each with
+separate settings, rosters, scores, and recommendations. Connector defaults
+must not override these mappings or silently substitute one league for another.
+
+Use `current_datetime_tool` and ESPN's season/schedule evidence to resolve the
+current football season. Start current-season requests with 2026 while that is
+the active season; do not permanently freeze future requests to 2026 or advance
+seasons solely because January changes the calendar year. Honor an explicit
+historical season and verify the team identity in that season's `get_teams`
+response. Verify current names and IDs through live league/team reads; report a
+mismatch or access failure without inventing a replacement mapping.
+
+Pass IDs and season as JSON **integers**, never quoted strings, team/league names,
+URLs, or placeholder values. For 2026, Fowling Friends league reads use
+`{"league_id":1891018363,"season":2026}` and Jenkins roster reads additionally
+use `"team_id":3`; Driveway Tailgaters reads use
+`{"league_id":2006081640,"season":2026}` and Triskelion Gamesters roster reads
+additionally use `"team_id":4`. `league_id` must be positive; `season` must be an
+integer from 2019 through 2100. Inspect each leaf schema and supply only supported
+fields. Keep these IDs private to connector calls and the working ledger, out of
+public research queries and published artifacts.
+
 ## Establish the decision context
 
 1. Identify the task: draft preparation, on-the-clock pick, weekly review, a specific pickup, or a trade. Use the user's league, team, season, week, and preferences from the conversation when already established. Check current time and the league's active season/scoring period; January's calendar year does not necessarily identify the NFL season. Honor explicit historical requests.
-2. If context is missing, call `account_status()` for configured defaults, then `get_league` and `get_teams` for the selected league. Defaults are a starting point, not proof of which team the user manages. Ask only for an ambiguous league/team or another fact that materially changes the next decision. Continue independent research while waiting.
+2. Resolve named leagues/teams using the known user mappings above first. If context is still missing, call `account_status()` for configured defaults, then `get_league` and `get_teams` for the selected league. Defaults are a starting point, not proof of which team the user manages. Ask only for an ambiguous league/team or another fact that materially changes the next decision. Continue independent research while waiting.
 3. Pass explicit `league_id` and `season` to every league-scoped call, and explicit `team_id` to roster reads. A configured default team ID can refer to a different team in another league. `get_teams` does not identify the user's account ownership. For multiple leagues, maintain separate settings, rosters, budgets, draft boards, and recommendations keyed by league and team.
 4. Read the selected roster and relevant league settings. Extract scoring categories and weights, bonuses, eligible starter slots, bench/IR slots, position limits, team count, schedule/playoff weeks, draft format, and acquisition/trade rules. Inspect keeper costs and future-pick rules when applicable. Interpret numeric stat/slot IDs only using a verified mapping; request the relevant ESPN settings text when meaning is missing. Never silently substitute standard scoring or a standard roster.
 5. State the few settings that drive this decision: for example, reception scoring, passing touchdowns, tight-end premiums, two-QB/superflex eligibility, or IDP slots. Detect redraft versus keeper/dynasty; use a provisional redraft horizon only if unresolved and label it. Use expected lineup points as the default comparison; extend to future seasons only when the format and user goal warrant it.
