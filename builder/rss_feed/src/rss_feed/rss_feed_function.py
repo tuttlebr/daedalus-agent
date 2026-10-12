@@ -35,7 +35,14 @@ from nat_helpers.vllm_reranker import (
     build_vllm_rerank_payload,
     parse_vllm_rerank_response,
 )
-from pydantic import BaseModel, Field, HttpUrl, ValidationError, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    ValidationError,
+    create_model,
+)
 
 try:
     import tiktoken
@@ -495,11 +502,13 @@ def _rss_input_schema(feeds: dict[str, str], max_batch_queries: int) -> type[Bas
     scope_description = "Feed scope: " + ", ".join(["auto", *sorted(feeds)])
     query_type = create_model(
         "RssDiscoveryQuery",
+        __config__=ConfigDict(extra="forbid"),
         query=(str, Field(..., min_length=1, max_length=1000)),
         feed_scope=(scope_type, Field(default="auto", description=scope_description)),
     )
     return create_model(
         "RssToolInput",
+        __config__=ConfigDict(extra="forbid"),
         query=(str, Field(default="", max_length=1000)),
         feed_scope=(scope_type, Field(default="auto", description=scope_description)),
         mode=(

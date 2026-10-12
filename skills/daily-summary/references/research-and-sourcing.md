@@ -302,7 +302,7 @@ the same photo. No `visual_media_tool` analysis, generation or editing is needed
 or permitted for routine source-photo inclusion. Never use generated-image
 assets. The final document has no external rendering dependencies.
 
-Recover relevant omitted compacted rows before exact or absence claims. Use
-`content_distiller_tool` for lengthy source prose only when helpful, preserving
+Recover relevant omitted compacted rows before exact or absence claims. Summarize
+lengthy source prose directly when helpful, preserving
 source identifiers and URLs; keep structured evidence and render resources exact. Retry one verified transient read once. For an
 unavailable source, record the limitation and continue with supported desks.

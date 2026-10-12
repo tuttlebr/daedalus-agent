@@ -318,7 +318,7 @@ reporting with an error-only edition.
   or unchanged failures.
 - For `_daedalus_compacted_tool_output`, recover omitted rows through
   `tool_output_retriever_tool` before counts, exhaustive coverage or absence
-  claims. Use `content_distiller_tool` only for long source prose when helpful;
+  claims. Summarize source prose directly when helpful;
   never distill renderer/validator code, structured edition data or exact HTML.
 - When current time or the edition policy cannot be established, explain the
   limitation without inventing a current edition. If HTML validation is unavailable,

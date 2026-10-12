@@ -170,9 +170,6 @@ PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
 }
 PROMPT_GUIDANCE_CODE_SURFACES = (
     Path("builder/autonomous_agent/src/autonomous_agent/prompt.py"),
-    Path(
-        "builder/content_distiller/src/content_distiller/content_distiller_function.py"
-    ),
     Path("builder/source_verifier/src/source_verifier/critic.py"),
     Path("builder/smart_milvus/src/smart_milvus/configs/config.yml"),
 )
@@ -180,17 +177,13 @@ LEGACY_RERANKER_PREFIX = "REA" + "NKER_"
 LEGACY_CLUSTER_LOCAL_PORT = "cluster.local" + ".:"
 MULTI_OPERATION_TYPES = {
     "agent_skills": ["list_skills", "load_skill", "run_skill_script"],
-    "content_distiller": ["distill_content"],
     "source_verifier": [
         "verify_claim",
         "plan_sources",
         "audit_citations",
     ],
     "user_interaction": [
-        "clarify",
         "confirm_action",
-        "confirm_research_plan",
-        "present_options",
         "delete_memory_guarded",
     ],
 }
@@ -893,7 +886,6 @@ def test_responses_api_workflow_exposes_required_leaf_tools():
         "perplexity_search_tool",
         "webscrape_tool",
         "nws_weather_tool",
-        "content_distiller_tool",
         "user_document_tool",
         "gmail_mcp_server",
         "calendar_mcp_server",
@@ -1710,16 +1702,13 @@ def test_backend_security_context_defaults_to_non_root():
 def test_multi_operation_tools_are_filtered_in_production():
     expected = {
         "agent_skills_tool": ["list_skills", "load_skill"],
-        "content_distiller_tool": ["distill_content"],
         "source_verifier_tool": [
             "verify_claim",
             "plan_sources",
             "audit_citations",
         ],
         "user_interaction_tool": [
-            "clarify",
             "confirm_action",
-            "confirm_research_plan",
             "delete_memory_guarded",
         ],
     }
@@ -2164,22 +2153,28 @@ def test_workspace_writes_request_exact_approval_before_mutation():
         config = _config(path)
         interaction_desc = config["functions"]["user_interaction_tool"]["description"]
 
-        assert "approval-gated MCP mutations are captured" in interaction_desc, path
-        assert "must never be serialized through this tool" in interaction_desc, path
+        assert "MCP mutations use their own execution gate" in interaction_desc, path
         assert (
-            "stop the turn without another model or tool call" in interaction_desc
+            "No caller identity or action target may be supplied" in interaction_desc
+        ), path
+        assert (
+            "delete_memory_guarded"
+            in config["functions"]["user_interaction_tool"]["enabled_operations"]
         ), path
 
 
 def test_approval_flow_cannot_loop_back_through_clarification():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
-        interaction_desc = config["functions"]["user_interaction_tool"]["description"]
         prompt = config["workflow"]["instructions"]
 
-        assert "never use it to request or reconfirm approval" in interaction_desc, path
         assert (
-            "stop the turn without another model or tool call" in interaction_desc
+            "clarify"
+            not in config["functions"]["user_interaction_tool"]["enabled_operations"]
+        ), path
+        assert (
+            "delete_memory_guarded"
+            in config["functions"]["user_interaction_tool"]["enabled_operations"]
         ), path
         assert "Never request or reconfirm approval in prose" in prompt, path
 
@@ -2192,8 +2187,8 @@ def test_explicit_memory_writes_do_not_require_confirmation():
 
         assert "explicit user requests" in add_memory_desc, path
         assert "without confirmation" in add_memory_desc, path
-        assert "delete_memory_guarded (requires approval_token)" in interaction_desc
-        assert "pending approval request" in interaction_desc, path
+        assert "requires a single-use approval_token" in interaction_desc
+        assert "pending request" in interaction_desc, path
 
 
 def test_backend_system_prompts_follow_prompt_guidance_shape():

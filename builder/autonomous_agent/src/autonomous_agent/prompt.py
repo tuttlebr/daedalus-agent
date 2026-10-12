@@ -599,10 +599,9 @@ def render_source_policy_message(policy: dict[str, Any]) -> str:
         )
         if policy["requirePlanApproval"]:
             lines.append(
-                "For broad research, call user_interaction_tool with "
-                "operation=confirm_research_plan before any research calls. Return its formatted response "
-                "unchanged and stop. Do not draft, paraphrase, or echo the plan "
-                "yourself."
+                "Before broad research, present the proposed scope, report sections, "
+                "sources, and estimated effort directly in chat and ask the user "
+                "to approve or revise the plan. Stop before any research calls."
             )
     if policy.get("notes"):
         lines.append(f"notes={json.dumps(policy['notes'])}")

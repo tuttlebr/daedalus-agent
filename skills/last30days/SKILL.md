@@ -102,9 +102,8 @@ missing, or time-sensitive facts. Do not describe a prior report as current
 without checking. Research does not authorize posting, recurring jobs, or
 writing memories.
 
-For a requested prose polish, load [humanizer](../humanizer/SKILL.md) with
-`agent_skills_tool(operation=load_skill, skill_name=humanizer)` and preserve
-the evidence and limitations. For a requested downloadable report, load
+For requested prose polish, edit directly and preserve the evidence and
+limitations. For a requested downloadable report, load
 [bubblewrap-agent-workflow](../bubblewrap-agent-workflow/SKILL.md) by its skill
 name and follow its artifact delivery workflow. If called by
 [daily-summary](../daily-summary/SKILL.md), return only relevant dated findings

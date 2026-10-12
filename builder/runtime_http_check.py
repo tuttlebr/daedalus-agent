@@ -225,6 +225,13 @@ class Peers:
                     (
                         name
                         for name in (
+                            "CONTRACT_REPAIR",
+                            "CONTRACT_BAD_BATCH_ALWAYS",
+                            "CONTRACT_UNKNOWN",
+                            "CONTRACT_DUPLICATE",
+                            "CONTRACT_REUSED",
+                            "REQUIRED_MISSING",
+                            "REQUIRED_RECOVER",
                             "MODEL_STEER",
                             "MODEL_PROGRESS",
                             "TOOL_STEER",
@@ -308,10 +315,20 @@ class Peers:
                             }
                         )
                     text = "Visible answer after active model generation."
+                elif scenario == "REQUIRED_MISSING" or (
+                    scenario == "REQUIRED_RECOVER" and not has_result and attempt == 1
+                ):
+                    text = "UNSUPPORTED_CLAIM_WITHOUT_TOOL"
                 elif "TEXT_ONLY" in serialized:
                     text = "Synthetic text response 雪🌲."
                 elif (
                     not has_result
+                    or scenario == "CONTRACT_BAD_BATCH_ALWAYS"
+                    or (
+                        scenario
+                        in ("CONTRACT_REPAIR", "CONTRACT_UNKNOWN", "CONTRACT_REUSED")
+                        and result_count == (2 if scenario == "CONTRACT_REPAIR" else 1)
+                    )
                     or (
                         scenario == "DEFERRED_DISCOVERY"
                         and "RETAINED_EVIDENCE" not in serialized
@@ -323,7 +340,15 @@ class Peers:
                     )
                 ):
                     names = (
-                        [
+                        ["fixture_mcp__write_item", "current_datetime_tool"]
+                        if scenario == "CONTRACT_BAD_BATCH_ALWAYS"
+                        else ["fixture_mcp__next_read", "current_datetime_tool"]
+                        if scenario in ("CONTRACT_REPAIR", "CONTRACT_DUPLICATE")
+                        else ["invented_tool"]
+                        if scenario == "CONTRACT_UNKNOWN" and not has_result
+                        else ["fixture_mcp__next_read"]
+                        if scenario == "CONTRACT_REUSED"
+                        else [
                             "fixture_deferred__next_read"
                             if has_result
                             else "fixture_deferred__connect"
@@ -366,10 +391,19 @@ class Peers:
                             if name.endswith("slow_read")
                             else "{}"
                         )
+                        if name == "current_datetime_tool" and (
+                            scenario == "CONTRACT_BAD_BATCH_ALWAYS"
+                            or (scenario == "CONTRACT_REPAIR" and not has_result)
+                        ):
+                            arguments = '{"extra":"PRIVATE_INVALID_ARGUMENT"}'
                         item = {
                             "type": "function_call",
                             "id": f"fc_{index}",
-                            "call_id": f"call_{index}",
+                            "call_id": "duplicate"
+                            if scenario == "CONTRACT_DUPLICATE"
+                            else "reused"
+                            if scenario == "CONTRACT_REUSED"
+                            else f"call_{len(peers.requests)}_{index}",
                             "name": name,
                             "arguments": "",
                             "status": "in_progress",
@@ -816,7 +850,12 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 )
 
                 def chat(
-                    scenario, run, props=None, conversation=None, extra_headers=None
+                    scenario,
+                    run,
+                    props=None,
+                    conversation=None,
+                    extra_headers=None,
+                    tool_choice=None,
                 ):
                     response = client.post(
                         base + "/v1/chat/completions",
@@ -828,6 +867,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         },
                         json={
                             "stream": True,
+                            "tool_choice": tool_choice,
                             "additional_props": props or {},
                             "messages": [{"role": "user", "content": scenario}],
                         },
@@ -877,9 +917,49 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 peers.calls.clear()
                 invalid_clock = chat("CLOCK_EXTRA", "clock-extra-run")
                 assert "The real datetime tool completed" in invalid_clock  # nosec B101
-                assert "extra_forbidden" in json.dumps(peers.requests[-1])  # nosec B101
+                assert "invalid_tool_batch" in json.dumps(peers.requests[-1])  # nosec B101
                 invalid_clock = chat("CLOCK_NULL", "clock-null-run")
-                assert "Agent execution failed" in invalid_clock  # nosec B101
+                assert "Function Start:" not in invalid_clock  # nosec B101
+                for scenario in ("CONTRACT_REPAIR", "CONTRACT_UNKNOWN"):
+                    peers.calls.clear()
+                    answer = chat(scenario, scenario.lower())
+                    assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
+                    assert peers.calls == (
+                        ["next_read"] if scenario == "CONTRACT_REPAIR" else []
+                    ), peers.calls  # nosec B101
+                peers.calls.clear()
+                answer = chat("CONTRACT_BAD_BATCH_ALWAYS", "invalid-batch")
+                assert "Tool arguments remained invalid" in answer, answer  # nosec B101
+                assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
+                answer = chat("CONTRACT_DUPLICATE", "duplicate-calls")
+                assert "Invalid or repeated tool call ID" in answer, answer  # nosec B101
+                assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
+                answer = chat("CONTRACT_REUSED", "reused-call")
+                assert "Invalid or repeated tool call ID" in answer, answer  # nosec B101
+                assert peers.calls == ["next_read"], peers.calls  # nosec B101
+                peers.calls.clear()
+                for choice in (
+                    "required",
+                    {"type": "function", "function": {"name": "current_datetime_tool"}},
+                ):
+                    answer = chat(
+                        "REQUIRED_MISSING",
+                        "required-missing-" + str(uuid.uuid4()),
+                        tool_choice=choice,
+                    )
+                    assert (
+                        "Required tool did not complete successfully" in answer
+                    ), answer  # nosec B101
+                    assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer  # nosec B101
+                    assert peers.requests[-1]["tool_choice"] != "auto"  # nosec B101
+                answer = chat(
+                    "REQUIRED_RECOVER", "required-recover", tool_choice="required"
+                )
+                assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer  # nosec B101
+                assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
+                assert "The real datetime tool completed" in answer, answer  # nosec B101
+                answer = chat("BASIC", "tools-disabled", tool_choice="none")
+                assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
                 gateway = chat("GATEWAY", "gateway-run")
                 assert gateway.count("The real datetime tool completed") == 1, gateway  # nosec B101 - executable contract check
                 assert "Function Complete: current_datetime_tool" in gateway  # nosec B101 - executable contract check
@@ -1505,7 +1585,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     )
                 print(
                     "HTTP contract passed: streaming, native tools, bounded provider retry, incomplete rejection, user isolation, idempotent steering during model/MCP calls, retained results, skipped queued calls, and cancellation."
-                    " Structured lifecycle logs, failure diagnostics, run correlation, and private-data exclusion passed."
+                    " Batch validation, call IDs, required-tool enforcement, structured lifecycle logs, failure diagnostics, run correlation, and private-data exclusion passed."
                     + (
                         " Exact approvals and non-replay passed against real Redis."
                         if redis_image

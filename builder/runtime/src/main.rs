@@ -25,6 +25,7 @@ mod protocol;
 mod provider;
 mod storage;
 mod telemetry;
+mod tool_contracts;
 mod yaml;
 
 use std::{
@@ -121,6 +122,9 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     };
     if messages.is_empty() || messages.len() > 1000 {
         return error(400, "Invalid message count");
+    }
+    if tool_contracts::Requirement::parse(&body).is_err() {
+        return error(400, "Invalid tool_choice");
     }
     let run_id = headers
         .get("x-daedalus-request-id")
@@ -233,6 +237,9 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
                     "Agent run timed out" => "Agent run timed out",
                     "Agent iteration limit reached" => "Agent iteration limit reached",
                     "Repeated identical tool failure" => "Repeated identical tool failure",
+                    "Invalid or repeated tool call ID" => "Invalid or repeated tool call ID; the rejected batch was not executed",
+                    "Tool arguments remained invalid after correction" => "Tool arguments remained invalid after correction; the rejected batches were not executed",
+                    "Required tool did not complete successfully" => "Required tool did not complete successfully; no answer was accepted",
                     "Model response did not complete" => "Model response did not complete",
                     "Model request timed out" => "Model request timed out",
                     "Client disconnected" => "Client disconnected",

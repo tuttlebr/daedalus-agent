@@ -62,11 +62,6 @@ FACTORIES = {
         "RssFeedFunctionConfig",
         "rss_feed_function",
     ),
-    "content_distiller_tool": (
-        "content_distiller.content_distiller_function",
-        "ContentDistillerConfig",
-        "content_distiller_function",
-    ),
     "tool_output_retriever_tool": (
         "nat_helpers.tool_output_retriever",
         "ToolOutputRetrieverConfig",
@@ -146,24 +141,15 @@ SAMPLES = {
         },
     ],
     "nws_weather_tool": [{"latitude": 42.1667, "longitude": -83.7833, "days": 4}],
-    "content_distiller_tool": [
-        {
-            "content": "Observed public source prose.",
-            "focus": "changes",
-            "max_words": 100,
-        }
-    ],
     "tool_output_retriever_tool": [
         {"reference": "00000000-0000-4000-8000-000000000001", "query": "Ready"}
     ],
     "user_interaction_tool": [
-        {"operation": "clarify", "question": "Which site?"},
         {
             "operation": "confirm_action",
             "action": "Delete the selected memory",
-            "action_type": "delete_memory",
+            "reason": "The user requested memory deletion",
         },
-        {"operation": "confirm_research_plan", "title": "Requested research"},
         {"operation": "delete_memory_guarded", "approval_token": "invalid-fixture"},
     ],
     "perplexity_search_tool": [
@@ -367,11 +353,9 @@ async def check_catalog(config=None, skills_directory=None):
         # The real async context manager catches zero/multiple yields, unlike
         # direct async-generator iteration in unit-test NAT stubs.
         async with asynccontextmanager(factory)(tool_config, builder) as info:
-            schema = info.input_schema.model_json_schema()
+            schema = info.schema(name)["parameters"]
             properties = schema.get("properties", {})
             if name == "briefing_renderer_tool":
-                from nat_helpers.agent_loop_guard import agent_run_scope
-
                 serialized = {"function": info.schema(name)}
                 edition_schema = serialized["function"]["parameters"]["properties"][
                     "edition"
@@ -401,22 +385,26 @@ async def check_catalog(config=None, skills_directory=None):
                     "Maximum timeout: 60 seconds"
                 )
                 submitted = {"format": "daily-daedalus/v1", "editors_note": []}
-                with agent_run_scope():
-                    result = json.loads(await info.ainvoke({"edition": submitted}))
-                require(
-                    result.get("passed") is False
-                    and result.get("failure_type") == "validation"
-                    and result.get("error_count", 0) > 1
-                    and result.get("edition") == submitted,
-                    "Wrapped renderer invocation did not preserve the edition and aggregate errors",
-                )
+                from pydantic import ValidationError
+
+                try:
+                    await info.ainvoke({"edition": submitted})
+                except ValidationError as error:
+                    require(
+                        len(error.errors()) > 1, "Renderer must report schema failures"
+                    )
+                else:
+                    raise AssertionError(
+                        "Malformed edition passed the execution contract"
+                    )
+                sandbox.ainvoke.assert_not_awaited()
             if name != "current_datetime_tool":
                 require(
                     kwargs["description"] in info.description,
                     f"{name} loses routing description",
                 )
             enabled = kwargs.get("enabled_operations")
-            if enabled and name != "content_distiller_tool":
+            if enabled:
                 operation = properties.get("operation", {})
                 require(
                     set(enabled) <= set(operation.get("enum", [])),
@@ -427,6 +415,8 @@ async def check_catalog(config=None, skills_directory=None):
                     set(sample) <= set(properties),
                     f"{name} rejects documented arguments: {set(sample) - set(properties)}",
                 )
+                if name != "briefing_renderer_tool":
+                    info.validator.validate(sample)
                 info.input_schema.model_validate(sample)
             catalog[name] = {"schema": schema, "description": info.description}
             if name == "source_verifier_tool":

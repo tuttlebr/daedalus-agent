@@ -78,7 +78,7 @@ RUN export DEBIAN_FRONTEND=noninteractive && \
 SHELL ["/bin/bash", "-c"]
 WORKDIR /workspace
 
-ARG BUILDER_PACKAGES="autonomous_agent nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed agent_skills perplexity_search content_distiller source_verifier user_interaction llm_sandbox"
+ARG BUILDER_PACKAGES="autonomous_agent nat_helpers visual_media nat_nv_ingest smart_milvus webscrape rss_feed agent_skills perplexity_search source_verifier user_interaction llm_sandbox"
 
 COPY requirements-runtime.in /workspace/requirements-runtime.in
 COPY verify_uv_pip_check.py /workspace/verify_uv_pip_check.py
@@ -96,7 +96,6 @@ COPY webscrape/pyproject.toml /workspace/webscrape/
 COPY rss_feed/pyproject.toml /workspace/rss_feed/
 COPY agent_skills/pyproject.toml /workspace/agent_skills/
 COPY perplexity_search/pyproject.toml /workspace/perplexity_search/
-COPY content_distiller/pyproject.toml /workspace/content_distiller/
 COPY source_verifier/pyproject.toml /workspace/source_verifier/
 COPY user_interaction/pyproject.toml /workspace/user_interaction/
 COPY llm_sandbox/pyproject.toml /workspace/llm_sandbox/
@@ -137,7 +136,6 @@ COPY webscrape /workspace/webscrape
 COPY rss_feed /workspace/rss_feed
 COPY agent_skills /workspace/agent_skills
 COPY perplexity_search /workspace/perplexity_search
-COPY content_distiller /workspace/content_distiller
 COPY source_verifier /workspace/source_verifier
 COPY user_interaction /workspace/user_interaction
 COPY llm_sandbox /workspace/llm_sandbox
@@ -149,6 +147,7 @@ RUN find /workspace -mindepth 3 -maxdepth 3 -type d -name '*.egg-info' \
 
 COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
 COPY daedalus_runtime /workspace/daedalus_runtime
+COPY runtime/resources/tool-policy.json /workspace/daedalus_runtime/tool-policy.json
 COPY entrypoint.py /workspace/entrypoint.py
 COPY runtime_contract_check.py /workspace/runtime_contract_check.py
 COPY tool_catalog_contract_check.py /workspace/tool_catalog_contract_check.py

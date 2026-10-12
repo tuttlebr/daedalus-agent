@@ -136,7 +136,16 @@ pub fn profile(query: &str, autonomy: bool) -> &'static str {
 }
 
 pub fn clock_schema(name: &str, raw: &Value) -> Value {
-    json!({"name": name, "description": raw.get("description").and_then(Value::as_str).unwrap_or(""), "parameters": {"additionalProperties": false, "properties": {}, "title": "nowInput", "type": "object"}})
+    let description = raw
+        .get("description")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            crate::tool_contracts::POLICY["clock_description"]
+                .as_str()
+                .unwrap()
+        });
+    json!({"name": name, "description": description, "parameters": {"additionalProperties": false, "properties": {}, "title": "nowInput", "type": "object"}})
 }
 
 pub fn base_prepare(

@@ -8,12 +8,24 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from contextlib import AsyncExitStack, asynccontextmanager
+import json
+from contextlib import AsyncExitStack, aclosing, asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import wraps
+from itertools import islice
+from pathlib import Path
 from typing import Any, ClassVar, get_type_hints
 
-from pydantic import BaseModel, ConfigDict, create_model
+from jsonschema import Draft202012Validator
+from pydantic import BaseModel, ConfigDict, ValidationError, create_model
+
+
+def tool_policy():
+    path = Path(__file__).with_name("tool-policy.json")
+    if not path.exists():
+        path = Path(__file__).parents[1] / "runtime/resources/tool-policy.json"
+    return json.loads(path.read_text())
 
 
 class ToolConfig(BaseModel):
@@ -38,6 +50,19 @@ class ToolDefinition:
     input_schema: type[BaseModel]
     description: str
     model_parameter: str | None = None
+    parameters: dict | None = None
+    validator: Any = None
+
+    def configure_contract(self, kind, config):
+        from .tool_contracts import parameters
+
+        if not self.description.strip():
+            raise ValueError("Tool requires a nonempty model-facing description")
+        self.parameters = parameters(
+            kind, self.input_schema.model_json_schema(), config
+        )
+        Draft202012Validator.check_schema(self.parameters)
+        self.validator = Draft202012Validator(self.parameters)
 
     @classmethod
     def from_fn(cls, fn, *, input_schema=None, description=None):
@@ -67,6 +92,31 @@ class ToolDefinition:
         )
 
     async def ainvoke(self, arguments: dict | BaseModel):
+        wire = (
+            arguments.model_dump(exclude_unset=True, mode="json")
+            if isinstance(arguments, BaseModel)
+            else arguments
+        )
+        if self.validator is not None:
+            errors = list(islice(self.validator.iter_errors(wire), 8))
+            if errors:
+                # JSON Schema exception messages can include private values.
+                # Return only structural paths and validator keywords.
+                raise ValidationError.from_exception_data(
+                    "Tool arguments",
+                    [
+                        {
+                            "type": "value_error",
+                            "loc": tuple(error.absolute_path),
+                            "ctx": {
+                                "error": ValueError(
+                                    f"Argument contract: {error.validator}"
+                                )
+                            },
+                        }
+                        for error in errors
+                    ],
+                )
         value = self.input_schema.model_validate(arguments)
         # Preserve the validated Python values and nested models. Serializing
         # them here would turn dates, enums, and nested tool inputs into dicts.
@@ -83,7 +133,9 @@ class ToolDefinition:
         return {
             "name": name,
             "description": self.description,
-            "parameters": self.input_schema.model_json_schema(),
+            "parameters": self.parameters
+            if self.parameters is not None
+            else self.input_schema.model_json_schema(),
         }
 
 
@@ -100,8 +152,16 @@ def register_tool(*, config_type):
         ) == (factory.__module__, factory.__qualname__)
         if not name or (previous and not same_factory):
             raise ValueError(f"Duplicate or unnamed tool factory: {name}")
-        _FACTORIES[name] = (config_type, factory)
-        return factory
+
+        @wraps(factory)
+        async def contracted(config, registry):
+            async with aclosing(factory(config, registry)) as definitions:
+                async for tool in definitions:
+                    tool.configure_contract(name, config)
+                    yield tool
+
+        _FACTORIES[name] = (config_type, contracted)
+        return contracted
 
     return decorate
 
@@ -190,7 +250,6 @@ def load_tool_factories():
 
     for module in (
         "agent_skills.agent_skills_function",
-        "content_distiller.content_distiller_function",
         "llm_sandbox.llm_sandbox_function",
         "nat_helpers.briefing_renderer",
         "nat_helpers.daedalus_memory_tools",

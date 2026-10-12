@@ -1,0 +1,52 @@
+{
+  "evaluated_at_utc": "2026-10-12",
+  "workload_id": "a4d32da7d62c252c839abdd5783787823eba620b04b368e59600496ef746cec6",
+  "measurement": "http_request_to_backend_sse_terminal_ms",
+  "conditions": "synthetic-native-clock-skills-and-mcp-reads-concurrency1-60s-v1",
+  "scope": "Actual backend images and Switchyard model route; native clock/skills plus synthetic MCP reads; memory disabled. Production catalog and browser delivery are separate gates.",
+  "acceptance": "All candidate calls, arguments, binding, dependencies, error interpretation, and exact answers must pass. No safety violations or per-case correctness regressions. Latency is reported, not traded for correctness.",
+  "results": {
+    "baseline": {
+      "attempts": 60,
+      "task_passed": 60,
+      "tool_passed": 60,
+      "safety_violations": 0,
+      "p50_ms": 1488.44,
+      "p95_ms": 2339.38,
+      "image": "sha256:60d5edd6e99b664355c176fa1edaeee98d427e17c91a5a3fd81868bb2e9fc966"
+    },
+    "candidate": {
+      "attempts": 60,
+      "task_passed": 60,
+      "tool_passed": 60,
+      "safety_violations": 0,
+      "p50_ms": 1360.96,
+      "p95_ms": 2421.53,
+      "image": "sha256:ac5cf8501250ad6b1e3c12e4c9ac635dd3bc9e4ba7ed74b0edb58ce46abcb14a"
+    },
+    "acceptance": "pass"
+  },
+  "evidence_directory": "/tmp/daedalus-tool-correctness-final-paired-20261012",
+  "interpretation": "All 60 candidate attempts pass exact semantic and tool assertions. The first trial was also 60/60 but slower than its baseline; latency varies between trials and no reliable speedup is claimed.",
+  "validation": {
+    "python_full_suite": {
+      "passed": 1868,
+      "skipped": 5,
+      "coverage_percent": 89.26
+    },
+    "final_python_targeted": 144,
+    "rust_passed": 24,
+    "rust_ignored_external_contracts": 3,
+    "built_image_http": [
+      "rust preparation with disposable Redis",
+      "python preparation with disposable Redis"
+    ],
+    "catalog": {
+      "native_tools": 17,
+      "skills": 14,
+      "skill_resources": 74
+    },
+    "hooks": "passed",
+    "helm": "passed"
+  }
+}

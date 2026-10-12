@@ -167,10 +167,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/54/7a/a507c709be2c96e1b
 wheels = [{ url = "https://files.pythonhosted.org/packages/d5/e1/3714a2f371985215c219c2a70953d38e3eed81ef165aed061d21de0e998b/cobble-0.1.4-py3-none-any.whl", upload-time = 2024-06-01T18:11:07Z, size = 3984, hashes = { sha256 = "36c91b1655e599fd428e2b95fdd5f0da1ca2e9f1abb0bc871dec21a0e78a2b44" } }]
 
 [[packages]]
-name = "content-distiller"
-directory = { path = "content_distiller", editable = true }
-
-[[packages]]
 name = "cryptography"
 version = "50.0.0"
 sdist = { url = "https://files.pythonhosted.org/packages/de/41/6cbdcf9142d00fe82836fbb51e503e58088575cf7a0fe1dbff6695bf0840/cryptography-50.0.0.tar.gz", upload-time = 2026-07-31T14:25:10Z, size = 880201, hashes = { sha256 = "eeac2acb5a20ed25e0ad6d1df9891a520b78b404266b6d11778f25d5d691a6c9" } }

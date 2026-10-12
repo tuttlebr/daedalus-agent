@@ -22,6 +22,6 @@ Do not automate repeated rollback/restart loops.
 
 A canary's metrics must measure user-visible success and error/latency changes
 against equivalent traffic. Missing or low-volume evidence is inconclusive.
-Use `sre-engineer` for measurement/abort criteria and `kubernetes-specialist`
-for the actual cluster resources. Report traffic verification separately from
+Define measurement and abort criteria before starting. Use
+`kubernetes-specialist` for the actual cluster resources. Report traffic verification separately from
 reconciler or pod readiness.

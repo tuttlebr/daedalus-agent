@@ -10,7 +10,8 @@ from daedalus_runtime import mcp
 
 
 @pytest.mark.parametrize("abort", [False, True])
-def test_mcp_transport_is_closed_in_its_owning_task(monkeypatch, abort):
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_mcp_transport_is_closed_in_its_owning_task(monkeypatch, abort, duplicate):
     events = []
     tools = [
         SimpleNamespace(name="read", description="Read", inputSchema={"type": "object"})
@@ -43,13 +44,20 @@ def test_mcp_transport_is_closed_in_its_owning_task(monkeypatch, abort):
             pass
 
         async def list_tools(self, **kwargs):
-            return SimpleNamespace(tools=tools, nextCursor=None)
+            return SimpleNamespace(
+                tools=tools * (2 if duplicate else 1), nextCursor=None
+            )
 
     monkeypatch.setattr(mcp, "streamable_http_client", transport)
     monkeypatch.setattr(mcp, "ClientSession", Session)
 
     async def scenario():
         connection = mcp.Connection("https://fixture.invalid/mcp", {}, 1)
+        if duplicate:
+            with pytest.raises(RuntimeError, match="unavailable"):
+                await connection.session()
+            await connection.close()
+            return
         await connection.session()
         assert list(connection.tools) == ["read"]
         if abort:
@@ -224,3 +232,24 @@ def test_deferred_catalogue_keeps_readiness_and_exposes_exact_allowed_schemas():
             await manager.call("lighting__connect", {"id": "bad"}, "alice", AsyncMock())
 
     asyncio.run(scenario())
+
+
+def test_mcp_requires_guidance_or_explicit_override():
+    config = {"function_groups": {"fixture": {"tool_overrides": {}}}}
+    manager = mcp.MCPManager(config, SimpleNamespace())
+    connection = SimpleNamespace(
+        tools={
+            "read": SimpleNamespace(
+                name="read", description=None, inputSchema={"type": "object"}
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="description"):
+        manager._schemas("fixture", connection)
+    config["function_groups"]["fixture"]["tool_overrides"]["read"] = {
+        "description": "Read the requested record."
+    }
+    assert (
+        manager._schemas("fixture", connection)[0]["description"]
+        == "Read the requested record."
+    )

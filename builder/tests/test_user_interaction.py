@@ -141,10 +141,7 @@ class TestUserInteractionRegistration:
         assert items[0].fn.__name__ == "user_interaction"
         assert schema["required"] == ["operation"]
         assert schema["properties"]["operation"]["enum"] == [
-            "clarify",
             "confirm_action",
-            "confirm_research_plan",
-            "present_options",
             "delete_memory_guarded",
         ]
 
@@ -210,691 +207,105 @@ def test_pending_mcp_approval_rejects_empty_action_or_reason():
             )
 
 
-class TestClarify:
-    def test_basic_question(self):
-        async def _run():
-            items = await _get_tools()
-            clarify_fn = _operation(items, "clarify")
-            result = await clarify_fn(question="Which format do you prefer?")
-            assert "Which format do you prefer?" in result
-            assert "Clarification needed" in result
+@pytest.mark.parametrize(
+    "field",
+    ["user_id", "target", "action_type", "server_name", "tool_name", "arguments_json"],
+)
+def test_memory_tool_rejects_model_supplied_identity_and_mcp_scope(field):
+    from pydantic import ValidationError
 
-        run(_run())
-
-    def test_with_options(self):
-        async def _run():
-            items = await _get_tools()
-            clarify_fn = _operation(items, "clarify")
-            result = await clarify_fn(
-                question="Which source?",
-                options="News | Knowledge base | Both",
-            )
-            assert "1." in result
-            assert "News" in result
-            assert "Knowledge base" in result
-            assert "Both" in result
-            assert "different answer" in result.lower()
-
-        run(_run())
-
-    def test_with_context_and_why(self):
-        async def _run():
-            items = await _get_tools()
-            clarify_fn = _operation(items, "clarify")
-            result = await clarify_fn(
-                question="Which topic?",
-                context="You asked about semiconductors",
-                why_asking="Determines which knowledge base to search",
-            )
-            assert "understand so far" in result.lower()
-            assert "semiconductors" in result
-            assert "knowledge base" in result.lower()
-
-        run(_run())
-
-    def test_options_limited_to_max(self):
-        async def _run():
-            items = await _get_tools({"max_options": 2})
-            clarify_fn = _operation(items, "clarify")
-            result = await clarify_fn(
-                question="Pick one",
-                options="A | B | C | D | E",
-            )
-            # Should only show 2 options
-            assert "1." in result
-            assert "2." in result
-            assert "3." not in result
-
-        run(_run())
-
-    def test_rejects_reconfirming_an_action_the_user_already_approved(self):
-        async def _run():
-            items = await _get_tools()
-            clarify_fn = _operation(items, "clarify")
-            return await clarify_fn(
-                question=(
-                    'The user said "Please proceed" - let me confirm the '
-                    "Google Doc update."
-                ),
-                why_asking=(
-                    'User already confirmed "Please proceed" in their previous message'
-                ),
-                context="User wants the Google Doc updated",
-                options="Yes, proceed",
-            )
-
-        result = run(_run())
-
-        assert result.startswith("Invalid clarification request")
-        assert "Do not ask the user again" in result
-        assert "created automatically by the execution gate" in result
-        assert "Clarification needed" not in result
-
-
-class TestConfirmAction:
-    def test_basic_confirmation(self):
-        async def _run():
-            items = await _get_tools()
-            confirm_fn = _operation(items, "confirm_action")
-            result = await confirm_fn(
-                action="Delete all memories for user john",
-                reason="User explicitly requested memory reset",
-            )
-            assert "Delete all memories" in result
-            assert "Reason" in result
-            assert "Proceed?" in result
-            assert "`Please proceed`" in result
-            assert "`Yes, confirm the doc update`" in result
-
-        run(_run())
-
-    def test_irreversible_warning(self):
-        async def _run():
-            items = await _get_tools()
-            confirm_fn = _operation(items, "confirm_action")
-            result = await confirm_fn(
-                action="Drop the database",
-                reason="Migration requires fresh start",
-                reversible=False,
-            )
-            assert "difficult to reverse" in result.lower()
-
-        run(_run())
-
-    def test_with_risks_and_alternatives(self):
-        async def _run():
-            items = await _get_tools()
-            confirm_fn = _operation(items, "confirm_action")
-            result = await confirm_fn(
-                action="Scale to 10 replicas",
-                reason="Traffic spike expected",
-                risks="Increased cloud costs",
-                alternatives="Scale to 5 | Enable autoscaling",
-            )
-            assert "Risks" in result
-            assert "Increased cloud costs" in result
-            assert "Alternatives" in result
-            assert "autoscaling" in result
-
-        run(_run())
-
-    def test_confirmation_does_not_issue_approval_token(self):
-        async def _run():
-            fake_redis = FakeRedis()
-            items = await _get_tools()
-            confirm_fn = _operation(items, "confirm_action")
-            result = await confirm_fn(
-                action="Delete memories",
-                reason="User requested it",
-                user_id="brandon",
-                action_type="delete_memory",
-                target="brandon",
-            )
-            assert "No executable credential has been created" in result
-            assert "Approval scope" in result
-            assert fake_redis.store == {}
-
-        run(_run())
-
-    def test_mcp_confirmation_records_exact_server_tool_and_arguments(self):
-        async def _run():
-            fake_redis = FakeRedis()
-            import user_interaction.user_interaction_function as mod
-
-            with patch.object(mod, "make_redis_client", return_value=fake_redis):
-                items = await _get_tools()
-                confirm_fn = _operation(items, "confirm_action")
-                result = await confirm_fn(
-                    action="Scale the production API",
-                    reason="User requested it",
-                    user_id="brandon",
-                    action_type="mcp_mutation",
-                    target="production/api",
-                    server_name="k8s_mcp_server",
-                    tool_name="scale_deployment",
-                    arguments_json=json.dumps(
-                        {
-                            "namespace": "production",
-                            "name": "api",
-                            "replicas": 3,
-                            "api_token": "must-not-be-displayed",
-                        }
-                    ),
-                )
-            return result, fake_redis
-
-        result, fake_redis = run(_run())
-
-        assert "created automatically by the execution gate" in result
-        assert "Do not serialize mutation arguments" in result
-        assert "must-not-be-displayed" not in result
-        assert fake_redis.store == {}
-
-    def test_model_shaped_mcp_confirmation_derives_missing_review_text(self):
-        """Production models may omit action/reason from the unified schema."""
-
-        async def _run():
-            fake_redis = FakeRedis()
-            import user_interaction.user_interaction_function as mod
-
-            large_text = "# Booking Summary\n" + ("Cruise detail line\n" * 2200)
-            arguments_json = json.dumps(
+    async def check():
+        tools = await _get_tools()
+        with pytest.raises(ValidationError):
+            await tools[0].ainvoke(
                 {
-                    "documentId": "doc-1",
-                    "requests": [
-                        {
-                            "insertText": {
-                                "location": {"index": 1},
-                                "text": large_text,
-                            }
-                        }
-                    ],
+                    "operation": "confirm_action",
+                    "action": "Delete memory",
+                    "reason": "User requested deletion",
+                    field: "other-user",
                 }
             )
-            with (
-                patch.object(mod, "make_redis_client", return_value=fake_redis),
-                patch.object(
-                    mod,
-                    "_authenticated_user_or_fallback",
-                    return_value="brandon",
-                ),
-            ):
-                items = await _get_tools()
-                confirm_fn = _operation(items, "confirm_action")
-                # This intentionally matches the live model call: all exact MCP
-                # binding fields are present, but action and reason are omitted.
-                result = await confirm_fn(
-                    action_type="mcp_mutation",
-                    target="doc-1",
-                    server_name="docs_mcp_server",
-                    tool_name="update_doc",
-                    arguments_json=arguments_json,
-                )
-            return result, fake_redis, arguments_json
 
-        result, fake_redis, arguments_json = run(_run())
-        assert "created automatically by the execution gate" in result
-        assert len(arguments_json) > 38_000
-        assert fake_redis.store == {}
-
-    def test_malformed_mcp_arguments_return_actionable_error_without_pending_record(
-        self,
-    ):
-        async def _run():
-            fake_redis = FakeRedis()
-            import user_interaction.user_interaction_function as mod
-
-            with (
-                patch.object(mod, "make_redis_client", return_value=fake_redis),
-                patch.object(
-                    mod,
-                    "_authenticated_user_or_fallback",
-                    return_value="brandon",
-                ),
-            ):
-                items = await _get_tools()
-                confirm_fn = _operation(items, "confirm_action")
-                result = await confirm_fn(
-                    action_type="mcp_mutation",
-                    target="doc-1",
-                    server_name="docs_mcp_server",
-                    tool_name="update_doc",
-                    arguments_json='{"documentId":"doc-1","requests":[',
-                )
-            return result, fake_redis
-
-        result, fake_redis = run(_run())
-        assert "created automatically by the execution gate" in result
-        assert fake_redis.store == {}
-
-    def test_interactive_chat_creates_exact_mcp_mutation_intent(self):
-        async def _run():
-            fake_redis = FakeRedis()
-            from types import SimpleNamespace
-
-            import user_interaction.user_interaction_function as mod
-
-            class _ChatContext:
-                @staticmethod
-                def get():
-                    return SimpleNamespace(
-                        metadata=SimpleNamespace(
-                            headers={
-                                "x-user-id": "brandon",
-                                "x-daedalus-execution-scope": "",
-                            }
-                        )
-                    )
-
-            with (
-                patch.object(mod, "make_redis_client", return_value=fake_redis),
-                patch.object(
-                    mod,
-                    "_authenticated_user_or_fallback",
-                    return_value="brandon",
-                ),
-                __import__(
-                    "nat_helpers.identity",
-                    fromlist=["authenticated_request_headers_scope"],
-                ).authenticated_request_headers_scope(
-                    {"x-user-id": "brandon", "x-daedalus-execution-scope": ""}
-                ),
-            ):
-                items = await _get_tools()
-                confirm_fn = _operation(items, "confirm_action")
-                result = await confirm_fn(
-                    action="Scale the production API",
-                    reason="Requested in chat",
-                    user_id="brandon",
-                    action_type="mcp_mutation",
-                    target="production/api",
-                    server_name="k8s_mcp_server",
-                    tool_name="scale_deployment",
-                    arguments_json='{"replicas":3}',
-                )
-            return result, fake_redis
-
-        result, fake_redis = run(_run())
-        assert "created automatically by the execution gate" in result
-        assert fake_redis.store == {}
-
-    def test_autonomy_cannot_create_mcp_mutation_intent(self):
-        async def _run():
-            fake_redis = FakeRedis()
-            from types import SimpleNamespace
-
-            import user_interaction.user_interaction_function as mod
-
-            class _AutonomyContext:
-                @staticmethod
-                def get():
-                    return SimpleNamespace(
-                        metadata=SimpleNamespace(
-                            headers={
-                                "x-user-id": "brandon",
-                                "x-daedalus-execution-scope": "autonomy",
-                            }
-                        )
-                    )
-
-            with (
-                patch.object(mod, "make_redis_client", return_value=fake_redis),
-                patch.object(
-                    mod,
-                    "_authenticated_user_or_fallback",
-                    return_value="brandon",
-                ),
-                __import__(
-                    "nat_helpers.identity",
-                    fromlist=["authenticated_request_headers_scope"],
-                ).authenticated_request_headers_scope(
-                    {"x-user-id": "brandon", "x-daedalus-execution-scope": "autonomy"}
-                ),
-            ):
-                items = await _get_tools()
-                confirm_fn = _operation(items, "confirm_action")
-                result = await confirm_fn(
-                    action="Scale the production API",
-                    reason="Requested by an autonomous run",
-                    action_type="mcp_mutation",
-                    target="production/api",
-                    server_name="k8s_mcp_server",
-                    tool_name="scale_deployment",
-                    arguments_json='{"replicas":3}',
-                )
-            return result, fake_redis
-
-        result, fake_redis = run(_run())
-        assert "created automatically by the execution gate" in result
-        assert fake_redis.store == {}
-
-    def test_memory_update_redirects_to_add_memory_without_confirmation(self):
-        async def _run():
-            items = await _get_tools()
-            confirm_fn = _operation(items, "confirm_action")
-            result = await confirm_fn(
-                action="Store a memory that the user's name is Brandon Tuttle.",
-                reason="The user explicitly asked me to remember it.",
-                action_type="memory_update",
-                target="user profile",
-            )
-
-            assert "No confirmation is required" in result
-            assert "Call add_memory directly" in result
-            assert "Proceed?" not in result
-
-            inferred_result = await confirm_fn(
-                action="Store a memory that the user's name is Brandon Tuttle.",
-                reason="The user explicitly asked me to remember it.",
-            )
-            assert "Call add_memory directly" in inferred_result
-            assert "Proceed?" not in inferred_result
-
-        run(_run())
+    run(check())
 
 
-class TestPresentOptions:
-    def test_basic_options(self):
-        async def _run():
-            items = await _get_tools()
-            present_fn = _operation(items, "present_options")
-            options = json.dumps(
-                [
-                    {
-                        "label": "Detailed",
-                        "description": "Full analysis with sources",
-                        "tradeoffs": "Comprehensive but slow",
-                    },
-                    {
-                        "label": "Headlines",
-                        "description": "Key points only",
-                        "tradeoffs": "Quick but may miss nuance",
-                    },
-                ]
-            )
-            result = await present_fn(
-                decision="Report format",
-                options_json=options,
-            )
-            assert "Detailed" in result
-            assert "Headlines" in result
-            assert "Report format" in result
-            assert "Which option" in result
+def test_confirmation_is_scoped_and_never_mints_credentials(monkeypatch):
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "synthetic-internal")
+    import user_interaction.user_interaction_function as mod
+    from nat_helpers.identity import authenticated_request_headers_scope
 
-        run(_run())
-
-    def test_with_recommendation(self):
-        async def _run():
-            items = await _get_tools()
-            present_fn = _operation(items, "present_options")
-            options = json.dumps(
-                [
-                    {"label": "A", "description": "Option A"},
-                    {"label": "B", "description": "Option B"},
-                ]
-            )
-            result = await present_fn(
-                decision="Choose",
-                options_json=options,
-                recommendation="I recommend A because it's simpler",
-            )
-            assert "recommendation" in result.lower()
-            assert "simpler" in result
-
-        run(_run())
-
-    def test_invalid_json_returns_error(self):
-        async def _run():
-            items = await _get_tools()
-            present_fn = _operation(items, "present_options")
-            result = await present_fn(
-                decision="Choose",
-                options_json="not valid json{{{",
-            )
-            assert "error" in result.lower()
-
-        run(_run())
-
-    def test_options_limited_to_max(self):
-        async def _run():
-            items = await _get_tools({"max_options": 2})
-            present_fn = _operation(items, "present_options")
-            options = json.dumps([{"label": f"Option {i}"} for i in range(5)])
-            result = await present_fn(
-                decision="Choose",
-                options_json=options,
-            )
-            assert "Option 0" in result
-            assert "Option 1" in result
-            assert "Option 2" not in result
-
-        run(_run())
-
-
-class TestConfirmResearchPlan:
-    def test_formats_plan_and_source_strategy(self):
-        async def _run():
-            items = await _get_tools()
-            confirm_fn = _operation(items, "confirm_research_plan")
-            strategy = json.dumps(
+    async def check():
+        tools = await _get_tools()
+        with authenticated_request_headers_scope(
+            {
+                "x-user-id": "synthetic-owner",
+                "x-daedalus-internal-token": "synthetic-internal",
+            }
+        ), patch.object(mod, "make_redis_client") as redis:
+            result = await tools[0].ainvoke(
                 {
-                    "recommended_tool_sequence": [
-                        {
-                            "name": "Curated Recent Feeds",
-                            "tools": ["curated_feed_search_tool"],
-                            "reason": "Current announcements.",
-                        }
-                    ],
-                    "warnings": ["disabled source override applied"],
+                    "operation": "confirm_action",
+                    "action": "Delete memory",
+                    "reason": "User request",
                 }
             )
-            return await confirm_fn(
-                title="Inference Landscape",
-                sections_json=json.dumps(["Scope", "Findings", "Recommendations"]),
-                source_strategy_json=strategy,
-                estimated_tool_calls=7,
-            )
+            assert "target=`synthetic-owner`" in result
+            assert "Delete all of your durable memory" in result
+            assert "No executable credential" in result
+            redis.assert_not_called()
 
-        result = run(_run())
-
-        assert "Deep research plan approval" in result
-        assert "Inference Landscape" in result
-        assert "Curated Recent Feeds" in result
-        assert "Estimated tool calls" in result
-        assert "Reply yes" in result
-
-    def test_records_scoped_pending_approval_without_token(self):
-        async def _run():
-            fake_redis = FakeRedis()
-            items = await _get_tools()
-            confirm_fn = _operation(items, "confirm_research_plan")
-            result = await confirm_fn(
-                title="Deep report",
-                sections_json=json.dumps(["Plan", "Evidence"]),
-                user_id="brandon",
-                target="report:aiq",
-            )
-            return result, fake_redis
-
-        result, fake_redis = run(_run())
-
-        assert "No approval credential has been created" in result
-        assert "deep_research_plan" in result
-        assert fake_redis.store == {}
+    run(check())
 
 
-class TestDeleteMemoryGuarded:
-    def test_rejects_missing_token(self):
-        async def _run():
-            fake_redis = FakeRedis()
-            import user_interaction.user_interaction_function as mod
+def test_guarded_delete_requires_identity_owner_and_single_use_token(monkeypatch):
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "synthetic-internal")
+    from contextlib import asynccontextmanager
 
-            with patch.object(mod, "make_redis_client", return_value=fake_redis):
-                items = await _get_tools()
-                delete_fn = _operation(items, "delete_memory_guarded")
-                result = await delete_fn(user_id="brandon", approval_token="")
-            assert "denied" in result
+    import user_interaction.user_interaction_function as mod
+    from nat_helpers.identity import authenticated_request_headers_scope
+    from user_interaction.approval_tokens import ApprovalRequest, issue_approval_token
 
-        run(_run())
-
-    def test_clears_hindsight_once_without_touching_legacy_redis_keys(self):
-        async def _run():
-            import nat_helpers.hindsight_client as hindsight_client
-            from user_interaction.approval_tokens import (
-                ApprovalRequest,
-                issue_approval_token,
-            )
-
-            calls = []
-
-            class FakeHindsight:
-                async def knowledge_tree(self, **kwargs):
-                    return []
-
-                async def clear_memories(self, **kwargs):
-                    calls.append(kwargs)
-                    return {"deleted": 1}
-
-            fake_redis = FakeRedis()
-            token = issue_approval_token(
-                fake_redis,
-                ApprovalRequest(
-                    user_id="brandon",
-                    action_type="delete_memory",
-                    target="brandon",
-                ),
-            )
-            fake_redis.store["nat:memory:deadbeef"] = json.dumps(
-                {"user_id": "brandon", "memory": "a"}
-            )
-            fake_redis.store["nat:memory:brandon12"] = json.dumps(
-                {"user_id": "someoneelse", "memory": "b"}
-            )
-
-            import user_interaction.user_interaction_function as mod
-
-            with (
-                patch.object(mod, "make_redis_client", return_value=fake_redis),
-                patch.object(
-                    hindsight_client,
-                    "client_from_env",
-                    return_value=FakeHindsight(),
-                ),
-                patch(
-                    "nat_helpers.memory_lifecycle.clear_user_memory_caches",
-                    new_callable=AsyncMock,
-                ) as clear_caches,
-            ):
-                items = await _get_tools()
-                delete_fn = _operation(items, "delete_memory_guarded")
-                result = await delete_fn(user_id="brandon", approval_token=token)
-                second = await delete_fn(user_id="brandon", approval_token=token)
-
-            assert result == "Durable memory cleared."
-            clear_caches.assert_awaited_once_with(calls[0]["user_id"])
-            assert calls == [{"user_id": "brandon"}]
-            assert "nat:memory:deadbeef" in fake_redis.store
-            assert "nat:memory:brandon12" in fake_redis.store
-            assert "denied" in second
-
-        run(_run())
-
-    def test_uses_authenticated_user_over_llm_supplied_user_id(self):
-        async def _run():
-            import nat_helpers.hindsight_client as hindsight_client
-            from user_interaction.approval_tokens import (
-                ApprovalRequest,
-                issue_approval_token,
-            )
-
-            calls = []
-
-            class FakeHindsight:
-                async def knowledge_tree(self, **kwargs):
-                    return []
-
-                async def clear_memories(self, **kwargs):
-                    calls.append(kwargs)
-                    return {"deleted": 1}
-
-            fake_redis = FakeRedis()
-            token = issue_approval_token(
-                fake_redis,
-                ApprovalRequest(
-                    user_id="tuttlebr",
-                    action_type="delete_memory",
-                    target="tuttlebr",
-                ),
-            )
-            fake_redis.store["nat:memory:1234abcd"] = json.dumps(
-                {"user_id": "tuttlebr", "memory": "a"}
-            )
-            fake_redis.store["nat:memory:tuttlebr"] = json.dumps(
-                {"user_id": "Brandon Tuttle", "memory": "b"}
-            )
-
-            import user_interaction.user_interaction_function as mod
-
-            with (
-                patch.object(mod, "make_redis_client", return_value=fake_redis),
-                patch.object(
-                    mod,
-                    "_authenticated_user_or_fallback",
-                    return_value="tuttlebr",
-                ),
-                patch.object(
-                    hindsight_client,
-                    "client_from_env",
-                    return_value=FakeHindsight(),
-                ),
-                patch(
-                    "nat_helpers.memory_lifecycle.clear_user_memory_caches",
-                    new_callable=AsyncMock,
-                ) as clear_caches,
-            ):
-                items = await _get_tools()
-                delete_fn = _operation(items, "delete_memory_guarded")
-                result = await delete_fn(
-                    user_id="Brandon Tuttle",
-                    approval_token=token,
-                )
-
-            assert result == "Durable memory cleared."
-            clear_caches.assert_awaited_once_with(calls[0]["user_id"])
-            assert calls == [{"user_id": "tuttlebr"}]
-            assert "nat:memory:1234abcd" in fake_redis.store
-            assert "nat:memory:tuttlebr" in fake_redis.store
-
-        run(_run())
-
-    def test_confirm_delete_memory_rejects_different_target(self):
-        async def _run():
-            import user_interaction.user_interaction_function as mod
-
-            with patch.object(
-                mod, "_authenticated_user_or_fallback", return_value="alice"
-            ):
-                items = await _get_tools()
-                confirm_fn = _operation(items, "confirm_action")
-                return await confirm_fn(
-                    action="Delete my memory",
-                    reason="requested",
-                    action_type="delete_memory",
-                    target="harmless-label",
-                )
-
-        assert "must match the authenticated user" in run(_run())
-
-
-def test_explicit_empty_enabled_operations_denies_confirmation():
-    async def scenario():
-        items = await _get_tools({"enabled_operations": []})
-        result = await _operation(items, "confirm_action")(
-            action="Delete memory",
-            action_type="delete_memory",
-            target="alice",
-            user_id="alice",
+    async def check():
+        redis = FakeRedis()
+        redis.close = MagicMock()
+        token = issue_approval_token(
+            redis,
+            ApprovalRequest(
+                user_id="owner", action_type="delete_memory", target="owner"
+            ),
         )
-        assert "disabled" in result
+        wrong = issue_approval_token(
+            redis,
+            ApprovalRequest(
+                user_id="other", action_type="delete_memory", target="other"
+            ),
+        )
+        with patch.object(mod, "make_redis_client", return_value=redis), patch(
+            "nat_helpers.hindsight_client.client_from_env", return_value=object()
+        ), patch(
+            "nat_helpers.hindsight_client.memory_mode", return_value="hindsight"
+        ), patch(
+            "nat_helpers.memory_lifecycle.clear_user_memory", new_callable=AsyncMock
+        ) as clear:
+            async with asynccontextmanager(mod.user_interaction_function)(
+                mod.UserInteractionConfig(), MagicMock()
+            ) as tool:
+                args = {"operation": "delete_memory_guarded", "approval_token": token}
+                assert "authenticated user" in await tool.ainvoke(args)
+                with authenticated_request_headers_scope(
+                    {
+                        "x-user-id": "owner",
+                        "x-daedalus-internal-token": "synthetic-internal",
+                    }
+                ):
+                    assert "denied" in await tool.ainvoke(
+                        {**args, "approval_token": wrong}
+                    )
+                    clear.assert_not_awaited()
+                    assert await tool.ainvoke(args) == "Durable memory cleared."
+                    assert "denied" in await tool.ainvoke(args)
+                    assert clear.await_count == 1
+                    assert clear.await_args.args[1] == "owner"
+        redis.close.assert_called_once()
 
-    run(scenario())
+    run(check())

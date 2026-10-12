@@ -1,6 +1,6 @@
 ---
 name: devops-engineer
-description: Build or review CI/CD, container images, release automation, and infrastructure delivery. Use kubernetes-specialist for cluster objects and sre-engineer for reliability analysis.
+description: Build or review CI/CD, container images, release automation, and infrastructure delivery. Use kubernetes-specialist for cluster objects.
 license: MIT
 metadata:
   author: Jeff Allan <author@example.com>
@@ -60,8 +60,7 @@ and `helm/daedalus` as relevant:
    delivery date a commitment.
 
 Use [kubernetes-specialist](../kubernetes-specialist/SKILL.md) for manifests,
-Helm resources, networking, and storage; [sre-engineer](../sre-engineer/SKILL.md)
-for SLOs or incident policy. Preserve completed checks across handoffs.
+Helm resources, networking, and storage. Preserve completed checks across handoffs.
 
 ## Focused references
 

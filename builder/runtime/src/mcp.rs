@@ -291,11 +291,10 @@ impl Mcp {
                     .await
                     .map_err(|_| anyhow!("MCP discovery is unavailable"))?;
                 for tool in page.tools {
-                    if let Some(existing) = tools.iter_mut().find(|t| t.name == tool.name) {
-                        *existing = tool;
-                    } else {
-                        tools.push(tool);
+                    if tools.iter().any(|t| t.name == tool.name) {
+                        bail!("MCP catalogue contains duplicate names");
                     }
+                    tools.push(tool);
                 }
                 cursor = page.next_cursor;
                 if cursor.as_ref().is_none_or(String::is_empty) {
@@ -323,13 +322,13 @@ impl Mcp {
             .insert(key, connection.clone());
         Ok(connection)
     }
-    fn schemas(&self, name: &str, connection: &Connection) -> Vec<Value> {
+    fn schemas(&self, name: &str, connection: &Connection) -> Result<Vec<Value>> {
         let group = &self.config.raw["function_groups"][name];
         let include = names(group.get("include")).unwrap_or_default();
         let exclude = names(group.get("exclude")).unwrap_or_default();
         connection.tools.iter().filter(|tool|if include.is_empty(){!exclude.iter().any(|n|n==tool.name.as_ref())}else{include.iter().any(|n|n==tool.name.as_ref())}).map(|tool|{
-            let description=group["tool_overrides"][tool.name.as_ref()]["description"].as_str().filter(|s|!s.is_empty()).or(tool.description.as_deref()).filter(|s|!s.is_empty()).unwrap_or(tool.name.as_ref());
-            json!({"name":format!("{name}__{}",tool.name),"description":description,"parameters":&*tool.input_schema})
+            let description=group["tool_overrides"][tool.name.as_ref()]["description"].as_str().filter(|s|!s.trim().is_empty()).or(tool.description.as_deref()).filter(|s|!s.trim().is_empty()).ok_or_else(||anyhow!("MCP tool requires a description or configured override"))?;
+            Ok(json!({"name":format!("{name}__{}",tool.name),"description":description.trim(),"parameters":&*tool.input_schema}))
         }).collect()
     }
     fn connect_schema(&self, name: &str, deferred: Option<Vec<String>>) -> Value {
@@ -369,7 +368,7 @@ impl Mcp {
                         bail!("Authorization required");
                     };
                     let connection = self.connection(name, user, headers).await?;
-                    let mut schemas = self.schemas(name, &connection);
+                    let mut schemas = self.schemas(name, &connection)?;
                     if deferred {
                         let exposed: HashSet<_> = initial_tools
                             .iter()
@@ -486,7 +485,7 @@ impl Mcp {
             .to_owned();
         let connection = self.connection(name, user, headers).await?;
         let mut guard = connection.guard();
-        let schemas = self.schemas(name, &connection);
+        let schemas = self.schemas(name, &connection)?;
         if tool_name == "connect" {
             if args.as_object().is_none_or(|a| !a.is_empty()) {
                 bail!(FailureClass::Value);

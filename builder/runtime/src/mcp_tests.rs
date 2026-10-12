@@ -69,6 +69,14 @@ async fn rpc(
         },
         _ => panic!("Unexpected fixture request"),
     };
+    if method == "tools/list" {
+        if mode == "duplicate" {
+            let duplicate = result["tools"][0].clone();
+            result["tools"].as_array_mut().unwrap().push(duplicate);
+        } else if mode == "undocumented" {
+            result["tools"][0]["description"] = json!("");
+        }
+    }
     if method == "tools/call" {
         match mode.as_str() {
             "null_error" => result["isError"] = Value::Null,
@@ -327,4 +335,37 @@ fn mcp_invalid_configuration_is_rejected_before_connecting() {
         .env
         .insert("DAEDALUS_REQUIRED_MCP_GROUPS".into(), "missing".into());
     assert!(crate::mcp::validate(&config).is_err());
+}
+
+#[tokio::test]
+async fn mcp_duplicate_or_undocumented_catalogues_fail_before_execution() {
+    let peer = Arc::new(Peer::default());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+    let router = Router::new()
+        .route("/mcp", post(rpc))
+        .with_state(peer.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    for mode in ["duplicate", "undocumented"] {
+        *peer.mode.lock().unwrap() = mode.into();
+        let manager = Mcp::new(&config(&url)).unwrap();
+        let schemas = manager
+            .catalogue(&["fixture".into()], "synthetic", false)
+            .await;
+        assert_eq!(schemas["fixture"].len(), 1);
+        assert_eq!(schemas["fixture"][0]["name"], "fixture__connect");
+        let (emit, _events) = emit();
+        let outcome = manager
+            .call(
+                "fixture__inspect",
+                &json!({"value":1}),
+                "synthetic",
+                "",
+                &emit,
+            )
+            .await;
+        assert!(outcome.is_error);
+        assert_eq!(count(&peer, "tools/call"), 0);
+    }
+    server.abort();
 }

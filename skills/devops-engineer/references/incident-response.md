@@ -1,7 +1,6 @@
 # Delivery-related incidents
 
-Use `sre-engineer` for incident impact, timeline, communications drafts and
-reliability decisions. Use this reference for failures tied to a build, image,
+Record incident impact, timeline, and reliability decisions. Use this reference for failures tied to a build, image,
 release, migration or deployment configuration.
 
 Compare last known-good and failing revisions/digests, effective configuration,

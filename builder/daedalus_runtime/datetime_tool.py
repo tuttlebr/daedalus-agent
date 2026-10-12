@@ -5,11 +5,12 @@ from zoneinfo import ZoneInfo
 
 from nat_helpers.identity import trusted_request_header_from_context
 
-from .tools import ToolConfig, ToolDefinition, register_tool
+from .tools import ToolConfig, ToolDefinition, register_tool, tool_policy
 
 
 class DateTimeConfig(ToolConfig, name="current_datetime"):
     timezone: str = "UTC"
+    description: str = tool_policy()["clock_description"]
 
 
 @register_tool(config_type=DateTimeConfig)

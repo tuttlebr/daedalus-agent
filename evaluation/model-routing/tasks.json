@@ -278,7 +278,7 @@
   {
     "id": "infra-oom",
     "category": "infrastructure",
-    "skill": "sre-engineer",
+    "skill": "kubernetes-specialist",
     "prompt": "Return the direct termination reason and whether it proves a CPU shortage.",
     "evidence": {
       "container": {
@@ -296,7 +296,7 @@
   {
     "id": "infra-timeout",
     "category": "infrastructure",
-    "skill": "sre-engineer",
+    "skill": "kubernetes-specialist",
     "prompt": "Return whether the caller completed successfully; provider HTTP 200 alone is insufficient.",
     "evidence": {
       "provider": {
@@ -338,7 +338,7 @@
   {
     "id": "synthesis-conflict",
     "category": "synthesis",
-    "skill": "sre-engineer",
+    "skill": "kubernetes-specialist",
     "prompt": "Return the deadline from the newest signed source and its source ID.",
     "evidence": {
       "sources": [
@@ -406,7 +406,7 @@
   {
     "id": "synthesis-window",
     "category": "synthesis",
-    "skill": "sre-engineer",
+    "skill": "kubernetes-specialist",
     "prompt": "Return the proposed picker, preserving the baseline threshold and recent-turn window.",
     "evidence": {
       "baseline": {
@@ -464,7 +464,7 @@
   {
     "id": "reasoning-path",
     "category": "reasoning",
-    "skill": "sre-engineer",
+    "skill": "kubernetes-specialist",
     "prompt": "Return the shortest directed path distance from A to D.",
     "evidence": {
       "edges": [

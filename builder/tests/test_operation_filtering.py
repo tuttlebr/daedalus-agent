@@ -56,23 +56,6 @@ def test_agent_skills_enabled_operations_filter_dispatch(tmp_path):
     )
 
 
-def test_content_distiller_enabled_operations_filters_registration():
-    async def _run():
-        from content_distiller.content_distiller_function import (
-            ContentDistillerConfig,
-            content_distiller_function,
-        )
-
-        return await _names(
-            content_distiller_function(
-                ContentDistillerConfig(enabled_operations=["distill_content"]),
-                MagicMock(),
-            )
-        )
-
-    assert run(_run()) == ["distill_content"]
-
-
 def test_source_verifier_enabled_operations_filters_registration():
     async def _run():
         from source_verifier.source_verifier_function import (
@@ -122,65 +105,6 @@ def test_source_verifier_plan_sources_operation_can_be_exposed_alone():
         )
 
     assert run(_run()) == ["source_verifier"]
-
-
-def test_user_interaction_enabled_operations_filters_registration():
-    async def _run():
-        from user_interaction.user_interaction_function import (
-            UserInteractionConfig,
-            user_interaction_function,
-        )
-
-        items = []
-        async for item in user_interaction_function(
-            UserInteractionConfig(enabled_operations=["clarify", "confirm_action"]),
-            MagicMock(),
-        ):
-            items.append(item)
-        allowed = await items[0].fn(
-            operation="clarify",
-            question="Which format?",
-        )
-        denied = await items[0].fn(operation="present_options")
-        return [item.fn.__name__ for item in items], allowed, denied
-
-    names, allowed, denied = run(_run())
-    assert names == ["user_interaction"]
-    assert "Which format?" in allowed
-    assert denied == (
-        "Error: operation 'present_options' is disabled. "
-        "Enabled operations: clarify, confirm_action."
-    )
-
-
-def test_user_interaction_confirm_research_plan_operation_can_be_exposed_alone():
-    async def _run():
-        from user_interaction.user_interaction_function import (
-            UserInteractionConfig,
-            user_interaction_function,
-        )
-
-        items = []
-        async for item in user_interaction_function(
-            UserInteractionConfig(enabled_operations=["confirm_research_plan"]),
-            MagicMock(),
-        ):
-            items.append(item)
-        allowed = await items[0].fn(
-            operation="confirm_research_plan",
-            title="Plan",
-            sections_json="[]",
-        )
-        denied = await items[0].fn(operation="confirm_action")
-        return [item.fn.__name__ for item in items], allowed, denied
-
-    names, allowed, denied = run(_run())
-    assert names == ["user_interaction"]
-    assert "Deep research plan approval" in allowed
-    assert denied == (
-        "Error: operation 'confirm_action' is disabled. "
-        "Enabled operations: confirm_research_plan."
-    )
 
 
 def test_rss_registration_exposes_its_single_validated_search_tool():

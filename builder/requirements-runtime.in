@@ -36,7 +36,6 @@ urllib3>=2.8,<3
 -e ./rss_feed
 -e ./agent_skills
 -e ./perplexity_search
--e ./content_distiller
 -e ./source_verifier
 -e ./user_interaction
 -e ./llm_sandbox

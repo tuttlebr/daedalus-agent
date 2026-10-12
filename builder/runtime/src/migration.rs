@@ -42,7 +42,19 @@ fn golden_contracts() {
                 input["max_messages"].as_u64().unwrap() as usize,
                 input["max_tokens"].as_u64().unwrap() as usize
             )),
-            "clock_schema" => preparation::clock_schema("current_datetime_tool", &json!({})),
+            "clock_schema" => {
+                let mut schema = preparation::clock_schema("current_datetime_tool", &json!({}));
+                assert!(
+                    schema["description"]
+                        .as_str()
+                        .unwrap()
+                        .contains("server clock")
+                );
+                // Preserve the frozen migration baseline. The empty clock
+                // description was intentionally fixed by the correctness work.
+                schema["description"] = json!("");
+                schema
+            }
             "trusted_headers" => {
                 let mut headers = http::HeaderMap::new();
                 for (name, value) in input.as_object().unwrap() {
@@ -73,6 +85,7 @@ fn golden_contracts() {
                             ))
                             .unwrap(),
                         );
+                        p.tools[0].description.clear(); // Intentional clock guidance fix; baseline stays frozen.
                         json!({"ok":p})
                     }
                     Err(_) => json!({"error":true}),

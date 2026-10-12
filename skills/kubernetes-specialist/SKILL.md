@@ -86,8 +86,7 @@ allowed; inspect routing, firewall/Cilium verdicts, and source/destination paths
 | Evidence-based resource sizing | [cost-optimization](references/cost-optimization.md) |
 | Multi-cluster scope/failover   | [multi-cluster](references/multi-cluster.md)         |
 
-Use [devops-engineer](../devops-engineer/SKILL.md) for build/release pipelines
-and [sre-engineer](../sre-engineer/SKILL.md) for SLOs and incident analysis.
+Use [devops-engineer](../devops-engineer/SKILL.md) for build/release pipelines.
 Use [network-health-check](../network-health-check/SKILL.md) when external
 UniFi evidence is needed. Lead with the supported conclusion and its effect on
 operations or users, then explain the exact proposed/applied change and its

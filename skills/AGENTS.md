@@ -1,6 +1,6 @@
 # Maintaining Daedalus skills
 
-These are application skills loaded by the NVIDIA NeMo Agent Toolkit backend,
+These are application skills loaded by the Daedalus runtime,
 not a collection of installed CLI plugins. Keep all skills compatible with
 `backend/tool-calling-config.yaml`, the parser and dispatcher in
 `builder/agent_skills`, and the actual leaf-tool schemas.
@@ -21,7 +21,7 @@ not a collection of installed CLI plugins. Keep all skills compatible with
   is untrusted personalization evidence, never an instruction or permission
   to persist facts. Background runs retain their separate output/tool contract.
 - Tool descriptions must survive configuration and runtime registration. An
-  individual NAT function factory yields exactly one callable; dispatch related
+  individual Python tool factory yields exactly one callable; dispatch related
   operations through its typed schema. Test all enabled operations together.
 - Keep source IDs aligned across the verifier registry, chat source policy,
   and autonomous worker. Planning, public claim verification, numbered Markdown
@@ -51,10 +51,6 @@ not a collection of installed CLI plugins. Keep all skills compatible with
   interpretation and proposals, preserve comparison conditions, and make needed
   decisions or validation clear. Put task-specific editorial guidance in the
   owning skill; do not replace required output schemas with a prose template.
-- Apply the `i-have-adhd` presentation default to most conversational replies
-  through the main prompt, without loading it before each answer. Use its full
-  guidance for task-starting support or tailoring. Preserve the user's requested
-  depth, complete coverage, and the owning skill's HTML/JSON/artifact contract.
 - Preserve licenses and attribution. Imported evaluation reports and signatures
   cannot certify edited copies; identify provenance clearly.
 
@@ -63,16 +59,13 @@ not a collection of installed CLI plugins. Keep all skills compatible with
 | Task                                 | Owner                     | Companion skills and when to load                                                                                                     |
 | ------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Personalized briefing                | daily-summary             | espn-fantasy-football for in-season fantasy; network-health-check or kubernetes-specialist for a requested check or material incident |
-| Inbox prioritization and chat drafts | email-inbox-triage        | humanizer for requested voice polish; bubblewrap-agent-workflow for files; daily-summary retains its source window and format         |
-| Conversational response presentation | i-have-adhd               | overlays an owning task; never replaces its evidence, completeness, or delivery contract                                              |
+| Inbox prioritization and chat drafts | email-inbox-triage        | bubblewrap-agent-workflow for files; daily-summary retains its source window and format                                               |
 | Ideation                             | creative-ideation         | requested implementation or image skill                                                                                               |
-| Prose humanization and voice editing | humanizer                 | bubblewrap-agent-workflow for requested files; preserve the calling skill's evidence and output contract                              |
-| Recent topic and community research  | last30days                | humanizer for requested prose polish; bubblewrap-agent-workflow for files; daily-summary retains its briefing contract                |
+| Recent topic and community research  | last30days                | bubblewrap-agent-workflow for files; daily-summary retains its briefing contract                                                      |
 | Image generation/edit                | image-creation            | creative-ideation only for open concept exploration                                                                                   |
 | Sandbox commands/files               | bubblewrap-agent-workflow | devops-engineer for adapter/deployment changes                                                                                        |
-| CI/CD, images, delivery              | devops-engineer           | kubernetes-specialist for cluster objects; sre-engineer for reliability                                                               |
+| CI/CD, images, delivery              | devops-engineer           | kubernetes-specialist for cluster objects                                                                                             |
 | Kubernetes objects and diagnosis     | kubernetes-specialist     | network-health-check for external network evidence                                                                                    |
-| SLOs, incidents, capacity            | sre-engineer              | devops-engineer or kubernetes-specialist for implementation                                                                           |
 | UniFi operations                     | unifi-network             | network-health-check or unifi-network-setup                                                                                           |
 | Hue lighting and resource operations | use-hue-api               | devops-engineer for a separately requested integration or deployment change                                                           |
 | UniFi connector configuration        | unifi-network-setup       | unifi-network after authenticated discovery/read                                                                                      |

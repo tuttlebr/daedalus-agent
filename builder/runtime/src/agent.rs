@@ -182,6 +182,8 @@ impl Agent {
     }
 
     pub async fn run(mut self, body: Value) -> Result<()> {
+        let mut requirement = crate::tool_contracts::Requirement::parse(&body)?;
+        let mut missing_tool_recoveries = 0;
         let preparing = Instant::now();
         tracing::info!(event = "prepare_started");
         let preparation = self.preparation.clone();
@@ -257,7 +259,20 @@ impl Agent {
             .with_route(route)
             .client();
         let mut model_name = prepared.model.model_name.clone();
-        let mut history = vec![Message::system(&prepared.instructions)];
+        let mut catalog = crate::tool_contracts::Catalog::default();
+        for tool in &prepared.tools {
+            if !catalog.add(tool)? {
+                bail!("Tool catalog contains duplicate definitions");
+            }
+        }
+        let instructions = format!(
+            "{}\n\n{}",
+            prepared.instructions,
+            crate::tool_contracts::POLICY["instructions"]
+                .as_str()
+                .unwrap()
+        );
+        let mut history = vec![Message::system(instructions)];
         for message in &prepared.messages {
             if message.content.is_empty() {
                 continue;
@@ -269,8 +284,8 @@ impl Agent {
             });
         }
         let started = Instant::now();
-        let mut previous_error = String::new();
-        let mut repeated_errors = 0;
+        let mut error_counts = HashMap::<String, usize>::new();
+        let mut invalid_batches = 0;
         let mut iterations = 0;
         let mut retry_attempt = 0;
         let mut decode_recoveries = 0;
@@ -294,8 +309,12 @@ impl Agent {
                 .tools
                 .iter()
                 .filter(|tool| !final_synthesis || prepared.final_tools.contains(&tool.name))
+                .filter(|tool| requirement.allows(&tool.name))
                 .cloned()
                 .collect();
+            if requirement.pending() && tools.is_empty() {
+                bail!("Required tool did not complete successfully");
+            }
             let mut params = json!({
                 "store": false,
                 "parallel_tool_calls": prepared.parallel_tool_calls,
@@ -310,7 +329,8 @@ impl Agent {
             }
             let tool_count = tools.len();
             let mut request = CompletionRequest::new("unused")
-                .tools(tools)
+                .tools(tools.clone())
+                .tool_choice(requirement.choice())
                 .additional_params(params);
             request.chat_history = history.clone();
             if resume_text {
@@ -383,7 +403,9 @@ impl Agent {
                             if let Item::Event(StreamEvent::Text { text, .. }) = item {
                                 last_activity = Instant::now();
                                 partial.push_str(&text);
-                                self.events.delta(&text).await?;
+                                if !requirement.pending() {
+                                    self.events.delta(&text).await?;
+                                }
                             } else if last_activity.elapsed() >= Duration::from_secs(15) {
                                 // Reasoning and argument fragments are private,
                                 // but their arrival proves the stream is active.
@@ -409,7 +431,7 @@ impl Agent {
                 // Keep text already shown to the user in the next request.
                 drop(stream);
                 retry_attempt = 0;
-                if !partial.is_empty() {
+                if !partial.is_empty() && !requirement.pending() {
                     history.push(Message::assistant(partial));
                 }
                 continue;
@@ -436,7 +458,7 @@ impl Agent {
                     // prior results and visible text, but discard every tool
                     // proposal from this failed attempt, even a finished item.
                     let output_bytes = partial.len();
-                    if !partial.is_empty() {
+                    if !partial.is_empty() && !requirement.pending() {
                         history.push(Message::assistant(partial));
                         resume_text = true;
                     }
@@ -517,10 +539,22 @@ impl Agent {
                 input_tokens = completed.usage.input_tokens,
                 output_tokens = completed.usage.output_tokens
             );
+            self.drain().await?;
+            if calls.is_empty() && requirement.pending() {
+                missing_tool_recoveries += 1;
+                tracing::warn!(
+                    event = "required_tool_missing",
+                    attempt = missing_tool_recoveries
+                );
+                if missing_tool_recoveries >= 2 {
+                    bail!("Required tool did not complete successfully");
+                }
+                history.push(Message::user("The required tool has not succeeded. Your proposed answer was withheld. Invoke the required tool and use its actual result. Do not invent evidence."));
+                continue;
+            }
             if let Some(message) = completed.message() {
                 history.push(message);
             }
-            self.drain().await?;
             if calls.is_empty() {
                 if !self.pending.is_empty() {
                     continue;
@@ -535,6 +569,25 @@ impl Agent {
                 return Ok(());
             }
             let batch_revision = self.revision;
+            let problems = catalog.check_batch(&calls, &tools)?;
+            if problems.iter().any(|problem| !problem.is_empty()) {
+                invalid_batches += 1;
+                tracing::warn!(
+                    event = "tool_batch_rejected",
+                    attempt = invalid_batches,
+                    calls = calls.len()
+                );
+                for (call, problem) in calls.into_iter().zip(problems) {
+                    history.push(Message::tool_result(call.id, call.function.name,
+                        json!({"status":"error", "executed":false, "error":"invalid_tool_batch",
+                            "detail":if problem.is_empty() {"Another call in this batch was invalid. No calls ran."} else {&problem}}).to_string()));
+                }
+                if invalid_batches >= 2 {
+                    bail!("Tool arguments remained invalid after correction");
+                }
+                history.push(Message::user("No calls in the rejected batch ran. Correct the arguments using the advertised schemas and use fresh call IDs. Read earlier results before making dependent calls."));
+                continue;
+            }
             let mut queued = VecDeque::from(calls);
             let mut active = FuturesUnordered::new();
             let mut active_groups = HashMap::<String, usize>::new();
@@ -659,6 +712,9 @@ impl Agent {
                 };
                 let mut outcome = outcome?;
                 let name = call.function.name.to_string();
+                if !outcome.is_error && !outcome.terminal {
+                    requirement.succeeded(&name);
+                }
                 let group = self.execution_group(&name);
                 if preparation.is_some() {
                     // The verifier is read-only and has no run-scoped executor state.
@@ -692,7 +748,7 @@ impl Agent {
                     terminal = Some((outcome.content.clone(), outcome.terminal_reason));
                 }
                 for tool in outcome.tools {
-                    if !prepared.tools.iter().any(|old| old.name == tool.name) {
+                    if catalog.add(&tool)? {
                         prepared.tools.push(tool);
                     }
                 }
@@ -709,7 +765,7 @@ impl Agent {
                     }
                     model_name = alias.clone();
                 }
-                if outcome.is_error {
+                let repeated_errors = if outcome.is_error {
                     let signature = format!(
                         "{name}:{}:{}",
                         call.function.arguments,
@@ -719,20 +775,20 @@ impl Agent {
                             &outcome.error_signature
                         }
                     );
-                    repeated_errors = if signature == previous_error {
-                        repeated_errors + 1
-                    } else {
-                        1
-                    };
-                    previous_error = signature;
+                    let count = error_counts.entry(signature).or_default();
+                    *count += 1;
+                    *count
                 } else {
-                    repeated_errors = 0;
-                    previous_error.clear();
-                }
+                    0
+                };
                 history.push(Message::tool_result(
                     call.id,
                     call.function.name,
-                    outcome.content,
+                    if outcome.is_error {
+                        json!({"status":"error", "content":outcome.content}).to_string()
+                    } else {
+                        outcome.content
+                    },
                 ));
                 if prepared.repeated_error_limit > 0
                     && repeated_errors >= prepared.repeated_error_limit

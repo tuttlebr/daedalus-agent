@@ -51,7 +51,12 @@ class Connection:
                         cursor = None
                         for _ in range(100):
                             page = await session.list_tools(cursor=cursor)
-                            self.tools.update({tool.name: tool for tool in page.tools})
+                            for tool in page.tools:
+                                if tool.name in self.tools:
+                                    raise ValueError(
+                                        "MCP catalogue contains duplicate names"
+                                    )
+                                self.tools[tool.name] = tool
                             cursor = page.nextCursor
                             if not cursor:
                                 break
@@ -178,12 +183,17 @@ class MCPManager:
             ):
                 continue
             override = group.get("tool_overrides", {}).get(tool.name, {})
+            description = (override.get("description") or "").strip() or (
+                tool.description or ""
+            ).strip()
+            if not description:
+                raise ValueError(
+                    "MCP tool requires a description or configured override"
+                )
             schemas.append(
                 {
                     "name": f"{name}__{tool.name}",
-                    "description": override.get("description")
-                    or tool.description
-                    or tool.name,
+                    "description": description,
                     "parameters": tool.inputSchema,
                 }
             )

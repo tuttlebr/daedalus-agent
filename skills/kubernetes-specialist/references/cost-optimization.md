@@ -17,5 +17,5 @@ persistent-storage costs in the decision.
 Spot/preemptible placement, scheduled scale-to-zero, quota/LimitRange and
 priority changes need workload tolerance and recovery proof; do not evict or
 suspend workloads to make an estimate look better. Validate after a scoped
-change using the same service objectives. Use `sre-engineer` for capacity/SLO
+change using the same service objectives. Use observed capacity/SLO
 analysis and the owner skill for implementation.

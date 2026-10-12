@@ -19,4 +19,4 @@ needs an authorized target, impact bound and recovery verification.
 Prepare a scoped source diff; validate with installed schemas and the mesh's
 own tooling when available. Test the real application path after rollout.
 Never pipe an unreviewed installer into a shell or disable mTLS/policy broadly
-as diagnosis. Use `sre-engineer` for experiment criteria.
+as diagnosis. Define success and abort criteria before an experiment.
