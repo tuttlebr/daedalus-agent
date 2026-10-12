@@ -272,19 +272,23 @@ export const AssistantMessage = memo(
                     {isStreaming && (
                       <span className="inline-block w-0.5 h-4 ml-0.5 bg-action animate-blink align-text-bottom" />
                     )}
-                  </div>
 
-                  {/* Gradient fade when collapsed */}
-                  {needsCollapse && !isExpanded && !isStreaming && (
-                    <div className="absolute bottom-12 left-0 right-0 h-8 bg-chat-assistant pointer-events-none rounded-b-2xl" />
-                  )}
+                    {/* Keep the fade inside the clipped content, above the toggle. */}
+                    {needsCollapse && !isExpanded && !isStreaming && (
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute bottom-0 inset-x-0 h-8 bg-gradient-to-t from-chat-assistant to-transparent"
+                      />
+                    )}
+                  </div>
 
                   {/* Expand/collapse toggle */}
                   {needsCollapse && !isStreaming && (
                     <button
                       type="button"
                       onClick={() => setIsExpanded(!isExpanded)}
-                      className="flex items-center gap-1.5 w-full mt-2 pt-2 border-t border-separator/70 text-xs font-medium text-nvidia-green hover:text-nvidia-green-light transition-colors"
+                      aria-expanded={isExpanded}
+                      className="flex items-center gap-1.5 w-full mt-2 pt-2 border-t border-separator/70 text-xs font-medium text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                     >
                       {isExpanded ? (
                         <>

@@ -1,4 +1,5 @@
 import { assertAuthenticatedSession } from '../helpers/auth';
+import { settleTransitions } from '../helpers/design';
 
 import { expect, test, type Page } from '@playwright/test';
 
@@ -617,6 +618,82 @@ test('HTML source images survive saving, reload and fullscreen', async ({
     .toBe(2);
   await dialog.getByRole('button', { name: 'Close fullscreen' }).click();
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
+});
+
+test('response expansion controls remain readable above the content fade in both themes', async ({
+  page,
+}, testInfo) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await sendMessage(page, 'E2E_LONG_MARKDOWN');
+  const checks = [];
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await settleTransitions(page);
+    const expand = page.getByRole('button', {
+      name: 'Show Full Response',
+      exact: true,
+    });
+    await expect(expand).toBeVisible();
+    await expect(expand).toHaveAttribute('aria-expanded', 'false');
+    await expand.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath(`response-expansion-${theme}.png`),
+    });
+    checks.push(
+      await expand.evaluate((button) => {
+        const label = button.querySelector('span')!.getBoundingClientRect();
+        const bubble = button.closest('.chat-bubble-assistant')!;
+        const covered = Array.from(
+          bubble.parentElement!.querySelectorAll('div.pointer-events-none'),
+        ).some((element) => {
+          const rect = element.getBoundingClientRect();
+          return (
+            rect.left < label.right &&
+            rect.right > label.left &&
+            rect.top < label.bottom &&
+            rect.bottom > label.top
+          );
+        });
+        const luminance = (color: string) => {
+          const [r, g, b] = color
+            .match(/[\d.]+/g)!
+            .slice(0, 3)
+            .map(Number)
+            .map((value) => {
+              const channel = value / 255;
+              return channel <= 0.04045
+                ? channel / 12.92
+                : ((channel + 0.055) / 1.055) ** 2.4;
+            });
+          return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        };
+        const foreground = luminance(getComputedStyle(button).color);
+        const background = luminance(getComputedStyle(bubble).backgroundColor);
+        return {
+          covered,
+          contrast:
+            (Math.max(foreground, background) + 0.05) /
+            (Math.min(foreground, background) + 0.05),
+        };
+      }),
+    );
+    await expand.click();
+    const collapse = page.getByRole('button', {
+      name: 'Show Less',
+      exact: true,
+    });
+    await expect(collapse).toBeVisible();
+    await expect(collapse).toHaveAttribute('aria-expanded', 'true');
+    await collapse.focus();
+    await page.keyboard.press('Enter');
+    await expect(expand).toBeVisible();
+  }
+  for (const check of checks) {
+    expect(check.covered).toBe(false);
+    expect(check.contrast).toBeGreaterThanOrEqual(4.5);
+  }
 });
 
 test('fullscreen preserves HTML preview and Markdown formatting', async ({
