@@ -208,7 +208,32 @@ describe('terminal job state', () => {
       createdAt: 1,
       updatedAt: 3,
       finalizedAt: 3,
+      generationDurationMs: 2,
     });
+  });
+
+  it('keeps the winning duration unchanged when a late finalizer retries', async () => {
+    const key = 'daedalus:async-job-status:timed-job';
+    mocks.store.set(key, {
+      jobId: 'timed-job',
+      status: 'streaming',
+      createdAt: 1000,
+      updatedAt: 2000,
+    });
+    await claimTerminalJobStatus(
+      'timed-job',
+      { status: 'completed', finalizedAt: 6500 },
+      journal('timed-job', 'completed', 6500),
+    );
+    expect(mocks.store.get(key).generationDurationMs).toBe(5500);
+    await expect(
+      claimTerminalJobStatus(
+        'timed-job',
+        { status: 'completed', finalizedAt: 9000 },
+        journal('timed-job', 'completed', 9000),
+      ),
+    ).resolves.toBe(false);
+    expect(mocks.store.get(key).generationDurationMs).toBe(5500);
   });
 
   it('does not create terminal state for a missing job', async () => {

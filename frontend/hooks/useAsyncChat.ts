@@ -67,6 +67,7 @@ interface AsyncJobStatus {
   updatedAt: number;
   conversationId?: string;
   finalizedAt?: number; // Timestamp when all backend operations are complete
+  generationDurationMs?: number;
   turnId?: string;
   assistantMessageId?: string;
 }
@@ -95,6 +96,7 @@ interface ChatCompleteEvent {
   turnId?: string;
   assistantMessageId?: string;
   fullResponse: string;
+  generationDurationMs?: number;
   intermediateSteps?: any[];
   error?: string;
 }
@@ -142,6 +144,7 @@ interface CompletionMeta {
   turnId?: string;
   assistantMessageId?: string;
   jobId?: string;
+  generationDurationMs?: number;
 }
 
 interface UseAsyncChatOptions {
@@ -511,6 +514,7 @@ export const useAsyncChat = (
             turnId: event.turnId,
             assistantMessageId: event.assistantMessageId,
             jobId: event.jobId,
+            generationDurationMs: event.generationDurationMs,
           },
         );
       }
@@ -599,6 +603,7 @@ export const useAsyncChat = (
               turnId: status.turnId,
               assistantMessageId: status.assistantMessageId,
               jobId,
+              generationDurationMs: status.generationDurationMs,
             },
           );
         }
@@ -978,6 +983,7 @@ export const useAsyncChat = (
                 turnId: status.turnId,
                 assistantMessageId: status.assistantMessageId,
                 jobId,
+                generationDurationMs: status.generationDurationMs,
               },
             );
           }
@@ -1444,6 +1450,7 @@ export const useAsyncChat = (
                     assistantMessageId:
                       status.assistantMessageId || job.assistantMessageId,
                     jobId: job.jobId,
+                    generationDurationMs: status.generationDurationMs,
                   },
                 );
               }
@@ -1507,6 +1514,8 @@ export const useAsyncChat = (
                     assistantMessageId:
                       correlatedAssistant.id || job.assistantMessageId,
                     jobId: job.jobId,
+                    generationDurationMs:
+                      correlatedAssistant.generationDurationMs,
                   },
                 );
                 logger.info(

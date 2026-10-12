@@ -72,6 +72,7 @@ export interface AsyncJobStatus {
   updatedAt: number;
   conversationId?: string;
   finalizedAt?: number;
+  generationDurationMs?: number;
   turnId?: string;
   assistantMessageId?: string;
 }

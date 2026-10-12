@@ -3382,13 +3382,18 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(assistant.role).toBe('assistant');
     expect(assistant.content).toBe('Answer.');
     expect(assistant.metadata.jobId).toBe(jobId);
+    const terminalStatus = store.get(statusKey);
+    const duration = terminalStatus.finalizedAt - terminalStatus.createdAt;
+    expect(assistant.generationDurationMs).toBe(duration);
 
     const selected = store.get('daedalus:user:testuser:selectedConversation');
     expect(selected.messages).toHaveLength(2);
+    expect(selected.messages[1].generationDurationMs).toBe(duration);
 
     const complete = eventsOfType('chat_complete');
     expect(complete).toHaveLength(1);
     expect(complete[0].fullResponse).toBe('Answer.');
+    expect(complete[0].generationDurationMs).toBe(duration);
 
     expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
     expect(store.get(statusKey)?.status).toBe('completed');
@@ -3453,6 +3458,9 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect.any(Number),
     );
     expect(completedJournal.state).toBe('completed');
+    expect(completedJournal.terminalStatus.generationDurationMs).toBe(
+      pendingJournal.terminalStatus.generationDurationMs,
+    );
   });
 
   it('deduplicates repeated success finalizers before conversation and event side effects', async () => {

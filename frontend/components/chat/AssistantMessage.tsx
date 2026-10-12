@@ -48,6 +48,15 @@ const IntermediateSteps = lazy(() =>
 const COLLAPSED_MAX_HEIGHT = 300; // px
 const COLLAPSE_RENDERED_HEIGHT = COLLAPSED_MAX_HEIGHT + 50;
 
+function formatGenerationDuration(milliseconds: number): string {
+  if (milliseconds < 1000) return '<1s';
+  const seconds = Math.floor(milliseconds / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${seconds % 60}s`;
+}
+
 interface AssistantMessageProps {
   message: Message;
   messageIndex: number;
@@ -83,6 +92,15 @@ export const AssistantMessage = memo(
     const errorMessages = message.errorMessages;
     const hasError = Boolean(errorMessages?.message);
     const isRecoverable = errorMessages?.recoverable === true;
+    const durationMs = message.generationDurationMs;
+    const showDuration =
+      !isStreaming &&
+      !hasError &&
+      !mcpApproval &&
+      Boolean(content) &&
+      typeof durationMs === 'number' &&
+      Number.isFinite(durationMs) &&
+      durationMs >= 0;
     // classifyResponseContent returns a fresh object literal, so without this
     // ResponseDocument's shallow memo never bails and re-renders per token.
     const responseDocument = useMemo(
@@ -328,6 +346,14 @@ export const AssistantMessage = memo(
                 )}
               </div>
             )
+          )}
+          {showDuration && (
+            <small
+              className="mt-1 px-1 text-xs text-secondary tabular-nums"
+              title="Total elapsed time, including agent and tool work"
+            >
+              Generated in {formatGenerationDuration(durationMs!)}
+            </small>
           )}
         </div>
 

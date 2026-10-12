@@ -40,6 +40,27 @@ test('real login retains its HTTPS session and service-worker control', async ({
     .toBe(`${new URL(page.url()).origin}/sw.js`);
 });
 
+test('completed responses show a duration that survives reload', async ({
+  page,
+}) => {
+  await login(page);
+  await sendMessage(page, 'Hello, show a response duration');
+  const duration = page.locator('small', { hasText: 'Generated in' }).last();
+  await expect(duration).toBeVisible();
+  await expect(duration).toHaveAttribute(
+    'title',
+    'Total elapsed time, including agent and tool work',
+  );
+  const label = await duration.textContent();
+  const box = await duration.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.reload();
+  await expect(duration).toBeVisible();
+  await expect(duration).toHaveText(label!);
+});
+
 test('mobile Create controls stay separated and the keyboard collapses navigation', async ({
   page,
 }, testInfo) => {

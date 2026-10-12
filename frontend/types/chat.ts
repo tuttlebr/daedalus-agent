@@ -19,6 +19,8 @@ export interface Message {
   id?: string;
   role: Role;
   content: string;
+  /** Total elapsed job time, including agent and tool work, in milliseconds. */
+  generationDurationMs?: number;
   intermediateSteps?: IntermediateStep[];
   humanInteractionMessages?: any;
   errorMessages?: MessageError;

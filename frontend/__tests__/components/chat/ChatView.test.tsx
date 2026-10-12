@@ -167,10 +167,19 @@ describe('ChatView OAuth banner', () => {
         [],
         undefined,
         'conv-1',
-        { assistantMessageId: 'assistant-1' },
+        { assistantMessageId: 'assistant-1', generationDurationMs: 125000 },
       ),
     );
     expect(categories()).toBe('LLM');
+    const conversations = useConversationStore.getState().conversations;
+    expect(
+      conversations.find((c) => c.id === 'conv-1')?.messages[1]
+        .generationDurationMs,
+    ).toBe(125000);
+    expect(
+      conversations.find((c) => c.id === 'conv-2')?.messages[1]
+        .generationDurationMs,
+    ).toBeUndefined();
     expect(
       useConversationStore.getState().streamingConversationIds.has('conv-2'),
     ).toBe(true);

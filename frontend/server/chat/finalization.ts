@@ -80,6 +80,9 @@ function conversationFromJournal(
     id: finalization.assistantMessageId,
     role: 'assistant',
     content: finalization.content,
+    ...(journal.terminalStatus?.generationDurationMs !== undefined
+      ? { generationDurationMs: journal.terminalStatus.generationDurationMs }
+      : {}),
     intermediateSteps: finalization.intermediateSteps,
     metadata: {
       ...(finalization.turnId ? { turnId: finalization.turnId } : {}),
@@ -205,6 +208,7 @@ function buildFinalizationEvents(
         turnId: journal.conversation.turnId,
         assistantMessageId: journal.conversation.assistantMessageId,
         fullResponse: journal.conversation.content,
+        generationDurationMs: journal.terminalStatus.generationDurationMs,
         intermediateSteps: journal.conversation.intermediateSteps,
         ...(journal.conversation.error
           ? { error: journal.conversation.error }

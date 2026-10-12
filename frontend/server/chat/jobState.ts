@@ -347,7 +347,21 @@ export async function claimTerminalJobStatus(
       statusKey,
     );
     if (typeof snapshot !== 'string') return false;
-    const terminalStatus = { ...JSON.parse(snapshot), ...updates };
+    const terminalStatus: AsyncJobStatus = {
+      ...JSON.parse(snapshot),
+      ...updates,
+    };
+    // Freeze elapsed time with the winning terminal snapshot, before optional
+    // memory retention and cleanup. This includes queue, agent, and tool time;
+    // it is not a measure of token decoding throughput.
+    const durationMs = updates.finalizedAt - terminalStatus.createdAt;
+    if (
+      updates.status === 'completed' &&
+      Number.isFinite(durationMs) &&
+      durationMs >= 0
+    ) {
+      terminalStatus.generationDurationMs = durationMs;
+    }
     const result = await client.eval(
       CLAIM_TERMINAL_JOB_STATUS_LUA,
       2,

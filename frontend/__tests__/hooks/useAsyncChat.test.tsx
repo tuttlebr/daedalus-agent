@@ -456,6 +456,7 @@ describe('useAsyncChat streaming callbacks', () => {
         turnId: 'turn-1',
         assistantMessageId: 'assistant-1',
         fullResponse: 'Hello',
+        generationDurationMs: 5500,
         intermediateSteps: [step],
       });
     });
@@ -469,6 +470,7 @@ describe('useAsyncChat streaming callbacks', () => {
         turnId: 'turn-1',
         assistantMessageId: 'assistant-1',
         jobId: 'job-1',
+        generationDurationMs: 5500,
       }),
     );
     expect(mocks.manager.unsubscribeFromJob).toHaveBeenCalledWith('job-1');

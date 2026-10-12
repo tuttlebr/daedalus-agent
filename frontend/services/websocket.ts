@@ -86,6 +86,7 @@ export type ServerMessage =
       turnId?: string;
       assistantMessageId?: string;
       fullResponse: string;
+      generationDurationMs?: number;
       intermediateSteps?: any[];
     }
   | { type: 'job_status'; data: any }

@@ -880,6 +880,9 @@ export const ChatView = memo(() => {
                         }
                       : {}),
                     intermediateSteps: status.intermediateSteps,
+                    ...(status.generationDurationMs !== undefined
+                      ? { generationDurationMs: status.generationDurationMs }
+                      : {}),
                     ...(status.status === 'error'
                       ? {
                           errorMessages: buildMessageError(
@@ -954,7 +957,11 @@ export const ChatView = memo(() => {
           intermediateSteps?: any[],
           _finalizedAt?: number,
           conversationId?: string,
-          meta?: { assistantMessageId?: string; jobId?: string },
+          meta?: {
+            assistantMessageId?: string;
+            jobId?: string;
+            generationDurationMs?: number;
+          },
         ) => {
           const convId = conversationId || selectedIdRef.current;
           if (!convId) return;
@@ -970,6 +977,9 @@ export const ChatView = memo(() => {
               {
                 content: fullResponse,
                 intermediateSteps,
+                ...(meta?.generationDurationMs !== undefined
+                  ? { generationDurationMs: meta.generationDurationMs }
+                  : {}),
               },
               meta?.assistantMessageId,
             );
