@@ -46,7 +46,7 @@ test('candidate image streams a native tool result through the real worker and s
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(stop).toBeVisible();
   await page
-    .getByPlaceholder('Add a direction while Daedalus works...')
+    .getByPlaceholder('Add clarification...')
     .fill('NEW_DIRECTION: answer now');
   await page.getByRole('button', { name: 'Steer response' }).click();
   await expect(

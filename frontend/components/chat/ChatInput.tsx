@@ -931,7 +931,7 @@ export const ChatInput = memo(
                   onPaste={handlePaste}
                   placeholder={
                     isStreaming && onSteer
-                      ? 'Add a direction while Daedalus works...'
+                      ? 'Add clarification...'
                       : hasDocumentAttachment
                       ? 'Add instructions or send to ingest...'
                       : attachments.some((a) => a.type === 'image')
