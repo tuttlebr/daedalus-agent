@@ -1,0 +1,47 @@
+{
+  "commit": "21d36bf30598c5a00020dd952f4392a51b304eb4",
+  "helm_revision": 60,
+  "attempts": 60,
+  "passed": 54,
+  "failed_cases": [
+    {
+      "case_id": "clock-1",
+      "repetition": 1,
+      "tools": [],
+      "failure": "invented timestamp without clock call"
+    },
+    {
+      "case_id": "clock-3",
+      "repetition": 1,
+      "tools": [],
+      "failure": "invented timestamp without clock call"
+    },
+    {
+      "case_id": "clock-4",
+      "repetition": 1,
+      "tools": [],
+      "failure": "invented timestamp without clock call"
+    },
+    {
+      "case_id": "clock-3",
+      "repetition": 2,
+      "tools": [],
+      "failure": "invented timestamp without clock call"
+    },
+    {
+      "case_id": "clock-1",
+      "repetition": 2,
+      "tools": [],
+      "failure": "invented timestamp without clock call"
+    },
+    {
+      "case_id": "clock-1",
+      "repetition": 3,
+      "tools": [],
+      "failure": "invented timestamp without clock call"
+    }
+  ],
+  "decision": "rejected and rolled back to prior release",
+  "evidence": "/tmp/daedalus-tool-correctness-release-20261012/live-evaluation.jsonl",
+  "finding": "The 60/60 isolated evaluation did not predict tool selection with the full production catalog. Failing calls had about 35,700 input tokens. Explicit API tool_choice succeeded. Preserve this failure; do not count HTTP completion as semantic success."
+}

@@ -8,6 +8,8 @@ command arguments or committed files.
 builder/.venv/bin/python evaluation/tool-correctness/run.py \
   --baseline-image <immutable-baseline> \
   --candidate-image <candidate-image> \
+  --baseline-source-revision <baseline-commit> \
+  --candidate-source-revision <candidate-commit> \
   --base-url http://127.0.0.1:4000/v1 \
   --model daedalus \
   --output /tmp/tool-correctness-evaluation
@@ -33,3 +35,21 @@ HTTP request-to-backend-terminal latency; this is not browser/UI completion.
 Use the performance skill's comparison helper for paired latency analysis, with
 thresholds chosen before the experiment. Preserve the frozen workload and all
 attempts when iterating on a candidate.
+
+## Production catalog acceptance
+
+`live.py` preserves the original 20-case production workload: arithmetic, long
+history, exact clock reads, and one intentionally missing skill per case, each
+repeated three times. It connects to an already deployed backend and uses its
+complete mounted configuration. It exits unsuccessfully for any failed assertion
+or incomplete suite and emits every attempt as JSONL. Supply the deployed source,
+image, workflow, and route versions; credentials come only from
+`DAEDALUS_INTERNAL_API_TOKEN`. Use `--help` for arguments.
+
+Run with a fresh `synthetic-` identity and unique request prefix. These requests
+may populate that identity's memory; delete only its synthetic memory bank and
+clear its cache afterward, and verify absence. Keep the JSONL and release evidence
+outside git because they contain full tool payloads, even though the workload is
+synthetic. A rollout is accepted only after all 60 assertions pass. The rejected
+first rollout is recorded in `live-rejected-2026-10-12.json`; fixture success alone
+did not predict full-catalog tool selection.

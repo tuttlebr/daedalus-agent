@@ -14,6 +14,38 @@ pub static POLICY: LazyLock<Value> = LazyLock::new(|| {
         .expect("bundled tool policy is valid JSON")
 });
 
+/// Reduce first-step schema distraction for explicitly named capabilities.
+/// This is only a model-facing menu, never an instruction to execute anything.
+/// The full authorized catalogue returns on the next iteration, including after
+/// a rejected proposal for an initially hidden capability.
+pub fn initial_menu(tools: &[ToolDefinition], query: &str) -> Option<HashSet<String>> {
+    let words: HashSet<_> = query
+        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'))
+        .filter(|word| !word.is_empty())
+        .collect();
+    let mut selected: HashSet<String> = tools
+        .iter()
+        .filter(|tool| {
+            words.contains(tool.name.as_str())
+                || tool.name.strip_suffix("__connect").is_some_and(|group| {
+                    words
+                        .iter()
+                        .any(|word| word.starts_with(&format!("{group}__")))
+                })
+        })
+        .map(|tool| tool.name.clone())
+        .collect();
+    if selected.is_empty() {
+        return None;
+    }
+    for name in ["agent_skills_tool", "tool_output_retriever_tool"] {
+        if tools.iter().any(|tool| tool.name == name) {
+            selected.insert(name.into());
+        }
+    }
+    Some(selected)
+}
+
 /// Explicit caller intent; natural language never grants tool permissions.
 #[derive(Default)]
 pub enum Requirement {
@@ -177,6 +209,40 @@ mod tests {
         changed.name = "other".into();
         changed.description.clear();
         assert!(catalog.add(&changed).is_err());
+    }
+
+    #[test]
+    fn initial_menu_is_optional_exact_and_keeps_discovery_helpers() {
+        let named = |name: &str| ToolDefinition {
+            name: name.into(),
+            ..tool()
+        };
+        let tools = vec![
+            named("clock"),
+            named("agent_skills_tool"),
+            named("tool_output_retriever_tool"),
+            named("hue__connect"),
+            named("unrelated"),
+        ];
+        assert!(initial_menu(&tools, "Explain clockwise rotation").is_none());
+        let names = initial_menu(&tools, "Call `clock` with no arguments.").unwrap();
+        assert_eq!(names.len(), 3);
+        assert!(names.contains("clock"));
+        assert!(!names.contains("unrelated"));
+        assert!(
+            initial_menu(&tools, "Use hue__list_rooms")
+                .unwrap()
+                .contains("hue__connect")
+        );
+        // A reference or negation narrows the menu but still leaves invocation
+        // optional. Never convert a textual mention into required tool choice.
+        assert!(
+            !Requirement::parse(
+                &json!({"messages":[{"role":"user","content":"Explain clock without calling it"}]})
+            )
+            .unwrap()
+            .pending()
+        );
     }
 
     #[test]

@@ -1,0 +1,45 @@
+{
+  "results": {
+    "baseline": {
+      "attempts": 60,
+      "task_passed": 59,
+      "tool_passed": 59,
+      "safety_violations": 0,
+      "p50_ms": 1500.97,
+      "p95_ms": 4977.79,
+      "image": "sha256:60d5edd6e99b664355c176fa1edaeee98d427e17c91a5a3fd81868bb2e9fc966",
+      "failures": [
+        {
+          "case_id": "clock-3",
+          "repetition": 2
+        }
+      ]
+    },
+    "candidate": {
+      "attempts": 60,
+      "task_passed": 60,
+      "tool_passed": 60,
+      "safety_violations": 0,
+      "p50_ms": 1362.54,
+      "p95_ms": 2443.74,
+      "image": "sha256:a123e4c08f9f78d54c80ea4af9263a822f5d25b91e29c2028a6a10c28d670f18",
+      "failures": []
+    }
+  },
+  "scope": "Paired actual backend images through the live gateway, synthetic native clock/skills and MCP reads. The final image adds a steering bypass and receives separate built-image verification. Production catalog requires its own acceptance suite.",
+  "evidence_directory": "/tmp/daedalus-tool-correctness-menu-paired-20261012",
+  "routing_caveat": "Mounted Switchyard classifier configuration changed since the initial audit, outside this change. Current route hash e22c768f4ae07035233d5f574cf43474c5c86295b013d605a6121758898e897c differs from initial e01f4f9e8531545bc3f11ea3382cc84266af5b0e08b66bbdf8a9f57f9b44bb01. This prevents attributing cross-study changes solely to this patch. No reliable speedup is claimed.",
+  "performance_screen": {
+    "decision": "reject",
+    "reasons": ["p95 regression exceeds budget: stratum:tool-error"],
+    "thresholds": {
+      "min_speedup_pct": 5,
+      "max_p95_regression_pct": 5,
+      "min_pairs": 20,
+      "min_stratum_pairs": 3
+    },
+    "pairs": 60,
+    "regressions": [],
+    "interpretation": "Default performance screening rejects per-stratum p95 regressions. This change is accepted only for the separately frozen correctness gate; no latency improvement is claimed."
+  }
+}

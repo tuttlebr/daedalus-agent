@@ -341,6 +341,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-image", required=True)
     parser.add_argument("--candidate-image", required=True)
+    parser.add_argument("--baseline-source-revision", required=True)
+    parser.add_argument("--candidate-source-revision", required=True)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--model", default="daedalus")
     parser.add_argument("--api-key-env", default="TOOL_EVAL_API_KEY")
@@ -471,6 +473,7 @@ def main():
                 "manifest": {
                     **manifest,
                     "arm": arm,
+                    "source_revision": getattr(args, f"{arm}_source_revision"),
                     "image_digest": digest,
                     "config_digest": hashlib.sha256(path.read_bytes()).hexdigest(),
                 },
@@ -500,6 +503,9 @@ def main():
                         result = request(
                             client, ports[arm], token, user, case, rep, arm
                         )
+                        result["evidence"] = (
+                            f"{args.output.resolve()}/attempts.jsonl#run_id={result['run_id']}"
+                        )
                         bundles[arm]["runs"].append(result)
                         with (args.output / "attempts.jsonl").open("a") as log:
                             log.write(json.dumps({"arm": arm, **result}) + "\n")
@@ -528,6 +534,12 @@ def main():
                 check=False,
             )
         peer.shutdown()
+    candidate = bundles["candidate"]["runs"]
+    if len(candidate) != len(workload) * args.repetitions or any(
+        not run["task_success"] or not run["tool_correct"] or run["safety_violation"]
+        for run in candidate
+    ):
+        raise SystemExit("Candidate failed the frozen correctness gate; see evidence")
 
 
 if __name__ == "__main__":

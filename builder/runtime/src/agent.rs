@@ -299,6 +299,7 @@ impl Agent {
             .find(|m| m.role == "user")
             .map(|m| m.content.clone())
             .unwrap_or_default();
+        let initial_menu = crate::tool_contracts::initial_menu(&prepared.tools, &query);
         while iterations < prepared.max_iterations {
             self.drain().await?;
             self.apply(&mut history).await?;
@@ -310,6 +311,14 @@ impl Agent {
                 .iter()
                 .filter(|tool| !final_synthesis || prepared.final_tools.contains(&tool.name))
                 .filter(|tool| requirement.allows(&tool.name))
+                .filter(|tool| {
+                    iterations != 1
+                        || self.revision != 0
+                        || requirement.pending()
+                        || initial_menu
+                            .as_ref()
+                            .is_none_or(|names| names.contains(&tool.name))
+                })
                 .cloned()
                 .collect();
             if requirement.pending() && tools.is_empty() {
@@ -328,6 +337,13 @@ impl Agent {
                 params["truncation"] = json!("auto");
             }
             let tool_count = tools.len();
+            if iterations == 1 && tool_count < prepared.tools.len() {
+                tracing::info!(
+                    event = "initial_tool_menu",
+                    available_tools = prepared.tools.len(),
+                    advertised_tools = tool_count
+                );
+            }
             let mut request = CompletionRequest::new("unused")
                 .tools(tools.clone())
                 .tool_choice(requirement.choice())

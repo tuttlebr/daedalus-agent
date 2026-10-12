@@ -37,6 +37,16 @@ remote names fail discovery rather than silently overwriting an earlier tool.
 
 ## Enforcement
 
+When a user names an available tool explicitly, the first model request exposes
+that tool plus the skill and original-output helpers. A named deferred MCP
+operation exposes its connector. This reduces schema distraction; it does not
+force a call, interpret quoted text as authorization, or change permissions.
+The full authorized catalog returns on the next iteration, including after a
+rejected proposal for an initially hidden tool. Questions without tool names
+retain the complete catalog. Explicit API tool-choice requirements take priority.
+Steering also restores the complete catalog so a redirected request is not limited
+by names in the original message.
+
 `daedalus_runtime/tool_contracts.py` projects each native dispatcher's actual
 parameter types into operation-specific constraints. The published schema and
 Python invocation validator are the same contract. Disabled operations and their

@@ -960,6 +960,39 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert "The real datetime tool completed" in answer, answer  # nosec B101
                 answer = chat("BASIC", "tools-disabled", tool_choice="none")
                 assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
+                before = len(peers.requests)
+                answer = chat(
+                    "BASIC Call current_datetime_tool with no arguments.",
+                    "named-clock-menu",
+                )
+                first_names = {tool["name"] for tool in peers.requests[before]["tools"]}
+                assert first_names == {
+                    "current_datetime_tool",
+                    "agent_skills_tool",
+                }, first_names  # nosec B101
+                assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
+                assert len(peers.requests[before + 1]["tools"]) > len(first_names)  # nosec B101
+                answer = chat(
+                    "TEXT_ONLY Explain current_datetime_tool without calling any tools.",
+                    "named-clock-explanation",
+                )
+                assert "Function Start:" not in answer, answer  # nosec B101
+                before = len(peers.requests)
+                peers.calls.clear()
+                answer = chat(
+                    "CONTRACT_REPAIR Call fixture_mcp__next_read and another capability if needed.",
+                    "menu-recovery",
+                )
+                assert "current_datetime_tool" not in {
+                    tool["name"] for tool in peers.requests[before]["tools"]
+                }  # nosec B101
+                assert "invalid_tool_batch" in json.dumps(peers.requests[before + 1])  # nosec B101
+                assert "current_datetime_tool" in {
+                    tool["name"] for tool in peers.requests[before + 1]["tools"]
+                }  # nosec B101
+                assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
+                assert peers.calls == ["next_read"], peers.calls  # nosec B101
+                peers.calls.clear()
                 gateway = chat("GATEWAY", "gateway-run")
                 assert gateway.count("The real datetime tool completed") == 1, gateway  # nosec B101 - executable contract check
                 assert "Function Complete: current_datetime_tool" in gateway  # nosec B101 - executable contract check
