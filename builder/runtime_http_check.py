@@ -338,10 +338,16 @@ class Peers:
                     and "IGNORE_FALLBACK" not in serialized
                 ):
                     assert not body.get("tools")  # nosec B101
-                    assert result_count == 5  # nosec B101 - clock plus two rejected pairs
+                    assert result_count == 4  # nosec B101 - clock, rejected renderer twice, valid sibling
                     assert "HTML edition could not be validated" in serialized  # nosec B101
                     assert "function_call_output" in serialized  # nosec B101
                     text = "The HTML edition could not be validated. Sourced briefing from retained evidence."
+                elif (
+                    "Tools with repeated invalid arguments have been disabled"
+                    in serialized
+                    and "IGNORE_FALLBACK" not in serialized
+                ):
+                    text = "Completed available work; invalid tool unavailable."
                 elif scenario == "REQUIRED_MISSING" or (
                     scenario in ("REQUIRED_RECOVER", "OMITTED_TOOL_RECOVER")
                     and not has_result
@@ -392,7 +398,7 @@ class Peers:
                             else "current_datetime_tool"
                         ]
                         if scenario == "CONTRACT_REPEAT_AFTER_PROGRESS"
-                        else ["fixture_mcp__write_item", "current_datetime_tool"]
+                        else ["fixture_mcp__next_read", "current_datetime_tool"]
                         if scenario == "CONTRACT_BAD_BATCH_ALWAYS"
                         else ["fixture_mcp__next_read", "current_datetime_tool"]
                         if scenario in ("CONTRACT_REPAIR", "CONTRACT_DUPLICATE")
@@ -412,7 +418,7 @@ class Peers:
                         if scenario == "APPROVAL"
                         else ["fixture_mcp__conflicting_read", "current_datetime_tool"]
                         if scenario == "POLICY_CONFLICT"
-                        else ["briefing_renderer_tool", "fixture_mcp__write_item"]
+                        else ["briefing_renderer_tool", "fixture_mcp__next_read"]
                         if scenario == "RENDERER_FALLBACK" and has_result
                         else ["fixture_mcp__slow_read", "fixture_mcp__next_read"]
                         if scenario == "TOOL_STEER"
@@ -424,6 +430,17 @@ class Peers:
                         if scenario == "STREAM_TOOL_CUT" and attempt == 1
                         else ["current_datetime_tool"]
                     )
+                    if has_result and scenario in (
+                        "CONTRACT_REPAIR",
+                        "CONTRACT_BAD_BATCH_ALWAYS",
+                    ):
+                        names = ["current_datetime_tool"]
+                    if (
+                        has_result
+                        and scenario == "RENDERER_FALLBACK"
+                        and result_count >= 3
+                    ):
+                        names = ["briefing_renderer_tool"]
                     for index, name in enumerate(names):
                         arguments = (
                             json.dumps({"private": "LARGE_TOOL"})
@@ -1030,12 +1047,17 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     assert len(peers.requests) - before == 5  # nosec B101
                     assert not peers.calls  # nosec B101
                 answer = chat("CONTRACT_REPEAT_AFTER_PROGRESS", "repeated-validation")
-                assert "Tool arguments remained invalid" in answer, answer  # nosec B101
+                assert '"finish_reason":"stop"' in answer, answer  # nosec B101
                 assert peers.calls == ["next_read"], peers.calls  # nosec B101
+                assert "current_datetime_tool" not in {
+                    tool["name"] for tool in peers.requests[-1].get("tools", [])
+                }  # nosec B101
                 peers.calls.clear()
                 answer = chat("CONTRACT_BAD_BATCH_ALWAYS", "invalid-batch")
-                assert "Tool arguments remained invalid" in answer, answer  # nosec B101
-                assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
+                assert '"finish_reason":"stop"' in answer, answer  # nosec B101
+                assert peers.calls == ["next_read"], peers.calls  # nosec B101 - valid sibling executes once
+                assert "Function Start: current_datetime_tool" not in answer  # nosec B101
+                peers.calls.clear()
                 answer = chat("CONTRACT_DUPLICATE", "duplicate-calls")
                 assert "Invalid or repeated tool call ID" in answer, answer  # nosec B101
                 assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
@@ -1175,7 +1197,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert "Sourced briefing from retained evidence" in fallback  # nosec B101
                 assert fallback.count("Function Complete: current_datetime_tool") == 1  # nosec B101
                 assert "Function Start: briefing_renderer_tool" not in fallback  # nosec B101
-                assert not peers.calls  # nosec B101 - rejected sibling mutations never run
+                assert peers.calls == ["next_read"]  # nosec B101 - valid sibling executes once
                 requests = peers.requests[before:]
                 assert len(requests) == 4  # nosec B101 - evidence, correction, fallback
                 clock_result = next(
@@ -1184,6 +1206,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     if item.get("type") == "function_call_output"
                 )
                 assert clock_result in requests[-1]["input"]  # nosec B101 - retain exact evidence
+                peers.calls.clear()
                 ignored = chat(
                     "Run my daily briefing. RENDERER_FALLBACK IGNORE_FALLBACK",
                     "renderer-fallback-ignored",
@@ -1191,10 +1214,14 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert '"finish_reason":"error"' in ignored, ignored  # nosec B101
                 assert peers.requests[-1]["tool_choice"] == "none"  # nosec B101
                 assert not peers.requests[-1].get("tools")  # nosec B101
-                assert not peers.calls  # nosec B101 - disabled tools never execute
+                assert peers.calls == ["next_read"]  # nosec B101 - no extra reads after fallback
+                peers.calls.clear()
                 ordinary = chat("RENDERER_FALLBACK", "ordinary-renderer-failure")
-                assert "Tool arguments remained invalid" in ordinary  # nosec B101
-                assert "Sourced briefing" not in ordinary and not peers.calls  # nosec B101
+                assert '"finish_reason":"stop"' in ordinary  # nosec B101
+                assert "Sourced briefing" not in ordinary and peers.calls == [
+                    "next_read"
+                ]  # nosec B101
+                peers.calls.clear()
                 retried = chat("RETRY_MODEL", "retry-run")
                 assert "The real datetime tool completed" in retried  # nosec B101 - executable contract check
                 assert (  # nosec B101 - executable contract check

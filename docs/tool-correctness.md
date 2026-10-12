@@ -64,13 +64,17 @@ input alternatives are rejected before leaf I/O. The existing tool-specific
 ownership, URL, capability, and service checks still apply.
 
 The Rust loop compiles catalog validators once per run and validates every call
-in a completed model batch before scheduling any call in that batch. An invalid
-batch executes nothing and receives structured correction feedback. Each invalid
-tool gets one correction; a second invalid proposal for that tool ends the run.
-A fully valid batch containing that tool restores its correction allowance.
-Successful unrelated calls and valid siblings in a rejected batch cannot reset
-it. Separate tools and later corrected stages retain their own recovery. Rejection
-logs identify only advertised tools and schema constraints, never argument values.
+in a completed model batch before scheduling calls. Invalid calls receive
+structured correction feedback and never execute; valid siblings execute under
+the usual authorization and approval gates. Each invalid tool gets one correction;
+a second invalid proposal disables that tool for the remainder of the run while
+other tools and synthesis continue. A successful correction restores its allowance
+before disabling, but a disabled tool stays disabled until the next run.
+Unrelated successes cannot reset an invalid tool's allowance. Rejection logs
+identify only advertised tools, schema constraints and JSON types, never argument
+values. Missing facts must be resolved from supplied context, existing results or
+available memory rather than guessed. Required-tool requests still fail if the
+required capability cannot succeed.
 Missing, duplicate, and reused provider call IDs end
 the run immediately. IDs from rejected batches must not be reused. Interrupted
 or undecodable model responses still never execute proposed calls.

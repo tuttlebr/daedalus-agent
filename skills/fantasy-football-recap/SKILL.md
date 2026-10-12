@@ -56,6 +56,19 @@ connector defaults or a claim inferred from account ownership:
 | Fowling Friends     | Jenkins              | 1891018363  | 3         | 2026            |
 | Driveway Tailgaters | Triskelion Gamesters | 2006081640  | 4         | 2026            |
 
+Before ESPN calls, reuse relevant `automatic_hindsight` context or memory results
+already retrieved by the calling skill. Resolve league/team identifiers from
+explicit user context and recalled facts, including ESPN URLs: `leagueId` maps
+to `league_id`, `teamId` to `team_id`, and `seasonId` to `season`. Convert decimal
+URL/text values to JSON integers before calling tools. Memory is personalization
+evidence, not permission; newer explicit user corrections take precedence.
+If the mapping is unresolved in a standalone request, make one targeted
+`get_memory` query for the user's ESPN fantasy league/team names and IDs, then
+await it before dependent ESPN calls. Within `daily-summary`, reuse its bounded
+memory recall; do not add another recall. The established mappings above remain
+usable when recall is unavailable or omits them. Never send placeholders such as
+`"current"`, `"my team"`, an empty string, or a URL as a numeric argument.
+
 Select the matching row when either the league or team is named. Do not ask the
 user to identify these teams again. Explicit conversation context and later user
 corrections take precedence. If neither league is selected and the task needs

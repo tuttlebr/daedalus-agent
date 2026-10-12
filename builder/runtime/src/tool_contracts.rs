@@ -1,4 +1,4 @@
-//! Contracts are checked before scheduling any member of a tool batch.
+//! Contracts are checked before scheduling calls; invalid calls never execute.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
@@ -110,12 +110,17 @@ impl Requirement {
 #[derive(Default)]
 pub struct Recovery {
     pending: HashSet<String>,
+    disabled: HashSet<String>,
 }
 
 impl Recovery {
-    /// Each tool gets one correction until a fully valid batch contains it.
-    /// Valid siblings in a rejected batch did not run and cannot reset recovery.
-    /// Unrelated successful calls also cannot hide a repeated invalid proposal.
+    /// Each tool gets one correction. Repeated invalid tools are disabled for
+    /// this run without terminating independent work. Valid siblings can run.
+    pub fn allows(&self, name: &str) -> bool {
+        !self.disabled.contains(name)
+    }
+
+    /// Unrelated successful calls cannot hide a repeated invalid proposal.
     pub fn exhausted(&mut self, calls: &[ToolCall], problems: &[String]) -> bool {
         let invalid: HashSet<_> = calls
             .iter()
@@ -123,15 +128,17 @@ impl Recovery {
             .filter(|(_, problem)| !problem.is_empty())
             .map(|(call, _)| call.function.name.to_string())
             .collect();
-        if invalid.is_empty() {
-            for call in calls {
+        for (call, problem) in calls.iter().zip(problems) {
+            if problem.is_empty() && !invalid.contains(call.function.name.as_str()) {
                 self.pending.remove(call.function.name.as_str());
             }
-            return false;
         }
         let mut exhausted = false;
         for name in invalid {
-            exhausted |= !self.pending.insert(name);
+            if !self.pending.insert(name.clone()) {
+                self.disabled.insert(name);
+                exhausted = true;
+            }
         }
         exhausted
     }
@@ -202,7 +209,17 @@ impl Catalog {
                 .take(4).map(|error| {
                     let path = error.schema_path().to_string();
                     match schema.pointer(&path) {
-                        Some(constraint) => format!("{path}: {constraint}"),
+                        Some(constraint) => {
+                            let kind = match error.instance().as_ref() {
+                                Value::Null => "null",
+                                Value::Bool(_) => "boolean",
+                                Value::Number(_) => "number",
+                                Value::String(_) => "string",
+                                Value::Array(_) => "array",
+                                Value::Object(_) => "object",
+                            };
+                            format!("{path}: {constraint} (received {kind})")
+                        },
                         None => path,
                     }
                 }).collect();
@@ -249,21 +266,26 @@ mod tests {
     }
 
     #[test]
-    fn recovery_is_per_tool_and_only_a_valid_batch_restores_it() {
+    fn recovery_disables_only_repeated_invalid_tools_and_preserves_siblings() {
         let mut recovery = Recovery::default();
         let clock = || call("clock-id", "clock", json!({}));
         let search = || call("search-id", "search", json!({}));
         let bad = || "Invalid argument".to_string();
-        assert!(!recovery.exhausted(&[clock(), clock()], &[bad(), bad()]));
-        // Distinct errors can be corrected independently, but a held valid
-        // sibling in a rejected batch cannot consume or restore an allowance.
-        assert!(!recovery.exhausted(&[clock(), search()], &[String::new(), bad()]));
+        assert!(!recovery.exhausted(&[clock(), search()], &[bad(), String::new()]));
+        assert!(recovery.allows("clock"));
+        assert!(recovery.exhausted(&[clock(), search()], &[bad(), String::new()]));
+        assert!(!recovery.allows("clock"));
+        assert!(recovery.allows("search"));
+        // Other tools can correct successfully and recover at a later stage.
+        assert!(!recovery.exhausted(&[search()], &[bad()]));
         assert!(!recovery.exhausted(&[search()], &[String::new()]));
-        assert!(recovery.exhausted(&[clock()], &[bad()]));
-        // Correcting that tool permits a later stage to recover independently.
+        assert!(!recovery.exhausted(&[search()], &[bad()]));
+        assert!(recovery.allows("search"));
+        assert!(recovery.exhausted(&[search()], &[bad()]));
+        assert!(!recovery.allows("search"));
+        // Disabled tools stay disabled even if a later proposal is valid.
         assert!(!recovery.exhausted(&[clock()], &[String::new()]));
-        assert!(!recovery.exhausted(&[clock()], &[bad()]));
-        assert!(recovery.exhausted(&[clock()], &[bad()]));
+        assert!(!recovery.allows("clock"));
     }
 
     #[test]
@@ -327,6 +349,8 @@ mod tests {
         assert!(errors[0].contains("2019"));
         assert!(errors[0].contains("2100"));
         assert!(!errors[0].contains("private-league"));
+        assert!(errors[0].contains("received string"));
+        assert!(errors[0].contains("received number"));
         for (id, args) in [
             ("omit", json!({})),
             ("null", json!({"league_id":null,"season":null})),

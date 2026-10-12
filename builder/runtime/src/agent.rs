@@ -326,6 +326,7 @@ impl Agent {
                 .filter(|_| !briefing_text_fallback)
                 .filter(|tool| !final_synthesis || prepared.final_tools.contains(&tool.name))
                 .filter(|tool| requirement.allows(&tool.name))
+                .filter(|tool| validation_recovery.allows(&tool.name))
                 .filter(|tool| {
                     iterations != 1
                         || self.revision != 0
@@ -379,7 +380,7 @@ impl Agent {
                 ));
             }
             if briefing_text_fallback {
-                request.chat_history.push(Message::user("The briefing renderer arguments remained invalid after the allowed correction. No calls in either rejected batch ran. The HTML edition could not be validated. Return the useful briefing as sourced plain text from the completed evidence already in this conversation, with source links and material gaps beside the affected reporting. Do not claim the unvalidated edition is verified, write HTML, call tools, or restart research."));
+                request.chat_history.push(Message::user("The briefing renderer arguments remained invalid after the allowed correction. The rejected renderer calls did not run. The HTML edition could not be validated. Return the useful briefing as sourced plain text from the completed evidence already in this conversation, with source links and material gaps beside the affected reporting. Do not claim the unvalidated edition is verified, write HTML, call tools, or restart research."));
             } else if final_synthesis {
                 request.chat_history.push(Message::user("Finish using the evidence already collected. Render the briefing or return the sourced findings and any explicit gaps."));
             }
@@ -570,7 +571,7 @@ impl Agent {
                 return Err(anyhow::anyhow!("Model response did not complete")
                     .context(Phase("model_finish")));
             }
-            let calls: Vec<_> = completed.tool_calls().cloned().collect();
+            let mut calls: Vec<_> = completed.tool_calls().cloned().collect();
             tracing::info!(
                 event = "model_call_finished",
                 model_call,
@@ -643,11 +644,21 @@ impl Agent {
                     .zip(&problems)
                     .filter(|(_, problem)| !problem.is_empty())
                     .all(|(call, _)| call.function.name.as_str() == "briefing_renderer_tool");
+                let mut valid = Vec::new();
                 for (call, problem) in calls.into_iter().zip(problems) {
-                    history.push(Message::tool_result(call.id, call.function.name,
+                    if problem.is_empty() {
+                        valid.push(call);
+                        continue;
+                    }
+                    history.push(Message::tool_result(
+                        call.id,
+                        call.function.name,
                         json!({"status":"error", "executed":false, "error":"invalid_tool_batch",
-                            "detail":if problem.is_empty() {"Another call in this batch was invalid. No calls ran."} else {&problem}}).to_string()));
+                            "detail":problem})
+                        .to_string(),
+                    ));
                 }
+                calls = valid;
                 if recovery_exhausted {
                     if prepared.daily_summary && renderer_only_errors && !requirement.pending() {
                         briefing_text_fallback = true;
@@ -655,12 +666,11 @@ impl Agent {
                             event = "briefing_text_fallback",
                             reason = "renderer_arguments"
                         );
-                        continue;
                     }
-                    bail!("Tool arguments remained invalid after correction");
+                    history.push(Message::user("Tools with repeated invalid arguments have been disabled for this run. Continue with successful results and other available tools. Report the affected gap without claiming those calls succeeded. Do not repeat disabled calls."));
+                } else {
+                    history.push(Message::user("Invalid calls did not run; valid calls in the same batch will execute. Correct invalid arguments once using the advertised schemas and fresh call IDs. Resolve identifiers from earlier results, supplied context or available memory; do not guess missing values. Read results before dependent calls."));
                 }
-                history.push(Message::user("No calls in the rejected batch ran. Correct the arguments using the advertised schemas and use fresh call IDs. Read earlier results before making dependent calls."));
-                continue;
             }
             let mut queued = VecDeque::from(calls);
             let mut active = FuturesUnordered::new();
