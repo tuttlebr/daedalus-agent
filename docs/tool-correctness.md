@@ -90,6 +90,12 @@ The approval UI retains backend rejection details rather than replacing them
 with a generic failure. Exact-action credentials and mutation non-replay remain
 required.
 
+In daily briefings, exhausted renderer argument corrections get one text-only
+synthesis attempt from completed evidence, capped at 75 seconds. All tools are
+disabled for that attempt; invalid batches and their sibling calls never run.
+The fallback discloses that HTML validation failed. Other schema failures and
+explicit required-tool contracts retain their failure behavior.
+
 The chat API accepts `tool_choice: "auto"`, `"none"`, `"required"`, or a named
 function in Chat Completions or Responses form. Required/named choices require
 one successful matching tool execution before accepting answer text; after that,

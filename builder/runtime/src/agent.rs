@@ -292,6 +292,8 @@ impl Agent {
         let mut decode_recoveries = 0;
         let mut retrying_decode = false;
         let mut resume_text = false;
+        let mut briefing_text_fallback = false;
+        let mut briefing_fallback_started = false;
         let mut executor_states: HashMap<String, Value> = HashMap::new();
         let query = prepared
             .messages
@@ -301,12 +303,15 @@ impl Agent {
             .map(|m| m.content.clone())
             .unwrap_or_default();
         let initial_menu = crate::tool_contracts::initial_menu(&prepared.tools, &query);
-        while iterations < prepared.max_iterations {
+        while iterations < prepared.max_iterations
+            || (briefing_text_fallback && !briefing_fallback_started)
+        {
             self.drain().await?;
             self.apply(&mut history).await?;
             iterations += 1;
-            let final_synthesis = prepared.daily_summary
-                && started.elapsed().as_secs_f64() >= prepared.research_budget_seconds;
+            let final_synthesis = briefing_text_fallback
+                || (prepared.daily_summary
+                    && started.elapsed().as_secs_f64() >= prepared.research_budget_seconds);
             // A named capability deserves one evidence check if the model
             // answers without calling anything. This is still auto selection:
             // mentions, quotations and prohibitions never force execution.
@@ -318,6 +323,7 @@ impl Agent {
             let tools: Vec<_> = prepared
                 .tools
                 .iter()
+                .filter(|_| !briefing_text_fallback)
                 .filter(|tool| !final_synthesis || prepared.final_tools.contains(&tool.name))
                 .filter(|tool| requirement.allows(&tool.name))
                 .filter(|tool| {
@@ -355,7 +361,11 @@ impl Agent {
             }
             let mut request = CompletionRequest::new("unused")
                 .tools(tools.clone())
-                .tool_choice(requirement.choice())
+                .tool_choice(if briefing_text_fallback {
+                    rig_core::message::ToolChoice::None
+                } else {
+                    requirement.choice()
+                })
                 .additional_params(params);
             request.chat_history = history.clone();
             if resume_text {
@@ -368,7 +378,9 @@ impl Agent {
                     "The previous model response could not be decoded. None of its proposed tool calls ran. Reissue a complete response with valid tool arguments using the completed results already in the conversation; do not repeat completed tool actions.",
                 ));
             }
-            if final_synthesis {
+            if briefing_text_fallback {
+                request.chat_history.push(Message::user("The briefing renderer arguments remained invalid after the allowed correction. No calls in either rejected batch ran. The HTML edition could not be validated. Return the useful briefing as sourced plain text from the completed evidence already in this conversation, with source links and material gaps beside the affected reporting. Do not claim the unvalidated edition is verified, write HTML, call tools, or restart research."));
+            } else if final_synthesis {
                 request.chat_history.push(Message::user("Finish using the evidence already collected. Render the briefing or return the sourced findings and any explicit gaps."));
             }
             let model_call = self
@@ -378,6 +390,12 @@ impl Agent {
                 .fetch_add(1, Ordering::Relaxed)
                 + 1;
             let model_started = Instant::now();
+            let request_timeout = if briefing_text_fallback {
+                briefing_fallback_started = true;
+                prepared.model.request_timeout.min(75.0)
+            } else {
+                prepared.model.request_timeout
+            };
             tracing::info!(
                 event = "model_call_started",
                 model_call,
@@ -385,7 +403,7 @@ impl Agent {
                 attempt = retry_attempt + 1,
                 model = label(&model_name),
                 tool_count,
-                timeout_seconds = prepared.model.request_timeout,
+                timeout_seconds = request_timeout,
                 final_synthesis
             );
             let model = provider.completion(&model_name);
@@ -399,9 +417,7 @@ impl Agent {
                 model.transport,
             );
             let mut stream = model.stream(request).context(Phase("model_request"))?;
-            let deadline = tokio::time::sleep(Duration::from_secs_f64(
-                prepared.model.request_timeout.max(1.0),
-            ));
+            let deadline = tokio::time::sleep(Duration::from_secs_f64(request_timeout.max(1.0)));
             tokio::pin!(deadline);
             let mut partial = String::new();
             let mut interrupted = false;
@@ -468,9 +484,10 @@ impl Agent {
             let completed = match completion {
                 Ok(completed) => completed,
                 Err(error)
-                    if (crate::provider::retryable(&error)
-                        || (crate::provider::stream_decode_error(&error)
-                            && decode_recoveries == 0))
+                    if !briefing_text_fallback
+                        && (crate::provider::retryable(&error)
+                            || (crate::provider::stream_decode_error(&error)
+                                && decode_recoveries == 0))
                         && retry_attempt < prepared.model.max_retries =>
                 {
                     if crate::provider::stream_decode_error(&error) {
@@ -598,6 +615,9 @@ impl Agent {
                 self.events.finish("stop").await?;
                 return Ok(());
             }
+            if briefing_text_fallback {
+                bail!("Briefing text fallback proposed tools despite disabled tool access");
+            }
             let batch_revision = self.revision;
             let problems = catalog.check_batch(&calls, &tools)?;
             let recovery_exhausted = validation_recovery.exhausted(&calls, &problems);
@@ -618,12 +638,25 @@ impl Agent {
                     recovery_exhausted,
                     problems = %json!(diagnostics)
                 );
+                let renderer_only_errors = calls
+                    .iter()
+                    .zip(&problems)
+                    .filter(|(_, problem)| !problem.is_empty())
+                    .all(|(call, _)| call.function.name.as_str() == "briefing_renderer_tool");
                 for (call, problem) in calls.into_iter().zip(problems) {
                     history.push(Message::tool_result(call.id, call.function.name,
                         json!({"status":"error", "executed":false, "error":"invalid_tool_batch",
                             "detail":if problem.is_empty() {"Another call in this batch was invalid. No calls ran."} else {&problem}}).to_string()));
                 }
                 if recovery_exhausted {
+                    if prepared.daily_summary && renderer_only_errors && !requirement.pending() {
+                        briefing_text_fallback = true;
+                        tracing::info!(
+                            event = "briefing_text_fallback",
+                            reason = "renderer_arguments"
+                        );
+                        continue;
+                    }
                     bail!("Tool arguments remained invalid after correction");
                 }
                 history.push(Message::user("No calls in the rejected batch ran. Correct the arguments using the advertised schemas and use fresh call IDs. Read earlier results before making dependent calls."));
