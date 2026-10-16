@@ -1,0 +1,589 @@
+{
+  "schema": {
+    "name": "nvidia_docs",
+    "description": "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX documentation.",
+    "parameters": {
+      "additionalProperties": false,
+      "description": "The endpoint is selected from a closed product set, never model-supplied.",
+      "properties": {
+        "product": {
+          "description": "NVIDIA documentation product to search.",
+          "enum": ["dynamo", "openshell", "aistore", "aiperf", "nvcf", "dsx"],
+          "title": "Product",
+          "type": "string"
+        },
+        "query": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": ["product", "query"],
+      "title": "NvidiaDocsInput",
+      "type": "object"
+    }
+  },
+  "configuration_schema": {
+    "additionalProperties": false,
+    "description": "Configure the routed NVIDIA documentation search.",
+    "properties": {
+      "description": {
+        "default": "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX documentation.",
+        "title": "Description",
+        "type": "string"
+      },
+      "verbose": {
+        "default": false,
+        "title": "Verbose",
+        "type": "boolean"
+      },
+      "timeout": {
+        "default": 60.0,
+        "exclusiveMinimum": 0,
+        "maximum": 120,
+        "title": "Timeout",
+        "type": "number"
+      }
+    },
+    "title": "NvidiaDocsConfig",
+    "type": "object"
+  },
+  "defaults": {
+    "description": "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX documentation.",
+    "verbose": false,
+    "timeout": 60.0
+  },
+  "endpoints": {
+    "dynamo": "https://docs.nvidia.com/dynamo/_mcp/server",
+    "openshell": "https://docs.nvidia.com/openshell/_mcp/server",
+    "aistore": "https://docs.nvidia.com/aistore/_mcp/server",
+    "aiperf": "https://docs.nvidia.com/aiperf/_mcp/server",
+    "nvcf": "https://docs.nvidia.com/nvcf/_mcp/server",
+    "dsx": "https://docs.nvidia.com/dsx/_mcp/server"
+  },
+  "result_schema": {
+    "$defs": {
+      "Annotations": {
+        "additionalProperties": true,
+        "properties": {
+          "audience": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": ["user", "assistant"],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Audience"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Priority"
+          }
+        },
+        "title": "Annotations",
+        "type": "object"
+      },
+      "AudioContent": {
+        "additionalProperties": true,
+        "description": "Audio content for a message.",
+        "properties": {
+          "type": {
+            "const": "audio",
+            "title": "Type",
+            "type": "string"
+          },
+          "data": {
+            "title": "Data",
+            "type": "string"
+          },
+          "mimeType": {
+            "title": "Mimetype",
+            "type": "string"
+          },
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Annotations"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "_meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Meta"
+          }
+        },
+        "required": ["type", "data", "mimeType"],
+        "title": "AudioContent",
+        "type": "object"
+      },
+      "BlobResourceContents": {
+        "additionalProperties": true,
+        "description": "Binary contents of a resource.",
+        "properties": {
+          "uri": {
+            "format": "uri",
+            "minLength": 1,
+            "title": "Uri",
+            "type": "string"
+          },
+          "mimeType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mimetype"
+          },
+          "_meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Meta"
+          },
+          "blob": {
+            "title": "Blob",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "blob"],
+        "title": "BlobResourceContents",
+        "type": "object"
+      },
+      "EmbeddedResource": {
+        "additionalProperties": true,
+        "description": "The contents of a resource, embedded into a prompt or tool call result.\n\nIt is up to the client how best to render embedded resources for the benefit\nof the LLM and/or the user.",
+        "properties": {
+          "type": {
+            "const": "resource",
+            "title": "Type",
+            "type": "string"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TextResourceContents"
+              },
+              {
+                "$ref": "#/$defs/BlobResourceContents"
+              }
+            ],
+            "title": "Resource"
+          },
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Annotations"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "_meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Meta"
+          }
+        },
+        "required": ["type", "resource"],
+        "title": "EmbeddedResource",
+        "type": "object"
+      },
+      "Icon": {
+        "additionalProperties": true,
+        "description": "An icon for display in user interfaces.",
+        "properties": {
+          "src": {
+            "title": "Src",
+            "type": "string"
+          },
+          "mimeType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mimetype"
+          },
+          "sizes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sizes"
+          }
+        },
+        "required": ["src"],
+        "title": "Icon",
+        "type": "object"
+      },
+      "ImageContent": {
+        "additionalProperties": true,
+        "description": "Image content for a message.",
+        "properties": {
+          "type": {
+            "const": "image",
+            "title": "Type",
+            "type": "string"
+          },
+          "data": {
+            "title": "Data",
+            "type": "string"
+          },
+          "mimeType": {
+            "title": "Mimetype",
+            "type": "string"
+          },
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Annotations"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "_meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Meta"
+          }
+        },
+        "required": ["type", "data", "mimeType"],
+        "title": "ImageContent",
+        "type": "object"
+      },
+      "ResourceLink": {
+        "additionalProperties": true,
+        "description": "A resource that the server is capable of reading, included in a prompt or tool call result.\n\nNote: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "uri": {
+            "format": "uri",
+            "minLength": 1,
+            "title": "Uri",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "mimeType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mimetype"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Size"
+          },
+          "icons": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Icon"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Icons"
+          },
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Annotations"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "_meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Meta"
+          },
+          "type": {
+            "const": "resource_link",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["name", "uri", "type"],
+        "title": "ResourceLink",
+        "type": "object"
+      },
+      "TextContent": {
+        "additionalProperties": true,
+        "description": "Text content for a message.",
+        "properties": {
+          "type": {
+            "const": "text",
+            "title": "Type",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "annotations": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Annotations"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "_meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Meta"
+          }
+        },
+        "required": ["type", "text"],
+        "title": "TextContent",
+        "type": "object"
+      },
+      "TextResourceContents": {
+        "additionalProperties": true,
+        "description": "Text contents of a resource.",
+        "properties": {
+          "uri": {
+            "format": "uri",
+            "minLength": 1,
+            "title": "Uri",
+            "type": "string"
+          },
+          "mimeType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mimetype"
+          },
+          "_meta": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Meta"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "text"],
+        "title": "TextResourceContents",
+        "type": "object"
+      }
+    },
+    "additionalProperties": true,
+    "description": "The server's response to a tool call.",
+    "properties": {
+      "_meta": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Meta"
+      },
+      "content": {
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextContent"
+            },
+            {
+              "$ref": "#/$defs/ImageContent"
+            },
+            {
+              "$ref": "#/$defs/AudioContent"
+            },
+            {
+              "$ref": "#/$defs/ResourceLink"
+            },
+            {
+              "$ref": "#/$defs/EmbeddedResource"
+            }
+          ]
+        },
+        "title": "Content",
+        "type": "array"
+      },
+      "structuredContent": {
+        "anyOf": [
+          {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Structuredcontent"
+      },
+      "isError": {
+        "default": false,
+        "title": "Iserror",
+        "type": "boolean"
+      }
+    },
+    "required": ["content"],
+    "title": "CallToolResult",
+    "type": "object"
+  }
+}

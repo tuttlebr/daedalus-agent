@@ -1,0 +1,6449 @@
+{
+  "configuration": [
+    {
+      "input": {
+        "description": null
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": ""
+      },
+      "expected": {
+        "ok": {
+          "description": "",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "Synthetic"
+      },
+      "expected": {
+        "ok": {
+          "description": "Synthetic",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": "Synthetic",
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": " \t\u001c"
+      },
+      "expected": {
+        "ok": {
+          "description": " \t\u001c",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema_error": "ValueError"
+      }
+    },
+    {
+      "input": {
+        "description": 0
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 4.9
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 5
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 20
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 60
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 61
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 86400
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 86401
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": true
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": false
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": "5"
+      },
+      "expected": {
+        "ok": {
+          "description": "5",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": "5",
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "5.0"
+      },
+      "expected": {
+        "ok": {
+          "description": "5.0",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": "5.0",
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "NaN"
+      },
+      "expected": {
+        "ok": {
+          "description": "NaN",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": "NaN",
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "Infinity"
+      },
+      "expected": {
+        "ok": {
+          "description": "Infinity",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": "Infinity",
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "off"
+      },
+      "expected": {
+        "ok": {
+          "description": "off",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": "off",
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "1_0"
+      },
+      "expected": {
+        "ok": {
+          "description": "1_0",
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": "1_0",
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": ""
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "Synthetic"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": " \t\u001c"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 0
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 1
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": true,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": 4.9
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 5
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 20
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 60
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 61
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 86400
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 86401
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": true
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": true,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": false
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "5"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "5.0"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "NaN"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "Infinity"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "off"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": "1_0"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": ""
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "user_agent": "Synthetic"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "Synthetic",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "user_agent": " \t\u001c"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": " \t\u001c",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "user_agent": 0
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": 1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": 4.9
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": 5
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": 20
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": 60
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": 61
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": 86400
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": 86401
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": true
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": false
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "user_agent": "5"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "5",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "user_agent": "5.0"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "5.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "user_agent": "NaN"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "NaN",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "user_agent": "Infinity"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "Infinity",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "user_agent": "off"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "off",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "user_agent": "1_0"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "1_0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": ""
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "Synthetic"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": " \t\u001c"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": 0
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": 1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": 4.9
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": 5
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 5.0,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": 20
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20.0,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": 60
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 60.0,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": 61
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": 86400
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": 86401
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": true
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": false
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "5"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 5.0,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": "5.0"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 5.0,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": "NaN"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "Infinity"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "off"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "1_0"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 10.0,
+          "points_cache_ttl_seconds": 86400
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": ""
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": "Synthetic"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": " \t\u001c"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 0
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 0.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 1
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 1.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 4.9
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 4.9
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 5
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 5.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 20
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 20.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 60
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 60.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 61
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 61.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 86400
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 86400.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": 86401
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": true
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 1.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": false
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 0.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": "5"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 5.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": "5.0"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 5.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": "NaN"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": "Infinity"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": "off"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "points_cache_ttl_seconds": "1_0"
+      },
+      "expected": {
+        "ok": {
+          "description": null,
+          "verbose": false,
+          "user_agent": "daedalus-weather/1.0",
+          "timeout": 20,
+          "points_cache_ttl_seconds": 10.0
+        },
+        "schema": {
+          "name": "configured_weather",
+          "description": {
+            "$string_parts": [
+              "Get sourced US weather from the official NWS API by latitude and longitu",
+              "de. Returns today and the next three complete local days by default, act",
+              "ive alerts, fetch/issue times and explicit coverage gaps. Optionally inc",
+              "ludes current observations; never treats unavailable data as no alerts."
+            ]
+          },
+          "parameters": {
+            "properties": {
+              "latitude": {
+                "description": "Latitude of the US location.",
+                "maximum": 90,
+                "minimum": -90,
+                "title": "Latitude",
+                "type": "number"
+              },
+              "longitude": {
+                "description": "Longitude of the US location.",
+                "maximum": 180,
+                "minimum": -180,
+                "title": "Longitude",
+                "type": "number"
+              },
+              "days": {
+                "default": 4,
+                "description": "Today plus following local calendar days.",
+                "maximum": 7,
+                "minimum": 1,
+                "title": "Days",
+                "type": "integer"
+              },
+              "include_observations": {
+                "default": false,
+                "description": "Also request the latest station observation.",
+                "title": "Include Observations",
+                "type": "boolean"
+              }
+            },
+            "required": ["latitude", "longitude"],
+            "title": "WeatherInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "unknown": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": ""
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "Synthetic"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": " \t\u001c"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 0
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 4.9
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 5
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 20
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 60
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 61
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 86400
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 86401
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": true
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": false
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "5"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "5.0"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "NaN"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "Infinity"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "off"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "1_0"
+      },
+      "expected": {
+        "error": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "input": {},
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: required",
+            "ctx": {
+              "error": "Argument contract: required"
+            }
+          },
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: required",
+            "ctx": {
+              "error": "Argument contract: required"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": null,
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": [],
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: required",
+            "ctx": {
+              "error": "Argument contract: required"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "extra": true
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -83.1, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,-83.1000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,-83.1000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": null,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": "",
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": " ",
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": "42.3",
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": "1_0",
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": "true",
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": "off",
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": "NaN",
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": "Infinity",
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": [],
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": {},
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": false,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": true,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": -181,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": -180,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": -91,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": -90,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": -90.0, \"longitude\": -83.1, \"alerts\": {\"status\": \"u",
+            "navailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://ap",
+            "i.weather.gov/alerts/active?point=-90.0000,-83.1000\"}, \"forecast\": {",
+            "\"status\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url",
+            "\": \"https://api.weather.gov/points/-90.0000,-83.1000\"}, \"status\": ",
+            "\"unavailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": -1,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": -1.0, \"longitude\": -83.1, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=-1.0000,-83.1000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/-1.0000,-83.1000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 0,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 0.0, \"longitude\": -83.1, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=0.0000,-83.1000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/0.0000,-83.1000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 1,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 1.0, \"longitude\": -83.1, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=1.0000,-83.1000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/1.0000,-83.1000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 1.5,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 1.5, \"longitude\": -83.1, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=1.5000,-83.1000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/1.5000,-83.1000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 4,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 4.0, \"longitude\": -83.1, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=4.0000,-83.1000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/4.0000,-83.1000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 7,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 7.0, \"longitude\": -83.1, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=7.0000,-83.1000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/7.0000,-83.1000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 8,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 8.0, \"longitude\": -83.1, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=8.0000,-83.1000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/8.0000,-83.1000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 90,
+        "longitude": -83.1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 90.0, \"longitude\": -83.1, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=90.0000,-83.1000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/90.0000,-83.1000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 91,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 180,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 181,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 1e30,
+        "longitude": -83.1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["latitude"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": null
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": ""
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": " "
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": "42.3"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": "1_0"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": "true"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": "off"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": "NaN"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": "Infinity"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": false
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": true
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -181
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -180
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -180.0, \"alerts\": {\"status\": \"u",
+            "navailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://ap",
+            "i.weather.gov/alerts/active?point=42.3000,-180.0000\"}, \"forecast\": {",
+            "\"status\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url",
+            "\": \"https://api.weather.gov/points/42.3000,-180.0000\"}, \"status\": ",
+            "\"unavailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -91
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -91.0, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,-91.0000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,-91.0000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -90
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -90.0, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,-90.0000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,-90.0000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -1.0, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=42.3000,-1.0000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/42.3000,-1.0000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 0
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 0.0, \"alerts\": {\"status\": \"unav",
+            "ailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.w",
+            "eather.gov/alerts/active?point=42.3000,0.0000\"}, \"forecast\": {\"statu",
+            "s\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"ht",
+            "tps://api.weather.gov/points/42.3000,0.0000\"}, \"status\": \"unavailabl",
+            "e\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 1.0, \"alerts\": {\"status\": \"unav",
+            "ailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.w",
+            "eather.gov/alerts/active?point=42.3000,1.0000\"}, \"forecast\": {\"statu",
+            "s\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"ht",
+            "tps://api.weather.gov/points/42.3000,1.0000\"}, \"status\": \"unavailabl",
+            "e\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 1.5
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 1.5, \"alerts\": {\"status\": \"unav",
+            "ailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.w",
+            "eather.gov/alerts/active?point=42.3000,1.5000\"}, \"forecast\": {\"statu",
+            "s\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"ht",
+            "tps://api.weather.gov/points/42.3000,1.5000\"}, \"status\": \"unavailabl",
+            "e\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 4
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 4.0, \"alerts\": {\"status\": \"unav",
+            "ailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.w",
+            "eather.gov/alerts/active?point=42.3000,4.0000\"}, \"forecast\": {\"statu",
+            "s\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"ht",
+            "tps://api.weather.gov/points/42.3000,4.0000\"}, \"status\": \"unavailabl",
+            "e\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 7
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 7.0, \"alerts\": {\"status\": \"unav",
+            "ailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.w",
+            "eather.gov/alerts/active?point=42.3000,7.0000\"}, \"forecast\": {\"statu",
+            "s\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"ht",
+            "tps://api.weather.gov/points/42.3000,7.0000\"}, \"status\": \"unavailabl",
+            "e\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 8
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 8.0, \"alerts\": {\"status\": \"unav",
+            "ailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.w",
+            "eather.gov/alerts/active?point=42.3000,8.0000\"}, \"forecast\": {\"statu",
+            "s\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"ht",
+            "tps://api.weather.gov/points/42.3000,8.0000\"}, \"status\": \"unavailabl",
+            "e\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 90
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 90.0, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=42.3000,90.0000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/42.3000,90.0000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 91
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 91.0, \"alerts\": {\"status\": \"una",
+            "vailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.",
+            "weather.gov/alerts/active?point=42.3000,91.0000\"}, \"forecast\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/42.3000,91.0000\"}, \"status\": \"unavail",
+            "able\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 180
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": 180.0, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,180.0000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,180.0000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 181
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": 1e30
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["longitude"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": null
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": ""
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": " "
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": "42.3"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": "1_0"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": "true"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": "off"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": "NaN"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": "Infinity"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": false
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": true
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": -181
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": -180
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": -91
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": -90
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": -1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: minimum",
+            "ctx": {
+              "error": "Argument contract: minimum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 1
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -83.1, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,-83.1000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,-83.1000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 1.5
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 4
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -83.1, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,-83.1000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,-83.1000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 7
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -83.1, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,-83.1000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,-83.1000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 8
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 90
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 91
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 180
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 181
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "days": 1e30
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["days"],
+            "msg": "Value error, Argument contract: maximum",
+            "ctx": {
+              "error": "Argument contract: maximum"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": null
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": ""
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": " "
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": "42.3"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": "1_0"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": "true"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": "off"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": "NaN"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": "Infinity"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": false
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -83.1, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,-83.1000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,-83.1000\"}, \"status\": \"unav",
+            "ailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": true
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.3, \"longitude\": -83.1, \"alerts\": {\"status\": \"un",
+            "available\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api",
+            ".weather.gov/alerts/active?point=42.3000,-83.1000\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/42.3000,-83.1000\"}, \"observations\": ",
+            "{\"status\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url",
+            "\": \"https://api.weather.gov/points/42.3000,-83.1000\"}, \"status\": \"",
+            "unavailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": -181
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": -180
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": -91
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": -90
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": -1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 1.5
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 4
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 7
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 8
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 90
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 91
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 180
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 181
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.3,
+        "longitude": -83.1,
+        "include_observations": 1e30
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["include_observations"],
+            "msg": "Value error, Argument contract: type",
+            "ctx": {
+              "error": "Argument contract: type"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "latitude": 0.0,
+        "longitude": -0.0,
+        "days": 1,
+        "include_observations": true
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 0.0, \"longitude\": -0.0, \"alerts\": {\"status\": \"unav",
+            "ailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://api.w",
+            "eather.gov/alerts/active?point=0.0000,-0.0000\"}, \"forecast\": {\"statu",
+            "s\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"ht",
+            "tps://api.weather.gov/points/0.0000,-0.0000\"}, \"observations\": {\"sta",
+            "tus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"",
+            "https://api.weather.gov/points/0.0000,-0.0000\"}, \"status\": \"unavaila",
+            "ble\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 42.34565,
+        "longitude": -83.12345,
+        "days": 1,
+        "include_observations": true
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 42.34565, \"longitude\": -83.12345, \"alerts\": {\"status",
+            "\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"htt",
+            "ps://api.weather.gov/alerts/active?point=42.3456,-83.1235\"}, \"forecast",
+            "\": {\"status\": \"unavailable\", \"reason\": \"RuntimeError\", \"source",
+            "_url\": \"https://api.weather.gov/points/42.3456,-83.1235\"}, \"observat",
+            "ions\": {\"status\": \"unavailable\", \"reason\": \"RuntimeError\", \"so",
+            "urce_url\": \"https://api.weather.gov/points/42.3456,-83.1235\"}, \"stat",
+            "us\": \"unavailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 89.99999,
+        "longitude": -179.99999,
+        "days": 1,
+        "include_observations": true
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 89.99999, \"longitude\": -179.99999, \"alerts\": {\"statu",
+            "s\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"ht",
+            "tps://api.weather.gov/alerts/active?point=90.0000,-180.0000\"}, \"foreca",
+            "st\": {\"status\": \"unavailable\", \"reason\": \"RuntimeError\", \"sour",
+            "ce_url\": \"https://api.weather.gov/points/90.0000,-180.0000\"}, \"obser",
+            "vations\": {\"status\": \"unavailable\", \"reason\": \"RuntimeError\", ",
+            "\"source_url\": \"https://api.weather.gov/points/90.0000,-180.0000\"}, ",
+            "\"status\": \"unavailable\"}"
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "latitude": 5e-5,
+        "longitude": -5e-5,
+        "days": 1,
+        "include_observations": true
+      },
+      "expected": {
+        "ok": {
+          "$string_parts": [
+            "{\"latitude\": 5e-05, \"longitude\": -5e-05, \"alerts\": {\"status\": \"",
+            "unavailable\", \"reason\": \"RuntimeError\", \"source_url\": \"https://a",
+            "pi.weather.gov/alerts/active?point=0.0001,-0.0001\"}, \"forecast\": {\"s",
+            "tatus\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url\": ",
+            "\"https://api.weather.gov/points/0.0001,-0.0001\"}, \"observations\": {",
+            "\"status\": \"unavailable\", \"reason\": \"RuntimeError\", \"source_url",
+            "\": \"https://api.weather.gov/points/0.0001,-0.0001\"}, \"status\": \"un",
+            "available\"}"
+          ]
+        }
+      }
+    }
+  ],
+  "urls": [
+    {
+      "input": null,
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": 0,
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": [],
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": {},
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://api.weather.gov",
+      "expected": {
+        "ok": "https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://API.WEATHER.GOV/a?b=c#fragment",
+      "expected": {
+        "ok": "https://API.WEATHER.GOV/a?b=c#fragment"
+      }
+    },
+    {
+      "input": "HTTPS://api.weather.gov/a",
+      "expected": {
+        "ok": "HTTPS://api.weather.gov/a"
+      }
+    },
+    {
+      "input": " https://api.weather.gov/a ",
+      "expected": {
+        "ok": " https://api.weather.gov/a "
+      }
+    },
+    {
+      "input": "https://api.weather.gov./a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://api.weather.gov:443/a",
+      "expected": {
+        "ok": "https://api.weather.gov:443/a"
+      }
+    },
+    {
+      "input": "https://api.weather.gov:0443/a",
+      "expected": {
+        "ok": "https://api.weather.gov:0443/a"
+      }
+    },
+    {
+      "input": "https://api.weather.gov:/a",
+      "expected": {
+        "ok": "https://api.weather.gov:/a"
+      }
+    },
+    {
+      "input": "https://api.weather.gov:bad/a",
+      "expected": {
+        "error": "ValueError",
+        "message": "Port could not be cast to integer value as 'bad'"
+      }
+    },
+    {
+      "input": "https://api.weather.gov:65536/a",
+      "expected": {
+        "error": "ValueError",
+        "message": "Port out of range 0-65535"
+      }
+    },
+    {
+      "input": "https://api.weather.gov:444/a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "http://api.weather.gov/a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://user@api.weather.gov/a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://:pass@api.weather.gov/a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://api.weather.gov.attacker.invalid/a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://api.weather.gov\\@attacker.invalid/a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://[::1]/a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://[broken/a",
+      "expected": {
+        "error": "ValueError",
+        "message": "Invalid IPv6 URL"
+      }
+    },
+    {
+      "input": "https://api.weather.gov\n/a",
+      "expected": {
+        "ok": "https://api.weather.gov\n/a"
+      }
+    },
+    {
+      "input": "//api.weather.gov/a",
+      "expected": {
+        "error": "UnsafeURLError",
+        "message": "NWS links must stay on https://api.weather.gov"
+      }
+    },
+    {
+      "input": "https://api.weather.gov/a;b?x=1",
+      "expected": {
+        "ok": "https://api.weather.gov/a;b?x=1"
+      }
+    }
+  ],
+  "times": [
+    {
+      "input": null,
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": 1,
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": [],
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": {},
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "2026-10-14",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "2026-10-14T12:34:56",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "2026-10-14T12:34:56Z",
+      "expected": {
+        "ok": "2026-10-14T12:34:56+00:00"
+      }
+    },
+    {
+      "input": "20261014T123456+0000",
+      "expected": {
+        "ok": "2026-10-14T12:34:56+00:00"
+      }
+    },
+    {
+      "input": "2026-W42-3T12:34:56+00:00",
+      "expected": {
+        "ok": "2026-10-14T12:34:56+00:00"
+      }
+    },
+    {
+      "input": "2026-10-14 12:34:56.1234567+05:30",
+      "expected": {
+        "ok": "2026-10-14T12:34:56.123456+05:30"
+      }
+    },
+    {
+      "input": "2026-10-14🌲12:34:56,1-04:00",
+      "expected": {
+        "ok": "2026-10-14T12:34:56.100000-04:00"
+      }
+    },
+    {
+      "input": "2026-10-14T12Z",
+      "expected": {
+        "ok": "2026-10-14T12:00:00+00:00"
+      }
+    },
+    {
+      "input": "2026-10-14T12:34+00:00:00.5",
+      "expected": {
+        "ok": "2026-10-14T12:34:00+00:00"
+      }
+    },
+    {
+      "input": "2026-10-14T12:34:56+00:00:01.5",
+      "expected": {
+        "ok": "2026-10-14T12:34:56+00:00:01.500000"
+      }
+    },
+    {
+      "input": "2026-10-14T12:34:56+24:00",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "2026-10-14T25:00:00Z",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "2026-02-29T00:00:00Z",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "2028-02-29T00:00:00Z",
+      "expected": {
+        "ok": "2028-02-29T00:00:00+00:00"
+      }
+    },
+    {
+      "input": "2026-10-14T12:34:60Z",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "2026-10-14T12:34:56z",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": " 2026-10-14T12:34:56Z",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "2026-10-14T12:34:56Z ",
+      "expected": {
+        "ok": null
+      }
+    },
+    {
+      "input": "0001-01-01T00:00:00Z",
+      "expected": {
+        "ok": "0001-01-01T00:00:00+00:00"
+      }
+    },
+    {
+      "input": "9999-12-31T23:59:59Z",
+      "expected": {
+        "ok": "9999-12-31T23:59:59+00:00"
+      }
+    }
+  ],
+  "cache_ttl": [
+    {
+      "headers": {},
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {},
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {},
+      "default": 86400,
+      "expected": 86400
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20"
+      },
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20"
+      },
+      "default": 86400,
+      "expected": 20
+    },
+    {
+      "headers": {
+        "cache-control": "public, max-age=\"30\""
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "public, max-age=\"30\""
+      },
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {
+        "cache-control": "public, max-age=\"30\""
+      },
+      "default": 86400,
+      "expected": 30
+    },
+    {
+      "headers": {
+        "cache-control": "Max-Age = 50"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "Max-Age = 50"
+      },
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {
+        "cache-control": "Max-Age = 50"
+      },
+      "default": 86400,
+      "expected": 50
+    },
+    {
+      "headers": {
+        "cache-control": "s-maxage=40"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "s-maxage=40"
+      },
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {
+        "cache-control": "s-maxage=40"
+      },
+      "default": 86400,
+      "expected": 86400
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=0"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=0"
+      },
+      "default": 10,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=0"
+      },
+      "default": 86400,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=-1"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=-1"
+      },
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=-1"
+      },
+      "default": 86400,
+      "expected": 86400
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=1.5"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=1.5"
+      },
+      "default": 10,
+      "expected": 1
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=1.5"
+      },
+      "default": 86400,
+      "expected": 1
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=5, max-age=20"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=5, max-age=20"
+      },
+      "default": 10,
+      "expected": 5
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=5, max-age=20"
+      },
+      "default": 86400,
+      "expected": 5
+    },
+    {
+      "headers": {
+        "cache-control": "private"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "private"
+      },
+      "default": 10,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "private"
+      },
+      "default": 86400,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "no-cache"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "no-cache"
+      },
+      "default": 10,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "no-cache"
+      },
+      "default": 86400,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "no-store"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "no-store"
+      },
+      "default": 10,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "no-store"
+      },
+      "default": 86400,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "public, max-age=20, private"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "public, max-age=20, private"
+      },
+      "default": 10,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "public, max-age=20, private"
+      },
+      "default": 86400,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "private-extension=1"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "private-extension=1"
+      },
+      "default": 10,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "private-extension=1"
+      },
+      "default": 86400,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "5"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "5"
+      },
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "5"
+      },
+      "default": 86400,
+      "expected": 15
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "100"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "100"
+      },
+      "default": 10,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "100"
+      },
+      "default": 86400,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "-1"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "-1"
+      },
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {
+        "cache-control": "max-age=20",
+        "age": "-1"
+      },
+      "default": 86400,
+      "expected": 20
+    },
+    {
+      "headers": {
+        "set-cookie": "synthetic=one"
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "set-cookie": "synthetic=one"
+      },
+      "default": 10,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "set-cookie": "synthetic=one"
+      },
+      "default": 86400,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "set-cookie": ""
+      },
+      "default": 0,
+      "expected": 0
+    },
+    {
+      "headers": {
+        "set-cookie": ""
+      },
+      "default": 10,
+      "expected": 10
+    },
+    {
+      "headers": {
+        "set-cookie": ""
+      },
+      "default": 86400,
+      "expected": 86400
+    }
+  ]
+}

@@ -1,0 +1,4904 @@
+{
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "stored": {
+    "userId": "alice",
+    "filename": "Stored 雪🌲.txt",
+    "data": "U3ludGhldGljIHRleHQ="
+  },
+  "result": [
+    [
+      {
+        "document_type": "text",
+        "metadata": {
+          "content": "Synthetic extracted 雪🌲",
+          "content_metadata": {
+            "page_number": 0
+          }
+        }
+      }
+    ]
+  ],
+  "cases": [
+    {
+      "name": "success",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "invalid-reference-1",
+      "request": {
+        "documentRef": null,
+        "username": "alice"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Invalid document reference provided."
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "invalid-reference-2",
+      "request": {
+        "documentRef": {},
+        "username": "alice"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Invalid document reference provided."
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "invalid-reference-3",
+      "request": {
+        "documentRef": [],
+        "username": "alice"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Invalid document reference provided."
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "invalid-reference-4",
+      "request": {
+        "documentRef": "bad",
+        "username": "alice"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Invalid document reference provided."
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "invalid-reference-5",
+      "request": {
+        "documentRef": {
+          "documentId": "id"
+        },
+        "username": "alice"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Document reference must contain documentId and sessionId."
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "invalid-reference-6",
+      "request": {
+        "documentRef": {
+          "sessionId": "session"
+        },
+        "username": "alice"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Document reference must contain documentId and sessionId."
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "user-7",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": ""
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_anonymous_2f183a4e64493af3f377f745eda502363cd3e7ef6e4d266d444758de0",
+            "a85fcc8"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Valid username required for document processing."
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "user-8",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "bob"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_bob_81b637d8fcd2c6da6359e6963113a1170de795e4b725b84d1e0b4cfd9ec58ce",
+            "9"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: You do not have access to this document. Please upload the document again",
+            " from your account."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "user-9",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": " alice "
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "collection-10",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_name": null
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "collection-11",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_name": ""
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "collection-12",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_name": "new"
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": "new_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90",
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": "new_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90",
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "collection-13",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_name": "old_alice"
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": "old_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90",
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": "old_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90",
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "collection-14",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_name": "nvidia"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": "nvidia",
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: Shared collection writes are not permitted through user-facing document i",
+            "ngestion. Ingest into your private collection instead."
+          ]
+        }
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "collection-15",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_name": " NVIDIA "
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": "nvidia",
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: Shared collection writes are not permitted through user-facing document i",
+            "ngestion. Ingest into your private collection instead."
+          ]
+        }
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "scope-16",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_scope": null
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "scope-17",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_scope": "user"
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "scope-18",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_scope": "shared"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: collection_scope 'shared' does not match collection 'user_uploads_alice_2",
+            "bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6e90' (user)."
+          ]
+        }
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "scope-19",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_scope": " USER "
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "scope-20",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "collection_scope": "invalid"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: collection_scope must be 'shared' or 'user'."
+      },
+      "events": [],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "stored-json-21",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "raw": null,
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: Document not found in storage. The file may have expired or the session m",
+            "ay be invalid. Please try uploading the document again."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-json-22",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "raw": "",
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: Document not found in storage. The file may have expired or the session m",
+            "ay be invalid. Please try uploading the document again."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-json-23",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "raw": "not-json",
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error processing document data: Expecting value: line 1 column 1 (char 0)"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-json-24",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "raw": "null",
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error processing document data: 'NoneType' object has no attribute 'get'"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-json-25",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "raw": "[]",
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error processing document data: 'list' object has no attribute 'get'"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-json-26",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "raw": "{}",
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: You do not have access to this document. Please upload the document again",
+            " from your account."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-27",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": null,
+        "filename": "Stored 雪🌲.txt",
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: You do not have access to this document. Please upload the document again",
+            " from your account."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-28",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "",
+        "filename": "Stored 雪🌲.txt",
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: You do not have access to this document. Please upload the document again",
+            " from your account."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-29",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "bob",
+        "filename": "Stored 雪🌲.txt",
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: You do not have access to this document. Please upload the document again",
+            " from your account."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-30",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": " alice ",
+        "filename": "Stored 雪🌲.txt",
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "stored-field-31",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": 1,
+        "filename": "Stored 雪🌲.txt",
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error: You do not have access to this document. Please upload the document again",
+            " from your account."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-32",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": null,
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "success",
+        "filename": "synthetic-document.bin",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "synthetic-document.bin",
+          "message": "Fetched synthetic-document.bin from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "synthetic-document.bin",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "synthetic-document.bin",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "synthetic-document.bin",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "synthetic-document.bin",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "synthetic-document.bin",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "synthetic-document.bin",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "synthetic-document.bin",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "synthetic-document.bin",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "stored-field-33",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": "",
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "success",
+        "filename": "synthetic-document.bin",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "synthetic-document.bin",
+          "message": "Fetched synthetic-document.bin from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "synthetic-document.bin",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "synthetic-document.bin",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "synthetic-document.bin",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "synthetic-document.bin",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "synthetic-document.bin",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "synthetic-document.bin",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "synthetic-document.bin",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "synthetic-document.bin",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "stored-field-34",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": 1,
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "success",
+        "filename": "1",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "1",
+          "message": "Fetched 1 from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "1",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "1",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "1",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "1",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "1",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "1",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "1",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "1",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "stored-field-35",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": "odd.bin",
+        "data": "U3ludGhldGljIHRleHQ="
+      },
+      "expected": {
+        "status": "success",
+        "filename": "odd.bin",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "odd.bin",
+          "message": "Fetched odd.bin from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "odd.bin",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "odd.bin",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "odd.bin",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "odd.bin",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "odd.bin",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "odd.bin",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "odd.bin",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "odd.bin",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "stored-field-36",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": "Stored 雪🌲.txt",
+        "data": null
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Retrieved document data is empty."
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-37",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": "Stored 雪🌲.txt",
+        "data": ""
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Retrieved document data is empty."
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-38",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": "Stored 雪🌲.txt",
+        "data": 1
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Retrieved document data is empty."
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-39",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": "Stored 雪🌲.txt",
+        "data": "invalid"
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error: Retrieved document data is invalid."
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "stored-field-40",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "record": {
+        "userId": "alice",
+        "filename": "Stored 雪🌲.txt",
+        "data": "AA=="
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (1 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "AA==",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "redis-error",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "storage_error": true,
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error accessing document storage: Synthetic storage failure"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "redis-initialization-error",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "redis_initialization_error": true,
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error processing document data: Synthetic Redis initialization failure"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        }
+      ],
+      "reads": [],
+      "builds": []
+    },
+    {
+      "name": "nv-initialization-error",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "nv_initialization_error": true,
+      "expected": {
+        "status": "failure",
+        "filename": "Upload.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "An unexpected error occurred: Synthetic NV initialization failure"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "callback-errors",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "callback_error": true,
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "chunk-overrides",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "chunk_size": 32,
+        "chunk_overlap": 0
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 32,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "config-chunks",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "config": {
+        "chunk_size": 64,
+        "chunk_overlap": 4
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 64,
+          "chunk_overlap": 4
+        }
+      ]
+    },
+    {
+      "name": "provenance",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice",
+        "provenance": {
+          "source": "synthetic"
+        }
+      },
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "build-1",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "error_stage": "build",
+      "failed_attempts": 1,
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "retrying",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest attempt 1/3 failed; retrying",
+          "attempt": 1
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 2
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        },
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "build-3",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "error_stage": "build",
+      "failed_attempts": 3,
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error processing document with NvIngest: Synthetic build failure"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "retrying",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest attempt 1/3 failed; retrying",
+          "attempt": 1
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 2
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "retrying",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest attempt 2/3 failed; retrying",
+          "attempt": 2
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 3
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        },
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        },
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "ingest-1",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "error_stage": "ingest",
+      "failed_attempts": 1,
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "retrying",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest attempt 1/3 failed; retrying",
+          "attempt": 1
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 2
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        },
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "ingest-3",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "error_stage": "ingest",
+      "failed_attempts": 3,
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error processing document with NvIngest: Synthetic ingest failure"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "retrying",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest attempt 1/3 failed; retrying",
+          "attempt": 1
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 2
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "retrying",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest attempt 2/3 failed; retrying",
+          "attempt": 2
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 3
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        },
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        },
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "timeout-1",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "error_stage": "timeout",
+      "failed_attempts": 1,
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error processing document with NvIngest: timed out after 300 seconds. The SDK op",
+            "eration may still be running; collection ownership is retained until it finishes",
+            ". Do not retry blindly."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "timeout-3",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "error_stage": "timeout",
+      "failed_attempts": 3,
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error processing document with NvIngest: timed out after 300 seconds. The SDK op",
+            "eration may still be running; collection ownership is retained until it finishes",
+            ". Do not retry blindly."
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "no-attempts",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "config": {
+        "ingest_max_retries": -1
+      },
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": "Error processing document with NvIngest: None"
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": []
+    },
+    {
+      "name": "results-55",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "results": [],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 0 chunks from 0 pages",
+          "chunks": 0,
+          "pages": 0,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "results-56",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "results": [[]],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 0 chunks from 0 pages",
+          "chunks": 0,
+          "pages": 0,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "results-57",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "results": [null],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 0 chunks from 0 pages",
+          "chunks": 0,
+          "pages": 0,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "results-58",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "results": [{}],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 0 chunks from 0 pages",
+          "chunks": 0,
+          "pages": 0,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "results-59",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "results": [
+        [
+          {
+            "document_type": "text",
+            "metadata": {
+              "content": "Synthetic extracted 雪🌲",
+              "content_metadata": {
+                "page_number": 0
+              }
+            }
+          },
+          {
+            "document_type": "text",
+            "metadata": {
+              "content": "Synthetic extracted 雪🌲",
+              "content_metadata": {
+                "page_number": 0
+              }
+            }
+          }
+        ]
+      ],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 2,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 2 chunks from 1 pages",
+          "chunks": 2,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "results-60",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "results": [
+        [
+          {
+            "document_type": "unknown",
+            "metadata": {}
+          }
+        ]
+      ],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 0 pages",
+          "chunks": 1,
+          "pages": 0,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "failures-61",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "failures": [],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "failures-62",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "failures": [[]],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "failures-63",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "failures": [null],
+      "expected": {
+        "status": "success",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 0,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 0
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "failures-64",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "failures": [["job-id", "Synthetic failure"]],
+      "expected": {
+        "status": "partial",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 2,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 2
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "failures-65",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "failures": [
+        ["a", "b"],
+        ["c", "d"]
+      ],
+      "expected": {
+        "status": "partial",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 1,
+        "failures": 2,
+        "pages": 1,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "Synthetic extracted 雪🌲",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 1 chunks from 1 pages",
+          "chunks": 1,
+          "pages": 1,
+          "failures": 2
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "failed-with-no-results",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "results": [],
+      "failures": [["job-id", "Synthetic failure"]],
+      "expected": {
+        "status": "partial",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 2,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": ""
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "postprocessed",
+          "current": "Stored 雪🌲.txt",
+          "message": "Prepared 0 chunks from 0 pages",
+          "chunks": 0,
+          "pages": 0,
+          "failures": 2
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    },
+    {
+      "name": "render-error",
+      "request": {
+        "documentRef": {
+          "documentId": "synthetic-document",
+          "sessionId": "synthetic-session",
+          "filename": "Upload.txt"
+        },
+        "username": "alice"
+      },
+      "results": [
+        [
+          {
+            "document_type": "text",
+            "metadata": null
+          }
+        ]
+      ],
+      "expected": {
+        "status": "failure",
+        "filename": "Stored 雪🌲.txt",
+        "chunks": 0,
+        "failures": 0,
+        "pages": 0,
+        "collection": {
+          "$string_parts": [
+            "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+            "e90"
+          ]
+        },
+        "markdown": "",
+        "error": {
+          "$string_parts": [
+            "Error processing document with NvIngest: 'NoneType' object has no attribute 'get",
+            "'"
+          ]
+        }
+      },
+      "events": [
+        {
+          "phase": "fetching",
+          "current": "Upload.txt",
+          "message": "Fetching upload from session storage"
+        },
+        {
+          "phase": "fetched",
+          "current": "Stored 雪🌲.txt",
+          "message": "Fetched Stored 雪🌲.txt from document storage (14 bytes)"
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Preparing NV-Ingest pipeline"
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 1
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "retrying",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest attempt 1/3 failed; retrying",
+          "attempt": 1
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 2
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        },
+        {
+          "phase": "retrying",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest attempt 2/3 failed; retrying",
+          "attempt": 2
+        },
+        {
+          "phase": "submitting",
+          "current": "Stored 雪🌲.txt",
+          "message": "Submitting document to NV-Ingest",
+          "attempt": 3
+        },
+        {
+          "phase": "preparing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Building NV-Ingest extraction and Milvus upload pipeline"
+        },
+        {
+          "phase": "processing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest is extracting, chunking, and embedding the document"
+        },
+        {
+          "phase": "indexing",
+          "current": "Stored 雪🌲.txt",
+          "message": "NV-Ingest extraction finished; writing chunks to Milvus"
+        },
+        {
+          "phase": "postprocessing",
+          "current": "Stored 雪🌲.txt",
+          "message": "Converting extracted content to Markdown"
+        }
+      ],
+      "reads": [["JSON.GET", "document:synthetic-session:synthetic-document"]],
+      "builds": [
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        },
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        },
+        {
+          "document_bytes": "U3ludGhldGljIHRleHQ=",
+          "filename": "Stored 雪🌲.txt",
+          "collection_name": {
+            "$string_parts": [
+              "user_uploads_alice_2bd806c97f0e00af1a1fc3328fa763a9269723c8db8fac4f93af71db186d6",
+              "e90"
+            ]
+          },
+          "chunk_size": 1024,
+          "chunk_overlap": 150
+        }
+      ]
+    }
+  ]
+}

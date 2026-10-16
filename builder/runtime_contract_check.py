@@ -3,6 +3,8 @@
 
 import asyncio
 import importlib.util
+import io
+import wave
 from importlib.metadata import distributions, version
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +31,11 @@ def main():
         for dist in distributions()
     ):
         raise RuntimeError("Unexpected NVIDIA NAT dependency")
+    for module in ("speech_recognition", "pydub"):
+        if importlib.util.find_spec(module) is not None:
+            raise RuntimeError(
+                f"Unused transcription dependency is installed: {module}"
+            )
     for name, (minimum, maximum) in SECURITY_DEPENDENCY_RANGES.items():
         installed = Version(version(name))
         if not minimum <= installed < maximum:
@@ -40,6 +47,20 @@ def main():
     load_tool_factories()
     create_app()
     asyncio.run(check_catalog(skills_directory=Path("/skills")))
+    # Removing speech dependencies must preserve local audio metadata conversion.
+    # Exercise the installed converter, which handles missing transcription
+    # dependencies itself, without contacting a speech service.
+    from markitdown import StreamInfo
+    from markitdown.converters import AudioConverter
+
+    audio = io.BytesIO()
+    with wave.open(audio, "wb") as wav:
+        wav.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+        wav.writeframes(b"\x00\x00" * 80)
+    audio.seek(0)
+    converted = AudioConverter().convert(audio, StreamInfo(extension=".wav"))
+    if "Audio Transcript:" in converted.markdown:
+        raise RuntimeError("Audio metadata conversion unexpectedly transcribed speech")
     # The client imports API schemas while constructing each extraction task,
     # but its wheel metadata doesn't declare the API package. Exercise the real
     # paired packages and every file-type path the application exposes. Stub

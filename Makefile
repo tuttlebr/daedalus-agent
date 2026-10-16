@@ -81,11 +81,46 @@ migration: migration-baseline ## differential, Python-free MCP/OAuth, TLS/ACL an
 	mkdir -p $(MIGRATION_REPORT_DIR)
 	$(MIGRATION_PYTHON) builder/migration/differential.py --baseline $(MIGRATION_BASELINE_IMAGE) --candidate $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --output $(MIGRATION_REPORT_DIR)/differential
 	$(MIGRATION_PYTHON) builder/migration/leaf_check.py --image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/leaf.json
-	$(MIGRATION_PYTHON) builder/migration/image_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --compare-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/minimal.json
+	$(MIGRATION_PYTHON) builder/migration/image_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --compare-image $(MIGRATION_BASELINE_IMAGE) --current-python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/minimal.json
+	$(MIGRATION_PYTHON) builder/migration/output_retriever_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/output-retriever.json
+	$(MIGRATION_PYTHON) builder/migration/memory_tools_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/memory-tools.json
+	$(MIGRATION_PYTHON) builder/migration/memory_api_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/memory-api.json
+	$(MIGRATION_PYTHON) builder/migration/profile_import_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/profile-import.json
+	$(MIGRATION_PYTHON) builder/migration/documents_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/documents.json
+	$(MIGRATION_PYTHON) builder/migration/collections_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/collections.json
+	$(MIGRATION_PYTHON) builder/migration/index_transport_check.py --sdk-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/index-transport.json
+	$(MIGRATION_PYTHON) builder/migration/document_runner_check.py --sdk-image $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-runner.json
+	$(MIGRATION_PYTHON) builder/migration/document_reservations_check.py --python-image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-reservations-redis.json
+	$(MIGRATION_PYTHON) builder/migration/document_tool_ingestion_check.py --python-image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-tool-coordinator.json
+	$(MIGRATION_PYTHON) builder/migration/document_tool_extraction_check.py --python-image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-tool-extraction.json
+	$(MIGRATION_PYTHON) builder/migration/document_tool_listing_check.py --python-image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-tool-listing.json
+	$(MIGRATION_PYTHON) builder/migration/embeddings_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/embeddings.json
+	$(MIGRATION_PYTHON) builder/migration/milvus_search_check.py --sdk-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/milvus-search.json
+	$(MIGRATION_PYTHON) builder/migration/document_search_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-search-coordinator.json
+	$(MIGRATION_PYTHON) builder/migration/domain_retriever_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/domain-retriever-services.json
+	$(MIGRATION_PYTHON) builder/migration/domain_retriever_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/domain-retriever-http.json
+	$(MIGRATION_PYTHON) builder/migration/nvidia_docs_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/nvidia-docs-services.json
+	$(MIGRATION_PYTHON) builder/migration/nvidia_docs_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/nvidia-docs-http.json
+	$(MIGRATION_PYTHON) builder/migration/perplexity_search_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/perplexity-search-services.json
+	$(MIGRATION_PYTHON) builder/migration/perplexity_search_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/perplexity-search-http.json
+	$(MIGRATION_PYTHON) builder/migration/user_interaction_check.py --python-image $(RUNTIME_IMAGE) --fixture-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/user-interaction-services.json
+	$(MIGRATION_PYTHON) builder/migration/user_interaction_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/user-interaction-http.json
+	$(MIGRATION_PYTHON) builder/migration/agent_skills_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/agent-skills-processes.json
+	$(MIGRATION_PYTHON) builder/migration/agent_skills_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/agent-skills-http.json
+	$(MIGRATION_PYTHON) builder/migration/llm_sandbox_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/llm-sandbox-services.json
+	$(MIGRATION_PYTHON) builder/migration/llm_sandbox_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/llm-sandbox-http.json
+	$(MIGRATION_PYTHON) builder/migration/public_http_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/public-http-services.json
+	$(MIGRATION_PYTHON) builder/migration/nws_weather_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/nws-point-services.json
+	$(MIGRATION_PYTHON) builder/migration/nws_weather_check.py --weather --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/nws-weather-services.json
+	$(MIGRATION_PYTHON) builder/migration/nws_weather_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/nws-weather-http.json
+	$(MIGRATION_PYTHON) builder/migration/document_tools_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-tools-http.json
+	$(MIGRATION_PYTHON) builder/migration/document_tool_receipts_check.py --image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-tool-receipts-wire.json
+	$(MIGRATION_PYTHON) builder/migration/ingestion_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/ingestion.json
+	$(MIGRATION_PYTHON) builder/migration/document_workers_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-workers.json
 	$(MIGRATION_PYTHON) builder/migration/authorization_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/authorization.json
 
 candidate-browser: ## real frontend/stream worker against the Python-free candidate image
-	cd frontend && E2E_CANDIDATE_IMAGE=$(MIGRATION_MINIMAL_IMAGE) E2E_CANDIDATE_REDIS_IMAGE=$(MIGRATION_REDIS_IMAGE) E2E_PYTHON=$(MIGRATION_PYTHON) npm run e2e -- --project=chromium
+	cd frontend && E2E_CANDIDATE_IMAGE=$(MIGRATION_MINIMAL_IMAGE) E2E_CANDIDATE_REDIS_IMAGE=$(MIGRATION_REDIS_IMAGE) E2E_MILVUS_PEER_IMAGE=$(MIGRATION_BASELINE_IMAGE) E2E_PYTHON=$(MIGRATION_PYTHON) npm run e2e -- --project=chromium
 
 migration-benchmark: ## frozen synthetic performance gates; run on an idle host after make migration
 	$(MIGRATION_PYTHON) builder/migration/benchmark.py --baseline $(MIGRATION_BASELINE_IMAGE) --candidate $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --output $(MIGRATION_REPORT_DIR)/performance

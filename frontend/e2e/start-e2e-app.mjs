@@ -45,6 +45,7 @@ const runtimeEnv = {
   BACKEND_PORT: backendPort,
   BACKEND_API_PATH: '/v1/chat/completions',
   DAEDALUS_INTERNAL_API_TOKEN: 'e2e-internal-token',
+  DAEDALUS_ARTIFACT_PUBLISH_URL: `http://127.0.0.1:${nextPort}/api/internal/sandboxArtifacts`,
   DOCUMENT_OBJECT_ENDPOINT: 'http://127.0.0.1:18333',
   DOCUMENT_OBJECT_ACCESS_KEY: 'e2e-s3-access',
   DOCUMENT_OBJECT_SECRET_KEY: 'e2e-s3-secret-key',
@@ -237,11 +238,15 @@ async function main() {
     if (!process.env.E2E_CANDIDATE_REDIS_IMAGE) {
       throw new Error('Candidate mode requires E2E_CANDIDATE_REDIS_IMAGE');
     }
+    if (!process.env.E2E_MILVUS_PEER_IMAGE) {
+      throw new Error('Candidate mode requires E2E_MILVUS_PEER_IMAGE');
+    }
     startChild('candidate-backend', [
       process.env.E2E_PYTHON || 'python3',
       '../builder/migration/serve_candidate.py',
       '--image', process.env.E2E_CANDIDATE_IMAGE,
       '--redis-image', process.env.E2E_CANDIDATE_REDIS_IMAGE,
+      '--milvus-image', process.env.E2E_MILVUS_PEER_IMAGE,
       '--port', backendPort,
     ]);
   } else {

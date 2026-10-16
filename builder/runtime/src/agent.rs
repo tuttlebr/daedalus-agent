@@ -931,6 +931,179 @@ impl Agent {
     ) -> Result<ToolOutcome> {
         let (name, arguments) = invocation;
         if let Some(preparation) = &preparation
+            && (preparation.document_tools.contains_key(name)
+                || preparation.domain_tools.contains_key(name)
+                || preparation.search_tools.contains_key(name)
+                || preparation.user_tools.contains_key(name)
+                || preparation.skill_tools.contains_key(name)
+                || preparation.sandbox_tools.contains_key(name)
+                || preparation.weather_tools.contains_key(name)
+                || preparation.docs_tools.contains_key(name))
+        {
+            let call = async {
+                if let Some(tool) = preparation.skill_tools.get(name) {
+                    return tool
+                        .call(arguments)
+                        .await
+                        .map(|(text, loaded)| (crate::document_json::Text::from(text), loaded));
+                }
+                let result = if let Some(tool) = preparation.document_tools.get(name) {
+                    tool.call(arguments, &headers).await
+                } else if let Some(tool) = preparation.sandbox_tools.get(name) {
+                    tool.call(arguments, &headers).await
+                } else if let Some(tool) = preparation.weather_tools.get(name) {
+                    tool.call(arguments).await
+                } else if let Some(tool) = preparation.user_tools.get(name) {
+                    tool.call(
+                        arguments,
+                        &headers,
+                        &preparation.memory,
+                        &preparation.memory_tools.hindsight,
+                    )
+                    .await
+                    .map(crate::document_json::Text::from)
+                } else if let Some(tool) = preparation.search_tools.get(name) {
+                    tool.call(arguments)
+                        .await
+                        .map(crate::document_json::Text::from)
+                } else if let Some(tool) = preparation.docs_tools.get(name) {
+                    let limit = preparation
+                        .outputs
+                        .settings
+                        .max_original
+                        .saturating_mul(6)
+                        .saturating_add(8 * 1024 * 1024);
+                    tool.call(arguments, limit)
+                        .await
+                        .map(crate::document_json::Text::from)
+                } else {
+                    preparation.domain_tools[name]
+                        .search(arguments)
+                        .await
+                        .map(crate::document_json::Text::from)
+                };
+                result.map(|text| (text, vec![]))
+            };
+            tokio::pin!(call);
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+            heartbeat.tick().await;
+            let result = loop {
+                tokio::select! {
+                    result = &mut call => break result,
+                    _ = heartbeat.tick() => events.raw(": tool active\n\n".into()).await?,
+                }
+            };
+            let (content, is_error, loaded_skills) = match result {
+                Ok((text, loaded)) => {
+                    // Receipt completion precedes this encoding boundary. An
+                    // unencodable result fails its stream, just as the executor
+                    // does, while its accepted write remains completed.
+                    let content = text.into_utf8()?;
+                    let failed = content.starts_with("Error:")
+                        || preparation.docs_tools.contains_key(name)
+                            && serde_json::from_str::<Value>(&content)
+                                .is_ok_and(|value| crate::config::truthy(&value["error"]));
+                    (content, failed, loaded)
+                }
+                Err(error) => (crate::document_tools::error_content(&error), true, vec![]),
+            };
+            let content = preparation
+                .outputs
+                .optimize(
+                    crate::preparation::header(&headers, "x-user-id"),
+                    name,
+                    context["query"].as_str().unwrap_or(""),
+                    &crate::output::redact_approval_markers(&content),
+                )
+                .await;
+            let outcome = ToolOutcome {
+                content,
+                is_error,
+                loaded_skills,
+                ..Default::default()
+            };
+            if legacy_tool_event_size(&json!({"event":"result","data":outcome})) > 8 * 1024 * 1024 {
+                bail!("Tool event exceeds size limit");
+            }
+            return Ok(outcome);
+        }
+        if let Some(preparation) = &preparation
+            && preparation.config.raw["functions"][name]["_type"] == "tool_output_retriever"
+        {
+            // Retain executor validation, marker redaction and output policy.
+            if let Some(error) = crate::output_retriever::input_error(arguments) {
+                return Ok(ToolOutcome {
+                    content: error.into(),
+                    is_error: true,
+                    ..Default::default()
+                });
+            }
+            let content = crate::output_retriever::retrieve(
+                &preparation.output_readers[name],
+                &preparation.config.raw["functions"][name],
+                crate::preparation::header(&headers, "x-user-id"),
+                arguments,
+            )
+            .await?;
+            let is_error = serde_json::from_str::<Value>(&content)
+                .is_ok_and(|v| crate::config::truthy(&v["error"]));
+            let content = preparation
+                .outputs
+                .optimize(
+                    crate::preparation::header(&headers, "x-user-id"),
+                    name,
+                    context["query"].as_str().unwrap_or(""),
+                    &crate::output::redact_approval_markers(&content),
+                )
+                .await;
+            return Ok(ToolOutcome {
+                content,
+                is_error,
+                ..Default::default()
+            });
+        }
+        if let Some(preparation) = &preparation
+            && crate::memory_tools::owns(
+                preparation.config.raw["functions"][name]["_type"]
+                    .as_str()
+                    .unwrap_or(""),
+            )
+        {
+            let call = preparation.memory_tools.call(
+                &preparation.config.raw["functions"][name],
+                arguments,
+                &headers,
+            );
+            tokio::pin!(call);
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+            heartbeat.tick().await;
+            let content = loop {
+                tokio::select! {
+                    content = &mut call => break content,
+                    _ = heartbeat.tick() => events.raw(": tool active\n\n".into()).await?,
+                }
+            };
+            let is_error = content.starts_with("Error:") || content.starts_with("Tool failed (");
+            let content = preparation
+                .outputs
+                .optimize(
+                    crate::preparation::header(&headers, "x-user-id"),
+                    name,
+                    context["query"].as_str().unwrap_or(""),
+                    &crate::output::redact_approval_markers(&content),
+                )
+                .await;
+            let outcome = ToolOutcome {
+                content,
+                is_error,
+                ..Default::default()
+            };
+            if legacy_tool_event_size(&json!({"event":"result","data":outcome})) > 8 * 1024 * 1024 {
+                bail!("Tool event exceeds size limit");
+            }
+            return Ok(outcome);
+        }
+        if let Some(preparation) = &preparation
             && let Some(mcp) = &preparation.mcp
             && mcp.owns(name)
         {

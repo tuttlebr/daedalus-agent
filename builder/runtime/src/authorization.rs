@@ -53,7 +53,7 @@ impl Locks {
 static CASEFOLD: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../resources/casefold-unicode-15.json")).unwrap()
 });
-fn fold(text: &str) -> String {
+pub(crate) fn fold(text: &str) -> String {
     text.chars()
         .map(|c| {
             CASEFOLD

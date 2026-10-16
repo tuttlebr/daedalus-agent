@@ -1,0 +1,282 @@
+{
+  "schema": {
+    "name": "domain_search",
+    "description": "Search one curated Milvus knowledge domain. Args: query, domain (nvidia, semianalysis, kubernetes, veterinarian, mentalhealth), optional top_k and filters. Returns reranked passages with metadata.",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top K"
+        },
+        "filters": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filters"
+        }
+      },
+      "required": ["query", "domain"],
+      "title": "search_domainInput",
+      "type": "object"
+    }
+  },
+  "configuration_schema": {
+    "additionalProperties": false,
+    "description": "Configuration for one routed Milvus retriever over curated domains.",
+    "properties": {
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "verbose": {
+        "default": false,
+        "title": "Verbose",
+        "type": "boolean"
+      },
+      "uri": {
+        "description": "Milvus service URI",
+        "format": "uri",
+        "maxLength": 2083,
+        "minLength": 1,
+        "title": "Uri",
+        "type": "string"
+      },
+      "connection_args": {
+        "additionalProperties": true,
+        "description": "Milvus connection/auth arguments.",
+        "title": "Connection Args",
+        "type": "object"
+      },
+      "embedding_model": {
+        "description": "Embedder name used to vectorize the query",
+        "title": "Embedding Model",
+        "type": "string"
+      },
+      "database_name": {
+        "default": "default",
+        "description": "Milvus database name",
+        "title": "Database Name",
+        "type": "string"
+      },
+      "domain_collections": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Map of logical domain names to Milvus collection names.",
+        "title": "Domain Collections",
+        "type": "object"
+      },
+      "content_field": {
+        "default": "text",
+        "description": "Content field name",
+        "title": "Content Field",
+        "type": "string"
+      },
+      "vector_field": {
+        "default": "vector",
+        "description": "Vector field name used for similarity search",
+        "title": "Vector Field",
+        "type": "string"
+      },
+      "top_k": {
+        "default": 10,
+        "description": "Number of chunks to retrieve",
+        "exclusiveMinimum": 0,
+        "maximum": 50,
+        "title": "Top K",
+        "type": "integer"
+      },
+      "distance_cutoff": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional distance cutoff before reranking",
+        "title": "Distance Cutoff"
+      },
+      "output_fields": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional output fields returned from Milvus",
+        "title": "Output Fields"
+      },
+      "search_params": {
+        "additionalProperties": true,
+        "description": "Milvus search params",
+        "title": "Search Params",
+        "type": "object"
+      },
+      "search_timeout": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 30.0,
+        "description": "Per-request timeout (seconds) applied to every Milvus call and bounding the overall search. None disables the timeout.",
+        "title": "Search Timeout"
+      },
+      "use_reranker": {
+        "default": true,
+        "description": "Whether to rerank retrieved chunks",
+        "title": "Use Reranker",
+        "type": "boolean"
+      },
+      "reranker_endpoint": {
+        "anyOf": [
+          {
+            "format": "uri",
+            "maxLength": 2083,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Reranker endpoint URL",
+        "title": "Reranker Endpoint"
+      },
+      "reranker_model": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Reranker model",
+        "title": "Reranker Model"
+      },
+      "reranker_top_n": {
+        "anyOf": [
+          {
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Number of reranked chunks to keep",
+        "title": "Reranker Top N"
+      },
+      "reranker_min_score": {
+        "anyOf": [
+          {
+            "minimum": 0.0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional minimum reranker relevance score",
+        "title": "Reranker Min Score"
+      },
+      "reranker_api_key": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Reranker API key",
+        "title": "Reranker Api Key"
+      }
+    },
+    "required": ["uri", "embedding_model"],
+    "title": "DomainRetrieverConfig",
+    "type": "object"
+  },
+  "defaults": {
+    "description": null,
+    "verbose": false,
+    "uri": "http://milvus:19530/",
+    "connection_args": {},
+    "embedding_model": "synthetic",
+    "database_name": "default",
+    "domain_collections": {
+      "nvidia": "nvidia",
+      "semianalysis": "semianalysis",
+      "kubernetes": "kubernetes",
+      "veterinarian": "vetpartner",
+      "mentalhealth": "mentalhealth"
+    },
+    "content_field": "text",
+    "vector_field": "vector",
+    "top_k": 10,
+    "distance_cutoff": null,
+    "output_fields": null,
+    "search_params": {
+      "metric_type": "L2"
+    },
+    "search_timeout": 30.0,
+    "use_reranker": true,
+    "reranker_endpoint": null,
+    "reranker_model": null,
+    "reranker_top_n": null,
+    "reranker_min_score": null,
+    "reranker_api_key": null
+  }
+}

@@ -10,7 +10,8 @@ dependencies = [
   "fastfeedparser>=0.5.10,<0.6",
   "httpx>=0.28",
   "cachetools>=6.2.1",
-  "markitdown[all]",
+  # Keep document converters without the unused audio-transcription extra.
+  "markitdown[az-content-understanding,az-doc-intel,docx,outlook,pdf,pptx,xls,xlsx,youtube-transcription]",
   "pydantic>=2,<2.14",
   "tiktoken>=0.5.0",
 ]

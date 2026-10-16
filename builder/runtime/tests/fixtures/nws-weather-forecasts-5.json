@@ -1,0 +1,1830 @@
+{
+  "forecasts": [
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": []
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": {}
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": {}
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "bad"
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "bad"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": null,
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": 0,
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": false,
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": [],
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": {},
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "bad",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": null,
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": 0,
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": false,
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": [],
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": {},
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "bad",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": null,
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": null,
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": "",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": 0,
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": 0,
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": false,
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": false,
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": [],
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": [],
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": {},
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": {},
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "period-field",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "bad",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": "bad",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": null,
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "error": "AttributeError",
+        "message": "'NoneType' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": [],
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "error": "AttributeError",
+        "message": "'list' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": 0,
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "error": "AttributeError",
+        "message": "'int' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": {},
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "partial",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": null,
+          "freshness": "stale_or_unknown",
+          "missing_period_values": false,
+          "timezone": "America/Detroit",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": false,
+            "gaps": [
+              {
+                "start": "2026-10-14T12:00:00+00:00",
+                "end": "2026-10-18T00:00:00-04:00"
+              }
+            ]
+          },
+          "periods": []
+        }
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": {
+        "properties": null
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "error": "AttributeError",
+        "message": "'NoneType' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": {
+        "properties": []
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "error": "AttributeError",
+        "message": "'list' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": {
+        "properties": {
+          "periods": null
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "error": "TypeError",
+        "message": "'NoneType' object is not iterable"
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": {
+        "properties": {
+          "periods": [null]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "error": "AttributeError",
+        "message": "'NoneType' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "response-type",
+      "payload": {
+        "properties": {
+          "periods": [1]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/Detroit",
+      "days": 4,
+      "expected": {
+        "error": "AttributeError",
+        "message": "'int' object has no attribute 'get'"
+      }
+    },
+    {
+      "name": "timezone",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "",
+      "days": 4,
+      "expected": {
+        "error": "ValueError",
+        "message": "ZoneInfo keys must be normalized relative paths, got: "
+      }
+    },
+    {
+      "name": "timezone",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "Invalid/Zone",
+      "days": 4,
+      "expected": {
+        "error": "ZoneInfoNotFoundError",
+        "message": "'No time zone found with key Invalid/Zone'"
+      }
+    },
+    {
+      "name": "timezone",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "/etc/passwd",
+      "days": 4,
+      "expected": {
+        "error": "ValueError",
+        "message": "ZoneInfo keys may not be absolute paths, got: /etc/passwd"
+      }
+    },
+    {
+      "name": "timezone",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "../UTC",
+      "days": 4,
+      "expected": {
+        "error": "ValueError",
+        "message": "ZoneInfo keys must refer to subdirectories of TZPATH, got: ../UTC"
+      }
+    },
+    {
+      "name": "timezone",
+      "payload": {
+        "properties": {
+          "updateTime": "2026-10-14T12:00:00+00:00",
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      },
+      "now": "2026-10-14T12:00:00+00:00",
+      "fetched_at": "2026-10-14T12:00:00+00:00",
+      "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+      "timezone": "America/New_York",
+      "days": 4,
+      "expected": {
+        "ok": {
+          "status": "ok",
+          "source_url": "https://api.weather.gov/gridpoints/DTX/1,1/forecast",
+          "fetched_at": "2026-10-14T12:00:00+00:00",
+          "issued_at": "2026-10-14T12:00:00+00:00",
+          "freshness": "current",
+          "missing_period_values": false,
+          "timezone": "America/New_York",
+          "coverage": {
+            "dates": ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+            "start": "2026-10-14T08:00:00-04:00",
+            "end": "2026-10-18T00:00:00-04:00",
+            "today": "remaining_hours",
+            "complete": true,
+            "gaps": []
+          },
+          "periods": [
+            {
+              "name": "Synthetic forecast 雪🌲",
+              "startTime": "2026-10-14T12:00:00+00:00",
+              "endTime": "2026-10-19T12:00:00+00:00",
+              "isDaytime": true,
+              "temperature": 70,
+              "temperatureUnit": "F",
+              "probabilityOfPrecipitation": {
+                "unitCode": "wmoUnit:percent",
+                "value": 20
+              },
+              "windSpeed": "5 mph",
+              "windDirection": "N",
+              "shortForecast": "Synthetic sunny forecast",
+              "detailedForecast": "Synthetic weather evidence."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

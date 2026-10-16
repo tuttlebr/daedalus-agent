@@ -1,0 +1,5115 @@
+{
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "cases": [
+    {
+      "name": "shape-0",
+      "rows_json": "[]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qCghlEgZ2ZWN0b3IqCggXEgZzb3VyY2UqFAgXEhBjb250ZW50X21l",
+            "dGFkYXRhKggIFRIEdGV4dCoLCBcSBSRtZXRhMAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "shape-1",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "shape-2",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"},",
+          " {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhcIFxIFJG1ldGEaCkoICgJ7",
+            "fQoCe30wATgC"
+          ]
+        }
+      }
+    },
+    {
+      "name": "shape-3",
+      "rows_json": "[{}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Insert missed an field `vector` to coll",
+            "ection without set nullable==true or set default_value)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "shape-4",
+      "rows_json": "[null]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "TypeError",
+        "message": "argument of type 'NoneType' is not iterable"
+      }
+    },
+    {
+      "name": "shape-5",
+      "rows_json": "[1]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "TypeError",
+        "message": "argument of type 'int' is not iterable"
+      }
+    },
+    {
+      "name": "shape-6",
+      "rows_json": "[\"abc\"]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, please check it.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "shape-7",
+      "rows_json": "[[]]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, please check it.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "missing-vector",
+      "rows_json": "[{\"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Insert missed an field `vector` to coll",
+            "ection without set nullable==true or set default_value)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "null-vector",
+      "rows_json": "[{\"vector\": null, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qDghlEgZ2ZWN0b3IiAggCKhIIFxIGc291cmNlGgZKBAoCe30qGwgX",
+            "EhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0aWMg6Zuq8J+MsioT",
+            "CBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "missing-source",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Insert missed an field `source` to coll",
+            "ection without set nullable==true or set default_value)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "null-source",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": null, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"",
+          "}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Kg4IFxIGc291cmNl",
+            "GgJKACobCBcSEGNvbnRlbnRfbWV0YWRhdGEaAkoAOgEAKh8IFRIEdGV4dBoVMhMKEVN5bnRoZXRpYyDp",
+            "m6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "missing-text",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Insert missed an field `text` to collec",
+            "tion without set nullable==true or set default_value)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "null-text",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": null}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACoMCBUSBHRleHQaAjIAKhMIFxIFJG1l",
+            "dGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "field-order-vector-source",
+      "rows_json": "[{\"vector\": 1, \"source\": \"bad\", \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'in",
+            "t'>} instead. Detail: object of type 'int' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "row-order-vector-source",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": 1, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}, {\"vector\":",
+          " [0.25, -0.5], \"source\": \"bad\", \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'in",
+            "t'>} instead. Detail: object of type 'int' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "field-order-vector-text",
+      "rows_json": "[{\"vector\": 1, \"text\": true, \"source\": {}}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'in",
+            "t'>} instead. Detail: object of type 'int' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "row-order-vector-text",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": 1, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}, {\"vector\":",
+          " [0.25, -0.5], \"source\": {}, \"text\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'in",
+            "t'>} instead. Detail: object of type 'int' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "invalid-before-missing-vector",
+      "rows_json": "[{\"vector\": 1}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'in",
+            "t'>} instead. Detail: object of type 'int' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "field-order-source-vector",
+      "rows_json": "[{\"source\": \"bad\", \"vector\": false, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: 'bad')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "row-order-source-vector",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"bad\", \"text\": \"Synthetic \\u96ea\\ud83c\\udf32",
+          "\"}, {\"vector\": false, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: 'bad')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "field-order-source-text",
+      "rows_json": "[{\"source\": \"bad\", \"text\": true, \"vector\": [0.25, -0.5]}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: 'bad')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "row-order-source-text",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"bad\", \"text\": \"Synthetic \\u96ea\\ud83c\\udf32",
+          "\"}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: 'bad')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "invalid-before-missing-source",
+      "rows_json": "[{\"source\": \"bad\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: 'bad')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "field-order-text-vector",
+      "rows_json": "[{\"text\": 2, \"vector\": false, \"source\": {}}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'int'>} in",
+            "stead. Detail: 'int' object is not iterable)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "row-order-text-vector",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": 2}, {\"vector\": false, \"source\": ",
+          "{}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'int'>} in",
+            "stead. Detail: 'int' object is not iterable)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "field-order-text-source",
+      "rows_json": "[{\"text\": 2, \"source\": \"bad\", \"vector\": [0.25, -0.5]}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'int'>} in",
+            "stead. Detail: 'int' object is not iterable)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "row-order-text-source",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": 2}, {\"vector\": [0.25, -0.5], \"so",
+          "urce\": \"bad\", \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'int'>} in",
+            "stead. Detail: 'int' object is not iterable)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "invalid-before-missing-text",
+      "rows_json": "[{\"text\": 2}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'int'>} in",
+            "stead. Detail: 'int' object is not iterable)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-29",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"custom\": 1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected field `",
+            "custom` to collection without enabling dynamic field)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-30",
+      "rows_json": "[{\"custom\": 1, \"text\": 2}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected field `",
+            "custom` to collection without enabling dynamic field)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-31",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"$meta\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected field `",
+            "$meta` to collection without enabling dynamic field)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-32",
+      "rows_json": "[{\"$meta\": {}, \"text\": 2}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected field `",
+            "$meta` to collection without enabling dynamic field)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-33",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 7}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAUSAnBrGgUaAwoBBzgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-34",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"},",
+          " {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 7}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected field `",
+            "pk` to collection without enabling dynamic field)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-35",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 7}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c",
+          "\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Insert missed an field `pk` to collecti",
+            "on without set nullable==true or set default_value)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-36",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioKCAUSAnBrGgIaADgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-37",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'bool'>} inste",
+            "ad. Detail: Field milvus.proto.schema.LongArray.data: Expected an int, got a boo",
+            "lean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-38",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 1.0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'float'>} inst",
+            "ead. Detail: 'float' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-39",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'int'>} instea",
+            "d. Detail: Value out of range: 9223372036854775808)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-40",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'str'>} instea",
+            "d. Detail: 'str' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-41",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'list'>} inste",
+            "ad. Detail: 'list' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-False-42",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'dict'>} inste",
+            "ad. Detail: 'dict' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "function-False-43",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SCGNvbXB1dGVkKAWAAQE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsjgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "function-False-44",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"computed\": 1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SCGNvbXB1dGVkKAWAAQE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected functio",
+            "n output field `computed` to collection)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "function-False-45",
+      "rows_json": "[{\"computed\": 1, \"text\": 2}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SCGNvbXB1dGVkKAWAAQE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected functio",
+            "n output field `computed` to collection)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-46",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"custom\": 1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsiodCBcSBSRtZXRhGhBKDgoMeyJjdXN0b20iOjF9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-47",
+      "rows_json": "[{\"custom\": 1, \"text\": 2}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'int'>} in",
+            "stead. Detail: 'int' object is not iterable)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-48",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"$meta\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "AttributeError",
+        "message": "get"
+      }
+    },
+    {
+      "name": "dynamic-True-49",
+      "rows_json": "[{\"$meta\": {}, \"text\": 2}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "AttributeError",
+        "message": "get"
+      }
+    },
+    {
+      "name": "dynamic-True-50",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 7}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAUSAnBrGgUaAwoBByoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-51",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"},",
+          " {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 7}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKh0IFxIFJG1ldGEaEEoOCgJ7",
+            "fQoIeyJwayI6N30wATgC"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-52",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 7}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c",
+          "\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Insert missed an field `pk` to collecti",
+            "on without set nullable==true or set default_value)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-53",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioKCAUSAnBrGgIaACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-54",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'bool'>} inste",
+            "ad. Detail: Field milvus.proto.schema.LongArray.data: Expected an int, got a boo",
+            "lean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-55",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 1.0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'float'>} inst",
+            "ead. Detail: 'float' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-56",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'int'>} instea",
+            "d. Detail: Value out of range: 9223372036854775808)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-57",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'str'>} instea",
+            "d. Detail: 'str' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-58",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'list'>} inste",
+            "ad. Detail: 'list' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-True-59",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"pk\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {pk} field should be a int64, but got a {<class 'dict'>} inste",
+            "ad. Detail: 'dict' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "function-True-60",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SCGNvbXB1dGVkKAWAAQEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "function-True-61",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"computed\": 1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SCGNvbXB1dGVkKAWAAQEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected functio",
+            "n output field `computed` to collection)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "function-True-62",
+      "rows_json": "[{\"computed\": 1, \"text\": 2}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SCGNvbXB1dGVkKAWAAQEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Attempt to insert an unexpected functio",
+            "n output field `computed` to collection)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-63",
+      "rows_json": "[{\"vector\": null, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qDghlEgZ2ZWN0b3IiAggCKhIIFxIGc291cmNlGgZKBAoCe30qGwgX",
+            "EhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0aWMg6Zuq8J+MsioT",
+            "CBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-64",
+      "rows_json": "[{\"vector\": true, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'bo",
+            "ol'>} instead. Detail: object of type 'bool' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-65",
+      "rows_json": "[{\"vector\": false, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'bo",
+            "ol'>} instead. Detail: object of type 'bool' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-66",
+      "rows_json": "[{\"vector\": 0, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'in",
+            "t'>} instead. Detail: object of type 'int' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-67",
+      "rows_json": "[{\"vector\": 1, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'in",
+            "t'>} instead. Detail: object of type 'int' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-68",
+      "rows_json": "[{\"vector\": 1.5, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'fl",
+            "oat'>} instead. Detail: object of type 'float' has no len())>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-69",
+      "rows_json": "[{\"vector\": \"\", \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qDghlEgZ2ZWN0b3IiAhIAKhIIFxIGc291cmNlGgZKBAoCe30qGwgX",
+            "EhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0aWMg6Zuq8J+MsioT",
+            "CBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-70",
+      "rows_json": "[{\"vector\": \"12\", \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'st",
+            "r'>} instead. Detail: must be real number, not str)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-71",
+      "rows_json": "[{\"vector\": {}, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qDghlEgZ2ZWN0b3IiAhIAKhIIFxIGc291cmNlGgZKBAoCe30qGwgX",
+            "EhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0aWMg6Zuq8J+MsioT",
+            "CBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-72",
+      "rows_json": "[{\"vector\": {\"1\": 2}, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'di",
+            "ct'>} instead. Detail: must be real number, not str)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-73",
+      "rows_json": "[{\"vector\": [], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qDghlEgZ2ZWN0b3IiAhIAKhIIFxIGc291cmNlGgZKBAoCe30qGwgX",
+            "EhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0aWMg6Zuq8J+MsioT",
+            "CBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-74",
+      "rows_json": "[{\"vector\": [1, true], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD8AAIA/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-75",
+      "rows_json": "[{\"vector\": [null], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'li",
+            "st'>} instead. Detail: must be real number, not NoneType)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-76",
+      "rows_json": "[{\"vector\": [\"1\"], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'li",
+            "st'>} instead. Detail: must be real number, not str)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-77",
+      "rows_json": "[{\"vector\": [[]], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'li",
+            "st'>} instead. Detail: must be real number, not list)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-78",
+      "rows_json": "[{\"vector\": [{}], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {vector} field should be a float_vector, but got a {<class 'li",
+            "st'>} instead. Detail: must be real number, not dict)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-79",
+      "rows_json": "[{\"vector\": [1e+100], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qFghlEgZ2ZWN0b3IiCggBEgYKBAAAgH8qEggXEgZzb3VyY2UaBkoE",
+            "CgJ7fSobCBcSEGNvbnRlbnRfbWV0YWRhdGEaAkoAOgEAKh8IFRIEdGV4dBoVMhMKEVN5bnRoZXRpYyDp",
+            "m6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-80",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [18446744073709551616], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83",
+          "c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qFghlEgZ2ZWN0b3IiCggBEgYKBAAAgF8qEggXEgZzb3VyY2UaBkoE",
+            "CgJ7fSobCBcSEGNvbnRlbnRfbWV0YWRhdGEaAkoAOgEAKh8IFRIEdGV4dBoVMhMKEVN5bnRoZXRpYyDp",
+            "m6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-81",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [1000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "error": "OverflowError",
+        "message": "int too large to convert to float"
+      }
+    },
+    {
+      "name": "vector-rows-82",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": null, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}, {\"vecto",
+          "r\": [], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qDghlEgZ2ZWN0b3IiAhIAKhYIFxIGc291cmNlGgpKCAoCe30KAnt9",
+            "KhwIFxIQY29udGVudF9tZXRhZGF0YRoCSgA6AgAAKjIIFRIEdGV4dBooMiYKEVN5bnRoZXRpYyDpm6rw",
+            "n4yyChFTeW50aGV0aWMg6Zuq8J+MsioXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-rows-83",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}, {\"vector\"",
+          ": null, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qEAhlEgZ2ZWN0b3IiBAgCEgAqFggXEgZzb3VyY2UaCkoICgJ7fQoC",
+            "e30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0GigyJgoRU3ludGhldGljIOmb",
+            "qvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhcIFxIFJG1ldGEaCkoICgJ7fQoCe30wATgC"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-rows-84",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [1], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}, {\"vector",
+          "\": [2, 3], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qHghlEgZ2ZWN0b3IiEggCEg4KDAAAgD8AAABAAABAQCoWCBcSBnNv",
+            "dXJjZRoKSggKAnt9CgJ7fSocCBcSEGNvbnRlbnRfbWV0YWRhdGEaAkoAOgIAACoyCBUSBHRleHQaKDIm",
+            "ChFTeW50aGV0aWMg6Zuq8J+MsgoRU3ludGhldGljIOmbqvCfjLIqFwgXEgUkbWV0YRoKSggKAnt9CgJ7",
+            "fTABOAI="
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-rows-85",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [1], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}, {\"vector",
+          "\": null, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qFghlEgZ2ZWN0b3IiCggBEgYKBAAAgD8qFggXEgZzb3VyY2UaCkoI",
+            "CgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0GigyJgoRU3ludGhl",
+            "dGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhcIFxIFJG1ldGEaCkoICgJ7fQoCe30wATgC"
+          ]
+        }
+      }
+    },
+    {
+      "name": "vector-rows-86",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": null, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}, {\"vecto",
+          "r\": null, \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1KAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qDghlEgZ2ZWN0b3IiAggCKhYIFxIGc291cmNlGgpKCAoCe30KAnt9",
+            "KhwIFxIQY29udGVudF9tZXRhZGF0YRoCSgA6AgAAKjIIFRIEdGV4dBooMiYKEVN5bnRoZXRpYyDpm6rw",
+            "n4yyChFTeW50aGV0aWMg6Zuq8J+MsioXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-87",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAESBWV4dHJhGgIKACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-88",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": false}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAESBWV4dHJhGgUKAwoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-89",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAESBWV4dHJhGgUKAwoBASoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-90",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAESBWV4dHJhGgUKAwoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-91",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAESBWV4dHJhGgUKAwoBASoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-92",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1.5}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a bool, but got a {<class 'float'>} in",
+            "stead. Detail: 'float' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-93",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a bool, but got a {<class 'str'>} inst",
+            "ead. Detail: 'str' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-94",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a bool, but got a {<class 'list'>} ins",
+            "tead. Detail: 'list' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-95",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a bool, but got a {<class 'dict'>} ins",
+            "tead. Detail: 'dict' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-96",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 2147483648}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAESBWV4dHJhGgUKAwoBASoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-1-97",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "OverflowError",
+        "message": "Python int too large to convert to C long"
+      }
+    },
+    {
+      "name": "scalar-1-98",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -9223372036854775809}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "OverflowError",
+        "message": "Python int too large to convert to C long"
+      }
+    },
+    {
+      "name": "scalar-1-99",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 10000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAEoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "OverflowError",
+        "message": "Python int too large to convert to C long"
+      }
+    },
+    {
+      "name": "scalar-2-100",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAISBWV4dHJhGgISACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-101",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": false}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'bool'>} inst",
+            "ead. Detail: Field milvus.proto.schema.IntArray.data: Expected an int, got a boo",
+            "lean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-102",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'bool'>} inst",
+            "ead. Detail: Field milvus.proto.schema.IntArray.data: Expected an int, got a boo",
+            "lean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-103",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAISBWV4dHJhGgUSAwoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-104",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioZCAISBWV4dHJhGg4SDAoK////////////ASoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-105",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1.5}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'float'>} ins",
+            "tead. Detail: 'float' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-106",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'str'>} inste",
+            "ad. Detail: 'str' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-107",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'list'>} inst",
+            "ead. Detail: 'list' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-108",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'dict'>} inst",
+            "ead. Detail: 'dict' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-109",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 2147483648}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 2147483648)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-110",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 9223372036854775808)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-111",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -9223372036854775809}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: -9223372036854775809)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-2-112",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 10000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAIoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 100000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "000000000000000000000000000000000)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-113",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAMSBWV4dHJhGgISACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-114",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": false}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'bool'>} inst",
+            "ead. Detail: Field milvus.proto.schema.IntArray.data: Expected an int, got a boo",
+            "lean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-115",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'bool'>} inst",
+            "ead. Detail: Field milvus.proto.schema.IntArray.data: Expected an int, got a boo",
+            "lean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-116",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAMSBWV4dHJhGgUSAwoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-117",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioZCAMSBWV4dHJhGg4SDAoK////////////ASoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-118",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1.5}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'float'>} ins",
+            "tead. Detail: 'float' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-119",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'str'>} inste",
+            "ad. Detail: 'str' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-120",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'list'>} inst",
+            "ead. Detail: 'list' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-121",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'dict'>} inst",
+            "ead. Detail: 'dict' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-122",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 2147483648}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 2147483648)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-123",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 9223372036854775808)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-124",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -9223372036854775809}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: -9223372036854775809)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-3-125",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 10000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAMoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 100000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "000000000000000000000000000000000)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-126",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAQSBWV4dHJhGgISACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-127",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": false}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'bool'>} inst",
+            "ead. Detail: Field milvus.proto.schema.IntArray.data: Expected an int, got a boo",
+            "lean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-128",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'bool'>} inst",
+            "ead. Detail: Field milvus.proto.schema.IntArray.data: Expected an int, got a boo",
+            "lean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-129",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAQSBWV4dHJhGgUSAwoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-130",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioZCAQSBWV4dHJhGg4SDAoK////////////ASoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-131",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1.5}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'float'>} ins",
+            "tead. Detail: 'float' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-132",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'str'>} inste",
+            "ad. Detail: 'str' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-133",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'list'>} inst",
+            "ead. Detail: 'list' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-134",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'dict'>} inst",
+            "ead. Detail: 'dict' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-135",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 2147483648}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 2147483648)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-136",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 9223372036854775808)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-137",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -9223372036854775809}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: -9223372036854775809)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-4-138",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 10000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAQoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int, but got a {<class 'int'>} inste",
+            "ad. Detail: Value out of range: 100000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "000000000000000000000000000000000)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-139",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAUSBWV4dHJhGgIaACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-140",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": false}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'bool'>} in",
+            "stead. Detail: Field milvus.proto.schema.LongArray.data: Expected an int, got a ",
+            "boolean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-141",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'bool'>} in",
+            "stead. Detail: Field milvus.proto.schema.LongArray.data: Expected an int, got a ",
+            "boolean.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-142",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgUaAwoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-143",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioZCAUSBWV4dHJhGg4aDAoK////////////ASoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-144",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1.5}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'float'>} i",
+            "nstead. Detail: 'float' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-145",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'str'>} ins",
+            "tead. Detail: 'str' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-146",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'list'>} in",
+            "stead. Detail: 'list' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-147",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'dict'>} in",
+            "stead. Detail: 'dict' object cannot be interpreted as an integer)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-148",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 2147483648}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioUCAUSBWV4dHJhGgkaBwoFgICAgAgqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-149",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'int'>} ins",
+            "tead. Detail: Value out of range: 9223372036854775808)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-150",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -9223372036854775809}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'int'>} ins",
+            "tead. Detail: Value out of range: -9223372036854775809)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-5-151",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 10000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a int64, but got a {<class 'int'>} ins",
+            "tead. Detail: Value out of range: 1000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-152",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAoSBWV4dHJhGgIiACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-153",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": false}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCAoSBWV4dHJhGggiBgoEAAAAACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-154",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCAoSBWV4dHJhGggiBgoEAACAPyoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-155",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCAoSBWV4dHJhGggiBgoEAAAAACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-156",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCAoSBWV4dHJhGggiBgoEAACAvyoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-157",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1.5}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCAoSBWV4dHJhGggiBgoEAADAPyoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-158",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a float, but got a {<class 'str'>} ins",
+            "tead. Detail: must be real number, not str)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-159",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a float, but got a {<class 'list'>} in",
+            "stead. Detail: must be real number, not list)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-160",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a float, but got a {<class 'dict'>} in",
+            "stead. Detail: must be real number, not dict)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-161",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 2147483648}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCAoSBWV4dHJhGggiBgoEAAAATyoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-162",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCAoSBWV4dHJhGggiBgoEAAAAXyoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-163",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -9223372036854775809}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioTCAoSBWV4dHJhGggiBgoEAAAA3yoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-10-164",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 10000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAooAQ=="
+        ]
+      },
+      "expected": {
+        "error": "OverflowError",
+        "message": "int too large to convert to float"
+      }
+    },
+    {
+      "name": "scalar-11-165",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAsSBWV4dHJhGgIqACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-166",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": false}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioXCAsSBWV4dHJhGgwqCgoIAAAAAAAAAAAqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-167",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": true}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioXCAsSBWV4dHJhGgwqCgoIAAAAAAAA8D8qEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-168",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 0}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioXCAsSBWV4dHJhGgwqCgoIAAAAAAAAAAAqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-169",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -1}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioXCAsSBWV4dHJhGgwqCgoIAAAAAAAA8L8qEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-170",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1.5}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioXCAsSBWV4dHJhGgwqCgoIAAAAAAAA+D8qEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-171",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": \"1\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a double, but got a {<class 'str'>} in",
+            "stead. Detail: must be real number, not str)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-172",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": []}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a double, but got a {<class 'list'>} i",
+            "nstead. Detail: must be real number, not list)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-173",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": {}}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {extra} field should be a double, but got a {<class 'dict'>} i",
+            "nstead. Detail: must be real number, not dict)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-174",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 2147483648}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioXCAsSBWV4dHJhGgwqCgoIAAAAAAAA4EEqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-175",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 9223372036854775808}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioXCAsSBWV4dHJhGgwqCgoIAAAAAAAA4EMqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-176",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": -9223372036854775809}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioXCAsSBWV4dHJhGgwqCgoIAAAAAAAA4MMqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "scalar-11-177",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 10000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "0000000000}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAsoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "OverflowError",
+        "message": "int too large to convert to float"
+      }
+    },
+    {
+      "name": "default-178",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Insert missed an field `extra` to colle",
+            "ction without set nullable==true or set default_value)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-179",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioNCAUSBWV4dHJhGgIaACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-180",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgkSBWV4dHJhKAUoAQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Insert missed an field `extra` to colle",
+            "ction without set nullable==true or set default_value)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-181",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgsSBWV4dHJhKAV4ASgB"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-182",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgsSBWV4dHJhKAV4ASgB"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-183",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgsSBWV4dHJhKAV4ASgB"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhQIBRIFZXh0cmEaBRoDCgEB",
+            "OgIBACoXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-184",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgsSBWV4dHJhKAVaACgB"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-185",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgsSBWV4dHJhKAVaACgB"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-186",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1IgsSBWV4dHJhKAVaACgB"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhQIBRIFZXh0cmEaBRoDCgEB",
+            "OgIBACoXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-187",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAHgBKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-188",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAHgBKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-189",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAHgBKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhQIBRIFZXh0cmEaBRoDCgEB",
+            "OgIBACoXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-190",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAhgAKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-191",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAhgAKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-192",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAhgAKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhQIBRIFZXh0cmEaBRoDCgEB",
+            "OgIBACoXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-193",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SBWV4dHJhKAVaAhgAeAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-194",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SBWV4dHJhKAVaAhgAeAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-195",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SBWV4dHJhKAVaAhgAeAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhQIBRIFZXh0cmEaBRoDCgEB",
+            "OgIBACoXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-196",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAhgHKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-197",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAhgHKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-198",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig0SBWV4dHJhKAVaAhgHKAE="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhQIBRIFZXh0cmEaBRoDCgEB",
+            "OgIBACoXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-199",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SBWV4dHJhKAVaAhgHeAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-200",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": null}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SBWV4dHJhKAVaAhgHeAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACofCBUSBHRleHQaFTITChFTeW50aGV0",
+            "aWMg6Zuq8J+MsioQCAUSBWV4dHJhGgIaADoBACoTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "default-201",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\", ",
+          "\"extra\": 1}, {\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+          "NTM1Ig8SBWV4dHJhKAVaAhgHeAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qIghlEgZ2ZWN0b3IiFggCEhIKEAAAgD4AAAC/AACAPgAAAL8qFggX",
+            "EgZzb3VyY2UaCkoICgJ7fQoCe30qHAgXEhBjb250ZW50X21ldGFkYXRhGgJKADoCAAAqMggVEgR0ZXh0",
+            "GigyJgoRU3ludGhldGljIOmbqvCfjLIKEVN5bnRoZXRpYyDpm6rwn4yyKhQIBRIFZXh0cmEaBRoDCgEB",
+            "OgIBACoXCBcSBSRtZXRhGgpKCAoCe30KAnt9MAE4Ag=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "varchar-202",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"long\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiGRIEdGV4dCgVMg8KCm1heF9sZW5ndGgSATEo",
+          "AQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACoSCBUSBHRleHQaCDIGCgRsb25nKhMI",
+            "FxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "varchar-203",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": [\"long\"]}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiGRIEdGV4dCgVMg8KCm1heF9sZW5ndGgSATEo",
+          "AQ=="
+        ]
+      },
+      "expected": {
+        "error": "ParamError",
+        "message": {
+          "$string_parts": [
+            "<ParamError: (code=1, message=invalid input of field (text), length of string ex",
+            "ceeds max length. length: 4, max length: 1)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "varchar-204",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": {\"long\": 1}}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiGRIEdGV4dCgVMg8KCm1heF9sZW5ndGgSATEo",
+          "AQ=="
+        ]
+      },
+      "expected": {
+        "error": "ParamError",
+        "message": {
+          "$string_parts": [
+            "<ParamError: (code=1, message=invalid input of field (text), length of string ex",
+            "ceeds max length. length: 4, max length: 1)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "varchar-205",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": [1]}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiGRIEdGV4dCgVMg8KCm1heF9sZW5ndGgSATEo",
+          "AQ=="
+        ]
+      },
+      "expected": {
+        "error": "ParamError",
+        "message": {
+          "$string_parts": [
+            "<ParamError: (code=1, message=field (text) expects string input, got: <class 'in",
+            "t'>)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "varchar-206",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": {}}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiGRIEdGV4dCgVMg8KCm1heF9sZW5ndGgSATEo",
+          "AQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'dict'>} i",
+            "nstead. Detail: bad argument type for built-in operation)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "varchar-207",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": []}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiGRIEdGV4dCgVMg8KCm1heF9sZW5ndGgSATEo",
+          "AQ=="
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'list'>} i",
+            "nstead. Detail: bad argument type for built-in operation)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "varchar-208",
+      "rows_json": "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"\\ud83c\\udf32\\ud83c\\udf32\"}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+          "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiGRIEdGV4dCgVMg8KCm1heF9sZW5ndGgSATEo",
+          "AQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCe30qGwgXEhBjb250ZW50X21ldGFkYXRhGgJKADoBACoWCBUSBHRleHQaDDIKCgjwn4yy8J+M",
+            "sioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "nullable-209",
+      "rows_json": "[{}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIMEgJwaxgBKAVAAXgBIhYSBnZlY3RvcihlMggKA2RpbRIBMngB",
+          "IgwSBnNvdXJjZSgXeAEiFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHxIEdGV4dCgVMhMKCm1heF9sZW5n",
+          "dGgSBTY1NTM1eAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qEQhlEgZ2ZWN0b3IiAggCOgEAKhEIFxIGc291cmNlGgJKADoBACob",
+            "CBcSEGNvbnRlbnRfbWV0YWRhdGEaAkoAOgEAKg8IFRIEdGV4dBoCMgA6AQAqEwgXEgUkbWV0YRoGSgQK",
+            "Ant9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "nullable-210",
+      "rows_json": "[{\"vector\": null}]",
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIMEgJwaxgBKAVAAXgBIhYSBnZlY3RvcihlMggKA2RpbRIBMngB",
+          "IgwSBnNvdXJjZSgXeAEiFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHxIEdGV4dCgVMhMKCm1heF9sZW5n",
+          "dGgSBTY1NTM1eAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qEQhlEgZ2ZWN0b3IiAggCOgEAKhEIFxIGc291cmNlGgJKADoBACob",
+            "CBcSEGNvbnRlbnRfbWV0YWRhdGEaAkoAOgEAKg8IFRIEdGV4dBoCMgA6AQAqEwgXEgUkbWV0YRoGSgQK",
+            "Ant9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "nullable-211",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {}, \"text\": \"Synthetic \\u96ea\\ud83c\\udf32\"},",
+          " {}]"
+        ]
+      },
+      "schema": {
+        "$string_parts": [
+          "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIMEgJwaxgBKAVAAXgBIhYSBnZlY3RvcihlMggKA2RpbRIBMngB",
+          "IgwSBnNvdXJjZSgXeAEiFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHxIEdGV4dCgVMhMKCm1heF9sZW5n",
+          "dGgSBTY1NTM1eAEoAQ=="
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qHghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/OgIBACoWCBcSBnNv",
+            "dXJjZRoGSgQKAnt9OgIBACocCBcSEGNvbnRlbnRfbWV0YWRhdGEaAkoAOgIAACojCBUSBHRleHQaFTIT",
+            "ChFTeW50aGV0aWMg6Zuq8J+MsjoCAQAqFwgXEgUkbWV0YRoKSggKAnt9CgJ7fTABOAI="
+          ]
+        }
+      }
+    }
+  ]
+}

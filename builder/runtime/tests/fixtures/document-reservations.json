@@ -1,0 +1,3078 @@
+{
+  "retained_revision": "801b896b4a51c09f2c7b5d8909d125c946df9223",
+  "source_sha256": {
+    "nat_nv_ingest.nat_nv_ingest": "cf626446c800ca9e7e1201fc30a907f9f44fa11c8978d7c88bd713e17c223707",
+    "nat_helpers.idempotency": "533fece18dd3605840a767d23c9e6fb2bbb8f0a33de6c247b28a0a8bb1b5b04a"
+  },
+  "user": "synthetic-alice",
+  "environment": {
+    "DAEDALUS_INTERNAL_API_TOKEN": "synthetic-internal",
+    "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+    "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-object-access",
+    "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-object-secret",
+    "DOCUMENT_OBJECT_BUCKET": "synthetic-bucket"
+  },
+  "cases": [
+    {
+      "name": "legacy",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                  "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": "synthetic-etag"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "object-v1",
+                    "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+                    "objectBucket": "synthetic-bucket",
+                    "etag": "synthetic-etag"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "deb781fbfeaa6d38bdb8f1e8408521e93806a8ab56b72608abd0e9a0b80cdeda",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:deb781fbfeaa6d38bdb8f",
+                "1e8408521e93806a8ab56b72608abd0e9a0b80cdeda"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:deb781fbfeaa6d38bdb8f",
+                  "1e8408521e93806a8ab56b72608abd0e9a0b80cdeda"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object-expired-identity",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": "synthetic-etag",
+          "expiresAt": 1
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "object-v1",
+                    "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+                    "objectBucket": "synthetic-bucket",
+                    "etag": "synthetic-etag"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "deb781fbfeaa6d38bdb8f1e8408521e93806a8ab56b72608abd0e9a0b80cdeda",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:deb781fbfeaa6d38bdb8f",
+                "1e8408521e93806a8ab56b72608abd0e9a0b80cdeda"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:deb781fbfeaa6d38bdb8f",
+                  "1e8408521e93806a8ab56b72608abd0e9a0b80cdeda"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "no-execution",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "execution": "",
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "interactive-scope",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "scope": "interactive",
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {},
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document not found in sto",
+            "rage. Please upload it again.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "not-a-record",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": null
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: You do not have access to",
+            " this document.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "not-a-record",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": []
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: You do not have access to",
+            " this document.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "not-a-record",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": "synthetic"
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: You do not have access to",
+            " this document.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "not-a-record",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": 1
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: You do not have access to",
+            " this document.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-userId-10",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "someone-else",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: You do not have access to",
+            " this document.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-userId-11",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: You do not have access to",
+            " this document.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-data-12",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": ""
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Retrieved document data i",
+            "s empty.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-data-13",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": null
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Retrieved document data i",
+            "s empty.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-data-14",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "Synthetic 雪🌲"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: 'ascii' codec can't encode chara",
+            "cters in position 10-11: ordinal not in range(128)."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-size-15",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": null,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": null,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "c49e40488d948fc9818130817b6668f54993cd4f67c8bec28874b5085b5331ba",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:c49e40488d948fc981813",
+                "0817b6668f54993cd4f67c8bec28874b5085b5331ba"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:c49e40488d948fc981813",
+                  "0817b6668f54993cd4f67c8bec28874b5085b5331ba"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-size-16",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": "9",
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": "9",
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "0fff993d0b8465759b5cc973e638a8f971a5e1c089755c730ad44bd07170bc19",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:0fff993d0b8465759b5cc",
+                "973e638a8f971a5e1c089755c730ad44bd07170bc19"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:0fff993d0b8465759b5cc",
+                  "973e638a8f971a5e1c089755c730ad44bd07170bc19"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-size-17",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 1000000000000000000000000000000,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 1000000000000000000000000000000,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "2e831e3735ae9d7f3ae9697a4fa9df43d1525df4f5d4f9b576a2349ed5a1fbaa",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:2e831e3735ae9d7f3ae96",
+                "97a4fa9df43d1525df4f5d4f9b576a2349ed5a1fbaa"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:2e831e3735ae9d7f3ae96",
+                  "97a4fa9df43d1525df4f5d4f9b576a2349ed5a1fbaa"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-size-18",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": {
+            "z": -0.0,
+            "a": 1e-5
+          },
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": {
+                      "z": -0.0,
+                      "a": 1e-5
+                    },
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "42987df2ab1eed3f62459736ce3e0070e74b8914004e21d2eae1ff115754f78b",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:42987df2ab1eed3f62459",
+                "736ce3e0070e74b8914004e21d2eae1ff115754f78b"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:42987df2ab1eed3f62459",
+                  "736ce3e0070e74b8914004e21d2eae1ff115754f78b"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-storage-19",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj",
+          "storage": "unknown-storage"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                  "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object-objectKey-20",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": "foreign/key",
+          "etag": "synthetic-etag"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Stored document object re",
+            "ference is invalid.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "object-objectKey-21",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": null,
+          "etag": "synthetic-etag"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Stored document object re",
+            "ference is invalid.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "object-objectBucket-22",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "other-bucket",
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": "synthetic-etag"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Stored document object re",
+            "ference is invalid.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "object-objectBucket-23",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": null,
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": "synthetic-etag"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Stored document object re",
+            "ference is invalid.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "object-etag-24",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": null
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "object-v1",
+                    "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+                    "objectBucket": "synthetic-bucket",
+                    "etag": null
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "b3755091e9f4715b3163c20d4b2dde7dd1fd9a61feb2b96179425ca047366291",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:b3755091e9f4715b3163c",
+                "20d4b2dde7dd1fd9a61feb2b96179425ca047366291"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:b3755091e9f4715b3163c",
+                  "20d4b2dde7dd1fd9a61feb2b96179425ca047366291"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object-etag-25",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": {
+            "z": true,
+            "a": ["雪🌲", 1000000000000000000000000000000]
+          }
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "object-v1",
+                    "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+                    "objectBucket": "synthetic-bucket",
+                    "etag": {
+                      "z": true,
+                      "a": ["雪🌲", 1000000000000000000000000000000]
+                    }
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "e6e92628e336e0add2f31af007c75148655e85cde646f01adcaa2a3e9460de0d",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:e6e92628e336e0add2f31",
+                "af007c75148655e85cde646f01adcaa2a3e9460de0d"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:e6e92628e336e0add2f31",
+                  "af007c75148655e85cde646f01adcaa2a3e9460de0d"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "reference-documentId-26",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": null,
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference must c",
+            "ontain documentId and sessionId.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-documentId-27",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference is inv",
+            "alid.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-documentId-28",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": 1,
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference must c",
+            "ontain documentId and sessionId.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-documentId-29",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "../escape",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference is inv",
+            "alid.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-documentId-30",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "雪",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference is inv",
+            "alid.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-documentId-31",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": {
+            "$string_parts": [
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            ]
+          },
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference is inv",
+            "alid.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-sessionId-32",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": null
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference must c",
+            "ontain documentId and sessionId.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-sessionId-33",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": ""
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference is inv",
+            "alid.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-sessionId-34",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": 1
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference must c",
+            "ontain documentId and sessionId.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-sessionId-35",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "../escape"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference is inv",
+            "alid.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-sessionId-36",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "雪"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference is inv",
+            "alid.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "reference-sessionId-37",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": {
+            "$string_parts": [
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            ]
+          }
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document reference is inv",
+            "alid.."
+          ]
+        },
+        "calls": []
+      }
+    },
+    {
+      "name": "argument-collection_name-38",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        },
+        "collection_name": "nvidia"
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": "nvidia",
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "a42a6e3441600d901a583a52ad10f5d90306281d17d53eae0fbfb2aaf7767883",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:a42a6e3441600d901a583",
+                "a52ad10f5d90306281d17d53eae0fbfb2aaf7767883"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": "nvidia",
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:a42a6e3441600d901a583",
+                  "a52ad10f5d90306281d17d53eae0fbfb2aaf7767883"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "argument-collection_name-39",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        },
+        "collection_name": "synthetic-private-alias"
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "synthetic_private_alias_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba",
+                    "32ee14a667ac95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "d3cfae1538a964bb18d23289488511a82f619b15b975ca6fd7cdceb6cc11a07e",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:d3cfae1538a964bb18d23",
+                "289488511a82f619b15b975ca6fd7cdceb6cc11a07e"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": "synthetic-private-alias",
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:d3cfae1538a964bb18d23",
+                  "289488511a82f619b15b975ca6fd7cdceb6cc11a07e"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "argument-chunk_size-40",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        },
+        "chunk_size": 17
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 17,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "183fc0b7083bfcca10652cf662488d06255bf2b42a48d4d3d7d2fbd210ba7066",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:183fc0b7083bfcca10652",
+                "cf662488d06255bf2b42a48d4d3d7d2fbd210ba7066"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": 17,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:183fc0b7083bfcca10652",
+                  "cf662488d06255bf2b42a48d4d3d7d2fbd210ba7066"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "argument-chunk_overlap-41",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        },
+        "chunk_overlap": 0
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": 0
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                  "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "argument-chunk_overlap-42",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        },
+        "chunk_overlap": 7
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 7
+              }
+            },
+            "digest": "5937501347d7d6a837e00e91a5022617db1bc3e4a9a31d367fbf176547d81bdb",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:5937501347d7d6a837e00",
+                "e91a5022617db1bc3e4a9a31d367fbf176547d81bdb"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": 7
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:5937501347d7d6a837e00",
+                  "e91a5022617db1bc3e4a9a31d367fbf176547d81bdb"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicates",
+      "arguments": {
+        "operation": "ingest",
+        "documentRefs": [
+          {
+            "documentId": "document-1",
+            "sessionId": "session-1"
+          },
+          {
+            "documentId": "document-1",
+            "sessionId": "session-1"
+          }
+        ]
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "expected": {
+        "result": "Synthetic batch receipt",
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  },
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "304c6673a7117f88d1e8ad059529a79ca4f438f45b44d1a7ac9213eb860db18d",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:304c6673a7117f88d1e8a",
+                "d059529a79ca4f438f45b44d1a7ac9213eb860db18d"
+              ]
+            }
+          },
+          {
+            "batch": {
+              "documentRefs": [
+                {
+                  "documentId": "document-1",
+                  "sessionId": "session-1"
+                },
+                {
+                  "documentId": "document-1",
+                  "sessionId": "session-1"
+                }
+              ],
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:304c6673a7117f88d1e8a",
+                  "d059529a79ca4f438f45b44d1a7ac9213eb860db18d"
+                ]
+              },
+              "result": "Synthetic batch receipt"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "config-chunks",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "config": {
+        "chunk_size": 7,
+        "chunk_overlap": 3
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 7,
+                "chunkOverlap": 3
+              }
+            },
+            "digest": "07aa77cb1c6f3c826da244026843b859afe981f9124158095fc9a3b00c11afd3",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:07aa77cb1c6f3c826da24",
+                "4026843b859afe981f9124158095fc9a3b00c11afd3"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:07aa77cb1c6f3c826da24",
+                  "4026843b859afe981f9124158095fc9a3b00c11afd3"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "existing-in_progress-45",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "reservation": {
+        "state": "in_progress",
+        "result": null
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Document ingest wasn't repeated because the same autonomous operation has an exi",
+            "sting or ambiguous execution record."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "existing-invalid-46",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "reservation": {
+        "state": "invalid",
+        "result": null
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Document ingest wasn't repeated because the same autonomous operation has an exi",
+            "sting or ambiguous execution record."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "existing-completed-47",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "reservation": {
+        "state": "completed",
+        "result": null
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Document ingest wasn't repeated because the same autonomous operation has an exi",
+            "sting or ambiguous execution record."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "existing-completed-48",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "reservation": {
+        "state": "completed",
+        "result": ""
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Document ingest wasn't repeated because the same autonomous operation has an exi",
+            "sting or ambiguous execution record."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "existing-completed-49",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "reservation": {
+        "state": "completed",
+        "result": "Stored synthetic receipt 雪🌲"
+      },
+      "expected": {
+        "result": "Stored synthetic receipt 雪🌲",
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "completion-not-owned",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "size": 9,
+          "data": "U3ludGhldGlj"
+        }
+      },
+      "complete": false,
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+            "private_collection'*"
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          },
+          {
+            "reserve": {
+              "user_id": "synthetic-alice",
+              "execution_id": "synthetic-execution",
+              "operation": "ingest_user_documents",
+              "arguments": {
+                "collection": {
+                  "$string_parts": [
+                    "user_uploads_synthetic_alice_8618bf2e74f978442da896ea3317885e092b92ba32ee14a667a",
+                    "c95307efde4fe"
+                  ]
+                },
+                "documents": [
+                  {
+                    "documentId": "document-1",
+                    "sessionId": "session-1",
+                    "size": 9,
+                    "storage": "legacy-base64",
+                    "payloadSha256": "f057ec54042935ff2c8fcc16a0cea0db5b0baf950213b5ccebef60d481c7f220"
+                  }
+                ],
+                "chunkSize": 1024,
+                "chunkOverlap": 150
+              }
+            },
+            "digest": "f9727e67b8fca23d48800ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722",
+            "key": {
+              "$string_parts": [
+                "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+              ]
+            }
+          },
+          {
+            "single": {
+              "documentRef": {
+                "documentId": "document-1",
+                "sessionId": "session-1"
+              },
+              "username": "synthetic-alice",
+              "collection_name": null,
+              "collection_scope": null,
+              "provenance": null,
+              "chunk_size": null,
+              "chunk_overlap": null
+            }
+          },
+          {
+            "complete": {
+              "key": {
+                "$string_parts": [
+                  "daedalus:idempotency:v1:8618bf2e74f978442da896ea3317885e092b92ba32ee14a667ac9530",
+                  "7efde4fe:0dfa734402fee0f223bc43edd7ddcc9edc8ead86df8c1197b4a30be7b83b042a:dc07fb",
+                  "9fe9a61767c6dc7c5efb8bd0eb878926c9a6c2c90f7ac7d6d07be973c2:f9727e67b8fca23d48800",
+                  "ce3cc8b38f8aa83e6cb60a2cb585c89cf6a9d705722"
+                ]
+              },
+              "result": {
+                "$string_parts": [
+                  "Synthetic receipt\n\n---\n\n*1 document indexed • 1 pages • 1 chunks in collection '",
+                  "private_collection'*"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "environment-DOCUMENT_OBJECT_BUCKET",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": "synthetic-etag"
+        }
+      },
+      "env": {
+        "DOCUMENT_OBJECT_BUCKET": ""
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document object storage i",
+            "s not configured.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "environment-DOCUMENT_OBJECT_PREFIX",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": "synthetic-etag"
+        }
+      },
+      "env": {
+        "DOCUMENT_OBJECT_PREFIX": "../unsafe"
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document object storage p",
+            "refix is invalid.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "environment-DOCUMENT_OBJECT_ENDPOINT",
+      "arguments": {
+        "operation": "ingest",
+        "documentRef": {
+          "documentId": "document-1",
+          "sessionId": "session-1"
+        }
+      },
+      "records": {
+        "document:session-1:document-1": {
+          "userId": "synthetic-alice",
+          "storage": "object-v1",
+          "size": 9,
+          "objectBucket": "synthetic-bucket",
+          "objectKey": "daedalus-documents/8618bf2e74f978442da896ea3317885e/session-1/document-1",
+          "etag": "synthetic-etag"
+        }
+      },
+      "env": {
+        "DOCUMENT_OBJECT_ENDPOINT": "invalid/path"
+      },
+      "expected": {
+        "result": {
+          "$string_parts": [
+            "Error: document ingest idempotency unavailable: Error: Document object storage e",
+            "ndpoint is invalid.."
+          ]
+        },
+        "calls": [
+          {
+            "read": ["JSON.GET", "document:session-1:document-1"]
+          }
+        ]
+      }
+    }
+  ]
+}

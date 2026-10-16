@@ -214,13 +214,16 @@ fn verifier_concurrency_is_bounded_and_other_tools_stay_serial() {
         "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"},
         "functions":{
             "verify":{"_type":"source_verifier"},
-            "documents":{"_type":"nat_nv_ingest","max_concurrency":8}
+            "documents":{"_type":"nat_nv_ingest"}
         }
     });
     let config = crate::config::Config::new(raw.clone(), Default::default()).unwrap();
     assert_eq!(config.tool_concurrency("verify"), 1);
     assert_eq!(config.tool_concurrency("documents"), 1);
     assert_eq!(config.tool_concurrency("mcp__read"), 1);
+    let mut unsupported = raw.clone();
+    unsupported["functions"]["documents"]["max_concurrency"] = json!(8);
+    assert!(crate::config::Config::new(unsupported, Default::default()).is_err());
     for limit in [1, 3, 8] {
         raw["functions"]["verify"]["max_concurrency"] = json!(limit);
         let config = crate::config::Config::new(raw.clone(), Default::default()).unwrap();

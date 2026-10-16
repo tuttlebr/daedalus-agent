@@ -1,0 +1,310 @@
+{
+  "defaults": {
+    "description": "Delete the authenticated caller's durable memory after approval. confirm_action requires action and reason and returns a pending request, not a credential. delete_memory_guarded requires a single-use approval_token from the authenticated approval route. No identity or target arguments are accepted. MCP approvals use the execution gate. Ask clarification questions and present research plans directly in chat.",
+    "verbose": false,
+    "redis_url": null,
+    "enabled_operations": null
+  },
+  "configuration_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "description": {
+        "default": "Delete the authenticated caller's durable memory after approval. confirm_action requires action and reason and returns a pending request, not a credential. delete_memory_guarded requires a single-use approval_token from the authenticated approval route. No identity or target arguments are accepted. MCP approvals use the execution gate. Ask clarification questions and present research plans directly in chat.",
+        "title": "Description",
+        "type": "string"
+      },
+      "verbose": {
+        "default": false,
+        "title": "Verbose",
+        "type": "boolean"
+      },
+      "redis_url": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Redis Url"
+      },
+      "enabled_operations": {
+        "anyOf": [
+          {
+            "items": {
+              "enum": ["confirm_action", "delete_memory_guarded"],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Enabled Operations"
+      }
+    },
+    "title": "UserInteractionConfig",
+    "type": "object"
+  },
+  "schemas": {
+    "0": {
+      "name": "user_interaction",
+      "description": "Delete the authenticated caller's durable memory after approval. confirm_action requires action and reason and returns a pending request, not a credential. delete_memory_guarded requires a single-use approval_token from the authenticated approval route. No identity or target arguments are accepted. MCP approvals use the execution gate. Ask clarification questions and present research plans directly in chat.",
+      "parameters": {
+        "type": "object",
+        "not": {}
+      }
+    },
+    "1": {
+      "name": "user_interaction",
+      "description": "Delete the authenticated caller's durable memory after approval. confirm_action requires action and reason and returns a pending request, not a credential. delete_memory_guarded requires a single-use approval_token from the authenticated approval route. No identity or target arguments are accepted. MCP approvals use the execution gate. Ask clarification questions and present research plans directly in chat.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["confirm_action"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "action": {
+            "default": "",
+            "description": "Description of the memory deletion. Allowed only for: confirm_action. Required for: confirm_action.",
+            "title": "Action",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why the user requested deletion. Allowed only for: confirm_action. Required for: confirm_action.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "risks": {
+            "default": "",
+            "description": "Additional consequences to disclose. Allowed only for: confirm_action.",
+            "title": "Risks",
+            "type": "string"
+          },
+          "alternatives": {
+            "default": "",
+            "description": "Alternatives, separated by |. Allowed only for: confirm_action.",
+            "title": "Alternatives",
+            "type": "string"
+          }
+        },
+        "required": ["operation"],
+        "title": "UserInteractionInput",
+        "type": "object",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "confirm_action"
+                }
+              }
+            },
+            "then": {
+              "required": ["action", "reason"],
+              "properties": {
+                "action": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                },
+                "reason": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "2": {
+      "name": "user_interaction",
+      "description": "Delete the authenticated caller's durable memory after approval. confirm_action requires action and reason and returns a pending request, not a credential. delete_memory_guarded requires a single-use approval_token from the authenticated approval route. No identity or target arguments are accepted. MCP approvals use the execution gate. Ask clarification questions and present research plans directly in chat.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["delete_memory_guarded"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "approval_token": {
+            "default": "",
+            "description": "Single-use memory deletion credential; never invent. Allowed only for: delete_memory_guarded. Required for: delete_memory_guarded.",
+            "title": "Approval Token",
+            "type": "string"
+          }
+        },
+        "required": ["operation"],
+        "title": "UserInteractionInput",
+        "type": "object",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "delete_memory_guarded"
+                }
+              }
+            },
+            "then": {
+              "required": ["approval_token"],
+              "properties": {
+                "approval_token": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "3": {
+      "name": "user_interaction",
+      "description": "Delete the authenticated caller's durable memory after approval. confirm_action requires action and reason and returns a pending request, not a credential. delete_memory_guarded requires a single-use approval_token from the authenticated approval route. No identity or target arguments are accepted. MCP approvals use the execution gate. Ask clarification questions and present research plans directly in chat.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["confirm_action", "delete_memory_guarded"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "action": {
+            "default": "",
+            "description": "Description of the memory deletion. Allowed only for: confirm_action. Required for: confirm_action.",
+            "title": "Action",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why the user requested deletion. Allowed only for: confirm_action. Required for: confirm_action.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "risks": {
+            "default": "",
+            "description": "Additional consequences to disclose. Allowed only for: confirm_action.",
+            "title": "Risks",
+            "type": "string"
+          },
+          "alternatives": {
+            "default": "",
+            "description": "Alternatives, separated by |. Allowed only for: confirm_action.",
+            "title": "Alternatives",
+            "type": "string"
+          },
+          "approval_token": {
+            "default": "",
+            "description": "Single-use memory deletion credential; never invent. Allowed only for: delete_memory_guarded. Required for: delete_memory_guarded.",
+            "title": "Approval Token",
+            "type": "string"
+          }
+        },
+        "required": ["operation"],
+        "title": "UserInteractionInput",
+        "type": "object",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "confirm_action"
+                }
+              }
+            },
+            "then": {
+              "required": ["action", "reason"],
+              "properties": {
+                "approval_token": false,
+                "action": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                },
+                "reason": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "delete_memory_guarded"
+                }
+              }
+            },
+            "then": {
+              "required": ["approval_token"],
+              "properties": {
+                "risks": false,
+                "alternatives": false,
+                "reason": false,
+                "action": false,
+                "approval_token": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "redis_defaults": {
+    "socket_timeout": null,
+    "socket_connect_timeout": null,
+    "protocol": null,
+    "decode_responses": true,
+    "retry_on_timeout": null,
+    "retry_on_error": null,
+    "retry_count": null
+  },
+  "redis_connection": {
+    "socket_timeout": null,
+    "socket_connect_timeout": null,
+    "retry_count": 0,
+    "retry_errors": ["ConnectionError", "TimeoutError", "TimeoutError"]
+  }
+}

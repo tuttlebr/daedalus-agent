@@ -13,11 +13,34 @@ struct Node {
     merge: bool,
 }
 
-fn scalar(text: String, style: TScalarStyle, tag: Option<yaml_rust2::parser::Tag>) -> Result<Node> {
+fn scalar(
+    text: String,
+    style: TScalarStyle,
+    tag: Option<yaml_rust2::parser::Tag>,
+    non_string: Option<&regex::Regex>,
+) -> Result<Node> {
     let tag = tag.map(|t| format!("{}{}", t.handle, t.suffix));
     let kind = tag.as_deref().unwrap_or("");
     if !kind.is_empty() && !kind.starts_with("tag:yaml.org,2002:") {
         bail!("Unsupported YAML tag");
+    }
+    if non_string.is_some()
+        && !kind.is_empty()
+        && ![
+            "str",
+            "bool",
+            "int",
+            "float",
+            "null",
+            "timestamp",
+            "binary",
+            "merge",
+            "value",
+        ]
+        .iter()
+        .any(|name| kind == format!("tag:yaml.org,2002:{name}"))
+    {
+        bail!("Unsupported YAML scalar tag");
     }
     if kind == "tag:yaml.org,2002:str" || (style != TScalarStyle::Plain && kind.is_empty()) {
         return Ok(Node {
@@ -26,6 +49,17 @@ fn scalar(text: String, style: TScalarStyle, tag: Option<yaml_rust2::parser::Tag
         });
     }
     let merge = (text == "<<" && kind.is_empty()) || kind == "tag:yaml.org,2002:merge";
+    if let Some(pattern) = non_string
+        && (kind.is_empty() && pattern.is_match(&text)
+            || ["bool", "int", "float", "null", "timestamp", "binary"]
+                .iter()
+                .any(|name| kind == format!("tag:yaml.org,2002:{name}")))
+    {
+        return Ok(Node {
+            value: Value::Null,
+            merge: false,
+        });
+    }
     let value = match text.as_str() {
         "yes" | "Yes" | "YES" | "true" | "True" | "TRUE" | "on" | "On" | "ON" => json!(true),
         "no" | "No" | "NO" | "false" | "False" | "FALSE" | "off" | "Off" | "OFF" => json!(false),
@@ -77,6 +111,16 @@ fn scalar(text: String, style: TScalarStyle, tag: Option<yaml_rust2::parser::Tag
 }
 
 pub fn parse(text: &str) -> Result<Value> {
+    parse_with_strings(text, None)
+}
+
+/// Skill metadata only consumes string fields. Preserve YAML's distinction
+/// between a string and non-JSON scalar types such as dates, bytes and NaN.
+pub fn string_mapping(text: &str, non_string: &regex::Regex) -> Result<Value> {
+    parse_with_strings(text, Some(non_string))
+}
+
+fn parse_with_strings(text: &str, non_string: Option<&regex::Regex>) -> Result<Value> {
     let mut parser = Parser::new_from_str(text);
     let mut events = Vec::new();
     loop {
@@ -94,6 +138,7 @@ pub fn parse(text: &str) -> Result<Value> {
         events: &mut std::iter::Peekable<std::vec::IntoIter<Event>>,
         anchors: &mut HashMap<usize, Node>,
         depth: usize,
+        non_string: Option<&regex::Regex>,
     ) -> Result<Node> {
         if depth > 128 {
             bail!("Configuration nesting exceeds limit");
@@ -102,37 +147,56 @@ pub fn parse(text: &str) -> Result<Value> {
         let result = match events.next().ok_or_else(|| anyhow!("Invalid YAML"))? {
             Event::Scalar(text, style, id, tag) => {
                 anchor = id;
-                scalar(text, style, tag)?
+                scalar(text, style, tag, non_string)?
             }
             Event::Alias(id) => anchors
                 .get(&id)
                 .cloned()
                 .ok_or_else(|| anyhow!("Invalid or recursive YAML alias"))?,
             Event::SequenceStart(id, tag) => {
-                if tag.is_some() {
+                let kind = tag.map(|t| format!("{}{}", t.handle, t.suffix));
+                if kind.as_ref().is_some_and(|kind| {
+                    non_string.is_none()
+                        || !["seq", "omap", "pairs"]
+                            .iter()
+                            .any(|name| kind == &format!("tag:yaml.org,2002:{name}"))
+                }) {
                     bail!("Unsupported sequence tag");
                 }
                 anchor = id;
                 let mut items = vec![];
                 while events.peek() != Some(&Event::SequenceEnd) {
-                    items.push(node(events, anchors, depth + 1)?.value);
+                    items.push(node(events, anchors, depth + 1, non_string)?.value);
                 }
                 events.next();
+                if kind.is_some_and(|kind| kind.ends_with(":omap") || kind.ends_with(":pairs"))
+                    && items
+                        .iter()
+                        .any(|item| item.as_object().is_none_or(|map| map.len() != 1))
+                {
+                    bail!("Invalid YAML pair");
+                }
                 Node {
                     value: json!(items),
                     merge: false,
                 }
             }
             Event::MappingStart(id, tag) => {
-                if tag.is_some() {
+                let kind = tag.map(|t| format!("{}{}", t.handle, t.suffix));
+                if kind.as_ref().is_some_and(|kind| {
+                    non_string.is_none()
+                        || !["map", "set"]
+                            .iter()
+                            .any(|name| kind == &format!("tag:yaml.org,2002:{name}"))
+                }) {
                     bail!("Unsupported mapping tag");
                 }
                 anchor = id;
                 let mut values = Vec::new();
                 let mut merged = serde_json::Map::new();
                 while events.peek() != Some(&Event::MappingEnd) {
-                    let key = node(events, anchors, depth + 1)?;
-                    let value = node(events, anchors, depth + 1)?.value;
+                    let key = node(events, anchors, depth + 1, non_string)?;
+                    let value = node(events, anchors, depth + 1, non_string)?.value;
                     if key.merge {
                         let maps = if value.is_object() {
                             vec![value]
@@ -151,6 +215,13 @@ pub fn parse(text: &str) -> Result<Value> {
                             }
                         }
                     } else {
+                        if non_string.is_some()
+                            && !key.value.is_string()
+                            && !key.value.is_array()
+                            && !key.value.is_object()
+                        {
+                            continue;
+                        }
                         let key = key
                             .value
                             .as_str()
@@ -164,7 +235,11 @@ pub fn parse(text: &str) -> Result<Value> {
                     merged.insert(k, v);
                 }
                 Node {
-                    value: Value::Object(merged),
+                    value: if kind.is_some_and(|kind| kind.ends_with(":set")) {
+                        Value::Null
+                    } else {
+                        Value::Object(merged)
+                    },
                     merge: false,
                 }
             }
@@ -184,7 +259,7 @@ pub fn parse(text: &str) -> Result<Value> {
     if events.next() != Some(Event::DocumentStart) {
         bail!("Invalid YAML document");
     }
-    let value = node(&mut events, &mut HashMap::new(), 0)?.value;
+    let value = node(&mut events, &mut HashMap::new(), 0, non_string)?.value;
     if events.next() != Some(Event::DocumentEnd) || events.next() != Some(Event::StreamEnd) {
         bail!("Expected one configuration document");
     }

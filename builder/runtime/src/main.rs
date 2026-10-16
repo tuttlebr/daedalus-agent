@@ -1,31 +1,79 @@
 //! Daedalus's interruptible agent runtime. Python is a leaf-tool service.
 
 mod agent;
+mod agent_skills;
 mod authorization;
 mod authorization_routes;
 #[cfg(test)]
 mod authorization_tests;
+mod collection_api;
+mod collections;
 mod config;
 mod control;
+mod document_api;
+mod document_batch;
+mod document_codecs;
+mod document_detection;
+mod document_encoding;
+mod document_index;
+mod document_ingest_api;
+mod document_iso2022;
+mod document_json;
+mod document_ownership;
+mod document_pipeline;
+mod document_process;
+mod document_processor;
+mod document_reranker;
+mod document_reservations;
+mod document_retriever;
+mod document_search;
+mod document_store;
+mod document_text;
+mod document_tools;
+mod document_utf7;
+mod domain_retriever;
+mod embeddings;
 mod events;
+mod hindsight;
+mod llm_sandbox;
 mod logging;
 mod mcp;
 mod mcp_http;
 #[cfg(test)]
 mod mcp_tests;
 mod memory;
+mod memory_api;
+mod memory_tools;
 #[cfg(test)]
 mod migration;
 #[cfg(test)]
 mod migration_spikes;
+mod milvus;
+mod milvus_index;
+mod milvus_index_proto;
+mod milvus_index_transport;
+mod milvus_proto;
+mod milvus_search;
+mod milvus_serialization;
+mod milvus_timestamps;
+mod milvus_writer;
+mod nv_ingest;
+mod nvidia_docs;
+mod nws_weather;
 mod oauth;
 mod output;
+mod output_retriever;
+mod perplexity_search;
 mod preparation;
+mod profile_import;
 mod protocol;
 mod provider;
+mod public_http;
+mod reranker_order;
 mod storage;
 mod telemetry;
 mod tool_contracts;
+mod user_interaction;
 mod yaml;
 
 use std::{
@@ -451,6 +499,11 @@ fn router(app: App) -> Router {
             post(authorization_routes::execute),
         )
         .route("/executions/{id}", get(authorization_routes::get_execution))
+        .merge(memory_api::routes())
+        .merge(profile_import::routes())
+        .merge(document_api::routes())
+        .merge(document_ingest_api::routes())
+        .merge(collection_api::routes())
         .fallback(proxy)
         .with_state(app)
 }
@@ -643,10 +696,13 @@ async fn main() -> anyhow::Result<()> {
             }
         })
         .await?;
-    if let Some(preparation) = shutdown_preparation
-        && let Some(telemetry) = &preparation.telemetry
-    {
-        telemetry.shutdown().await;
+    if let Some(preparation) = shutdown_preparation {
+        for tool in preparation.weather_tools.values() {
+            tool.close().await;
+        }
+        if let Some(telemetry) = &preparation.telemetry {
+            telemetry.shutdown().await;
+        }
     }
     Ok(())
 }

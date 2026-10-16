@@ -1,0 +1,712 @@
+{
+  "retained_revision": "801b896b4a51c09f2c7b5d8909d125c946df9223",
+  "configured_contract": true,
+  "pydantic": "2.13.4",
+  "source_sha256": {
+    "nat_nv_ingest.nat_nv_ingest": "cf626446c800ca9e7e1201fc30a907f9f44fa11c8978d7c88bd713e17c223707",
+    "daedalus_runtime.tools": "a6db34ce4bad0e9faf9dbfc49c3af8c7bcd86610d78482f985d05552344e0b8f",
+    "daedalus_runtime.tool_contracts": "b9760e6fe453a03f9f9409c408845a396ba096e62a9eaf347b40fd12e163d45b"
+  },
+  "schema": {
+    "name": "user_documents",
+    "description": "Ingest or search documents for the authenticated user. The backend derives identity from the trusted request; never pass a username. Ingestion always writes to a private per-user collection and rejects shared targets. Search may read either the user's private collection or an allow-listed shared collection.",
+    "parameters": {
+      "additionalProperties": false,
+      "description": "LLM-facing document-tool input; request identity is intentionally absent.",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": ["search", "list_collections", "ingest", "extract"],
+          "description": "Required operation; supply only the arguments for that operation."
+        },
+        "query": {
+          "default": "",
+          "title": "Query",
+          "type": "string",
+          "description": "Allowed only for: search. Required for: search."
+        },
+        "collection_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Collection Name",
+          "description": "Allowed only for: search, ingest."
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provenance",
+          "description": "Allowed only for: ingest."
+        },
+        "documentRef": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documentref",
+          "description": "Allowed only for: ingest, extract. Required for: extract."
+        },
+        "documentRefs": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Documentrefs",
+          "description": "Allowed only for: ingest."
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top K",
+          "description": "Allowed only for: search."
+        },
+        "filters": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filters",
+          "description": "Allowed only for: search."
+        },
+        "chunk_size": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Size",
+          "description": "Allowed only for: ingest."
+        },
+        "chunk_overlap": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chunk Overlap",
+          "description": "Allowed only for: ingest."
+        }
+      },
+      "title": "UserDocumentInput",
+      "type": "object",
+      "required": ["operation"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "search"
+              }
+            }
+          },
+          "then": {
+            "required": ["query"],
+            "properties": {
+              "chunk_size": false,
+              "documentRefs": false,
+              "provenance": false,
+              "chunk_overlap": false,
+              "documentRef": false,
+              "query": {
+                "not": {
+                  "type": "null"
+                },
+                "minLength": 1,
+                "pattern": "\\S",
+                "minItems": 1,
+                "minProperties": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "list_collections"
+              }
+            }
+          },
+          "then": {
+            "required": [],
+            "properties": {
+              "filters": false,
+              "chunk_size": false,
+              "top_k": false,
+              "documentRefs": false,
+              "provenance": false,
+              "chunk_overlap": false,
+              "collection_name": false,
+              "documentRef": false,
+              "query": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "ingest"
+              }
+            }
+          },
+          "then": {
+            "required": [],
+            "properties": {
+              "filters": false,
+              "top_k": false,
+              "query": false
+            },
+            "oneOf": [
+              {
+                "required": ["documentRef"],
+                "properties": {
+                  "documentRef": {
+                    "not": {
+                      "type": "null"
+                    },
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "minItems": 1,
+                    "minProperties": 1
+                  }
+                }
+              },
+              {
+                "required": ["documentRefs"],
+                "properties": {
+                  "documentRefs": {
+                    "not": {
+                      "type": "null"
+                    },
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "minItems": 1,
+                    "minProperties": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "extract"
+              }
+            }
+          },
+          "then": {
+            "required": ["documentRef"],
+            "properties": {
+              "filters": false,
+              "chunk_size": false,
+              "top_k": false,
+              "documentRefs": false,
+              "provenance": false,
+              "chunk_overlap": false,
+              "collection_name": false,
+              "query": false,
+              "documentRef": {
+                "not": {
+                  "type": "null"
+                },
+                "minLength": 1,
+                "pattern": "\\S",
+                "minItems": 1,
+                "minProperties": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "configuration_schema": {
+    "additionalProperties": false,
+    "description": "Configuration for NvIngest document processing function.",
+    "properties": {
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "verbose": {
+        "default": false,
+        "title": "Verbose",
+        "type": "boolean"
+      },
+      "redis_url": {
+        "default": "redis://localhost:6379",
+        "description": "Redis connection URL for retrieving documents",
+        "title": "Redis Url",
+        "type": "string"
+      },
+      "nv_ingest_host": {
+        "default": "localhost",
+        "description": "NvIngest service hostname",
+        "title": "Nv Ingest Host",
+        "type": "string"
+      },
+      "nv_ingest_port": {
+        "default": 7670,
+        "description": "NvIngest service port",
+        "title": "Nv Ingest Port",
+        "type": "integer"
+      },
+      "milvus_uri": {
+        "default": "http://localhost:19530",
+        "description": "Milvus connection URI",
+        "title": "Milvus Uri",
+        "type": "string"
+      },
+      "milvus_username": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Milvus username when authentication is enabled",
+        "title": "Milvus Username"
+      },
+      "milvus_password": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Milvus password when authentication is enabled",
+        "title": "Milvus Password"
+      },
+      "milvus_token": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Milvus auth token for direct pymilvus clients. If formatted as username:password, it is also used for NV-Ingest VDB upload.",
+        "title": "Milvus Token"
+      },
+      "minio_endpoint": {
+        "description": "MinIO endpoint for document storage",
+        "title": "Minio Endpoint",
+        "type": "string"
+      },
+      "minio_access_key": {
+        "description": "MinIO access key",
+        "title": "Minio Access Key",
+        "type": "string"
+      },
+      "minio_secret_key": {
+        "description": "MinIO secret key",
+        "title": "Minio Secret Key",
+        "type": "string"
+      },
+      "minio_bucket": {
+        "description": "MinIO bucket name for extracted assets",
+        "title": "Minio Bucket",
+        "type": "string"
+      },
+      "chunk_size": {
+        "default": 1024,
+        "description": "Text chunk size for processing",
+        "title": "Chunk Size",
+        "type": "integer"
+      },
+      "chunk_overlap": {
+        "default": 150,
+        "description": "Overlap between text chunks",
+        "title": "Chunk Overlap",
+        "type": "integer"
+      },
+      "embedder_dim": {
+        "default": 2048,
+        "description": "Embedding dimension",
+        "title": "Embedder Dim",
+        "type": "integer"
+      },
+      "tokenizer": {
+        "default": "meta-llama/Llama-3.2-1B",
+        "description": "Tokenizer used for chunking",
+        "title": "Tokenizer",
+        "type": "string"
+      },
+      "recreate_collection": {
+        "default": false,
+        "description": "Whether to recreate Milvus collection on each run",
+        "title": "Recreate Collection",
+        "type": "boolean"
+      },
+      "default_collection_name": {
+        "default": "user_uploads",
+        "description": "Fallback Milvus collection name when none is supplied in the request",
+        "title": "Default Collection Name",
+        "type": "string"
+      },
+      "database_name": {
+        "default": "default",
+        "description": "Milvus database name for user document retrieval",
+        "title": "Database Name",
+        "type": "string"
+      },
+      "extract_method": {
+        "default": "pdfium",
+        "description": "PDF extract method (pdfium, pdfium_hybrid, nemotron_parse, tika, ocr).",
+        "title": "Extract Method",
+        "type": "string"
+      },
+      "use_v2_api": {
+        "default": false,
+        "description": "Enable NV-Ingest V2 API (required for pdf_split_config)",
+        "title": "Use V2 Api",
+        "type": "boolean"
+      },
+      "pdf_pages_per_chunk": {
+        "default": 32,
+        "description": "PDF server-side chunking pages per chunk (V2 API only, 1-128)",
+        "title": "Pdf Pages Per Chunk",
+        "type": "integer"
+      },
+      "enable_image_filter": {
+        "default": true,
+        "description": "Drop tiny/odd-aspect images from the extraction output",
+        "title": "Enable Image Filter",
+        "type": "boolean"
+      },
+      "enable_captioning": {
+        "default": false,
+        "description": "Enable VLM captioning of extracted images / charts",
+        "title": "Enable Captioning",
+        "type": "boolean"
+      },
+      "caption_model_name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "VLM model name used for captioning",
+        "title": "Caption Model Name"
+      },
+      "caption_endpoint_url": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "VLM endpoint URL used for captioning",
+        "title": "Caption Endpoint Url"
+      },
+      "caption_api_key": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "API key for the captioning service",
+        "title": "Caption Api Key"
+      },
+      "worker_pool_size": {
+        "default": 16,
+        "description": "NvIngestClient worker pool size",
+        "title": "Worker Pool Size",
+        "type": "integer"
+      },
+      "batch_concurrency": {
+        "default": 1,
+        "description": "Max concurrent documents per batch request (1 = sequential)",
+        "title": "Batch Concurrency",
+        "type": "integer"
+      },
+      "max_documents_per_batch": {
+        "default": 20,
+        "description": "Max documents allowed in a single batch request",
+        "title": "Max Documents Per Batch",
+        "type": "integer"
+      },
+      "redis_socket_timeout": {
+        "default": 30,
+        "description": "Redis socket read timeout (seconds)",
+        "title": "Redis Socket Timeout",
+        "type": "integer"
+      },
+      "redis_connect_timeout": {
+        "default": 5,
+        "description": "Redis connection timeout (seconds)",
+        "title": "Redis Connect Timeout",
+        "type": "integer"
+      },
+      "ingest_max_retries": {
+        "default": 2,
+        "description": "Max retries for transient NV-Ingest failures",
+        "title": "Ingest Max Retries",
+        "type": "integer"
+      },
+      "ingest_retry_delay": {
+        "default": 1.0,
+        "description": "Seconds to wait between ingest retries",
+        "title": "Ingest Retry Delay",
+        "type": "number"
+      },
+      "ingest_timeout_seconds": {
+        "default": 300.0,
+        "description": "Maximum wait for one document; a running SDK call retains collection ownership until it settles",
+        "title": "Ingest Timeout Seconds",
+        "type": "number"
+      },
+      "embedder_name": {
+        "default": "milvus_embedder",
+        "description": "Embedder used to vectorize user document search queries",
+        "title": "Embedder Name",
+        "type": "string"
+      },
+      "content_field": {
+        "default": "text",
+        "description": "Milvus field containing indexed document text",
+        "title": "Content Field",
+        "type": "string"
+      },
+      "vector_field": {
+        "default": "vector",
+        "description": "Milvus vector field for similarity search",
+        "title": "Vector Field",
+        "type": "string"
+      },
+      "top_k": {
+        "default": 10,
+        "description": "Default number of user document chunks to retrieve",
+        "exclusiveMinimum": 0,
+        "title": "Top K",
+        "type": "integer"
+      },
+      "distance_cutoff": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional search distance cutoff before reranking",
+        "title": "Distance Cutoff"
+      },
+      "output_fields": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional Milvus output fields for document retrieval",
+        "title": "Output Fields"
+      },
+      "search_params": {
+        "additionalProperties": true,
+        "description": "Milvus search parameters for document retrieval",
+        "title": "Search Params",
+        "type": "object"
+      },
+      "use_reranker": {
+        "default": true,
+        "description": "Whether to rerank retrieved document chunks",
+        "title": "Use Reranker",
+        "type": "boolean"
+      },
+      "reranker_endpoint": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Reranker endpoint for user document retrieval",
+        "title": "Reranker Endpoint"
+      },
+      "reranker_model": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Reranker model for user document retrieval",
+        "title": "Reranker Model"
+      },
+      "reranker_top_n": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Number of reranked document chunks to keep",
+        "title": "Reranker Top N"
+      },
+      "reranker_api_key": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Reranker API key for user document retrieval",
+        "title": "Reranker Api Key"
+      }
+    },
+    "title": "NvIngestFunctionConfig",
+    "type": "object"
+  },
+  "defaults": {
+    "description": null,
+    "verbose": false,
+    "redis_url": "redis://localhost:6379",
+    "nv_ingest_host": "localhost",
+    "nv_ingest_port": 7670,
+    "milvus_uri": "http://localhost:19530",
+    "milvus_username": null,
+    "milvus_password": null,
+    "milvus_token": null,
+    "minio_endpoint": "",
+    "minio_access_key": "",
+    "minio_secret_key": "",
+    "minio_bucket": "nv-ingest",
+    "chunk_size": 1024,
+    "chunk_overlap": 150,
+    "embedder_dim": 2048,
+    "tokenizer": "meta-llama/Llama-3.2-1B",
+    "recreate_collection": false,
+    "default_collection_name": "user_uploads",
+    "database_name": "default",
+    "extract_method": "pdfium",
+    "use_v2_api": false,
+    "pdf_pages_per_chunk": 32,
+    "enable_image_filter": true,
+    "enable_captioning": false,
+    "caption_model_name": null,
+    "caption_endpoint_url": null,
+    "caption_api_key": null,
+    "worker_pool_size": 16,
+    "batch_concurrency": 1,
+    "max_documents_per_batch": 20,
+    "redis_socket_timeout": 30,
+    "redis_connect_timeout": 5,
+    "ingest_max_retries": 2,
+    "ingest_retry_delay": 1.0,
+    "ingest_timeout_seconds": 300.0,
+    "embedder_name": "milvus_embedder",
+    "content_field": "text",
+    "vector_field": "vector",
+    "top_k": 10,
+    "distance_cutoff": null,
+    "output_fields": null,
+    "search_params": {
+      "metric_type": "L2"
+    },
+    "use_reranker": true,
+    "reranker_endpoint": null,
+    "reranker_model": null,
+    "reranker_top_n": null,
+    "reranker_api_key": null
+  }
+}

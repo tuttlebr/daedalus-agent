@@ -27,13 +27,18 @@ impl Store {
         {
             url = format!("{}:{}", url.trim_end_matches('/'), port.trim());
         }
+        Self::from_url(&url, &config.variable("REDIS_TLS_CA_FILE", ""))
+    }
+    /// Named tools pass their configured URL directly to redis.from_url. Keep
+    /// that path independent of the HTTP service's REDIS_PORT and CA fallback.
+    pub fn from_url(url: &str, fallback_ca: &str) -> Result<Self> {
         let parsed =
-            reqwest::Url::parse(&url).map_err(|_| anyhow!("Invalid Redis configuration"))?;
+            reqwest::Url::parse(url).map_err(|_| anyhow!("Invalid Redis configuration"))?;
         let ca = parsed
             .query_pairs()
             .find(|(key, _)| key == "ssl_ca_certs")
             .map(|(_, value)| value.into_owned())
-            .unwrap_or_else(|| config.variable("REDIS_TLS_CA_FILE", ""));
+            .unwrap_or_else(|| fallback_ca.to_owned());
         // The deployed URL uses redis-py's ssl_ca_certs query parameter.
         // redis-rs does not consume it; install that CA explicitly, retaining
         // certificate and hostname verification.
@@ -57,7 +62,41 @@ impl Store {
         })
     }
     pub async fn command<T: redis::FromRedisValue>(&self, command: &mut redis::Cmd) -> Result<T> {
-        let result = tokio::time::timeout(Duration::from_secs(2), async {
+        self.command_with_timeout(command, Duration::from_secs(2))
+            .await
+    }
+    /// Retain Redis's error class and caller-owned cancellation for the
+    /// single-use approval consumer. No command replay or imposed timeout.
+    pub async fn command_raw<T: redis::FromRedisValue>(
+        &self,
+        command: &mut redis::Cmd,
+        config: &redis::AsyncConnectionConfig,
+    ) -> Result<T> {
+        let result: Result<T, redis::RedisError> = async {
+            let mut cached = self.connection.lock().await;
+            if cached.is_none() {
+                *cached = Some(
+                    self.client
+                        .get_multiplexed_async_connection_with_config(config)
+                        .await?,
+                );
+            }
+            let mut connection = cached.as_ref().unwrap().clone();
+            drop(cached);
+            command.query_async(&mut connection).await
+        }
+        .await;
+        if result.is_err() {
+            *self.connection.lock().await = None;
+        }
+        result.map_err(Into::into)
+    }
+    pub async fn command_with_timeout<T: redis::FromRedisValue>(
+        &self,
+        command: &mut redis::Cmd,
+        timeout: Duration,
+    ) -> Result<T> {
+        let result = tokio::time::timeout(timeout, async {
             let mut cached = self.connection.lock().await;
             if cached.is_none() {
                 *cached = Some(self.client.get_multiplexed_async_connection().await?);
@@ -77,6 +116,61 @@ impl Store {
     }
     pub async fn get(&self, key: &str) -> Result<Option<String>> {
         self.command(redis::cmd("GET").arg(key)).await
+    }
+    /// Document reads use the retained service's separate connection/read
+    /// timeouts and its one retry on timeout. This read-only retry does not
+    /// apply to any mutation or other runtime Redis command.
+    pub async fn document(
+        &self,
+        key: &str,
+        connect_timeout: Option<Duration>,
+        read_timeout: Option<Duration>,
+    ) -> Result<Option<Vec<u8>>> {
+        for attempt in 0..2 {
+            let result = async {
+                let mut cached = self.connection.lock().await;
+                if cached.is_none() {
+                    let connect = self.client.get_multiplexed_async_connection();
+                    *cached = Some(if let Some(timeout) = connect_timeout {
+                        tokio::time::timeout(timeout, connect).await.map_err(|_| {
+                            redis::RedisError::from(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "Timeout connecting to server",
+                            ))
+                        })??
+                    } else {
+                        connect.await?
+                    });
+                }
+                let mut connection = cached.as_ref().unwrap().clone();
+                drop(cached);
+                let mut command = redis::cmd("JSON.GET");
+                command.arg(key);
+                if let Some(timeout) = read_timeout {
+                    tokio::time::timeout(timeout, command.query_async(&mut connection))
+                        .await
+                        .map_err(|_| {
+                            redis::RedisError::from(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "Timeout reading from socket",
+                            ))
+                        })?
+                } else {
+                    command.query_async(&mut connection).await
+                }
+            }
+            .await;
+            match result {
+                Ok(value) => return Ok(value),
+                Err(error) => {
+                    *self.connection.lock().await = None;
+                    if attempt != 0 || !error.is_timeout() {
+                        return Err(error.into());
+                    }
+                }
+            }
+        }
+        unreachable!()
     }
     pub async fn set(&self, key: &str, value: &str, ttl: usize) -> Result<()> {
         self.command(redis::cmd("SET").arg(key).arg(value).arg("EX").arg(ttl))

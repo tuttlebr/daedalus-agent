@@ -49,16 +49,14 @@ fn matches(field: &str, text: &str) -> bool {
 }
 
 pub struct Memory {
-    http: reqwest::Client,
+    http: crate::hindsight::Client,
     pub enabled: bool,
-    base: String,
-    credential: String,
     store: Store,
     bootstrap: Mutex<HashMap<String, Instant>>,
     bootstrap_locks: Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
 }
 impl Memory {
-    pub fn new(config: &Config, http: reqwest::Client) -> Result<Self> {
+    pub fn new(config: &Config, _http: reqwest::Client) -> Result<Self> {
         let mode = config
             .variable("DAEDALUS_MEMORY_MODE", "hindsight")
             .trim()
@@ -67,16 +65,8 @@ impl Memory {
             bail!("Invalid memory mode");
         }
         Ok(Self {
-            http,
+            http: crate::hindsight::Client::new(config)?,
             enabled: mode == "hindsight",
-            base: config
-                .variable(
-                    "HINDSIGHT_API_URL",
-                    "http://hindsight-api.daedalus.svc.cluster.local:8888",
-                )
-                .trim_end_matches('/')
-                .into(),
-            credential: config.variable("HINDSIGHT_API_KEY", "").trim().into(),
             store: Store::new(config)?,
             bootstrap: Mutex::new(HashMap::new()),
             bootstrap_locks: Mutex::new(HashMap::new()),
@@ -90,37 +80,10 @@ impl Memory {
         body: Option<Value>,
         query: &[(&str, &str)],
     ) -> Result<Value> {
-        if self.credential.is_empty() {
-            bail!("Memory credential unavailable");
-        }
-        let path = if user.is_empty() {
-            format!("{}/{suffix}", self.base)
-        } else {
-            format!("{}/v1/default/banks/{}/{suffix}", self.base, bank_id(user))
-        };
-        let mut request = self
-            .http
-            .request(method, path)
-            .bearer_auth(&self.credential)
-            .header("Accept", "application/json")
-            .query(query)
-            .timeout(Duration::from_secs(30));
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
-        let response = request.send().await?.error_for_status()?;
-        if response.status() == 204 {
-            return Ok(json!({}));
-        }
-        let bytes = response.bytes().await?;
-        if bytes.is_empty() {
-            return Ok(json!({}));
-        }
-        let value: Value = serde_json::from_slice(&bytes)?;
-        if !value.is_object() {
-            bail!("Invalid memory response");
-        }
-        Ok(value)
+        let timeout = matches!(suffix, "reflect" | "knowledge-base/pages").then_some(30.);
+        self.http
+            .request(method, user, suffix, body, query, timeout)
+            .await
     }
     pub async fn health(&self) -> Result<()> {
         tokio::time::timeout(
@@ -130,7 +93,7 @@ impl Memory {
         .await??;
         Ok(())
     }
-    async fn initialize(&self, user: &str) -> Result<()> {
+    pub async fn initialize(&self, user: &str) -> Result<()> {
         let cache_id = digest(&["v1", &bank_id(user)]);
         if self
             .bootstrap
@@ -199,6 +162,35 @@ impl Memory {
         }
         drop(lease);
         result
+    }
+    pub async fn clear_caches(&self, user: &str) -> Result<()> {
+        let cache_id = digest(&["v1", &bank_id(user)]);
+        self.bootstrap.lock().await.remove(&cache_id);
+        let user_id = digest(&[&bank_id(user)]);
+        let mut keys = vec![format!("daedalus:memory:bootstrap:{cache_id}")];
+        for kind in ["session", "session-lock"] {
+            let mut cursor = 0u64;
+            loop {
+                let (next, found): (u64, Vec<String>) = self
+                    .store
+                    .command(
+                        redis::cmd("SCAN")
+                            .arg(cursor)
+                            .arg("MATCH")
+                            .arg(format!("daedalus:memory:{kind}:v1:{user_id}:*"))
+                            .arg("COUNT")
+                            .arg(100),
+                    )
+                    .await?;
+                keys.extend(found);
+                cursor = next;
+                if cursor == 0 {
+                    break;
+                }
+            }
+        }
+        let _: usize = self.store.command(redis::cmd("DEL").arg(keys)).await?;
+        Ok(())
     }
     async fn bootstrap_bank(&self, user: &str) -> Result<()> {
         let state = self

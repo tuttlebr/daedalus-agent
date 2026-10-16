@@ -1,0 +1,4594 @@
+{
+  "revision": "801b896b4a51c09f2c7b5d8909d125c946df9223",
+  "module_sha256": "5e9e1e4819ec009348f0c85ccad65ff1f82081d54422a7a929e364f1f789bb5a",
+  "configuration_schema": {
+    "description": "Configuration for the role-aware vLLM embeddings provider.",
+    "properties": {
+      "api_key": {
+        "anyOf": [
+          {
+            "format": "password",
+            "type": "string",
+            "writeOnly": true
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional bearer token for the vLLM server.",
+        "title": "Api Key"
+      },
+      "base_url": {
+        "description": "vLLM server URL, `/v1` base URL, or embeddings endpoint.",
+        "title": "Base Url",
+        "type": "string"
+      },
+      "model_name": {
+        "description": "Served vLLM embedding model name.",
+        "title": "Model Name",
+        "type": "string"
+      },
+      "timeout_seconds": {
+        "default": 60.0,
+        "exclusiveMinimum": 0,
+        "title": "Timeout Seconds",
+        "type": "number"
+      },
+      "truncate_prompt_tokens": {
+        "anyOf": [
+          {
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Truncate Prompt Tokens"
+      },
+      "max_concurrency": {
+        "default": 8,
+        "maximum": 64,
+        "minimum": 1,
+        "title": "Max Concurrency",
+        "type": "integer"
+      },
+      "verify_ssl": {
+        "default": true,
+        "title": "Verify Ssl",
+        "type": "boolean"
+      }
+    },
+    "required": ["base_url", "model_name"],
+    "title": "DaedalusVLLMEmbedderConfig",
+    "type": "object"
+  },
+  "configurations": [
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model": "alias-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "alias-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "model": "ignored",
+        "extra": true
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": null
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": ""
+      },
+      "expected": {
+        "ok": {
+          "api_key": "",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": " "
+      },
+      "expected": {
+        "ok": {
+          "api_key": " ",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": 0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": 1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": -1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": 1.5
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": 2.0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": true
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": false
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "雪🌲"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "雪🌲",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "1"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "1",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "1.0"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "1.0",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "1_000"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "1_000",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "01"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "01",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "١"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "١",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "1e2"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "1e2",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "inf"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "inf",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "nan"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "nan",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "true"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "true",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": " yes"
+      },
+      "expected": {
+        "ok": {
+          "api_key": " yes",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "off"
+      },
+      "expected": {
+        "ok": {
+          "api_key": "off",
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": 65
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": {
+          "$integer": {
+            "$string_parts": [
+              "10000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "000000000000000000000"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["api_key"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "missing",
+            "loc": ["base_url"],
+            "msg": "Field required"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": null,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": " ",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": " ",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": 0,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": 1,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": -1,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": 1.5,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": 2.0,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": true,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": false,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": [],
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": {},
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "雪🌲",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "雪🌲",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "1",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "1",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "1.0",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "1.0",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "1_000",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "1_000",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "01",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "01",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "١",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "١",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "1e2",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "1e2",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "inf",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "inf",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "nan",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "nan",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "true",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "true",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": " yes",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": " yes",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "off",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "off",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": 65,
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": {
+          "$integer": {
+            "$string_parts": [
+              "10000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "000000000000000000000"
+            ]
+          }
+        },
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["base_url"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "missing",
+            "loc": ["model_name"],
+            "msg": "Field required"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": null
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": ""
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": " "
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": " ",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": 0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": 1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": -1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": 1.5
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": 2.0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": true
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": false
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "雪🌲"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "雪🌲",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "1"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "1",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "1.0"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "1.0",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "1_000"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "1_000",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "01"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "01",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "١"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "١",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "1e2"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "1e2",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "inf"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "inf",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "nan"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "nan",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "true"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "true",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": " yes"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": " yes",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "off"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "off",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": 65
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": {
+          "$integer": {
+            "$string_parts": [
+              "10000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "000000000000000000000"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "string_type",
+            "loc": ["model_name"],
+            "msg": "Input should be a valid string"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": null
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_type",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": ""
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_parsing",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number, unable to parse string as a number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": " "
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_parsing",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number, unable to parse string as a number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": 0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be greater than 0",
+            "ctx": {
+              "gt": 0.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": 1
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 1.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": -1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be greater than 0",
+            "ctx": {
+              "gt": 0.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": 1.5
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 1.5,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": 2.0
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 2.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": true
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 1.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": false
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be greater than 0",
+            "ctx": {
+              "gt": 0.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_type",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_type",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "雪🌲"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_parsing",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number, unable to parse string as a number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "1"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 1.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "1.0"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 1.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "1_000"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 1000.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "01"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 1.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "١"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_parsing",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number, unable to parse string as a number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "1e2"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 100.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "inf"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": {
+            "$float": "inf"
+          },
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "nan"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be greater than 0",
+            "ctx": {
+              "gt": 0.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "true"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_parsing",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number, unable to parse string as a number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": " yes"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_parsing",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number, unable to parse string as a number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "off"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "float_parsing",
+            "loc": ["timeout_seconds"],
+            "msg": "Input should be a valid number, unable to parse string as a number"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": 65
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 65.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": {
+          "$integer": {
+            "$string_parts": [
+              "10000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "000000000000000000000"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 1e100,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": null
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": ""
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": " "
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": 0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than_equal",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be greater than or equal to 1",
+            "ctx": {
+              "ge": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": 1
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": 1,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": -1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than_equal",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be greater than or equal to 1",
+            "ctx": {
+              "ge": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": 1.5
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_from_float",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, got a number with a fractional part"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": 2.0
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": 2,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": true
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": 1,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": false
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than_equal",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be greater than or equal to 1",
+            "ctx": {
+              "ge": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_type",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_type",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "雪🌲"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "1"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": 1,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "1.0"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": 1,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "1_000"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": 1000,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "01"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": 1,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "١"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "1e2"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "inf"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "nan"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "true"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": " yes"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": "off"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["truncate_prompt_tokens"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": 65
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": 65,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "truncate_prompt_tokens": {
+          "$integer": {
+            "$string_parts": [
+              "10000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "000000000000000000000"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": {
+            "$integer": {
+              "$string_parts": [
+                "10000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                "000000000000000000000"
+              ]
+            }
+          },
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": null
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_type",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": ""
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": " "
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": 0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than_equal",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be greater than or equal to 1",
+            "ctx": {
+              "ge": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": 1
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 1,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": -1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than_equal",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be greater than or equal to 1",
+            "ctx": {
+              "ge": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": 1.5
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_from_float",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, got a number with a fractional part"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": 2.0
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 2,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": true
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 1,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": false
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "greater_than_equal",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be greater than or equal to 1",
+            "ctx": {
+              "ge": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_type",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_type",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "雪🌲"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "1"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 1,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "1.0"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 1,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "1_000"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "less_than_equal",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be less than or equal to 64",
+            "ctx": {
+              "le": 64
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "01"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 1,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "١"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "1e2"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "inf"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "nan"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "true"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": " yes"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": "off"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "int_parsing",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": 65
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "less_than_equal",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be less than or equal to 64",
+            "ctx": {
+              "le": 64
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "max_concurrency": {
+          "$integer": {
+            "$string_parts": [
+              "10000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "000000000000000000000"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "less_than_equal",
+            "loc": ["max_concurrency"],
+            "msg": "Input should be less than or equal to 64",
+            "ctx": {
+              "le": 64
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": null
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_type",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": ""
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": " "
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": 0
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": false
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": 1
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": -1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": 1.5
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_type",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": 2.0
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": true
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": false
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": false
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": []
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_type",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": {}
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_type",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "雪🌲"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "1"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "1.0"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "1_000"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "01"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "١"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "1e2"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "inf"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "nan"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "true"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": " yes"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": "off"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "http://synthetic.invalid",
+          "model_name": "synthetic-model",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": false
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": 65
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_parsing",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean, unable to interpret input"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "verify_ssl": {
+          "$integer": {
+            "$string_parts": [
+              "10000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "000000000000000000000"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "bool_type",
+            "loc": ["verify_ssl"],
+            "msg": "Input should be a valid boolean"
+          }
+        ]
+      }
+    },
+    {
+      "input": null,
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "model_type",
+            "loc": [],
+            "msg": "Input should be a valid dictionary or instance of DaedalusVLLMEmbedderConfig",
+            "ctx": {
+              "class_name": "DaedalusVLLMEmbedderConfig"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": [],
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "model_type",
+            "loc": [],
+            "msg": "Input should be a valid dictionary or instance of DaedalusVLLMEmbedderConfig",
+            "ctx": {
+              "class_name": "DaedalusVLLMEmbedderConfig"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": "bad",
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "model_type",
+            "loc": [],
+            "msg": "Input should be a valid dictionary or instance of DaedalusVLLMEmbedderConfig",
+            "ctx": {
+              "class_name": "DaedalusVLLMEmbedderConfig"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "model": "fixture"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "missing",
+            "loc": ["base_url"],
+            "msg": "Field required"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "base_url": "host",
+        "model": null,
+        "model_name": "preferred"
+      },
+      "expected": {
+        "ok": {
+          "api_key": null,
+          "base_url": "host",
+          "model_name": "preferred",
+          "timeout_seconds": 60.0,
+          "truncate_prompt_tokens": null,
+          "max_concurrency": 8,
+          "verify_ssl": true
+        }
+      }
+    }
+  ],
+  "construction": [
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "headers": {
+          "accept": "application/json",
+          "content-type": "application/json"
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValueError"
+      }
+    },
+    {
+      "input": {
+        "base_url": " ",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "error": "ValueError"
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": ""
+      },
+      "expected": {
+        "error": "ValueError"
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "\t"
+      },
+      "expected": {
+        "error": "ValueError"
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "synthetic-key"
+      },
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "headers": {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "authorization": "Bearer synthetic-key"
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "雪"
+      },
+      "expected": {
+        "error": "UnicodeEncodeError"
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": " synthetic-key "
+      },
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "headers": {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "authorization": "Bearer  synthetic-key "
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "api_key": "key\nvalue"
+      },
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "headers": {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "authorization": "Bearer key\nvalue"
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "invalid",
+        "model_name": "synthetic-model"
+      },
+      "expected": {
+        "endpoint": "invalid/v1/embeddings",
+        "headers": {
+          "accept": "application/json",
+          "content-type": "application/json"
+        }
+      }
+    },
+    {
+      "input": {
+        "base_url": "http://synthetic.invalid",
+        "model_name": "synthetic-model",
+        "timeout_seconds": "inf"
+      },
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "headers": {
+          "accept": "application/json",
+          "content-type": "application/json"
+        }
+      }
+    }
+  ],
+  "requests": [
+    {
+      "url": "http://synthetic.invalid",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "query",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "query",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "document",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "document",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid/",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "query",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "query",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid/",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "document",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "document",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid/v1",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "query",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "query",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid/v1",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "document",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "document",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid/v1/embeddings///",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "query",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "query",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid/v1/embeddings///",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "document",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "document",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": " http://synthetic.invalid/ ",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "query",
+      "expected": {
+        "endpoint": " http://synthetic.invalid/ /v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "query",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": " http://synthetic.invalid/ ",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "document",
+      "expected": {
+        "endpoint": " http://synthetic.invalid/ /v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "document",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid/custom?x=1",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "query",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/custom?x=1/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "query",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    },
+    {
+      "url": "http://synthetic.invalid/custom?x=1",
+      "model": "synthetic 雪🌲",
+      "truncate": 17,
+      "text": "Synthetic query 雪🌲\n",
+      "role": "document",
+      "expected": {
+        "endpoint": "http://synthetic.invalid/custom?x=1/v1/embeddings",
+        "payload": {
+          "model": "synthetic 雪🌲",
+          "messages": [
+            {
+              "role": "document",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Synthetic query 雪🌲\n"
+                }
+              ]
+            }
+          ],
+          "truncate_prompt_tokens": 17
+        }
+      }
+    }
+  ],
+  "responses": [
+    {
+      "name": "shape-0",
+      "status": 200,
+      "body": "bnVsbA==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-1",
+      "status": 200,
+      "body": "W10=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-2",
+      "status": 200,
+      "body": "e30=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-3",
+      "status": 200,
+      "body": "eyJkYXRhIjogbnVsbH0=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-4",
+      "status": 200,
+      "body": "eyJkYXRhIjogW119",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-5",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3t9LCB7fV19",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-6",
+      "status": 200,
+      "body": "eyJkYXRhIjogW251bGxdfQ==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-7",
+      "status": 200,
+      "body": "eyJkYXRhIjogWzBdfQ==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-8",
+      "status": 200,
+      "body": "eyJkYXRhIjogW1tdXX0=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-9",
+      "status": 200,
+      "body": "eyJkYXRhIjogWyJiYWQiXX0=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-10",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3t9XX0=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-11",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogbnVsbH1dfQ==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-12",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogW119XX0=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-13",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogMX1dfQ==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "shape-14",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogImJhZCJ9XX0=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "vector-15",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzAuMSwgLTAuMCwgMS41XX1dfQ==",
+      "headers": {},
+      "expected": {
+        "bits": ["3fb999999999999a", "8000000000000000", "3ff8000000000000"]
+      }
+    },
+    {
+      "name": "vector-16",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogW3RydWUsIGZhbHNlXX1dfQ==",
+      "headers": {},
+      "expected": {
+        "bits": ["3ff0000000000000", "0000000000000000"]
+      }
+    },
+    {
+      "name": "vector-17",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWyIxXzAwMCIsICIgXHUwNjYxLlx1MDY2MmUrMiAiXX1dfQ==",
+      "headers": {},
+      "expected": {
+        "bits": ["408f400000000000", "405e000000000000"]
+      }
+    },
+    {
+      "name": "vector-18",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWyJuYW4iLCAiLU5hTiIsICJJbmZpbml0eSIsICItaW5mIl19",
+          "XX0="
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "bits": [
+          "7ff8000000000000",
+          "fff8000000000000",
+          "7ff0000000000000",
+          "fff0000000000000"
+        ]
+      }
+    },
+    {
+      "name": "vector-19",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzFlKzMwOCwgMTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwXX1dfQ=="
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "bits": ["7fe1ccf385ebc8a0", "7fe1ccf385ebc8a0"]
+      }
+    },
+    {
+      "name": "vector-20",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzEwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+          "MDAwMDAwXX1dfQ=="
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "error": "OverflowError"
+      }
+    },
+    {
+      "name": "vector-21",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogW251bGxdfV19",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "vector-22",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogW3t9XX1dfQ==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "vector-23",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogW1tdXX1dfQ==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "vector-24",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWyJiYWQiXX1dfQ==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "vector-25",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWyIxX18yIl19XX0=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "vector-26",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWyJcdWQ4MDAiXX1dfQ==",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "vector-27",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogW05hTiwgSW5maW5pdHksIC1JbmZpbml0eV19XX0=",
+      "headers": {},
+      "expected": {
+        "bits": ["7ff8000000000000", "7ff0000000000000", "fff0000000000000"]
+      }
+    },
+    {
+      "name": "utf-8-sig",
+      "status": 200,
+      "body": "77u/eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzAuMjVdfV19",
+      "headers": {},
+      "expected": {
+        "bits": ["3fd0000000000000"]
+      }
+    },
+    {
+      "name": "utf-16",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "//57ACIAZABhAHQAYQAiADoAIABbAHsAIgBlAG0AYgBlAGQAZABpAG4AZwAiADoAIABbADAALgAyADUA",
+          "XQB9AF0AfQA="
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "bits": ["3fd0000000000000"]
+      }
+    },
+    {
+      "name": "utf-16-le",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "ewAiAGQAYQB0AGEAIgA6ACAAWwB7ACIAZQBtAGIAZQBkAGQAaQBuAGcAIgA6ACAAWwAwAC4AMgA1AF0A",
+          "fQBdAH0A"
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "bits": ["3fd0000000000000"]
+      }
+    },
+    {
+      "name": "utf-16-be",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "AHsAIgBkAGEAdABhACIAOgAgAFsAewAiAGUAbQBiAGUAZABkAGkAbgBnACIAOgAgAFsAMAAuADIANQBd",
+          "AH0AXQB9"
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "bits": ["3fd0000000000000"]
+      }
+    },
+    {
+      "name": "utf-32",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "//4AAHsAAAAiAAAAZAAAAGEAAAB0AAAAYQAAACIAAAA6AAAAIAAAAFsAAAB7AAAAIgAAAGUAAABtAAAA",
+          "YgAAAGUAAABkAAAAZAAAAGkAAABuAAAAZwAAACIAAAA6AAAAIAAAAFsAAAAwAAAALgAAADIAAAA1AAAA",
+          "XQAAAH0AAABdAAAAfQAAAA=="
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "bits": ["3fd0000000000000"]
+      }
+    },
+    {
+      "name": "utf-32-le",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "ewAAACIAAABkAAAAYQAAAHQAAABhAAAAIgAAADoAAAAgAAAAWwAAAHsAAAAiAAAAZQAAAG0AAABiAAAA",
+          "ZQAAAGQAAABkAAAAaQAAAG4AAABnAAAAIgAAADoAAAAgAAAAWwAAADAAAAAuAAAAMgAAADUAAABdAAAA",
+          "fQAAAF0AAAB9AAAA"
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "bits": ["3fd0000000000000"]
+      }
+    },
+    {
+      "name": "utf-32-be",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "AAAAewAAACIAAABkAAAAYQAAAHQAAABhAAAAIgAAADoAAAAgAAAAWwAAAHsAAAAiAAAAZQAAAG0AAABi",
+          "AAAAZQAAAGQAAABkAAAAaQAAAG4AAABnAAAAIgAAADoAAAAgAAAAWwAAADAAAAAuAAAAMgAAADUAAABd",
+          "AAAAfQAAAF0AAAB9"
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "bits": ["3fd0000000000000"]
+      }
+    },
+    {
+      "name": "ignored-surrogate",
+      "status": 200,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzFdfV0sICJpZ25vcmVkIjogIlx1ZDgwMCJ9",
+      "headers": {},
+      "expected": {
+        "bits": ["3ff0000000000000"]
+      }
+    },
+    {
+      "name": "invalid-json-36",
+      "status": 200,
+      "body": "",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "invalid-json-37",
+      "status": 200,
+      "body": "bm90IGpzb24=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "invalid-json-38",
+      "status": 200,
+      "body": "eyJkYXRhIjpbeyJlbWJlZGRpbmciOlsxLF19XX0=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "invalid-json-39",
+      "status": 200,
+      "body": "eyJkYXRhIjpbeyJlbWJlZGRpbmciOlsxXX1dff8=",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "invalid-json-40",
+      "status": 200,
+      "body": {
+        "$string_parts": [
+          "eyJkYXRhIjpbeyJlbWJlZGRpbmciOls5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5",
+          "OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OTk5OV19XX0="
+        ]
+      },
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "status-201",
+      "status": 201,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzFdfV19",
+      "headers": {},
+      "expected": {
+        "bits": ["3ff0000000000000"]
+      }
+    },
+    {
+      "name": "status-301",
+      "status": 301,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzFdfV19",
+      "headers": {},
+      "expected": {
+        "bits": ["3ff0000000000000"]
+      }
+    },
+    {
+      "name": "status-307",
+      "status": 307,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzFdfV19",
+      "headers": {},
+      "expected": {
+        "bits": ["3ff0000000000000"]
+      }
+    },
+    {
+      "name": "status-400",
+      "status": 400,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzFdfV19",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "status-429",
+      "status": 429,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzFdfV19",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    },
+    {
+      "name": "status-500",
+      "status": 500,
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzFdfV19",
+      "headers": {},
+      "expected": {
+        "error": "RuntimeError"
+      }
+    }
+  ],
+  "compression": [
+    {
+      "name": "zstd",
+      "encoding": "zstd",
+      "body": {
+        "$string_parts": [
+          "KLUv/SA4wQEAeyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzAuMjUsIC0wLjAsICJcdTA2NjEuXHUwNjYy",
+          "Il19XX0="
+        ]
+      },
+      "expected": {
+        "bits": ["3fd0000000000000", "8000000000000000", "3ff3333333333333"]
+      }
+    },
+    {
+      "name": "zstd-frames",
+      "encoding": "zstd",
+      "body": {
+        "$string_parts": [
+          "KLUv/SAUoQAAeyJkYXRhIjogW3siZW1iZWRkaW4otS/9ICQhAQBnIjogWzAuMjUsIC0wLjAsICJcdTA2",
+          "NjEuXHUwNjYyIl19XX0="
+        ]
+      },
+      "expected": {
+        "bits": ["3fd0000000000000", "8000000000000000", "3ff3333333333333"]
+      }
+    },
+    {
+      "name": "broken-zstd",
+      "encoding": "zstd",
+      "body": "bm90IHpzdGQ=",
+      "expected": {
+        "error": "DecodingError"
+      }
+    },
+    {
+      "name": "stacked",
+      "encoding": "gzip, deflate",
+      "body": {
+        "$string_parts": [
+          "eJwBRgC5/x+LCABdSs9qAv+rVkpJLElUslKIrlZKzU1KTUnJzEsHcQ30jEx1FHQN9Ax0FJRiSg3MzAz1",
+          "wJSRUmxtbC0AV85x+DgAAADdGRvd"
+        ]
+      },
+      "expected": {
+        "bits": ["3fd0000000000000", "8000000000000000", "3ff3333333333333"]
+      }
+    },
+    {
+      "name": "unknown",
+      "encoding": "future-codec",
+      "body": "eyJkYXRhIjogW3siZW1iZWRkaW5nIjogWzAuMjUsIC0wLjAsICJcdTA2NjEuXHUwNjYyIl19XX0=",
+      "expected": {
+        "bits": ["3fd0000000000000", "8000000000000000", "3ff3333333333333"]
+      }
+    }
+  ],
+  "zstandard_version": "0.25.0"
+}

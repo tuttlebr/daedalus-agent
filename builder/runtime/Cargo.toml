@@ -9,10 +9,11 @@ publish = false
 anyhow = "1"
 axum = "0.8"
 bytes = "1"
+libc = "0.2"
 base64 = "0.22"
 futures = "0.3"
 http = "1"
-reqwest = { version = "0.13", default-features = false, features = ["json", "form", "stream", "rustls", "query"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "stream", "rustls", "query", "cookies"] }
 rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-streamable-http-client-reqwest", "reqwest", "auth"] }
 jsonschema = { version = "=0.58.6", default-features = false, features = ["arbitrary-precision"] }
 rig-core = { version = "=0.43.0", default-features = false, features = ["reqwest", "rustls"] }
@@ -24,10 +25,16 @@ regex = "1"
 flate2 = "1"
 redis = { version = "1.0", default-features = false, features = ["tokio-rustls-comp", "script"] }
 sha2 = "0.10"
+hmac = "0.12"
 subtle = "2"
 sse-stream = "=0.2.6"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
+tonic = { version = "=0.14.6", default-features = false, features = ["channel", "tls-aws-lc", "tls-native-roots", "gzip"] }
+tonic-prost = "=0.14.6"
+prost = "0.14"
+tower = { version = "0.5", features = ["util"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
@@ -35,6 +42,7 @@ yaml-rust2 = "0.13"
 opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client", "reqwest-rustls"] }
+zstd = "=0.13.3"
 
 [profile.release]
 lto = "thin"
@@ -42,4 +50,3 @@ strip = true
 
 [dev-dependencies]
 opentelemetry-proto = { version = "0.33", default-features = false, features = ["trace", "gen-tonic-messages"] }
-prost = "0.14"

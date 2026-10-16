@@ -478,6 +478,42 @@ def test_private_feed_is_unavailable_without_http_or_cache_population(monkeypatc
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_url_shaped_feed_content_cannot_trigger_parser_fetch(monkeypatch, scheme):
+    async def run():
+        harness = FeedHarness()
+        async with harness.registered(monkeypatch) as info:
+            nested = []
+            monkeypatch.setattr(
+                rss,
+                "get_public_response_async",
+                AsyncMock(
+                    return_value=httpx.Response(
+                        200,
+                        text=f"{scheme}://127.0.0.1/synthetic-private",
+                        request=httpx.Request("GET", "https://8.8.8.8/rss"),
+                    )
+                ),
+            )
+            monkeypatch.setattr(
+                rss.fastfeedparser, "parse", lambda text: nested.append(text)
+            )
+            result = json.loads(
+                await info.ainvoke({"query": "synthetic", "mode": "discover"})
+            )
+            assert result["success"] is False
+            assert result["results"][0]["status"] == "unavailable"
+            assert all(
+                feed["status"] == "unavailable"
+                for feed in result["results"][0]["feeds"]
+            )
+            assert nested == []
+            assert harness.reranks == []
+            harness.article.assert_not_called()
+
+    asyncio.run(run())
+
+
 def test_discovery_discards_feed_links_with_private_addresses_or_unsafe_schemes(
     monkeypatch,
 ):

@@ -73,6 +73,9 @@ def measure(image, redis_image, candidate, budgets):
     )[0]
     result = {
         "image": image,
+        "preparation": "rust" if candidate else "python",
+        "authorization": "rust" if candidate else "python",
+        "throughput_identity": "independent synthetic users",
         "image_id": installed["Id"],
         "image_digests": installed["RepoDigests"],
         "architecture": installed["Architecture"],
@@ -133,9 +136,17 @@ def measure(image, redis_image, candidate, budgets):
                 try:
                     response = client.post(
                         base + "/v1/chat/completions",
-                        headers=headers | {"x-daedalus-request-id": uuid.uuid4().hex},
+                        # Throughput samples represent independent users. The
+                        # public API intentionally limits one user to five
+                        # active chats; concurrency eight must not time 429s.
+                        headers=headers
+                        | {
+                            "x-daedalus-request-id": uuid.uuid4().hex,
+                            "x-user-id": "synthetic-benchmark-" + uuid.uuid4().hex,
+                        },
                         json={"stream": False, "messages": messages},
                     )
+                    row["http_status"] = response.status_code
                     require(response.is_success, "HTTP failure")
                     require(
                         (
@@ -171,12 +182,14 @@ def measure(image, redis_image, candidate, budgets):
                                     )
                                 )
                                 offset = log.stat().st_size
+                                measured_start = time.monotonic()
                                 samples = list(
                                     pool.map(
                                         lambda i: chat(workload, i),
                                         range(budgets["overhead"]["measured_runs"]),
                                     )
                                 )
+                                measured_seconds = time.monotonic() - measured_start
                             events = []
                             with log.open("rb") as handle:
                                 handle.seek(offset)
@@ -211,11 +224,15 @@ def measure(image, redis_image, candidate, budgets):
                                     "repetition": repetition,
                                     "warmup": warmup,
                                     "samples": samples,
+                                    "measured_seconds": measured_seconds,
+                                    "requests_per_second": len(samples)
+                                    / measured_seconds,
                                     "events": events,
                                 }
                             )
                             print(
-                                f"{image}: {workload} c={concurrency} repeat={repetition + 1}",
+                                f"{image} [{result['preparation']}]: "
+                                f"{workload} c={concurrency} repeat={repetition + 1}",
                                 flush=True,
                             )
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:

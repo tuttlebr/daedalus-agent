@@ -1,0 +1,395 @@
+{
+  "defaults": {
+    "description": null,
+    "verbose": false,
+    "base_url": "http://llm-sandbox-llm-sandbox.llm-sandbox.svc.cluster.local:8080",
+    "request_timeout": 70.0,
+    "discovery_timeout_seconds": 5.0,
+    "capability_cache_seconds": 30.0,
+    "default_timeout_seconds": 30,
+    "max_timeout_seconds": 60,
+    "max_command_bytes": 8192,
+    "retry_backoff_seconds": 0.1,
+    "artifact_publish_url": "",
+    "artifact_publish_timeout_seconds": 30.0
+  },
+  "configuration_schema": {
+    "additionalProperties": false,
+    "description": "Configuration for the LLM sandbox function.",
+    "properties": {
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "verbose": {
+        "default": false,
+        "title": "Verbose",
+        "type": "boolean"
+      },
+      "base_url": {
+        "description": "HTTPS or in-cluster base URL for the LLM sandbox service.",
+        "title": "Base Url",
+        "type": "string"
+      },
+      "api_key": {
+        "description": "Bearer token loaded from the agent runtime Secret.",
+        "format": "password",
+        "title": "Api Key",
+        "type": "string",
+        "writeOnly": true
+      },
+      "request_timeout": {
+        "default": 70.0,
+        "description": "Minimum HTTP timeout for execution requests, in seconds.",
+        "maximum": 600.0,
+        "minimum": 1.0,
+        "title": "Request Timeout",
+        "type": "number"
+      },
+      "discovery_timeout_seconds": {
+        "default": 5.0,
+        "description": "HTTP timeout for readiness and command discovery.",
+        "maximum": 30.0,
+        "minimum": 1.0,
+        "title": "Discovery Timeout Seconds",
+        "type": "number"
+      },
+      "capability_cache_seconds": {
+        "default": 30.0,
+        "description": "How long a successful command discovery result is cached.",
+        "maximum": 300.0,
+        "minimum": 1.0,
+        "title": "Capability Cache Seconds",
+        "type": "number"
+      },
+      "default_timeout_seconds": {
+        "default": 30,
+        "description": "Sandbox command timeout when timeout_seconds is omitted.",
+        "maximum": 600,
+        "minimum": 1,
+        "title": "Default Timeout Seconds",
+        "type": "integer"
+      },
+      "max_timeout_seconds": {
+        "default": 60,
+        "description": "Agent-side wall-clock cap for one sandbox command.",
+        "maximum": 600,
+        "minimum": 1,
+        "title": "Max Timeout Seconds",
+        "type": "integer"
+      },
+      "max_command_bytes": {
+        "default": 8192,
+        "description": "Maximum command or argv size accepted from the agent.",
+        "maximum": 65536,
+        "minimum": 1,
+        "title": "Max Command Bytes",
+        "type": "integer"
+      },
+      "retry_backoff_seconds": {
+        "default": 0.1,
+        "description": "Backoff before one retry of a transport or gateway failure.",
+        "maximum": 5.0,
+        "minimum": 0.0,
+        "title": "Retry Backoff Seconds",
+        "type": "number"
+      },
+      "artifact_publish_url": {
+        "description": "Trusted internal frontend endpoint that durably publishes collected sandbox artifacts.",
+        "title": "Artifact Publish Url",
+        "type": "string"
+      },
+      "artifact_publish_timeout_seconds": {
+        "default": 30.0,
+        "description": "HTTP timeout for durable sandbox artifact publication.",
+        "maximum": 120.0,
+        "minimum": 1.0,
+        "title": "Artifact Publish Timeout Seconds",
+        "type": "number"
+      },
+      "internal_api_token": {
+        "description": "Shared token for the trusted internal artifact endpoint.",
+        "format": "password",
+        "title": "Internal Api Token",
+        "type": "string",
+        "writeOnly": true
+      }
+    },
+    "title": "LlmSandboxConfig",
+    "type": "object"
+  },
+  "schema": {
+    "name": "llm_sandbox",
+    "description": "Execute one bounded step or manage a file through the isolated Bubblewrap sandbox. The tool checks readiness and discovers capabilities before execution, fails closed if discovery fails, and only exposes command names returned by discovery. Use write_file for user-requested HTML, code, reports, or other text artifacts; use append for bounded chunks, read_file to verify the result, and publish_file to create a durable UI download. Do not claim that a sandbox file is downloadable until publish_file succeeds. Prefer structured argv for execution and use command only for necessary shell syntax. Never include secrets or host paths. Conversation workspaces expire automatically. Do not blindly retry timed-out or truncated work.",
+    "parameters": {
+      "additionalProperties": false,
+      "description": "Explicit LLM-facing schema for the sandbox tool.",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": [
+            "list_commands",
+            "execute",
+            "write_file",
+            "read_file",
+            "publish_file"
+          ],
+          "description": "Required operation; supply only the arguments for that operation."
+        },
+        "command": {
+          "default": "",
+          "description": "Shell command; use only when shell syntax is required. Allowed only for: execute.",
+          "title": "Command",
+          "type": "string"
+        },
+        "argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Preferred structured argument vector for one discovered command. Allowed only for: execute.",
+          "title": "Argv"
+        },
+        "timeout_seconds": {
+          "default": 0,
+          "description": "Command timeout in seconds; zero uses the configured default. Allowed only for: execute.",
+          "minimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "env_json": {
+          "default": "",
+          "description": "Optional JSON object of non-secret string environment variables. Allowed only for: execute.",
+          "title": "Env Json",
+          "type": "string"
+        },
+        "working_directory": {
+          "default": ".",
+          "description": "Relative working directory inside the conversation workspace. Allowed only for: execute.",
+          "title": "Working Directory",
+          "type": "string"
+        },
+        "file_path": {
+          "default": "",
+          "description": "Relative workspace path used by write_file, read_file, or publish_file. Allowed only for: write_file, read_file, publish_file. Required for: write_file, read_file, publish_file.",
+          "title": "File Path",
+          "type": "string"
+        },
+        "file_content": {
+          "default": "",
+          "description": "UTF-8 text written by write_file. Allowed only for: write_file. Required for: write_file.",
+          "title": "File Content",
+          "type": "string"
+        },
+        "append": {
+          "default": false,
+          "description": "Append file_content instead of replacing file_path for write_file. Allowed only for: write_file.",
+          "title": "Append",
+          "type": "boolean"
+        }
+      },
+      "title": "LlmSandboxInput",
+      "type": "object",
+      "required": ["operation"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "list_commands"
+              }
+            }
+          },
+          "then": {
+            "required": [],
+            "properties": {
+              "timeout_seconds": false,
+              "argv": false,
+              "file_content": false,
+              "working_directory": false,
+              "command": false,
+              "append": false,
+              "file_path": false,
+              "env_json": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "execute"
+              }
+            }
+          },
+          "then": {
+            "required": [],
+            "properties": {
+              "file_path": false,
+              "append": false,
+              "file_content": false
+            },
+            "oneOf": [
+              {
+                "required": ["argv"],
+                "properties": {
+                  "argv": {
+                    "not": {
+                      "type": "null"
+                    },
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "minItems": 1,
+                    "minProperties": 1
+                  }
+                }
+              },
+              {
+                "required": ["command"],
+                "properties": {
+                  "command": {
+                    "not": {
+                      "type": "null"
+                    },
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "minItems": 1,
+                    "minProperties": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "write_file"
+              }
+            }
+          },
+          "then": {
+            "required": ["file_path", "file_content"],
+            "properties": {
+              "timeout_seconds": false,
+              "argv": false,
+              "command": false,
+              "working_directory": false,
+              "env_json": false,
+              "file_path": {
+                "not": {
+                  "type": "null"
+                },
+                "minLength": 1,
+                "pattern": "\\S",
+                "minItems": 1,
+                "minProperties": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "read_file"
+              }
+            }
+          },
+          "then": {
+            "required": ["file_path"],
+            "properties": {
+              "timeout_seconds": false,
+              "argv": false,
+              "file_content": false,
+              "command": false,
+              "working_directory": false,
+              "env_json": false,
+              "append": false,
+              "file_path": {
+                "not": {
+                  "type": "null"
+                },
+                "minLength": 1,
+                "pattern": "\\S",
+                "minItems": 1,
+                "minProperties": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "publish_file"
+              }
+            }
+          },
+          "then": {
+            "required": ["file_path"],
+            "properties": {
+              "timeout_seconds": false,
+              "argv": false,
+              "file_content": false,
+              "command": false,
+              "working_directory": false,
+              "env_json": false,
+              "append": false,
+              "file_path": {
+                "not": {
+                  "type": "null"
+                },
+                "minLength": 1,
+                "pattern": "\\S",
+                "minItems": 1,
+                "minProperties": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "reserved_environment": [
+    "AWKLIBPATH",
+    "AWKPATH",
+    "BASHOPTS",
+    "BASH_ENV",
+    "CDPATH",
+    "CURL_HOME",
+    "ENV",
+    "GCONV_PATH",
+    "HOME",
+    "HOSTNAME",
+    "LOCPATH",
+    "NLSPATH",
+    "PATH",
+    "PWD",
+    "SHELL",
+    "SHELLOPTS",
+    "TAR_OPTIONS",
+    "TMPDIR",
+    "WGETRC",
+    "XDG_CONFIG_HOME"
+  ],
+  "reserved_prefixes": ["DYLD_", "LD_"],
+  "artifact_marker": "DAEDALUS_SANDBOX_ARTIFACT_REF_V1:"
+}

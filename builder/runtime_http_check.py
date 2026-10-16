@@ -250,6 +250,7 @@ class Peers:
                             "MODEL_STEER",
                             "MODEL_PROGRESS",
                             "TOOL_STEER",
+                            "OUTPUT_RETRIEVAL",
                             "APPROVAL",
                             "POLICY_CONFLICT",
                             "RENDERER_FALLBACK",
@@ -271,6 +272,33 @@ class Peers:
                     ),
                     "BASIC",
                 )
+                latest_user = next(
+                    (
+                        item
+                        for item in reversed(body.get("input", []))
+                        if item.get("role") == "user"
+                    ),
+                    {},
+                )
+                if "OUTPUT_RETRIEVAL" in json.dumps(latest_user):
+                    scenario = "OUTPUT_RETRIEVAL"
+                    redirected = False
+                for marker in [
+                    "MEMORY_WRITE",
+                    "MEMORY_READ",
+                    "DOCUMENT_SEARCH",
+                    "DOMAIN_SEARCH",
+                    "WEB_SEARCH",
+                    "NWS_WEATHER",
+                    "USER_INTERACTION_CONFIRM",
+                    "SKILL_LOAD",
+                    "SANDBOX_WRITE",
+                    "SANDBOX_READ",
+                    "SANDBOX_PUBLISH",
+                ]:
+                    if marker in json.dumps(latest_user):
+                        scenario = marker
+                        redirected = False
                 outputs = []
                 attempt = sum(
                     scenario in json.dumps(old.get("input", []))
@@ -384,7 +412,27 @@ class Peers:
                     )
                 ):
                     names = (
-                        [
+                        ["llm_sandbox_tool"]
+                        if scenario.startswith("SANDBOX_")
+                        else ["agent_skills_tool"]
+                        if scenario == "SKILL_LOAD"
+                        else ["user_interaction"]
+                        if scenario == "USER_INTERACTION_CONFIRM"
+                        else ["web_search"]
+                        if scenario == "WEB_SEARCH"
+                        else ["nws_weather_tool"]
+                        if scenario == "NWS_WEATHER"
+                        else ["domain_search"]
+                        if scenario == "DOMAIN_SEARCH"
+                        else ["user_documents"]
+                        if scenario == "DOCUMENT_SEARCH"
+                        else ["add_memory"]
+                        if scenario == "MEMORY_WRITE"
+                        else ["get_memory"]
+                        if scenario == "MEMORY_READ"
+                        else ["tool_output_retriever_tool"]
+                        if scenario == "OUTPUT_RETRIEVAL"
+                        else [
                             "current_datetime_tool"
                             if result_count < 2
                             else "agent_skills_tool"
@@ -443,7 +491,73 @@ class Peers:
                         names = ["briefing_renderer_tool"]
                     for index, name in enumerate(names):
                         arguments = (
-                            json.dumps({"private": "LARGE_TOOL"})
+                            json.dumps(
+                                {
+                                    "operation": {
+                                        "SANDBOX_WRITE": "write_file",
+                                        "SANDBOX_READ": "read_file",
+                                        "SANDBOX_PUBLISH": "publish_file",
+                                    }[scenario],
+                                    "file_path": "reports/browser-report.txt",
+                                    **(
+                                        {
+                                            "file_content": "Synthetic browser artifact 雪🌲\n"
+                                        }
+                                        if scenario == "SANDBOX_WRITE"
+                                        else {}
+                                    ),
+                                }
+                            )
+                            if name == "llm_sandbox_tool"
+                            else json.dumps(
+                                {
+                                    "latitude": 42.3,
+                                    "longitude": -83.1,
+                                    "include_observations": True,
+                                }
+                            )
+                            if name == "nws_weather_tool"
+                            else json.dumps(
+                                {
+                                    "operation": "confirm_action",
+                                    "action": "Remove browser memories",
+                                    "reason": "Synthetic browser confirmation",
+                                    "risks": "Saved preferences will be removed",
+                                }
+                            )
+                            if name == "user_interaction"
+                            else json.dumps(
+                                {
+                                    "query": [
+                                        "Synthetic browser search",
+                                        "Synthetic related search",
+                                    ]
+                                }
+                            )
+                            if name == "web_search"
+                            else json.dumps(
+                                {
+                                    "query": "Synthetic indexed domain",
+                                    "domain": "nvidia",
+                                }
+                            )
+                            if name == "domain_search"
+                            else json.dumps(
+                                {
+                                    "operation": "search",
+                                    "query": "Synthetic indexed document",
+                                }
+                            )
+                            if name == "user_documents"
+                            else json.dumps({"memory": "Browser preference 雪🌲"})
+                            if name == "add_memory"
+                            else json.dumps({"query": "Browser preference"})
+                            if name == "get_memory"
+                            else json.dumps(
+                                {"reference": peers.retrieval_reference, "offset": 1}
+                            )
+                            if name == "tool_output_retriever_tool"
+                            else json.dumps({"private": "LARGE_TOOL"})
                             if "LARGE_TOOL" in serialized
                             else json.dumps({"private": "LARGE_OPAQUE"})
                             if "LARGE_OPAQUE" in serialized
@@ -543,6 +657,130 @@ class Peers:
                         )
                         else ("The real datetime tool completed")
                     )
+                    if scenario == "DOCUMENT_SEARCH":
+                        result = next(
+                            item["output"]
+                            for item in body["input"]
+                            if item.get("type") == "function_call_output"
+                        )
+                        assert "Synthetic indexed 雪🌲" in result  # nosec B101 - browser evidence
+                        text = "Retrieved indexed document: Synthetic indexed 雪🌲"
+                    if scenario == "DOMAIN_SEARCH":
+                        result = next(
+                            item["output"]
+                            for item in reversed(body["input"])
+                            if item.get("type") == "function_call_output"
+                        )
+                        payload = json.loads(result)
+                        assert payload["domain"] == "nvidia"  # nosec B101 - browser contract
+                        assert payload["ranking_status"] == "vector_only"  # nosec B101
+                        assert (
+                            payload["results"][0]["content"] == "Synthetic indexed 雪🌲"
+                        )  # nosec B101
+                        text = "Retrieved domain passage: Synthetic indexed 雪🌲"
+                    if scenario == "SKILL_LOAD":
+                        text = next(
+                            item["output"]
+                            for item in reversed(body["input"])
+                            if item.get("type") == "function_call_output"
+                        )
+                        assert "Loaded skill evidence 雪🌲" in text  # nosec B101 - browser contract
+                        assert "resource.txt" in text  # nosec B101
+                        assert body["model"] == "fixture/deep"  # nosec B101
+                    if scenario.startswith("SANDBOX_"):
+                        result = next(
+                            item["output"]
+                            for item in reversed(body["input"])
+                            if item.get("type") == "function_call_output"
+                        )
+                        if scenario == "SANDBOX_PUBLISH":
+                            assert "DAEDALUS_SANDBOX_ARTIFACT_REF_V1:" in result  # nosec B101 - private backend transport
+                            assert "/api/session/documentStorage?" in result  # nosec B101
+                            text = "Published browser artifact: [browser-report.txt](reports/browser-report.txt)"
+                        elif scenario == "SANDBOX_READ":
+                            assert "Synthetic browser artifact" in result  # nosec B101
+                            text = "Verified browser artifact contents."
+                        else:
+                            assert "Conversation workspace persisted: True" in result  # nosec B101
+                            text = (
+                                "Wrote browser artifact to its conversation workspace."
+                            )
+                    if scenario == "USER_INTERACTION_CONFIRM":
+                        text = next(
+                            item["output"]
+                            for item in reversed(body["input"])
+                            if item.get("type") == "function_call_output"
+                        )
+                        assert "No executable credential has been created." in text  # nosec B101 - browser contract
+                        assert "target=`e2e-user`" in text  # nosec B101
+                    if scenario == "WEB_SEARCH":
+                        result = next(
+                            item["output"]
+                            for item in reversed(body["input"])
+                            if item.get("type") == "function_call_output"
+                        )
+                        payload = json.loads(
+                            result.split("<searchresults>", 1)[1].split(
+                                "</searchresults>", 1
+                            )[0]
+                        )
+                        assert payload["search_info"]["total_results"] == 2  # nosec B101 - browser contract
+                        assert payload["queries"] == [
+                            "Synthetic browser search",
+                            "Synthetic related search",
+                        ]  # nosec B101
+                        text = result
+                    if scenario == "NWS_WEATHER":
+                        result = next(
+                            item["output"]
+                            for item in reversed(body["input"])
+                            if item.get("type") == "function_call_output"
+                        )
+                        payload = json.loads(result)
+                        assert payload["location"]["city"] == "Synthetic 雪🌲"  # nosec B101 - browser contract
+                        assert payload["forecast"]["coverage"]["complete"]  # nosec B101
+                        assert payload["observations"]["observation"][
+                            "temperature"
+                        ] == {"value": 20, "unitCode": "wmoUnit:degC"}  # nosec B101
+                        if payload["alerts"]["status"] == "unavailable":
+                            assert payload["status"] == "partial"  # nosec B101
+                            alert = "Alerts are unavailable."
+                        else:
+                            assert payload["status"] == "ok"  # nosec B101
+                            assert (
+                                payload["alerts"]["items"][0]["headline"]
+                                == "Synthetic alert"
+                            )  # nosec B101
+                            alert = "Synthetic alert is active."
+                        text = f"Weather for Synthetic 雪🌲: 20 °C. Forecast coverage is complete. {alert}\n\n[NWS forecast]({payload['forecast']['source_url']})"
+                    if scenario == "OUTPUT_RETRIEVAL":
+                        result = next(
+                            item
+                            for item in body["input"]
+                            if item.get("type") == "function_call_output"
+                        )
+                        payload = json.loads(result["output"])
+                        assert payload["mode"] == "exact_page"  # nosec B101 - browser contract
+                        assert payload["content"] == peers.retrieval_content[1:]  # nosec B101
+                        text = "Recovered exact cached output: " + payload["content"]
+                    if scenario in ["MEMORY_WRITE", "MEMORY_READ"]:
+                        result = next(
+                            item["output"]
+                            for item in body["input"]
+                            if item.get("type") == "function_call_output"
+                        )
+                        if scenario == "MEMORY_WRITE":
+                            assert (
+                                result
+                                == "Memory added successfully. You can continue. Please respond to the user."
+                            )  # nosec B101
+                            text = "Saved memory through the native tool."
+                        else:
+                            memories = json.loads(
+                                result.removeprefix("Memories as a JSON: \n")
+                            )
+                            assert memories[0]["text"] == "Browser preference 雪🌲"  # nosec B101
+                            text = "Recalled memory: " + memories[0]["text"]
                 if text:
                     item = {
                         "type": "message",
@@ -1654,21 +1892,24 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     "cancellation_received",
                     "run_finished",
                     "run_failed",
-                    "tool_execution_started",
-                    "tool_execution_finished",
                     "child_ready",
                 }
                 if preparation == "python":
                     required_events.update(
-                        {"tool_prepare_finished", "tool_run_released"}
+                        {
+                            "tool_prepare_finished",
+                            "tool_run_released",
+                            "tool_execution_started",
+                            "tool_execution_finished",
+                        }
                     )
                 else:
                     assert not {"tool_prepare_finished", "tool_run_released"} & {
                         event.get("event") for event in events
                     }, "Rust runs must not create or release Python run state"  # nosec B101
-                assert required_events <= {
-                    event.get("event") for event in events
-                }, events  # nosec B101 - executable contract check
+                assert required_events <= {event.get("event") for event in events}, (
+                    required_events - {event.get("event") for event in events}
+                )  # nosec B101 - executable contract check
                 for name in (
                     "run_started",
                     "prepare_finished",
@@ -1700,6 +1941,17 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         and event.get("run_id") == "tool-run"
                         for event in events
                     ), "Rust MCP dispatch must not invoke the Python executor"  # nosec B101
+                    assert any(
+                        record.get("fields", {}).get("event") == "tool_call_finished"
+                        and record.get("fields", {}).get("tool") == "agent_skills_tool"
+                        and record.get("span", {}).get("run_id") == "route-None"
+                        for record in records
+                    )  # nosec B101 - skill execution belongs to Rust
+                    assert not any(
+                        event.get("event") == "tool_execution_finished"
+                        and str(event.get("run_id", "")).startswith("route-")
+                        for event in events
+                    ), "Rust skill dispatch must not invoke the Python executor"  # nosec B101
                 assert any(
                     event.get("event") == "model_retry_scheduled"  # nosec B101 - executable contract check
                     and event.get("http_status") == 503

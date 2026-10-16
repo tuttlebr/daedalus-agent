@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Built-image retrieval, verifier scheduling, state and cancellation contracts.
+"""Built-image Python verifier scheduling, state and cancellation contracts.
 
-Only external source/Milvus/model transports are fixtures. Registry, embeddings,
-retriever, critic, tool service and Rust lifecycle execute from the image.
+Only external source/model transports are fixtures. Registry, critic, tool
+service and Rust lifecycle execute from the image. Native retrieval is covered
+by document_tools_http_check and domain_retriever_http_check against gRPC peers.
 """
 
 import argparse
@@ -55,8 +56,6 @@ class LeafPeers(Peers):
         self.started = threading.Event()
         self.disconnected = 0
         self.results = []
-        self.embeddings = []
-        self.searches = []
         self.spans = []
         self.live_critic = None
 
@@ -91,35 +90,6 @@ class LeafPeers(Peers):
                     self.end_headers()
                     return
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                if self.path == "/v1/embeddings":
-                    peers.embeddings.append(body)
-                    return self.reply({"data": [{"embedding": [0.1, 0.2]}]})
-                if self.path.startswith("/milvus/"):
-                    if self.path.endswith("list"):
-                        return self.reply(["nvidia", *PRIVATE_COLLECTIONS.values()])
-                    if self.path.endswith("describe"):
-                        return self.reply(
-                            {
-                                "fields": [
-                                    {"name": n} for n in ("text", "vector", "source")
-                                ]
-                            }
-                        )
-                    peers.searches.append(body)
-                    return self.reply(
-                        [
-                            [
-                                {
-                                    "entity": {
-                                        "text": "Evidence in "
-                                        + body["collection_name"],
-                                        "source": "synthetic-source",
-                                    },
-                                    "distance": 0.1,
-                                }
-                            ]
-                        ]
-                    )
                 if self.path == "/critic/v1/responses":
                     return self.critic(body)
                 if self.path != "/v1/responses":
@@ -311,28 +281,11 @@ def fixture(image, redis_image, peers, limit=3, parallel=True):
                 "llm_name": "critic",
                 "max_concurrency": limit,
             },
-            "user_document_tool": {
-                "_type": "nat_nv_ingest",
-                "embedder_name": "embedding",
-                "use_reranker": False,
-            },
-            "domain_retriever_tool": {
-                "_type": "domain_retriever",
-                "uri": "http://milvus.test:19530",
-                "embedding_model": "embedding",
-                "use_reranker": False,
-            },
             "state_a": {"_type": "fixture_stateful"},
             "state_b": {"_type": "fixture_stateful"},
         }
         if limit is None:
             del config["functions"]["source_verifier_tool"]["max_concurrency"]
-        config["embedders"] = {
-            "embedding": {
-                "base_url": f"http://127.0.0.1:{port}/v1",
-                "model_name": "fixture",
-            }
-        }
         config["llms"]["critic"] = {
             **config["llms"]["main"],
             "base_url": f"http://127.0.0.1:{port}/critic/v1",
@@ -365,13 +318,38 @@ def fixture(image, redis_image, peers, limit=3, parallel=True):
     )
 
 
-def measure(env, control=None, user="synthetic-alice"):
-    run_id = str(uuid.uuid4())
+def runtime_lines(response):
+    """Read the runtime's LF/CRLF framing without splitting Unicode text.
+
+    httpx.iter_lines uses str.splitlines, which also treats NEL and other valid
+    JSON string characters as line endings. The frontend only splits on LF.
+    """
+    pending = b""
+    for chunk in response.iter_bytes():
+        pending += chunk
+        while b"\n" in pending:
+            line, pending = pending.split(b"\n", 1)
+            yield line.removesuffix(b"\r").decode("utf-8")
+    if pending:
+        yield pending.removesuffix(b"\r").decode("utf-8")
+
+
+def measure(
+    env,
+    control=None,
+    user="synthetic-alice",
+    *,
+    extra_headers=None,
+    request_id=None,
+    message="Execute the synthetic fixture plan.",
+):
+    run_id = request_id or str(uuid.uuid4())
     headers = env["headers"] | {
         "x-daedalus-request-id": run_id,
         "x-conversation-id": run_id,
         "x-user-id": user,
     }
+    headers.update(extra_headers or {})
     result = {
         "starts": [],
         "ends": [],
@@ -389,14 +367,12 @@ def measure(env, control=None, user="synthetic-alice"):
             headers=headers,
             json={
                 "stream": True,
-                "messages": [
-                    {"role": "user", "content": "Execute the synthetic fixture plan."}
-                ],
+                "messages": [{"role": "user", "content": message}],
             },
         ) as response:
             response.raise_for_status()
             event_type = None
-            for line in response.iter_lines():
+            for line in runtime_lines(response):
                 if time.monotonic() - started > 90:
                     raise TimeoutError("Frozen request limit")
                 if line.startswith("event: "):
@@ -531,53 +507,6 @@ def check(image, redis_image):
                     [json.loads(e["payload"])["before"] for e in state["ends"]]
                     == [0, 1, 2, 3],
                     "Stateful tool snapshots lost",
-                )
-                peers.plan = [
-                    {
-                        "name": "user_document_tool",
-                        "arguments": {
-                            "operation": "search",
-                            "query": "synthetic document",
-                            "top_k": 2,
-                        },
-                    },
-                    {
-                        "name": "domain_retriever_tool",
-                        "arguments": {
-                            "domain": "nvidia",
-                            "query": "synthetic domain",
-                            "top_k": 2,
-                        },
-                    },
-                ]
-                for user in ["synthetic-alice", "synthetic-bob"]:
-                    retrieval = measure(env, user=user)
-                    verify(retrieval, peers.plan)
-                    require(
-                        all("Evidence in" in e["payload"] for e in retrieval["ends"]),
-                        "Retrieval returned no passages",
-                    )
-                require(
-                    len(peers.embeddings) == len(peers.searches) == 4,
-                    "Retrieval skipped embedding or Milvus",
-                )
-                require(
-                    all(
-                        r["data"] == [[0.1, 0.2]] and r["limit"] == 2
-                        for r in peers.searches
-                    ),
-                    "Retrieval arguments changed",
-                )
-                require(
-                    sorted(r["collection_name"] for r in peers.searches)
-                    == sorted(
-                        [
-                            "nvidia",
-                            "nvidia",
-                            *PRIVATE_COLLECTIONS.values(),
-                        ]
-                    ),
-                    "User collections mixed",
                 )
                 for control in ["cancel", "steer"]:
                     peers.plan = verification_calls(mode="block")

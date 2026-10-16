@@ -13,7 +13,10 @@ use serde_json::Value;
 use sse_stream::{Error as SseError, Sse, SseStream};
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 type Error = StreamableHttpError<reqwest::Error>;
 #[derive(Default)]
@@ -26,6 +29,7 @@ pub struct BoundedHttp {
     http: reqwest::Client,
     max_bytes: usize,
     capture: Arc<Mutex<Capture>>,
+    docs_aborted: Option<Arc<AtomicBool>>,
 }
 impl BoundedHttp {
     pub fn new(http: reqwest::Client, max_bytes: usize) -> Self {
@@ -33,6 +37,13 @@ impl BoundedHttp {
             http,
             max_bytes,
             capture: Arc::default(),
+            docs_aborted: None,
+        }
+    }
+    pub fn for_docs(http: reqwest::Client, max_bytes: usize) -> Self {
+        Self {
+            docs_aborted: Some(Arc::default()),
+            ..Self::new(http, max_bytes)
         }
     }
     pub fn take_result(&self) -> Option<Value> {
@@ -144,6 +155,15 @@ impl StreamableHttpClient for BoundedHttp {
         auth: Option<String>,
         headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<(), Error> {
+        // Python's docs transport exits its task group on HTTP/connection
+        // failures before reaching its session-termination request.
+        if self
+            .docs_aborted
+            .as_ref()
+            .is_some_and(|aborted| aborted.load(Ordering::Relaxed))
+        {
+            return Ok(());
+        }
         self.http.delete_session(uri, session, auth, headers).await
     }
     async fn post_message(
@@ -173,7 +193,16 @@ impl StreamableHttpClient for BoundedHttp {
         headers: HashMap<HeaderName, HeaderValue>,
         max: usize,
     ) -> Result<StreamableHttpPostResponse, Error> {
-        let raw = serde_json::to_value(&message)?;
+        let mut raw = serde_json::to_value(&message)?;
+        if self.docs_aborted.is_some() {
+            // This tool's Python ClientSession does not request progress events.
+            if let Some(params) = raw.get_mut("params").and_then(Value::as_object_mut) {
+                params.remove("_meta");
+                if params.is_empty() {
+                    raw.as_object_mut().unwrap().remove("params");
+                }
+            }
+        }
         if raw["method"] == "tools/call" {
             *self.capture.lock().unwrap() = Capture {
                 id: raw["id"].clone(),
@@ -193,7 +222,17 @@ impl StreamableHttpClient for BoundedHttp {
         if let Some(session) = &session {
             request = request.header("mcp-session-id", session.as_ref());
         }
-        let response = request.json(&message).send().await?;
+        let response = match request.json(&raw).send().await {
+            Ok(response) => response,
+            Err(error) => {
+                if !error.is_timeout()
+                    && let Some(aborted) = &self.docs_aborted
+                {
+                    aborted.store(true, Ordering::Relaxed);
+                }
+                return Err(error.into());
+            }
+        };
         if response.status() == reqwest::StatusCode::NOT_FOUND && session.is_some() {
             return Err(Error::SessionExpired);
         }
@@ -204,8 +243,19 @@ impl StreamableHttpClient for BoundedHttp {
         }
         // A non-success response is never an invitation to resend the POST.
         // Do not collect or format an untrusted HTTP error body.
-        let response = response.error_for_status()?;
+        let response = match response.error_for_status() {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(aborted) = &self.docs_aborted {
+                    aborted.store(true, Ordering::Relaxed);
+                }
+                return Err(error.into());
+            }
+        };
         if !(200..300).contains(&response.status().as_u16()) {
+            if let Some(aborted) = &self.docs_aborted {
+                aborted.store(true, Ordering::Relaxed);
+            }
             return Err(Error::UnexpectedServerResponse(
                 "MCP redirect rejected".into(),
             ));
@@ -240,6 +290,11 @@ impl StreamableHttpClient for BoundedHttp {
             ));
         }
         if !kind.starts_with("application/json") {
+            if self.docs_aborted.is_some() {
+                // The retained docs SDK ignores an unrecognized successful
+                // response and waits until the enclosing search deadline.
+                return std::future::pending().await;
+            }
             return Err(Error::UnexpectedContentType(None));
         }
         if response.content_length().is_some_and(|n| n > max as u64) {
@@ -262,6 +317,9 @@ impl StreamableHttpClient for BoundedHttp {
             Ok(raw) => raw,
             Err(_) if notification => return Ok(StreamableHttpPostResponse::Accepted),
             Err(_) => {
+                if self.docs_aborted.is_some() {
+                    return std::future::pending().await;
+                }
                 return Err(Error::UnexpectedServerResponse(
                     "Invalid MCP response".into(),
                 ));

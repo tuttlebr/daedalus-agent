@@ -1,0 +1,57 @@
+{
+  "pymilvus": "2.6.9",
+  "python_image": "sha256:a741ebc7aca8d6654e1892b38f32133ee53940a3ff292e461cd78424c0d0e5e7",
+  "cache_sha256": "a01c58481065857d271df04fdcc4583bc5f066df1d6811c2ac659964768f2d51",
+  "exporter_sha256": "1c0fb1b04afbfd3b36fd85fd9589ad87a24d5a3a6ad7055701ac1717c5017387",
+  "cases": [
+    {
+      "name": "namespace-and-monotonicity",
+      "capacity": 4096,
+      "steps": [
+        ["get", "synthetic-server", "", "a", 0],
+        ["set", "synthetic-server", "", "a", 0],
+        ["get", "synthetic-server", "default", "a", 0],
+        ["set", "synthetic-server", "", "a", 10],
+        ["get", "synthetic-server", "default", "a", 10],
+        ["get", "other-server", "default", "a", 0],
+        ["get", "synthetic-server", "other-db", "a", 0],
+        ["get", "synthetic-server", "default", "other-collection", 0],
+        ["set", "synthetic-server", "default", "a", 5],
+        ["get", "synthetic-server", "", "a", 10],
+        ["set", "synthetic-server", "", "a", 18446744073709551615],
+        ["set", "synthetic-server", "", "a", 11],
+        ["get", "synthetic-server", "default", "a", 18446744073709551615]
+      ]
+    },
+    {
+      "name": "older-acknowledgement-touches-lru",
+      "capacity": 3,
+      "steps": [
+        ["fill", 3],
+        ["set", "synthetic-server", "default", "c0", 0],
+        ["set", "synthetic-server", "", "c3", 5],
+        ["get", "synthetic-server", "", "c1", 0],
+        ["get", "synthetic-server", "", "c2", 4],
+        ["get", "synthetic-server", "", "c0", 2],
+        ["set", "synthetic-server", "", "c4", 6],
+        ["get", "synthetic-server", "", "c3", 0]
+      ]
+    },
+    {
+      "name": "default-capacity-and-read-touches",
+      "capacity": 4096,
+      "steps": [
+        ["fill", 4096],
+        ["get", "synthetic-server", "", "missing", 0],
+        ["get", "synthetic-server", "", "c0", 2],
+        ["set", "synthetic-server", "default", "c4096", 5000],
+        ["get", "synthetic-server", "default", "c0", 2],
+        ["get", "synthetic-server", "", "c1", 0],
+        ["get", "synthetic-server", "", "c2", 4],
+        ["set", "synthetic-server", "", "c4097", 5001],
+        ["get", "synthetic-server", "", "c3", 0],
+        ["get", "synthetic-server", "", "c4096", 5000]
+      ]
+    }
+  ]
+}

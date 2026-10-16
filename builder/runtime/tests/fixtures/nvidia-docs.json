@@ -1,0 +1,1906 @@
+{
+  "source_sha256": "f76fe42530d240d003fadf279785ae875288cddaebe5a1326ac04d4ac0431b8e",
+  "configuration": [
+    {
+      "input": {
+        "description": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": ""
+      },
+      "expected": {
+        "ok": {
+          "description": "",
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema_error": "ValueError"
+      }
+    },
+    {
+      "input": {
+        "description": "Synthetic description"
+      },
+      "expected": {
+        "ok": {
+          "description": "Synthetic description",
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": "Synthetic description",
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": " \t\u001c"
+      },
+      "expected": {
+        "ok": {
+          "description": " \t\u001c",
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema_error": "ValueError"
+      }
+    },
+    {
+      "input": {
+        "description": 0
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 1.5
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 120
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": 121
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": true
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": false
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "description": "1.5"
+      },
+      "expected": {
+        "ok": {
+          "description": "1.5",
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": "1.5",
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "NaN"
+      },
+      "expected": {
+        "ok": {
+          "description": "NaN",
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": "NaN",
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "inf"
+      },
+      "expected": {
+        "ok": {
+          "description": "inf",
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": "inf",
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "description": "off"
+      },
+      "expected": {
+        "ok": {
+          "description": "off",
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": "off",
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": ""
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "Synthetic description"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": " \t\u001c"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 0
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 1
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": true,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": 1.5
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 120
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": 121
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": true
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": true,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": false
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "verbose": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "1.5"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "NaN"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "inf"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "verbose": "off"
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": false,
+          "timeout": 60.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": ""
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "Synthetic description"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": " \t\u001c"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": 0
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": 1
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": false,
+          "timeout": 1.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": 1.5
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": false,
+          "timeout": 1.5
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": 120
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": false,
+          "timeout": 120.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": 121
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": true
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": false,
+          "timeout": 1.0
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": false
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "1.5"
+      },
+      "expected": {
+        "ok": {
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "verbose": false,
+          "timeout": 1.5
+        },
+        "schema": {
+          "name": "configured_docs",
+          "description": {
+            "$string_parts": [
+              "Search official NVIDIA Dynamo, OpenShell, AIStore, AIPerf, NVCF, or DSX document",
+              "ation."
+            ]
+          },
+          "parameters": {
+            "additionalProperties": false,
+            "description": "The endpoint is selected from a closed product set, never model-supplied.",
+            "properties": {
+              "product": {
+                "description": "NVIDIA documentation product to search.",
+                "enum": [
+                  "dynamo",
+                  "openshell",
+                  "aistore",
+                  "aiperf",
+                  "nvcf",
+                  "dsx"
+                ],
+                "title": "Product",
+                "type": "string"
+              },
+              "query": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Query",
+                "type": "string"
+              }
+            },
+            "required": ["product", "query"],
+            "title": "NvidiaDocsInput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "timeout": "NaN"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "inf"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "timeout": "off"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": ""
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "Synthetic description"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": " \t\u001c"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 0
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": -1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 1
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 1.5
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 120
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": 121
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": true
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": false
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": []
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": {}
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "1.5"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "NaN"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "inf"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "unknown": "off"
+      },
+      "expected": {
+        "error": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "input": {},
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: required"
+          },
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: required"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "product": "dynamo"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: required"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "product": "dynamo",
+        "query": ""
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["query"],
+            "msg": "Value error, Argument contract: minLength"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "product": "dynamo",
+        "query": " \t\n\u001c "
+      },
+      "expected": {
+        "ok": "{\"error\": \"query_required\", \"product\": \"dynamo\"}"
+      }
+    },
+    {
+      "input": {
+        "product": "Dynamo",
+        "query": "Synthetic"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["product"],
+            "msg": "Value error, Argument contract: enum"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "product": "unknown",
+        "query": "Synthetic"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["product"],
+            "msg": "Value error, Argument contract: enum"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "product": null,
+        "query": "Synthetic"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["product"],
+            "msg": "Value error, Argument contract: enum"
+          },
+          {
+            "type": "value_error",
+            "loc": ["product"],
+            "msg": "Value error, Argument contract: type"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "product": "dynamo",
+        "query": 1
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["query"],
+            "msg": "Value error, Argument contract: type"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "product": "dynamo",
+        "query": {
+          "$string_parts": [
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪雪",
+            "雪"
+          ]
+        }
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": ["query"],
+            "msg": "Value error, Argument contract: maxLength"
+          }
+        ]
+      }
+    },
+    {
+      "input": {
+        "product": "dynamo",
+        "query": "Synthetic",
+        "endpoint": "forged"
+      },
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: additionalProperties"
+          }
+        ]
+      }
+    },
+    {
+      "input": [],
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: type"
+          }
+        ]
+      }
+    },
+    {
+      "input": null,
+      "expected": {
+        "error": "ValidationError",
+        "validation": [
+          {
+            "type": "value_error",
+            "loc": [],
+            "msg": "Value error, Argument contract: type"
+          }
+        ]
+      }
+    }
+  ],
+  "results": [
+    {
+      "input": {
+        "content": []
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic 雪🌲"
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Synthetic 雪🌲",
+              "annotations": null,
+              "meta": null
+            }
+          ],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic",
+            "_meta": {
+              "x": 1
+            },
+            "annotations": {
+              "audience": ["assistant"],
+              "priority": 0.5,
+              "extension": null
+            },
+            "extension": null
+          }
+        ],
+        "_meta": {
+          "trace": "synthetic"
+        },
+        "extension": {
+          "a": null
+        }
+      },
+      "expected": {
+        "ok": {
+          "meta": {
+            "trace": "synthetic"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Synthetic",
+              "annotations": {
+                "audience": ["assistant"],
+                "priority": 0.5,
+                "extension": null
+              },
+              "meta": {
+                "x": 1
+              },
+              "extension": null
+            }
+          ],
+          "structuredContent": null,
+          "isError": false,
+          "extension": {
+            "a": null
+          }
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "answer": "雪",
+          "nested": [null, 1e-5]
+        },
+        "isError": true
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [],
+          "structuredContent": {
+            "answer": "雪",
+            "nested": [null, 1e-5]
+          },
+          "isError": true
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "image",
+            "data": "c3ludGhldGlj",
+            "mimeType": "image/png"
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [
+            {
+              "type": "image",
+              "data": "c3ludGhldGlj",
+              "mimeType": "image/png",
+              "annotations": null,
+              "meta": null
+            }
+          ],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "audio",
+            "data": "c3ludGhldGlj",
+            "mimeType": "audio/wav"
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [
+            {
+              "type": "audio",
+              "data": "c3ludGhldGlj",
+              "mimeType": "audio/wav",
+              "annotations": null,
+              "meta": null
+            }
+          ],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "resource",
+            "resource": {
+              "uri": "https://EXAMPLE.test:443",
+              "text": "Synthetic",
+              "_meta": {}
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "https://example.test/",
+                "mimeType": null,
+                "meta": {},
+                "text": "Synthetic"
+              },
+              "annotations": null,
+              "meta": null
+            }
+          ],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "resource",
+            "resource": {
+              "uri": "synthetic:document",
+              "blob": "c3ludGhldGlj"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [
+            {
+              "type": "resource",
+              "resource": {
+                "uri": "synthetic:document",
+                "mimeType": null,
+                "meta": null,
+                "blob": "c3ludGhldGlj"
+              },
+              "annotations": null,
+              "meta": null
+            }
+          ],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "resource_link",
+            "name": "Synthetic",
+            "uri": "https://EXAMPLE.test:443",
+            "icons": [
+              {
+                "src": "synthetic:icon"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [
+            {
+              "name": "Synthetic",
+              "title": null,
+              "uri": "https://example.test/",
+              "description": null,
+              "mimeType": null,
+              "size": null,
+              "icons": [
+                {
+                  "src": "synthetic:icon",
+                  "mimeType": null,
+                  "sizes": null
+                }
+              ],
+              "annotations": null,
+              "meta": null,
+              "type": "resource_link"
+            }
+          ],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [],
+        "isError": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "content": [],
+        "isError": 0
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [],
+        "isError": 1
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [],
+          "structuredContent": null,
+          "isError": true
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [],
+        "isError": "true"
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [],
+          "structuredContent": null,
+          "isError": true
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [],
+        "isError": "no"
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [],
+        "isError": 2
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {},
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "content": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "content": "invalid"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "text"
+          }
+        ]
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": 1
+          }
+        ]
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "unknown",
+            "text": "Synthetic"
+          }
+        ]
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic",
+            "annotations": {
+              "priority": "0.5"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "meta": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Synthetic",
+              "annotations": {
+                "audience": null,
+                "priority": 0.5
+              },
+              "meta": null
+            }
+          ],
+          "structuredContent": null,
+          "isError": false
+        }
+      }
+    },
+    {
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic",
+            "annotations": {
+              "priority": 2
+            }
+          }
+        ]
+      },
+      "expected": {
+        "error": true
+      }
+    }
+  ]
+}

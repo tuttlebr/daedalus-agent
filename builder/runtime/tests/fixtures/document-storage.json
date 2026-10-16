@@ -1,0 +1,3816 @@
+{
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "cases": [
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": null,
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": 123,
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "123"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": true,
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "True"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": ["雪", "🌲"],
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "['雪', '🌲']"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": {
+            "x": "y"
+          },
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "{'x': 'y'}"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": null,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document size is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": true,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document size is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": false,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document size is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": "4",
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document size is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4.0,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document size is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 0,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is empty.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": -1,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is empty.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 3,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document length doesn't match its metadata.",
+        "type": "DocumentStorageError"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 5,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document length doesn't match its metadata.",
+        "type": "DocumentStorageError"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 1000000000000000000000000000000,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (209715200 bytes). Please uploa",
+            "d a smaller file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": null
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": "0"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": false
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document has expired. Please upload the document again.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": true
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document has expired. Please upload the document again.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 0
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document has expired. Please upload the document again.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000000
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document has expired. Please upload the document again.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000000.5
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": null,
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document object reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "wrong",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document object reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": 1,
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document object reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": null,
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document object reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "wrong",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document object reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": 1,
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document object reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": null,
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is empty.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is empty.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "wrong",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is empty.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001,
+          "data": null
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001,
+          "data": ""
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001,
+          "data": 1
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001,
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AA=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "AA==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AB=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "AA==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAA="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "AAA=",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAB="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "AAA=",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAAA"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "AAAA",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAAA="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "AAAA",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAAA=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "AAAA",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAAA==="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "AAAA",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AA==="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AA===="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAA=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "===="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "=AAA"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AA="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AA"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAA"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "A"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAAA=AAAA"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AA==AA"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AA==\n"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": " AA=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "雪"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "-_=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "A=AA"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "AAAA====A"
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Retrieved document data is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": ""
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": ""
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": " "
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": " "
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "bad"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "bad"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "0"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "0"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "-1"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "-1"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "3"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (3 bytes). Please upload a smal",
+            "ler file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "3"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (3 bytes). Please upload a smal",
+            "ler file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "4"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "4"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "5"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "5"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "+3"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (3 bytes). Please upload a smal",
+            "ler file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "+3"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (3 bytes). Please upload a smal",
+            "ler file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "1_0"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "1_0"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "３"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (3 bytes). Please upload a smal",
+            "ler file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "３"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (3 bytes). Please upload a smal",
+            "ler file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "101010101010101010101010101010"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "data": "ZGF0YQ=="
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "101010101010101010101010101010"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "document-1.bin"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage is not configured.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "  ",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage is not configured.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "host:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "https://host:9000/",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage endpoint is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://host/path",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage endpoint is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage is not configured.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "  ",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage is not configured.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage is not configured.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "  ",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage is not configured.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": ""
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage is not configured.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "  "
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage is not configured.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_PREFIX": ""
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_PREFIX": "  "
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage prefix is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_PREFIX": "../x"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage prefix is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_PREFIX": {
+            "$string_parts": [
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ]
+          }
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage prefix is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_PREFIX": " different "
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document object reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": ""
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": " "
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage request timeout is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": "bad"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage request timeout is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": "99"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage request timeout is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": "100"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": "900000"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": "900001"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document object storage request timeout is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": "1_000"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": "+100"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_OBJECT_REQUEST_TIMEOUT_MS": "１００"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "data": "ZGF0YQ==",
+        "filename": "fixture.txt"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": " ",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": " ",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "../x",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "../x",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "雪",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": "雪",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": {
+          "$string_parts": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        },
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YQ==",
+        "session": "session-1",
+        "document": {
+          "$string_parts": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        },
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Document reference is invalid.",
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document length doesn't match its metadata.",
+        "type": "DocumentStorageError"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents"
+        },
+        "body": "ZGF0YWE=",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": "Error: Stored document length doesn't match its metadata.",
+        "type": "DocumentStorageError"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "4"
+        },
+        "body": "ZGF0YWE=",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (4 bytes). Please upload a smal",
+            "ler file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": [
+        [
+          "synthetic-documents",
+          "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1"
+        ]
+      ]
+    },
+    {
+      "input": {
+        "record": {
+          "userId": "alice",
+          "filename": "fixture.txt",
+          "storage": "object-v1",
+          "objectBucket": "synthetic-documents",
+          "objectKey": "daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session-1/document-1",
+          "size": 4,
+          "expiresAt": 2000000000001
+        },
+        "env": {
+          "DOCUMENT_OBJECT_ENDPOINT": "http://synthetic.invalid:9000",
+          "DOCUMENT_OBJECT_ACCESS_KEY": "synthetic-access",
+          "DOCUMENT_OBJECT_SECRET_KEY": "synthetic-secret",
+          "DOCUMENT_OBJECT_BUCKET": "synthetic-documents",
+          "DOCUMENT_INGEST_MAX_SIZE_BYTES": "3"
+        },
+        "body": "ZGF0YWE=",
+        "session": "session-1",
+        "document": "document-1",
+        "username": "alice"
+      },
+      "expected": {
+        "error": {
+          "$string_parts": [
+            "Error: Document exceeds the maximum allowed size (3 bytes). Please upload a smal",
+            "ler file."
+          ]
+        },
+        "type": "DocumentStorageError"
+      },
+      "calls": []
+    }
+  ],
+  "signatures": [
+    {
+      "endpoint": "http://synthetic.invalid:9000",
+      "path": {
+        "$string_parts": [
+          "/synthetic-documents/daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session",
+          "-1/document-1"
+        ]
+      },
+      "region": "us-east-1",
+      "token": null,
+      "headers": {
+        "Host": "synthetic.invalid:9000",
+        "x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "x-amz-date": "20260102T030405Z",
+        "Authorization": {
+          "$string_parts": [
+            "AWS4-HMAC-SHA256 Credential=synthetic-access/20260102/us-east-1/s3/aws4_request,",
+            " SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=a4bd65e32d7717268",
+            "b591ed532633e9224da344ba4de00efa242024cdc1a1f6d"
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "http://synthetic.invalid:9000",
+      "path": {
+        "$string_parts": [
+          "/synthetic-documents/daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session",
+          "-1/document-1"
+        ]
+      },
+      "region": "us-west-2",
+      "token": null,
+      "headers": {
+        "Host": "synthetic.invalid:9000",
+        "x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "x-amz-date": "20260102T030405Z",
+        "Authorization": {
+          "$string_parts": [
+            "AWS4-HMAC-SHA256 Credential=synthetic-access/20260102/us-west-2/s3/aws4_request,",
+            " SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=f0c80da3064390e3d",
+            "a6195c519f35e10c8e86e81bf1176da1b3cbd7f6e94e107"
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "http://synthetic.invalid:9000",
+      "path": {
+        "$string_parts": [
+          "/synthetic-documents/daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session",
+          "-1/document-1"
+        ]
+      },
+      "region": "us-east-1",
+      "token": "synthetic-session-token",
+      "headers": {
+        "Host": "synthetic.invalid:9000",
+        "x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "x-amz-date": "20260102T030405Z",
+        "X-Amz-Security-Token": "synthetic-session-token",
+        "Authorization": {
+          "$string_parts": [
+            "AWS4-HMAC-SHA256 Credential=synthetic-access/20260102/us-east-1/s3/aws4_request,",
+            " SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, Signat",
+            "ure=b6e6d3b068d9f007a9ee27d6a2234c1bb814cb9146334498ef98887976ad84ca"
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "http://synthetic.invalid:9000",
+      "path": {
+        "$string_parts": [
+          "/synthetic-documents/daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session",
+          "-1/document-1"
+        ]
+      },
+      "region": "us-west-2",
+      "token": "synthetic-session-token",
+      "headers": {
+        "Host": "synthetic.invalid:9000",
+        "x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "x-amz-date": "20260102T030405Z",
+        "X-Amz-Security-Token": "synthetic-session-token",
+        "Authorization": {
+          "$string_parts": [
+            "AWS4-HMAC-SHA256 Credential=synthetic-access/20260102/us-west-2/s3/aws4_request,",
+            " SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, Signat",
+            "ure=8ad6377dc5a94a07e87bddb3a2ec54338a2e492821e844d328484ea46f26faca"
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "https://synthetic.invalid",
+      "path": {
+        "$string_parts": [
+          "/synthetic-documents/daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session",
+          "-1/document-1"
+        ]
+      },
+      "region": "us-east-1",
+      "token": null,
+      "headers": {
+        "Host": "synthetic.invalid",
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "x-amz-date": "20260102T030405Z",
+        "Authorization": {
+          "$string_parts": [
+            "AWS4-HMAC-SHA256 Credential=synthetic-access/20260102/us-east-1/s3/aws4_request,",
+            " SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=6a6462d3e4f0d6999",
+            "94025ef177a2cecf522943104d9b256c64053b51f04b3f4"
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "https://synthetic.invalid",
+      "path": {
+        "$string_parts": [
+          "/synthetic-documents/daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session",
+          "-1/document-1"
+        ]
+      },
+      "region": "us-west-2",
+      "token": null,
+      "headers": {
+        "Host": "synthetic.invalid",
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "x-amz-date": "20260102T030405Z",
+        "Authorization": {
+          "$string_parts": [
+            "AWS4-HMAC-SHA256 Credential=synthetic-access/20260102/us-west-2/s3/aws4_request,",
+            " SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=e879f33be0811fb8e",
+            "2d9b494c6ca04e2caba37cb45f232e28d4284acc0e7c7ad"
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "https://synthetic.invalid",
+      "path": {
+        "$string_parts": [
+          "/synthetic-documents/daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session",
+          "-1/document-1"
+        ]
+      },
+      "region": "us-east-1",
+      "token": "synthetic-session-token",
+      "headers": {
+        "Host": "synthetic.invalid",
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "x-amz-date": "20260102T030405Z",
+        "X-Amz-Security-Token": "synthetic-session-token",
+        "Authorization": {
+          "$string_parts": [
+            "AWS4-HMAC-SHA256 Credential=synthetic-access/20260102/us-east-1/s3/aws4_request,",
+            " SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, Signat",
+            "ure=33afbdbf73af3ab8991f378624b487c035f66cf1be30f861f691052791722506"
+          ]
+        }
+      }
+    },
+    {
+      "endpoint": "https://synthetic.invalid",
+      "path": {
+        "$string_parts": [
+          "/synthetic-documents/daedalus-documents/2bd806c97f0e00af1a1fc3328fa763a9/session",
+          "-1/document-1"
+        ]
+      },
+      "region": "us-west-2",
+      "token": "synthetic-session-token",
+      "headers": {
+        "Host": "synthetic.invalid",
+        "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        "x-amz-date": "20260102T030405Z",
+        "X-Amz-Security-Token": "synthetic-session-token",
+        "Authorization": {
+          "$string_parts": [
+            "AWS4-HMAC-SHA256 Credential=synthetic-access/20260102/us-west-2/s3/aws4_request,",
+            " SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, Signat",
+            "ure=f942f7d8f484bdafba183487d48637b130dae4f7a835f03c4c43d7198d2e3646"
+          ]
+        }
+      }
+    }
+  ]
+}

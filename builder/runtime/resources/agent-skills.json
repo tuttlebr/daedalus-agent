@@ -1,0 +1,772 @@
+{
+  "defaults": {
+    "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+    "verbose": false,
+    "skills_directory": "/skills",
+    "allow_script_execution": false,
+    "allowed_script_extensions": [".py", ".sh"],
+    "script_timeout": 30,
+    "enabled_operations": null
+  },
+  "configuration_schema": {
+    "additionalProperties": false,
+    "description": "Configuration for the agent_skills function.",
+    "properties": {
+      "description": {
+        "default": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+        "description": "The description exposed to the tool-calling model.",
+        "title": "Description",
+        "type": "string"
+      },
+      "verbose": {
+        "default": false,
+        "title": "Verbose",
+        "type": "boolean"
+      },
+      "skills_directory": {
+        "default": "/skills",
+        "description": "Filesystem path to the root directory containing skill subdirectories.",
+        "title": "Skills Directory",
+        "type": "string"
+      },
+      "allow_script_execution": {
+        "default": false,
+        "description": "Whether to enable the run_skill_script dispatch operation. Disabled by default for security.",
+        "title": "Allow Script Execution",
+        "type": "boolean"
+      },
+      "allowed_script_extensions": {
+        "description": "File extensions permitted for script execution.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Allowed Script Extensions",
+        "type": "array"
+      },
+      "script_timeout": {
+        "default": 30,
+        "description": "Maximum seconds a skill script is allowed to run before being killed.",
+        "maximum": 300,
+        "minimum": 1,
+        "title": "Script Timeout",
+        "type": "integer"
+      },
+      "enabled_operations": {
+        "anyOf": [
+          {
+            "items": {
+              "enum": ["list_skills", "load_skill", "run_skill_script"],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional allow-list of dispatch operations. Supported values: list_skills, load_skill, run_skill_script. When omitted, all operations are accepted subject to allow_script_execution.",
+        "title": "Enabled Operations"
+      }
+    },
+    "title": "AgentSkillsConfig",
+    "type": "object"
+  },
+  "schemas": {
+    "0": {
+      "name": "agent_skills",
+      "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+      "parameters": {
+        "type": "object",
+        "not": {}
+      }
+    },
+    "1": {
+      "name": "agent_skills",
+      "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Explicit LLM-facing schema for the unified skill dispatcher.",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["list_skills"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional keyword query used only by list_skills. Allowed only for: list_skills.",
+            "title": "Query"
+          }
+        },
+        "title": "AgentSkillsInput",
+        "type": "object",
+        "required": ["operation"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "list_skills"
+                }
+              }
+            },
+            "then": {
+              "required": [],
+              "properties": {}
+            }
+          }
+        ]
+      }
+    },
+    "2": {
+      "name": "agent_skills",
+      "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Explicit LLM-facing schema for the unified skill dispatcher.",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["load_skill"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "skill_name": {
+            "default": "",
+            "description": "Skill name returned by list_skills; required by load_skill and run_skill_script. Allowed only for: load_skill. Required for: load_skill.",
+            "title": "Skill Name",
+            "type": "string"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional skill-relative resource path used only by load_skill. Allowed only for: load_skill.",
+            "title": "Resource"
+          }
+        },
+        "title": "AgentSkillsInput",
+        "type": "object",
+        "required": ["operation"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "load_skill"
+                }
+              }
+            },
+            "then": {
+              "required": ["skill_name"],
+              "properties": {
+                "skill_name": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "3": {
+      "name": "agent_skills",
+      "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Explicit LLM-facing schema for the unified skill dispatcher.",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["list_skills", "load_skill"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional keyword query used only by list_skills. Allowed only for: list_skills.",
+            "title": "Query"
+          },
+          "skill_name": {
+            "default": "",
+            "description": "Skill name returned by list_skills; required by load_skill and run_skill_script. Allowed only for: load_skill. Required for: load_skill.",
+            "title": "Skill Name",
+            "type": "string"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional skill-relative resource path used only by load_skill. Allowed only for: load_skill.",
+            "title": "Resource"
+          }
+        },
+        "title": "AgentSkillsInput",
+        "type": "object",
+        "required": ["operation"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "list_skills"
+                }
+              }
+            },
+            "then": {
+              "required": [],
+              "properties": {
+                "skill_name": false,
+                "resource": false
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "load_skill"
+                }
+              }
+            },
+            "then": {
+              "required": ["skill_name"],
+              "properties": {
+                "query": false,
+                "skill_name": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "4": {
+      "name": "agent_skills",
+      "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Explicit LLM-facing schema for the unified skill dispatcher.",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["run_skill_script"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "skill_name": {
+            "default": "",
+            "description": "Skill name returned by list_skills; required by load_skill and run_skill_script. Allowed only for: run_skill_script. Required for: run_skill_script.",
+            "title": "Skill Name",
+            "type": "string"
+          },
+          "script": {
+            "default": "",
+            "description": "Skill-relative script path used only by run_skill_script. Allowed only for: run_skill_script. Required for: run_skill_script.",
+            "title": "Script",
+            "type": "string"
+          },
+          "args": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional space-separated script arguments used only by run_skill_script. Allowed only for: run_skill_script.",
+            "title": "Args"
+          }
+        },
+        "title": "AgentSkillsInput",
+        "type": "object",
+        "required": ["operation"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "run_skill_script"
+                }
+              }
+            },
+            "then": {
+              "required": ["skill_name", "script"],
+              "properties": {
+                "skill_name": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                },
+                "script": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "5": {
+      "name": "agent_skills",
+      "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Explicit LLM-facing schema for the unified skill dispatcher.",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["list_skills", "run_skill_script"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional keyword query used only by list_skills. Allowed only for: list_skills.",
+            "title": "Query"
+          },
+          "skill_name": {
+            "default": "",
+            "description": "Skill name returned by list_skills; required by load_skill and run_skill_script. Allowed only for: run_skill_script. Required for: run_skill_script.",
+            "title": "Skill Name",
+            "type": "string"
+          },
+          "script": {
+            "default": "",
+            "description": "Skill-relative script path used only by run_skill_script. Allowed only for: run_skill_script. Required for: run_skill_script.",
+            "title": "Script",
+            "type": "string"
+          },
+          "args": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional space-separated script arguments used only by run_skill_script. Allowed only for: run_skill_script.",
+            "title": "Args"
+          }
+        },
+        "title": "AgentSkillsInput",
+        "type": "object",
+        "required": ["operation"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "list_skills"
+                }
+              }
+            },
+            "then": {
+              "required": [],
+              "properties": {
+                "skill_name": false,
+                "script": false,
+                "args": false
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "run_skill_script"
+                }
+              }
+            },
+            "then": {
+              "required": ["skill_name", "script"],
+              "properties": {
+                "query": false,
+                "skill_name": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                },
+                "script": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "6": {
+      "name": "agent_skills",
+      "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Explicit LLM-facing schema for the unified skill dispatcher.",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["load_skill", "run_skill_script"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "skill_name": {
+            "default": "",
+            "description": "Skill name returned by list_skills; required by load_skill and run_skill_script. Allowed only for: load_skill, run_skill_script. Required for: load_skill, run_skill_script.",
+            "title": "Skill Name",
+            "type": "string"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional skill-relative resource path used only by load_skill. Allowed only for: load_skill.",
+            "title": "Resource"
+          },
+          "script": {
+            "default": "",
+            "description": "Skill-relative script path used only by run_skill_script. Allowed only for: run_skill_script. Required for: run_skill_script.",
+            "title": "Script",
+            "type": "string"
+          },
+          "args": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional space-separated script arguments used only by run_skill_script. Allowed only for: run_skill_script.",
+            "title": "Args"
+          }
+        },
+        "title": "AgentSkillsInput",
+        "type": "object",
+        "required": ["operation"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "load_skill"
+                }
+              }
+            },
+            "then": {
+              "required": ["skill_name"],
+              "properties": {
+                "script": false,
+                "args": false,
+                "skill_name": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "run_skill_script"
+                }
+              }
+            },
+            "then": {
+              "required": ["skill_name", "script"],
+              "properties": {
+                "resource": false,
+                "skill_name": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                },
+                "script": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "7": {
+      "name": "agent_skills",
+      "description": "Unified agent-skills dispatcher. Use operation='list_skills' with an optional query to discover skills. Then use operation='load_skill' with skill_name to read the selected skill's instructions or an optional bundled resource. Follow the returned instructions using the ordinary session tools; do not look for a separate skill execution tool. operation='run_skill_script' is available only when explicitly enabled by the operator.",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Explicit LLM-facing schema for the unified skill dispatcher.",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["list_skills", "load_skill", "run_skill_script"],
+            "description": "Required operation; supply only the arguments for that operation."
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional keyword query used only by list_skills. Allowed only for: list_skills.",
+            "title": "Query"
+          },
+          "skill_name": {
+            "default": "",
+            "description": "Skill name returned by list_skills; required by load_skill and run_skill_script. Allowed only for: load_skill, run_skill_script. Required for: load_skill, run_skill_script.",
+            "title": "Skill Name",
+            "type": "string"
+          },
+          "resource": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional skill-relative resource path used only by load_skill. Allowed only for: load_skill.",
+            "title": "Resource"
+          },
+          "script": {
+            "default": "",
+            "description": "Skill-relative script path used only by run_skill_script. Allowed only for: run_skill_script. Required for: run_skill_script.",
+            "title": "Script",
+            "type": "string"
+          },
+          "args": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional space-separated script arguments used only by run_skill_script. Allowed only for: run_skill_script.",
+            "title": "Args"
+          }
+        },
+        "title": "AgentSkillsInput",
+        "type": "object",
+        "required": ["operation"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "list_skills"
+                }
+              }
+            },
+            "then": {
+              "required": [],
+              "properties": {
+                "skill_name": false,
+                "resource": false,
+                "script": false,
+                "args": false
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "load_skill"
+                }
+              }
+            },
+            "then": {
+              "required": ["skill_name"],
+              "properties": {
+                "script": false,
+                "args": false,
+                "query": false,
+                "skill_name": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "run_skill_script"
+                }
+              }
+            },
+            "then": {
+              "required": ["skill_name", "script"],
+              "properties": {
+                "resource": false,
+                "query": false,
+                "skill_name": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                },
+                "script": {
+                  "not": {
+                    "type": "null"
+                  },
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "minItems": 1,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "script_output_limit": 1048576,
+  "allowed_environment": [
+    "HOME",
+    "LANG",
+    "LANGUAGE",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LOGNAME",
+    "PATH",
+    "PWD",
+    "PYTHONDONTWRITEBYTECODE",
+    "PYTHONIOENCODING",
+    "PYTHONPATH",
+    "PYTHONUNBUFFERED",
+    "SHELL",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+    "TZ",
+    "USER",
+    "VIRTUAL_ENV"
+  ],
+  "daily_resources": [
+    "references/edition-policy.json",
+    "references/research-and-sourcing.md",
+    "references/edition-format.md",
+    "references/editorial-spec.md"
+  ],
+  "yaml_scalar_patterns": [
+    "^(?: ~\n                    |null|Null|NULL\n                    | )$",
+    "^(?:[-+]?(?:[0-9][0-9_]*)\\.[0-9_]*(?:[eE][-+][0-9]+)?\n                    |\\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?\n                    |[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\\.[0-9_]*\n                    |[-+]?\\.(?:inf|Inf|INF)\n                    |\\.(?:nan|NaN|NAN))$",
+    "^(?:[-+]?0b[0-1_]+\n                    |[-+]?0[0-7_]+\n                    |[-+]?(?:0|[1-9][0-9_]*)\n                    |[-+]?0x[0-9a-fA-F_]+\n                    |[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+)$",
+    "^(?:[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\n                    |[0-9][0-9][0-9][0-9] -[0-9][0-9]? -[0-9][0-9]?\n                     (?:[Tt]|[ \\t]+)[0-9][0-9]?\n                     :[0-9][0-9] :[0-9][0-9] (?:\\.[0-9]*)?\n                     (?:[ \\t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?)$",
+    "^(?:yes|Yes|YES|no|No|NO\n                    |true|True|TRUE|false|False|FALSE\n                    |on|On|ON|off|Off|OFF)$"
+  ],
+  "fallback_description": "Discover or load a skill, or run an enabled bundled script.\n\nLoading a skill returns its instructions. Follow those instructions with the\nordinary tools already exposed in the session; no separate skill execution\ntool is required."
+}

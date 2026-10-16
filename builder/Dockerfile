@@ -18,13 +18,16 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo test --locked && cargo build --release --locked && \
     cp target/release/daedalus-runtime /daedalus-runtime
 
-# Rust preparation and MCP/OAuth profile. Native Python tools and the worker
-# still use the transitional backend image below until P3/P4.
+# Standalone Rust profile for configurations using only native tools.
+# The full backend below retains Python for the other supported tools and worker.
 FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG}@${BASE_IMAGE_DIGEST} AS rust-minimal
 RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates tzdata && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
+COPY runtime/notices /workspace/runtime-notices
+COPY runtime/resources/public-ca.pem /workspace/runtime-public-ca.pem
+COPY --from=skills --chown=65532:65532 . /skills
 ENV DAEDALUS_PREPARATION=rust DAEDALUS_TOOL_EXECUTOR=disabled TZ=America/New_York
 USER 65532:65532
 EXPOSE 8000
@@ -147,6 +150,8 @@ RUN find /workspace -mindepth 3 -maxdepth 3 -type d -name '*.egg-info' \
 
 COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
 COPY daedalus_runtime /workspace/daedalus_runtime
+COPY runtime/notices /workspace/runtime-notices
+COPY runtime/resources/public-ca.pem /workspace/runtime-public-ca.pem
 COPY runtime/resources/tool-policy.json /workspace/daedalus_runtime/tool-policy.json
 COPY entrypoint.py /workspace/entrypoint.py
 COPY runtime_contract_check.py /workspace/runtime_contract_check.py

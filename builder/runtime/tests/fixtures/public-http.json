@@ -1,0 +1,2077 @@
+{
+  "addresses": [
+    {
+      "ip": "",
+      "public": false
+    },
+    {
+      "ip": " 8.8.8.8",
+      "public": false
+    },
+    {
+      "ip": "0.0.0.0",
+      "public": false
+    },
+    {
+      "ip": "0.0.0.1",
+      "public": false
+    },
+    {
+      "ip": "0.127.255.255",
+      "public": false
+    },
+    {
+      "ip": "0.22.182.236",
+      "public": false
+    },
+    {
+      "ip": "0.255.255.255",
+      "public": false
+    },
+    {
+      "ip": "0177.0.0.1",
+      "public": false
+    },
+    {
+      "ip": "0x7f000001",
+      "public": false
+    },
+    {
+      "ip": "1.0.0.0",
+      "public": true
+    },
+    {
+      "ip": "1.1.1.1",
+      "public": true
+    },
+    {
+      "ip": "10.0.0.0",
+      "public": false
+    },
+    {
+      "ip": "10.0.0.1",
+      "public": false
+    },
+    {
+      "ip": "10.127.255.255",
+      "public": false
+    },
+    {
+      "ip": "10.255.255.255",
+      "public": false
+    },
+    {
+      "ip": "100.127.255.255",
+      "public": false
+    },
+    {
+      "ip": "100.128.0.0",
+      "public": true
+    },
+    {
+      "ip": "100.63.255.255",
+      "public": true
+    },
+    {
+      "ip": "100.64.0.0",
+      "public": false
+    },
+    {
+      "ip": "100.64.0.1",
+      "public": false
+    },
+    {
+      "ip": "100.95.255.255",
+      "public": false
+    },
+    {
+      "ip": "1000::",
+      "public": false
+    },
+    {
+      "ip": "1000::1",
+      "public": false
+    },
+    {
+      "ip": "100:0:0:1::",
+      "public": false
+    },
+    {
+      "ip": "100::",
+      "public": false
+    },
+    {
+      "ip": "100::1",
+      "public": false
+    },
+    {
+      "ip": "100::7fff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "100::ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "10c4:40e0:341f:edd2:8223:fbeb:5292:1f4a",
+      "public": false
+    },
+    {
+      "ip": "11.0.0.0",
+      "public": true
+    },
+    {
+      "ip": "117.19.189.165",
+      "public": true
+    },
+    {
+      "ip": "12.145.200.67",
+      "public": true
+    },
+    {
+      "ip": "124.52.222.162",
+      "public": true
+    },
+    {
+      "ip": "126.255.255.255",
+      "public": true
+    },
+    {
+      "ip": "127.0.0.0",
+      "public": false
+    },
+    {
+      "ip": "127.0.0.1",
+      "public": false
+    },
+    {
+      "ip": "127.1",
+      "public": false
+    },
+    {
+      "ip": "127.127.255.255",
+      "public": false
+    },
+    {
+      "ip": "127.255.255.255",
+      "public": false
+    },
+    {
+      "ip": "128.0.0.0",
+      "public": true
+    },
+    {
+      "ip": "128.152.109.227",
+      "public": true
+    },
+    {
+      "ip": "128.89.3.187",
+      "public": true
+    },
+    {
+      "ip": "130.14.129.91",
+      "public": true
+    },
+    {
+      "ip": "138.40.68.142",
+      "public": true
+    },
+    {
+      "ip": "139.134.57.22",
+      "public": true
+    },
+    {
+      "ip": "14.86.236.248",
+      "public": true
+    },
+    {
+      "ip": "140.41.42.49",
+      "public": true
+    },
+    {
+      "ip": "142.109.253.113",
+      "public": true
+    },
+    {
+      "ip": "147.101.51.157",
+      "public": true
+    },
+    {
+      "ip": "150.177.26.239",
+      "public": true
+    },
+    {
+      "ip": "155.93.229.232",
+      "public": true
+    },
+    {
+      "ip": "158.17.101.198",
+      "public": true
+    },
+    {
+      "ip": "16.25.196.48",
+      "public": true
+    },
+    {
+      "ip": "16.83.56.58",
+      "public": true
+    },
+    {
+      "ip": "163.232.92.194",
+      "public": true
+    },
+    {
+      "ip": "169.253.255.255",
+      "public": true
+    },
+    {
+      "ip": "169.254.0.0",
+      "public": false
+    },
+    {
+      "ip": "169.254.0.1",
+      "public": false
+    },
+    {
+      "ip": "169.254.127.255",
+      "public": false
+    },
+    {
+      "ip": "169.254.255.255",
+      "public": false
+    },
+    {
+      "ip": "169.255.0.0",
+      "public": true
+    },
+    {
+      "ip": "172.15.255.255",
+      "public": true
+    },
+    {
+      "ip": "172.16.0.0",
+      "public": false
+    },
+    {
+      "ip": "172.16.0.1",
+      "public": false
+    },
+    {
+      "ip": "172.23.255.255",
+      "public": false
+    },
+    {
+      "ip": "172.31.255.255",
+      "public": false
+    },
+    {
+      "ip": "172.32.0.0",
+      "public": true
+    },
+    {
+      "ip": "174.127.77.138",
+      "public": true
+    },
+    {
+      "ip": "175.218.121.75",
+      "public": true
+    },
+    {
+      "ip": "176.96.143.207",
+      "public": true
+    },
+    {
+      "ip": "17f:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "17ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "1865:a1af:ea96:c474:4f67:7131:8aa3:d6b4",
+      "public": false
+    },
+    {
+      "ip": "187.78.21.44",
+      "public": true
+    },
+    {
+      "ip": "188.36.141.41",
+      "public": true
+    },
+    {
+      "ip": "19.115.152.119",
+      "public": true
+    },
+    {
+      "ip": "19.200.181.221",
+      "public": true
+    },
+    {
+      "ip": "191.255.255.255",
+      "public": true
+    },
+    {
+      "ip": "192.0.0.0",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.1",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.10",
+      "public": true
+    },
+    {
+      "ip": "192.0.0.11",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.127",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.169",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.170",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.171",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.172",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.255",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.8",
+      "public": false
+    },
+    {
+      "ip": "192.0.0.9",
+      "public": true
+    },
+    {
+      "ip": "192.0.1.0",
+      "public": true
+    },
+    {
+      "ip": "192.0.1.255",
+      "public": true
+    },
+    {
+      "ip": "192.0.2.0",
+      "public": false
+    },
+    {
+      "ip": "192.0.2.1",
+      "public": false
+    },
+    {
+      "ip": "192.0.2.127",
+      "public": false
+    },
+    {
+      "ip": "192.0.2.255",
+      "public": false
+    },
+    {
+      "ip": "192.0.3.0",
+      "public": true
+    },
+    {
+      "ip": "192.167.255.255",
+      "public": true
+    },
+    {
+      "ip": "192.168.0.0",
+      "public": false
+    },
+    {
+      "ip": "192.168.0.1",
+      "public": false
+    },
+    {
+      "ip": "192.168.127.255",
+      "public": false
+    },
+    {
+      "ip": "192.168.255.255",
+      "public": false
+    },
+    {
+      "ip": "192.169.0.0",
+      "public": true
+    },
+    {
+      "ip": "192.178.235.199",
+      "public": true
+    },
+    {
+      "ip": "198.17.255.255",
+      "public": true
+    },
+    {
+      "ip": "198.18.0.0",
+      "public": false
+    },
+    {
+      "ip": "198.18.0.1",
+      "public": false
+    },
+    {
+      "ip": "198.18.255.255",
+      "public": false
+    },
+    {
+      "ip": "198.19.255.255",
+      "public": false
+    },
+    {
+      "ip": "198.20.0.0",
+      "public": true
+    },
+    {
+      "ip": "198.51.100.0",
+      "public": false
+    },
+    {
+      "ip": "198.51.100.1",
+      "public": false
+    },
+    {
+      "ip": "198.51.100.127",
+      "public": false
+    },
+    {
+      "ip": "198.51.100.255",
+      "public": false
+    },
+    {
+      "ip": "198.51.101.0",
+      "public": true
+    },
+    {
+      "ip": "198.51.99.255",
+      "public": true
+    },
+    {
+      "ip": "199.236.44.146",
+      "public": true
+    },
+    {
+      "ip": "1d26:ae1a:f7a5:4a22:f737:909f:2880:8268",
+      "public": false
+    },
+    {
+      "ip": "1ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "1fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "200.118.77.126",
+      "public": true
+    },
+    {
+      "ip": "2000::",
+      "public": true
+    },
+    {
+      "ip": "2000:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:1::",
+      "public": false
+    },
+    {
+      "ip": "2001:1::1",
+      "public": true
+    },
+    {
+      "ip": "2001:1::2",
+      "public": true
+    },
+    {
+      "ip": "2001:1::3",
+      "public": false
+    },
+    {
+      "ip": "2001:1f:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2001:200::",
+      "public": true
+    },
+    {
+      "ip": "2001:20::",
+      "public": true
+    },
+    {
+      "ip": "2001:20::1",
+      "public": true
+    },
+    {
+      "ip": "2001:27:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:2:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2001:2f:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:30::",
+      "public": true
+    },
+    {
+      "ip": "2001:30::1",
+      "public": true
+    },
+    {
+      "ip": "2001:37:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:3:7fff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:3::",
+      "public": true
+    },
+    {
+      "ip": "2001:3::1",
+      "public": true
+    },
+    {
+      "ip": "2001:3:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:3f:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:40::",
+      "public": false
+    },
+    {
+      "ip": "2001:4860:4860::8888",
+      "public": true
+    },
+    {
+      "ip": "2001:4860::1%",
+      "public": false
+    },
+    {
+      "ip": "2001:4860::1%a%b",
+      "public": false
+    },
+    {
+      "ip": "2001:4860::1%lo",
+      "public": true
+    },
+    {
+      "ip": "2001:4:111:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2001:4:112:7fff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:4:112::",
+      "public": true
+    },
+    {
+      "ip": "2001:4:112::1",
+      "public": true
+    },
+    {
+      "ip": "2001:4:112:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:4:113::",
+      "public": false
+    },
+    {
+      "ip": "2001:4::",
+      "public": false
+    },
+    {
+      "ip": "2001::",
+      "public": false
+    },
+    {
+      "ip": "2001::1",
+      "public": false
+    },
+    {
+      "ip": "2001:db7:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2001:db8:7fff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2001:db8::",
+      "public": false
+    },
+    {
+      "ip": "2001:db8::1",
+      "public": false
+    },
+    {
+      "ip": "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2001:db9::",
+      "public": true
+    },
+    {
+      "ip": "2001:ff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "2002:7fff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2002::",
+      "public": false
+    },
+    {
+      "ip": "2002::1",
+      "public": false
+    },
+    {
+      "ip": "2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "2003::",
+      "public": true
+    },
+    {
+      "ip": "200::",
+      "public": false
+    },
+    {
+      "ip": "200::1",
+      "public": false
+    },
+    {
+      "ip": "201.233.200.157",
+      "public": true
+    },
+    {
+      "ip": "202.139.67.130",
+      "public": true
+    },
+    {
+      "ip": "203.0.112.255",
+      "public": true
+    },
+    {
+      "ip": "203.0.113.0",
+      "public": false
+    },
+    {
+      "ip": "203.0.113.1",
+      "public": false
+    },
+    {
+      "ip": "203.0.113.127",
+      "public": false
+    },
+    {
+      "ip": "203.0.113.255",
+      "public": false
+    },
+    {
+      "ip": "203.0.114.0",
+      "public": true
+    },
+    {
+      "ip": "204.50.191.139",
+      "public": true
+    },
+    {
+      "ip": "209.147.53.18",
+      "public": true
+    },
+    {
+      "ip": "210.63.82.155",
+      "public": true
+    },
+    {
+      "ip": "212c:2351:9d28:8c6c:66e4:462:8115:a8f4",
+      "public": true
+    },
+    {
+      "ip": "213.60.104.219",
+      "public": true
+    },
+    {
+      "ip": "2130706433",
+      "public": false
+    },
+    {
+      "ip": "217.207.125.60",
+      "public": true
+    },
+    {
+      "ip": "218b:a5b2:9b4b:d60d:def9:8a7d:cd76:d9c2",
+      "public": true
+    },
+    {
+      "ip": "219.85.134.174",
+      "public": true
+    },
+    {
+      "ip": "221.15.200.160",
+      "public": true
+    },
+    {
+      "ip": "221.86.0.202",
+      "public": true
+    },
+    {
+      "ip": "223.255.255.255",
+      "public": true
+    },
+    {
+      "ip": "224.0.0.0",
+      "public": false
+    },
+    {
+      "ip": "224.0.0.1",
+      "public": false
+    },
+    {
+      "ip": "224.46.51.119",
+      "public": false
+    },
+    {
+      "ip": "224.66.211.44",
+      "public": false
+    },
+    {
+      "ip": "225.102.174.69",
+      "public": false
+    },
+    {
+      "ip": "229.201.241.6",
+      "public": false
+    },
+    {
+      "ip": "231.210.177.160",
+      "public": false
+    },
+    {
+      "ip": "231.255.255.255",
+      "public": false
+    },
+    {
+      "ip": "236.177.72.140",
+      "public": false
+    },
+    {
+      "ip": "236.50.126.156",
+      "public": false
+    },
+    {
+      "ip": "237.136.110.158",
+      "public": false
+    },
+    {
+      "ip": "2378:4d7a:f28b:e309:9ac4:c81b:91a1:e386",
+      "public": true
+    },
+    {
+      "ip": "239.255.255.255",
+      "public": false
+    },
+    {
+      "ip": "23bc:9c78:e705:5457:72d7:f861:e100:faff",
+      "public": true
+    },
+    {
+      "ip": "24.175.234.176",
+      "public": true
+    },
+    {
+      "ip": "240.0.0.0",
+      "public": false
+    },
+    {
+      "ip": "240.0.0.1",
+      "public": false
+    },
+    {
+      "ip": "243.203.0.38",
+      "public": false
+    },
+    {
+      "ip": "247.255.255.255",
+      "public": false
+    },
+    {
+      "ip": "251.95.221.142",
+      "public": false
+    },
+    {
+      "ip": "2521:e882:8cae:f945:8bee:9114:af56:deaa",
+      "public": true
+    },
+    {
+      "ip": "255.255.255.254",
+      "public": false
+    },
+    {
+      "ip": "255.255.255.255",
+      "public": false
+    },
+    {
+      "ip": "26.50.134.197",
+      "public": true
+    },
+    {
+      "ip": "28.101.87.230",
+      "public": true
+    },
+    {
+      "ip": "28f7:6855:1a86:bc17:6e31:36b:b6b3:b509",
+      "public": true
+    },
+    {
+      "ip": "29.150.158.14",
+      "public": true
+    },
+    {
+      "ip": "2cf7:f72f:a232:1501:e29a:78f8:d874:38c0",
+      "public": true
+    },
+    {
+      "ip": "2e44:cf79:a6d4:941f:bff9:df6:3598:3240",
+      "public": true
+    },
+    {
+      "ip": "2ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "32.85.94.125",
+      "public": true
+    },
+    {
+      "ip": "3242:de59:8563:d612:493:310:dbce:575",
+      "public": true
+    },
+    {
+      "ip": "344e:6398:cb01:9bc7:e0e6:9d6b:cc2f:4d88",
+      "public": true
+    },
+    {
+      "ip": "34f8:f0c6:ff98:7321:8191:d5f6:ca0:e06a",
+      "public": true
+    },
+    {
+      "ip": "39a2:527f:611:c210:6379:fb56:95f8:6116",
+      "public": true
+    },
+    {
+      "ip": "3ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": true
+    },
+    {
+      "ip": "4000::",
+      "public": false
+    },
+    {
+      "ip": "4000::1",
+      "public": false
+    },
+    {
+      "ip": "400::",
+      "public": false
+    },
+    {
+      "ip": "400::1",
+      "public": false
+    },
+    {
+      "ip": "40c:935c:376f:42a9:3d12:45e0:71d4:a8be",
+      "public": false
+    },
+    {
+      "ip": "4161:819f:4660:b551:5d94:bab7:adbf:9e4a",
+      "public": false
+    },
+    {
+      "ip": "43.196.159.251",
+      "public": true
+    },
+    {
+      "ip": "47.137.162.173",
+      "public": true
+    },
+    {
+      "ip": "49b1:ad6c:2976:bfa8:920c:48f:7e69:158b",
+      "public": false
+    },
+    {
+      "ip": "4d89:aa3e:6f46:765a:b2:469d:9e00:d305",
+      "public": false
+    },
+    {
+      "ip": "4fc5:ef45:2b83:b066:521b:cc62:f46f:dd62",
+      "public": false
+    },
+    {
+      "ip": "4fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "51.109.169.216",
+      "public": true
+    },
+    {
+      "ip": "51b4:b29d:fd2c:114:1733:19c1:ba4e:2f5b",
+      "public": false
+    },
+    {
+      "ip": "54.75.63.149",
+      "public": true
+    },
+    {
+      "ip": "56.134.183.119",
+      "public": true
+    },
+    {
+      "ip": "56.225.245.144",
+      "public": true
+    },
+    {
+      "ip": "5842:5531:a3e7:e4a4:eb11:6021:b57e:87f5",
+      "public": false
+    },
+    {
+      "ip": "5b53:b581:7abf:a52d:ce67:26be:4810:82f2",
+      "public": false
+    },
+    {
+      "ip": "5de8:47af:bcc:1920:ec53:29f1:17c1:f607",
+      "public": false
+    },
+    {
+      "ip": "5ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "5fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "6000::",
+      "public": false
+    },
+    {
+      "ip": "6000::1",
+      "public": false
+    },
+    {
+      "ip": "60f4:71bd:1582:4f6c:abf5:39b8:1c3d:5d08",
+      "public": false
+    },
+    {
+      "ip": "61.85.15.56",
+      "public": true
+    },
+    {
+      "ip": "6107:f57b:393b:3718:b197:f0b0:8a47:862d",
+      "public": false
+    },
+    {
+      "ip": "64:ff9b:0:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "64:ff9b:1:7fff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "64:ff9b:1::",
+      "public": false
+    },
+    {
+      "ip": "64:ff9b:1::1",
+      "public": false
+    },
+    {
+      "ip": "64:ff9b:1:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "64:ff9b:2::",
+      "public": false
+    },
+    {
+      "ip": "64b4:7a02:665a:a2c6:2832:da55:ac11:cbdd",
+      "public": false
+    },
+    {
+      "ip": "65.144.45.119",
+      "public": true
+    },
+    {
+      "ip": "69.203.245.30",
+      "public": true
+    },
+    {
+      "ip": "6b05:9a8:48a4:89bc:f7c5:cc2a:848f:31ec",
+      "public": false
+    },
+    {
+      "ip": "6fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "7066:3806:3826:e0a2:550a:c5be:7a22:908",
+      "public": false
+    },
+    {
+      "ip": "7367:15e4:ad90:11ed:71a1:6af7:aac6:6b40",
+      "public": false
+    },
+    {
+      "ip": "772c:e3bb:3734:a5e3:7536:887f:fee6:8aa5",
+      "public": false
+    },
+    {
+      "ip": "772d:f7da:44f8:8c0c:bff5:5e2:be16:12a7",
+      "public": false
+    },
+    {
+      "ip": "7967:b23b:ddf0:3bda:973b:43d2:81f9:2302",
+      "public": false
+    },
+    {
+      "ip": "7b3b:7105:366e:b15e:5050:2bcc:d16a:c3b6",
+      "public": false
+    },
+    {
+      "ip": "7c69:994b:79d4:6e19:efa1:253e:c146:ab8e",
+      "public": false
+    },
+    {
+      "ip": "7d39:6c76:a6bc:75d3:c9f8:1e01:7f74:3883",
+      "public": false
+    },
+    {
+      "ip": "7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "7ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "7fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "8.8.8.8",
+      "public": true
+    },
+    {
+      "ip": "8.8.8.8%lo",
+      "public": false
+    },
+    {
+      "ip": "8000::",
+      "public": false
+    },
+    {
+      "ip": "8000::1",
+      "public": false
+    },
+    {
+      "ip": "800::",
+      "public": false
+    },
+    {
+      "ip": "800::1",
+      "public": false
+    },
+    {
+      "ip": "80b8:fed9:d39:38ba:340d:46f3:8b7e:2707",
+      "public": false
+    },
+    {
+      "ip": "832:12df:25e4:e68b:14f4:ddc0:7ec5:ff12",
+      "public": false
+    },
+    {
+      "ip": "84.87.218.34",
+      "public": true
+    },
+    {
+      "ip": "8710:ec44:abb2:6ca6:a13c:ad1e:38f0:f413",
+      "public": false
+    },
+    {
+      "ip": "8e7b:af14:171d:8644:6d53:5171:3f05:2361",
+      "public": false
+    },
+    {
+      "ip": "8fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "9.255.255.255",
+      "public": true
+    },
+    {
+      "ip": "9558:3970:94a2:d174:b6d2:57b4:17d4:be87",
+      "public": false
+    },
+    {
+      "ip": "9fb:9aff:cec:f95:275a:90aa:36b3:269",
+      "public": false
+    },
+    {
+      "ip": "9fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "::",
+      "public": false
+    },
+    {
+      "ip": "::1",
+      "public": false
+    },
+    {
+      "ip": "::1:0:0:0",
+      "public": false
+    },
+    {
+      "ip": "::2",
+      "public": false
+    },
+    {
+      "ip": "::fffe:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "::ffff:0:0",
+      "public": false
+    },
+    {
+      "ip": "::ffff:0:1",
+      "public": false
+    },
+    {
+      "ip": "::ffff:127.0.0.1",
+      "public": false
+    },
+    {
+      "ip": "::ffff:7fff:ffff",
+      "public": false
+    },
+    {
+      "ip": "::ffff:8.8.8.8",
+      "public": false
+    },
+    {
+      "ip": "::ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "a000::",
+      "public": false
+    },
+    {
+      "ip": "a000::1",
+      "public": false
+    },
+    {
+      "ip": "a2fc:e135:8a24:54f4:e563:c44b:66f0:7b4f",
+      "public": false
+    },
+    {
+      "ip": "a3d7:b3de:c6da:74d8:b900:dadd:1058:c0ea",
+      "public": false
+    },
+    {
+      "ip": "a6de:ca95:bec2:39a4:75b0:124e:c634:8ff6",
+      "public": false
+    },
+    {
+      "ip": "adb7:640e:3117:e2d7:fecb:725b:184f:e7c5",
+      "public": false
+    },
+    {
+      "ip": "afff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "b36e:b078:d071:98b4:fcac:77b1:2c6:1511",
+      "public": false
+    },
+    {
+      "ip": "b6c2:57d4:eb02:a05a:71d4:a464:af89:bf78",
+      "public": false
+    },
+    {
+      "ip": "b8ac:bf0a:8d30:7333:1af:a181:30e1:ebc3",
+      "public": false
+    },
+    {
+      "ip": "b8c:5f3e:cc3d:9acd:df6f:5285:63e8:50d6",
+      "public": false
+    },
+    {
+      "ip": "bff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "bfff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "c000::",
+      "public": false
+    },
+    {
+      "ip": "c000::1",
+      "public": false
+    },
+    {
+      "ip": "c181:f439:da6:904d:5545:3440:696c:b95e",
+      "public": false
+    },
+    {
+      "ip": "c2af:14c7:5b7a:d50b:5123:4f90:d16f:7154",
+      "public": false
+    },
+    {
+      "ip": "c736:afa8:fef6:a2c3:466b:dac0:6831:68ad",
+      "public": false
+    },
+    {
+      "ip": "c78c:df0e:34cf:2b1a:c9a0:6c29:f969:51dc",
+      "public": false
+    },
+    {
+      "ip": "c906:4a76:37c4:8093:3130:8b53:f0e:dae1",
+      "public": false
+    },
+    {
+      "ip": "cb4:2de5:2c35:8437:58e4:c875:ddd9:a43c",
+      "public": false
+    },
+    {
+      "ip": "cbb7:fbcf:dbfc:54d4:a697:e485:ff7:15a1",
+      "public": false
+    },
+    {
+      "ip": "cfff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "d463:55da:75af:2b01:6bf5:7e11:744e:ded5",
+      "public": false
+    },
+    {
+      "ip": "dbe2:9fe7:b178:a448:65b7:de68:1782:4711",
+      "public": false
+    },
+    {
+      "ip": "dfff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "e000::",
+      "public": false
+    },
+    {
+      "ip": "e000::1",
+      "public": false
+    },
+    {
+      "ip": "e026:6258:a1ec:10ed:319b:5cec:1054:7073",
+      "public": false
+    },
+    {
+      "ip": "e684:2d2b:c6f0:277d:85bd:4b26:76c2:f6fc",
+      "public": false
+    },
+    {
+      "ip": "e7ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "eb0c:ebeb:4449:dc16:174c:85a9:a0d8:78b9",
+      "public": false
+    },
+    {
+      "ip": "efff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "f000::",
+      "public": false
+    },
+    {
+      "ip": "f000::1",
+      "public": false
+    },
+    {
+      "ip": "f3ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "f7c3:38fa:61ac:2fe7:b904:4880:8f7f:7073",
+      "public": false
+    },
+    {
+      "ip": "f7ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "f800::",
+      "public": false
+    },
+    {
+      "ip": "f800::1",
+      "public": false
+    },
+    {
+      "ip": "f9ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "fc00::",
+      "public": false
+    },
+    {
+      "ip": "fc00::1",
+      "public": false
+    },
+    {
+      "ip": "fcff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "fe00::",
+      "public": false
+    },
+    {
+      "ip": "fe00::1",
+      "public": false
+    },
+    {
+      "ip": "fe3f:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "fe53:ecd2:eb39:29bb:a2a4:fccc:1dae:528b",
+      "public": false
+    },
+    {
+      "ip": "fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "fe80::",
+      "public": false
+    },
+    {
+      "ip": "fe80::1",
+      "public": false
+    },
+    {
+      "ip": "fe80::1%lo",
+      "public": false
+    },
+    {
+      "ip": "fe9f:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "fec0::",
+      "public": false
+    },
+    {
+      "ip": "fec0::1",
+      "public": false
+    },
+    {
+      "ip": "fedf:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "ff00::",
+      "public": false
+    },
+    {
+      "ip": "ff00::1",
+      "public": false
+    },
+    {
+      "ip": "ff7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+      "public": false
+    },
+    {
+      "ip": "invalid",
+      "public": false
+    }
+  ],
+  "headers": [
+    {
+      "headers": {},
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "identity"
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": " IDENTITY "
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": ""
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "gzip"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "identity, identity"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "br"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-length": ""
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "0"
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "1"
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "16"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 1 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 1 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": "2097152"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 1 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": "2097153"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 1 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": "00017"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 1 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": " 17"
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "+17"
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "-1"
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17.0"
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17, 17"
+      },
+      "limit": 1,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "9999999999999999999999999999999999999999"
+      },
+      "limit": 1,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 1 byte limit."
+      }
+    },
+    {
+      "headers": {},
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "identity"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": " IDENTITY "
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": ""
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "gzip"
+      },
+      "limit": 16,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "identity, identity"
+      },
+      "limit": 16,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "br"
+      },
+      "limit": 16,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-length": ""
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "0"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "1"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "16"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17"
+      },
+      "limit": 16,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 16 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": "2097152"
+      },
+      "limit": 16,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 16 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": "2097153"
+      },
+      "limit": 16,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 16 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": "00017"
+      },
+      "limit": 16,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 16 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": " 17"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "+17"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "-1"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17.0"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17, 17"
+      },
+      "limit": 16,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "9999999999999999999999999999999999999999"
+      },
+      "limit": 16,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 16 byte limit."
+      }
+    },
+    {
+      "headers": {},
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "identity"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": " IDENTITY "
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": ""
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "gzip"
+      },
+      "limit": 2097152,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "identity, identity"
+      },
+      "limit": 2097152,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-encoding": "br"
+      },
+      "limit": 2097152,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public fetch requires identity content encoding."
+      }
+    },
+    {
+      "headers": {
+        "content-length": ""
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "0"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "1"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "16"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "2097152"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "2097153"
+      },
+      "limit": 2097152,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 2097152 byte limit."
+      }
+    },
+    {
+      "headers": {
+        "content-length": "00017"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": " 17"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "+17"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "-1"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17.0"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "17, 17"
+      },
+      "limit": 2097152,
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "headers": {
+        "content-length": "9999999999999999999999999999999999999999"
+      },
+      "limit": 2097152,
+      "expected": {
+        "error": "ResponseSizeError",
+        "message": "Public response exceeds 2097152 byte limit."
+      }
+    }
+  ]
+}

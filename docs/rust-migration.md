@@ -1,222 +1,123 @@
-# Rust migration: P0 through P2
+# Performance-driven Rust backend
 
-Implementation tracking: [P0/P1 issue 2](https://github.com/tuttlebr/daedalus-agent/issues/2)
-and [P2 issue 3](https://github.com/tuttlebr/daedalus-agent/issues/3).
-The retained source baseline is `7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b`.
-Preparation and MCP authorization now run in Rust. This does **not** claim the Rust core or
-complete backend milestone: the full image still contains the Python executor,
-API adapters, and autonomous worker. The separate `rust-minimal` image starts,
-prepares memory context, chats, calls its native clock and MCP tools, handles
-Google OAuth and exact approvals, steers, and stops without Python. Configuring
-a required native tool that still needs the Python executor fails startup.
+The October 15, 2026 scope is to use Rust where measurements show an improvement
+while preserving the frontend and dependent-service APIs. Rewriting the entire
+Python backend is no longer a release requirement. Speech transcription is not
+needed and is excluded. Unregistered experimental ports and their build assets
+are removed instead of shipping unused code.
 
-## Implementation and rollback boundaries
+## Current ownership
 
-The existing Cargo package contains configuration/YAML, preparation, memory,
-output storage, Redis, generated protocol, telemetry, and agent modules. Rig
-remains pinned at 0.43.0. Model prompts, provider endpoints, frontend transports,
-Redis key derivation and output compression remain unchanged. Rust owns MCP
-sessions, OAuth grants/callbacks, approval decisions and execution receipts.
+The full backend runs the Rust agent with a loopback-only Python tool service.
+The deployable configuration is `backend/tool-calling-config.yaml`, selected by
+`deploy.sh` and Compose. `backend/local-chat-config.yaml` is a small development
+profile and cannot establish production feature coverage.
 
-`DAEDALUS_PREPARATION=rust` is the default. The Rust run owns model selection,
-history budgeting, memory insertion, tool exposure, accumulated tool state,
-compaction, and its terminal telemetry span. The clock runs inside Rust.
-Python returns native schemas from `/runtime/v1/catalog` and executes bounded leaf
-calls at `/runtime/v1/tools/call`. Both endpoints require internal authentication
-and remain blocked on the public port. The versioned call context contains the
-query, explicitly exposed tool names, and per-executor state. Identity comes
-from authenticated headers. Python constructs an ephemeral call context; it
-does not create an authoritative run or select the next model. State updates
-return to Rust even when a leaf reports an error. Calls sharing a native factory
-or MCP group serialize their state updates. Stateless source verification can
-overlap within its configured concurrency bound and does not merge executor
-snapshots. Stop closes the owning transport and joins Python cleanup under a
-shield against repeated streaming cancellation.
+| Area                                                                                                                                       | Current owner                | Release evidence required                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Model orchestration, history, streaming, steering, Stop                                                                                    | Rust                         | Built-image HTTP and real frontend stream-worker tests                                                   |
+| MCP sessions, OAuth, exact approvals and receipts                                                                                          | Rust                         | Authorization, identity isolation, cancellation and rollback checks                                      |
+| Clock, memory, output retrieval, document tools, domain retrieval, NVIDIA docs, Perplexity, user interaction, skills, sandbox, NWS weather | Rust                         | Existing service and built-image contract suites, plus performance measurements for the selected release |
+| RSS, webscrape, briefing rendering, source verification, visual media                                                                      | Python                       | Preserve their current registered APIs; port only a measured bottleneck                                  |
+| Autonomous worker                                                                                                                          | Python                       | Preserve scheduling, queue ownership and durable records                                                 |
+| Memory, profile import, document and collection HTTP APIs                                                                                  | Rust                         | Existing route, storage and browser compatibility checks                                                 |
+| Remaining public adapters                                                                                                                  | Python behind the Rust proxy | Preserve their existing routes and authentication                                                        |
 
-The full image retains its Python supervisor and the remaining public API proxy
-until P3/P4. Axum now owns `/auth/redirect`, Google connection reset,
-`/v1/mcp-approvals/{request_id}/execute`, and `/executions/{id}` explicitly.
-OAuth callback and approval polling URLs continue to use the originating
-backend. Never distribute a run, its controls, approval polling, and OAuth
-continuation across versions without proven affinity. Use a drained cutover.
+The Rust tool registry is in `builder/runtime/src/preparation.rs`; public route
+ownership is in `builder/runtime/src/main.rs`. A `rust-minimal` image also exists
+for configurations using only native tools. It does not support the complete
+production configuration and is not the default deployment candidate.
 
-Rollback uses the retained baseline image and compatible configuration. An
-operator can also select `DAEDALUS_PREPARATION=python` on the full candidate
-image at deployment time; this also selects Python authorization unless an
-explicit incompatible selector is supplied, which fails startup.
-`DAEDALUS_AUTHORIZATION=python` can independently retain Python MCP with Rust
-preparation for a deployment. Both selectors default to Rust. There is no
-per-request fallback or automatic replay
-through Python. Stop new work, drain/cancel active runs, retain receipts and
-uncertain writes, and restore the image/configuration. Do not restore an old
-Redis snapshot over newer production writes. P1 keeps the worker implementation
-and queue formats unchanged; P4 must implement fenced worker handover.
+The unfinished native RSS/article converter tree was test-only. It provided no
+production speedup. Its custom Python-library ports, including speech, FTP,
+codecs, spreadsheet/image internals, and the incomplete DNS helper, are outside
+this performance-directed release. The existing Python converters continue to
+provide the registered RSS and webscrape behavior.
 
-The direct minimal entrypoint is `/workspace/daedalus-runtime`. It handles
-SIGTERM, cancels active runs, and bounds telemetry shutdown. Readiness checks
-the internal credential and configured Redis; Hindsight follows the existing
-`degraded`/`required` policy. Unsupported public capabilities return HTTP 503
-with `capability_unavailable`; internal migration routes return 404.
+## Performance decision
 
-## P2 authorization boundary
+Benchmark the full hybrid image in both modes with identical CPU/memory limits,
+synthetic model/service peers, and Redis. Comparing the same image isolates the
+Rust preparation/authorization paths from dependency or image-version changes.
+Use the retained production baseline for compatibility and rollback comparisons.
+A passing regression budget alone is not evidence of a speedup.
 
-The pinned `rmcp` 3.5.1 client now runs in production. Application code retains
-identity, Google OAuth, exposure policy, per-user session ownership, deadlines,
-and approval decisions. The SDK handles Streamable HTTP and MCP messages. Its
-automatic session reinitialization/replay and multi-round tool helpers are
-disabled. A bounded HTTP adapter retains extension fields in tool results and
-limits JSON/SSE input before collecting it. Remote transport errors never
-become instructions to retry a mutation. Stop closes the owning SDK transport.
+`builder/migration/benchmark.py` records all requests, errors, application timing,
+end-to-end latency, achieved throughput, readiness, CPU, resident memory, file
+descriptors and threads. Its frozen workload uses concurrency 1, 4 and 8,
+200 measured requests per group, three repetitions, warmups and 100 samples per
+control phase. Throughput requests use independent synthetic users so the
+intentional five-active-chat limit does not contaminate results with HTTP 429s.
+Admission-limit correctness remains covered by the HTTP contract tests.
 
-`jsonschema` 0.58.6 (MIT) validates tool inputs and declared structured outputs.
-HTTP/file reference resolution is disabled; local schema references work.
-Unsupported external references fail before dispatch. The compatibility fixture
-captures Python Unicode 15 casefolding, canonical JSON including 2,048 sampled
-binary64 values, OAuth key vectors and legacy/v2 records, exposure/approval
-policies, and result envelopes. Rust and frontend key consumers use the same
-baseline fixture. Generate it only with the immutable baseline image using
-`builder/migration/export_authorization.py`; candidate output is never the oracle.
+Treat a run with request failures or missing resource samples as invalid for a
+performance claim. Retain failures and fix their cause before comparison. Report
+latency and resource improvements separately, including regressions; synthetic
+application overhead does not predict provider generation speed.
 
-Google grants keep the `nat/object_store/...` keys and existing v2 write format.
-Readers accept the legacy base64 envelope. Refresh preserves missing refresh
-tokens/scopes, rotates grants under the existing Redis lease key, and checks
-lease ownership when saving or releasing. A stale owner cannot overwrite a
-successor. Legacy timezone-free expiry dates retain Python's local-time and
-daylight-saving fold behavior; both image profiles keep the baseline's
-`America/New_York` process timezone. Application and dependency logs exclude credentials and user/tool
-content, including when dependency trace logging is requested.
+The corrected October 15 comparison passed all 53 regression gates, with no
+failed requests across 14,400 measured requests, 1,440 warmups and 600 control
+samples. Both modes used the same full image
+`sha256:2144f0ba4d155a6b588a234ab0fca7a2c7e36694a6788d273cc004e8396b900c`,
+limited to two CPUs and 2 GiB. This image preceded removal of the unused Python
+speech dependencies. Values below combine the three repetitions.
 
-These deliberate boundary changes have explicit acceptance cases:
+| Workload                          | Concurrency | Python p95 | Rust p95  | Python requests/s | Rust requests/s |
+| --------------------------------- | ----------- | ---------- | --------- | ----------------- | --------------- |
+| Text                              | 1           | 4.33 ms    | 2.11 ms   | 248.6             | 586.0           |
+| Text                              | 8           | 17.96 ms   | 14.89 ms  | 587.2             | 713.3           |
+| Clock                             | 1           | 12.12 ms   | 7.56 ms   | 111.1             | 190.7           |
+| Unicode history                   | 8           | 42.52 ms   | 40.99 ms  | 284.9             | 302.8           |
+| Memory context, independent users | 8           | 493.66 ms  | 383.17 ms | 17.9              | 21.2            |
 
-- Exact execution consumes an approval atomically even when that operation is
-  auto-approved for ordinary agent calls. The direct API rejects a server name
-  containing `__` and the discovery-only `connect` operation.
-- Invalid execution request bodies return a redacted 422 envelope without
-  reflecting submitted arguments or credentials.
-- MCP execution lifecycle evidence comes from Rust's correlated
-  `tool_call_started`/`tool_call_finished` events. Python leaf events remain for
-  native calls; the harness rejects Python MCP dispatch for a Rust-owned run.
-- Protocol response sizes, schema references and session capacity are bounded.
-  Expired sessions and malformed structured results report an uncertain outcome
-  without a success receipt or automatic replay.
+Peak aggregate resident memory remained similar: 311–315 MiB for Python mode
+and 307–309 MiB for Rust mode. Stop and steering p95 stayed below 42 ms. The
+memory workload includes initialization for each synthetic user; it does not
+represent a warmed per-user cache. The earlier single-user concurrency-eight
+run hit admission limits and is excluded from performance claims.
 
-The optional `DAEDALUS_GOOGLE_OAUTH_AUTHORIZE_URL` and
-`DAEDALUS_GOOGLE_OAUTH_TOKEN_URL` are trusted operator endpoint overrides for
-scripted peers. Defaults remain Google's endpoints. Only HTTPS or loopback HTTP
-is accepted, with no embedded credentials, query or fragment. Production
-deployments should leave these overrides unset.
+`builder/migration/retrieval_benchmark.py` separately compares cached-output
+chunking and search in the final full image. It alternates Python and Rust twice,
+uses the same compressed Unicode input and Redis writer, and requires identical
+tool payloads for every request. Run it after other CPU-intensive checks:
 
-`make migration` additionally runs `authorization_check.py` against the direct
-Python-free image, two backend processes, two synthetic users, scripted MCP/OAuth
-peers and disposable TLS Redis with backend ACLs. It covers exact-approval races,
-uncertain mutations, OAuth refresh/callback/reset/cancellation, refresh lease
-loss, fail-closed Redis errors, and the retained image reading Rust-written
-grants and receipts, and Rust consuming baseline-written approvals and grants.
-SIGTERM also terminates an in-progress direct execution without a success receipt.
-These are C04-C08/C14/C16 contracts; native tools, document/media paths,
-and the autonomous worker still require P3-P5.
+```bash
+builder/.venv/bin/python builder/migration/retrieval_benchmark.py \
+  --image daedalus:performance-final --redis-image daedalus:redis-migration-check \
+  --report /tmp/daedalus-migration-reports/retrieval-performance.json
+```
 
-## P0 baseline and decisions
+The final full image
+`sha256:1bddb5dd18066493c0775ac9acda498d5ccc7deb346054e55ed416831da8c793`
+passed all 800 measured retrieval calls and 80 warmups with identical payloads.
+For 1,146,880 bytes of cached Unicode text, chunk p95 fell from 28.54 to 21.49 ms
+and search p95 from 29.64 to 21.22 ms. These include the HTTP chat request and
+scripted model round trips, at concurrency one with the same two-CPU limit.
 
-The fixtures in
-[`builder/runtime/tests/fixtures`](../builder/runtime/tests/fixtures/) contain
-57 synthetic baseline contracts, installed descriptions/schemas for all 18
-configured native tools, route/configuration/dependency inventories, and frozen
-budgets. Each golden case identifies its matrix IDs; the file records its
-source SHA, version, and owning test. `inventory.py` also checks five active
-Python source hashes against the immutable baseline image. The image lacks a
-Git revision label, so those matching hashes are evidence of correspondence,
-not a claim that every byte was rebuilt from the SHA.
+## API and deployment guarantees
 
-Retain these immutable image digests in the deployment registry:
+Frontend transports, model/tool schemas, error envelopes, identity derivation,
+Redis keys, output compression and cache readers remain compatible. Tool and
+provider changes require a request against the built image. Unit tests alone do
+not establish integration compatibility. Cancellation must release owned work;
+mutating operations must not be replayed after ambiguous responses.
 
-| Artifact           | SHA-256 manifest digest                                            |
-| ------------------ | ------------------------------------------------------------------ |
-| Backend and worker | `a9ad2c70aa992f54fdda50b781fa95320b76707f035499e932dbfd02c0d38ca1` |
-| Frontend           | `971750633513ea6bdb8ea46cc1b197a99f87f347214d7d20b53e543d709a26a6` |
-| Redis              | `18e7e25d7c9b98cd32837a4409b1841ea0868b5d474bbd9018d2c8877b02b7ea` |
+The full image retains explicit deployment-time Python preparation and
+authorization selectors for rollback. These are live compatibility paths, not
+unused code. There is no per-request replay through Python. During cutover, stop
+new work, drain or cancel active runs, preserve receipts and uncertain writes,
+and restore the prior image/configuration if necessary. Never restore an old
+Redis snapshot over newer production writes.
 
-The registry also retains these manifests at
-`daedalus.ddns.me:5050/btuttle/daedalus:migration-baseline-7dc4e1d-{backend,frontend,redis}`.
-Each retention tag was checked against the immutable digest before release.
-The inventory records baseline Cargo packages, production lockfile hashes,
-uncompressed image size, and compressed layer bytes for `linux/amd64`.
+Keep the existing deployment topology. The full hybrid backend remains the
+candidate while any configured tool or public adapter still requires Python.
+Do not switch the autonomous worker or its queue ownership as part of unrelated
+performance changes.
 
-The following records the original P0 dependency decisions. The P2 boundary
-and acceptance harness above supersede the deferred MCP/authorization work;
-the remaining integration decisions still apply.
+## Validation and release
 
-| Dependency       | Probe, packaging and license                                                                                                                                                                                                                                                      | Decision and remaining work                                                                                                                                                                                      |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCP `rmcp` 3.5.1 | Compiled Streamable HTTP discovery/call and OAuth PKCE, wrong-state rejection, token exchange/refresh against scripted peers. Dev dependency only; MIT.                                                                                                                           | Use this pinned release as the P2 candidate. Application sessions, grants, concurrent refresh, approval policy and uncertain mutations still require C05-C08. Keep Python MCP until then.                        |
-| `redis` 1.7.1    | Real TLS Redis with separate backend/admin ACLs; old/new compressed output reads, TTL, forbidden-key rejection, and 32 concurrent atomic consumes. Rustls; BSD-3-Clause.                                                                                                          | Adopt for P1 caches. Preserve URL CA handling and hostname verification. P2 grants and P4 worker scripts remain separate acceptance work.                                                                        |
-| Milvus REST v2   | Authenticated collection listing reached the deployed service. Temporary collection creation timed out; reconciliation confirmed no probe collections remained. Existing gRPC reader remained usable. HTTP client already packaged; Milvus Apache-2.0.                            | Defer REST adoption. Retain current adapter; P5 must resolve DDL behavior and prove dimensions, roles, tenant ownership and search before selecting REST or generated gRPC. This failed spike is not C11 parity. |
-| NV-Ingest 26.3.0 | Pinned Python client captured a synthetic TXT extraction request. Rust submitted that request through `submit_job`/`fetch_job` and received matching extracted text. No embedding, collection write, or production document. HTTP client already packaged; API/client Apache-2.0. | Direct service protocol is viable. Retain Python integration until extraction options, cancellation, embedding, partial failures and object cleanup pass C11. Capture is in `nvingest.json`.                     |
-| Images and C2PA  | Actual SDK signing/verification tests cover PNG/JPEG/WebP, pixels, attribution, tamper detection and failure before storage, using ephemeral certificates. Installed Python bindings report Rust SDK 0.90.19; SDK MIT/Apache-2.0.                                                 | Native Rust SDK is the P5 candidate; direct Rust signing/provider workflows remain unported. Preserve the current adapter until C12 passes. Do not infer that Python is unavoidable.                             |
-| YAML             | `yaml-rust2` 0.13, MIT/Apache-2.0; explicit PyYAML scalar/merge compatibility layer and differential fixtures.                                                                                                                                                                    | Preserve parse-then-expand inheritance. Keep the legacy tool registry loader for Python leaf configuration; do not silently unify its validation behavior.                                                       |
-
-Primary protocol references: [Rust MCP SDK](https://github.com/modelcontextprotocol/rust-sdk/blob/main/crates/rmcp/README.md),
-[NV-Ingest 26.3.0 Python API](https://docs.nvidia.com/nemo/retriever/26.3.0/extraction/nv-ingest-python-api/index.html),
-[Milvus REST collection API](<https://milvus.io/api-reference/restful/v2.6.x/v2/Collection%20(v2)/Create.md>),
-[C2PA Rust SDK](https://opensource.contentauthenticity.org/docs/rust-sdk/docs/context-settings/).
-
-Select a separate worker binary in this Cargo package for P4, used consistently
-by Compose, Helm, and tests. Validate `linux/amd64`; ARM locks do not establish
-ARM release support. Use the existing deployment topology with drained cutover,
-without new canary routing or frontend changes.
-
-Brandon Tuttle is the accountable maintainer for backend, authorization,
-integration, test, and release review in issue 2. These role assignments do not
-create additional staffing. Planning ranges for later implementation are P2
-5-10 engineering days, P3 10-20, P4 5-10, and P5 10-25, assuming dedicated
-engineering time and working disposable services. The Milvus failure increases
-P5 uncertainty. These are provisional effort estimates, not delivery dates.
-
-The remaining full-profile exceptions are all owned by the backend maintainer:
-native tools/API adapters (existing Python image cost; reconsider in P3),
-autonomous worker (existing worker
-replica; P4), and document/retrieval/media/C2PA (existing service dependencies;
-P5). P2 removes Python ownership of MCP/OAuth/approvals while retaining the
-deployment-time Python selector for rollback. No new specialized service is
-deployed by P1/P2. A later isolated adapter
-must record its separate image/resources and remain optional for core readiness.
-
-## Matrix ownership and test layers
-
-The owner for every row is Brandon Tuttle, acting in the role below. P0 captures
-existing evidence and gaps for every row; it does not require the future Rust
-implementation of C01-C16. Existing Python tests alone never satisfy a candidate
-case. The table records P0/P1 evidence; the P2 boundary above adds the surviving
-Rust authorization cases. Remaining entries are the fixture work queue for P3-P5.
-
-| Case                | Owner role    | P0/P1 evidence and planned surviving layer                                                                                                                                                                                                     |
-| ------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C01 configuration   | Backend       | Frozen inheritance/expansion/scalar/numeric fixtures, invalid redacted config, both shipped config dry runs; Rust and differential image tests. Non-string YAML keys, recursive aliases and resource limits are rejected at the Rust boundary. |
-| C02 models/history  | Backend       | Frozen history/profile cases; full-image scripted provider/skill routing; exact memory requests and context against baseline; Responses and Chat Completions image tests.                                                                      |
-| C03 streams/retries | Test          | Full-image differential covers split/partial frames, Unicode, retries, exhaustion and nonstreaming; preserve the HTTP suite for later phases.                                                                                                  |
-| C04 lifecycle       | Backend       | Full-image model/tool steering and Stop; minimal-image memory cancellation and lock release; bounded control unit tests and synthetic timing. Continue adding shutdown/queue fault barriers as shared state changes.                           |
-| C05 identity/access | Authorization | Real HTTP missing token, cross-user control, internal-route blocking; user-scoped cache read/ACL rejection. Full-image existing tool authorization stays active.                                                                               |
-| C06 MCP             | Integration   | Baseline/full-candidate HTTP discovery/deferred/connect/cancellation and SDK spike. P2 must replace Python transport and prove per-user session expiry/reconnect.                                                                              |
-| C07 OAuth           | Authorization | Known legacy key vectors and stored-reader source tests; SDK PKCE/refresh probe. Real grant refresh/rotation/mixed-version reader fixtures remain P2 work.                                                                                     |
-| C08 approvals       | Authorization | Full-image real Redis approval execution and replay checks, atomic Redis probe. Authorization remains Python; P2 needs Rust races and commit/response-loss barriers.                                                                           |
-| C09 tools/skills    | Integration   | All 18 installed schemas, native clock image calls, skill routing, lossless and reversible output goldens and rollback cache reads. Port remaining operations in P3.                                                                           |
-| C10 memory/content  | Integration   | Actual TLS/ACL Redis plus scripted Hindsight baseline comparison, cancellation and bounded payload goldens. Existing content/SSRF/sandbox suites remain until P3 replacements.                                                                 |
-| C11 documents       | Integration   | Existing baseline integration tests; synthetic service probes and captured NV-Ingest wire fixture. Rust document ownership/extraction/TTL acceptance remains P3/P5.                                                                            |
-| C12 media/C2PA      | Integration   | Existing real SDK signing tests with ephemeral credentials; image/browser fixtures remain baseline evidence. Rust provider/media acceptance remains P3/P5.                                                                                     |
-| C13 worker          | Backend       | Existing schedule/store/recovery tests retained. Plan two-worker real Redis barriers, DST and uncertain-write tests for P4.                                                                                                                    |
-| C14 observability   | Test          | Runtime HTTP secret redaction and real OTLP collector decoding for complete/error/cancel metrics. P1 run spans move to service.name `daedalus-runtime`; Python leaf spans retain their service.                                                |
-| C15 packaging       | Release       | Direct minimal image, no Python executable/packages, non-root launch, readiness, real TLS/ACL fixture; full image and deployment checks retained. Full Python-free core is P4.                                                                 |
-| C16 upgrade/browser | Release       | Old/new exact-output reads/TTLs, real frontend/worker against minimal image for login, chat, persistence, Stop and steering. Complete stored-record/worker rollback is required before P4.                                                     |
-
-Configuration compatibility intentionally rejects cyclic/deep inheritance,
-non-string mapping keys, recursive aliases and unsupported YAML tags with
-content-free errors. Shipped workflows and overlays use string-keyed mappings.
-Golden cases preserve accepted numeric coercions (including numeric truncation
-and rejection of fractional strings during preparation), null/default behavior,
-Unicode, object order, descriptions, and exact output hashes. Stored readers
-stay permissive independently of strict incoming requests.
-
-## Reproduction and release evidence
+Use Node 22, Python 3.12 and Rust 1.95. The active Rust code no longer needs the
+experimental article parser, image libraries, ONNX assets or speech binaries.
 
 ```bash
 make rust-check
@@ -226,80 +127,25 @@ make candidate-browser MIGRATION_PYTHON="$PWD/builder/.venv/bin/python"
 make migration-benchmark MIGRATION_PYTHON="$PWD/builder/.venv/bin/python"
 ```
 
-Set `MIGRATION_BASELINE_IMAGE` to a retained immutable reference to use it instead
-of rebuilding the frozen source archive. `make migration` builds the full and
-minimal candidates plus disposable Redis, compares all scripted model requests
-between isolated baseline/candidate environments, and runs cache rollback with
-real TLS/ACL Redis. Only clock instants are normalized in the HTTP comparison;
-scripted identities and affinity IDs remain deterministic. Tool calls, arguments,
-errors, ownership decisions and completed evidence must remain equal. The fixture
-exporter runs inside the baseline image with `--network none`.
+Run benchmarks after builds and CPU-intensive checks finish. Preserve source and
+image digests with results. Existing reports for earlier revisions establish
+historical behavior only; rerun affected checks on the final candidate.
 
-The dedicated CI migration job uses the same Make targets. Rust coverage starts
-at a 40% line floor (the initial P1 measurement is 44.31%);
-authorization/state-machine cases remain mandatory even when coverage passes.
-Preserve the Python 65% and existing frontend floors.
-The benchmark is a separate gate run on an idle host; shared CI runners are not
-the fixed host required by the budget. It records 200 samples per workload at
-concurrency 1, 4 and 8, repeated three times after warmup, plus 100 samples per
-cancellable control phase. Every sample and failure is retained. Both images
-use the same two-CPU/2 GiB limits, Redis TLS fixture and synthetic peers. RSS,
-CPU time, file descriptors and process thread counts are sampled throughout.
-The 24-hour staging soak and full live answer-quality release gate apply to P4.
-No performance improvement is claimed merely because ownership moved.
+Before commit and deployment:
 
-Reports default to `/tmp/daedalus-migration-reports`. Retain those reports with
-source/image digests and fixture/config hashes for review. Run `make ci`, image
-scans and the deployment provenance checks before release. The restored
-compressed audit oracle and two stale test mocks repair existing baseline test
-inputs. A workspace count badge uses primary text to pass the existing contrast
-gate. Frontend contracts and coverage thresholds remain unchanged.
+- Confirm the retained Rust paths have a measured benefit and no unexplained API
+  or performance regressions under the supported configuration.
+- Finish removing abandoned modules, unused dependencies, fixtures, build hooks
+  and stale documentation; inspect the final diff for unrelated changes.
+- Run the required Rust, Python, frontend, integration, browser, Helm and security
+  checks applicable to the final change, including changed-file pre-commit hooks.
+- Verify the actual full image, service dependencies and rollback path, then use
+  the canonical deployment command and check deployed health and user workflows.
 
-The full-image HTTP acceptance must continue passing with
-`DAEDALUS_PREPARATION=python` as an explicit rollback profile. Deleting the
-legacy implementation or its tests is outside P1.
-
-## Validation record: October 9, 2026
-
-The implementation passed 57 frozen baseline cases, the built-image HTTP
-differential with both candidate preparation profiles, TLS/ACL Redis cache
-compatibility, and the Python-free image's memory, cancellation and SIGTERM
-checks. The real frontend/stream worker candidate test passed login, clock,
-saved conversation, Stop and steering. Rust unit/spike tests passed; the three
-service-dependent tests are opt-in and their separate evidence is described
-above. Measured Rust line coverage was 44.37% against the 40% initial floor.
-
-All 53 frozen synthetic performance gates passed on the final candidate. Each
-image completed 7,200 measured requests, 720 warmups and 300 control samples.
-Candidate control p95 was 41.2-41.6 ms, cold readiness was 5.0-5.2 seconds, and
-peak aggregate RSS was 311.4-311.8 MB under the two-CPU/2 GiB fixture limits.
-These are fixture measurements, not live provider latency or a speedup claim.
-The earlier invocation with a missing candidate tag remains in the evidence;
-the complete comparison was rerun with the correct immutable image ID.
-
-The retained suites passed: 1,858 Python tests (five skips, 78.81% coverage),
-948 frontend unit tests (197 skips), 218 frontend and five Python persistence
-tests, and 208 browser cases (68 platform-specific skips). Helm rendering,
-pod security, and the disposable Redis upgrade/certificate-rotation/rollback
-rehearsal passed. Skips remain visible and do not satisfy future acceptance
-cases. Both shipped configurations passed the built Rust parser.
-
-Release validation found pre-existing dependency failures in nginx, SeaweedFS,
-Next.js 15.5.24 and the development AnyIO lock. A separate security follow-up
-updates Next.js to 15.5.27 and AnyIO to 4.14.2, pins the clean unprivileged nginx
-slim image for Helm, and retains reproducible Compose vendor patches described
-in [vendor-images/README.md](../vendor-images/README.md). The SeaweedFS patch
-passed baseline-write/candidate-read and candidate-write/rollback-read checks
-against disposable S3 storage. Both nginx configurations passed syntax checks.
-
-All `make ci` targets passed across the retained runs. After the security edits,
-Python/frontend/Helm checks were rerun, followed by integration, both browser
-suites, application image checks, all six vendor image/architecture scans, and
-repository security checks. Unaffected Rust/migration and Redis upgrade targets
-reuse their earlier passing evidence. Production npm audit and image/filesystem
-scans pass their existing thresholds; no vulnerability exception or reduced
-gate was added. Five additional inventory regression cases passed with the
-existing inventory/CI parity suite (24 cases). The one new Gitleaks fingerprint
-identifies a verified public source hash in the committed baseline inventory.
-Deployment and live semantic evidence are recorded separately in the
-implementation issue and retained release report.
+The October 15 candidate passed 102 Rust tests (59.84% line coverage), 1,898
+Python tests (79.36% coverage), frontend lint/types/coverage, real Redis
+integration, and five browser workflows against the full image. Twenty image
+contract suites cover the retained tool/API ports and rollback. The 22 Rust
+tests requiring external fixtures remain excluded from the unit-only run;
+the corresponding image/service suites provide integration evidence. Helm
+validation and the backend high/critical vulnerability scan also passed.

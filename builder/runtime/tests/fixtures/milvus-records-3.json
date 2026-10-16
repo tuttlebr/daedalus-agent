@@ -1,0 +1,5065 @@
+{
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "entry": {
+    "document_type": "text",
+    "metadata": {
+      "content": "Synthetic 雪🌲",
+      "embedding": [0.25, -0.5],
+      "source_metadata": {
+        "source_name": "synthetic.txt"
+      },
+      "content_metadata": {
+        "subtype": "table",
+        "page_number": 1
+      },
+      "table_metadata": {
+        "table_content": "Table",
+        "table_location": [1, 2, 3, 4],
+        "table_location_max_dimensions": [100, 200]
+      },
+      "image_metadata": {
+        "caption": "Caption",
+        "text": "Page",
+        "image_location": [1, 2, 3, 4],
+        "image_location_max_dimensions": [100, 200]
+      },
+      "audio_metadata": {
+        "audio_transcript": "Transcript"
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "nested-900",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              ["set", ["metadata", "table_metadata", "table_location"], [1]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              ["set", ["metadata", "content_metadata", "location"], [1]],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "table_metadata", "table_location"], [1]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-901",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              ["set", ["metadata", "table_metadata", "table_location"], {}]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": {},
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "table_metadata", "table_location"], {}]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-902",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": {
+                "key": "value"
+              },
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": {
+                  "key": "value"
+                },
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                {
+                  "key": "value"
+                }
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-missing-903",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              ["remove", ["metadata", "table_metadata", "table_location"]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "KeyError",
+        "message": "'table_location'"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              ["remove", ["metadata", "table_metadata", "table_location"]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-904",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                null
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": null
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                null
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-905",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                false
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": false,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": false
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                false
+              ],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                false
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-906",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                true
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": true,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": true
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], true],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                true
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-907",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                0
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": 0,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": 0
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], 0],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                0
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-908",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                1
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": 1,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": 1
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], 1],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                1
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-909",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                1.5
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": 1.5,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": 1.5
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], 1.5],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                1.5
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-910",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                ""
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": "",
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": ""
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], ""],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                ""
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-911",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                "bad"
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": "bad",
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": "bad"
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                "bad"
+              ],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                "bad"
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-912",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                []
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": []
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], []],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                []
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-913",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                [1]
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [1],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [1]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], [1]],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                [1]
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-914",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                {}
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": {},
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": {}
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], {}],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                {}
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-915",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Table",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": {
+                "key": "value"
+              },
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": {
+                  "key": "value"
+                }
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                {
+                  "key": "value"
+                }
+              ],
+              [
+                "set",
+                ["metadata", "table_metadata", "table_location_max_dimensions"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-missing-916",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "remove",
+                ["metadata", "table_metadata", "table_location_max_dimensions"]
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "KeyError",
+        "message": "'table_location_max_dimensions'"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "structured"],
+              [
+                "remove",
+                ["metadata", "table_metadata", "table_location_max_dimensions"]
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-917",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], null]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "caption"], null]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-918",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], false]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "caption"], false]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-919",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], true]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "object of type 'bool' has no len()"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], true]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-920",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], 0]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "caption"], 0]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-921",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], 1]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "object of type 'int' has no len()"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], 1]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-922",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], 1.5]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "object of type 'float' has no len()"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], 1.5]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-923",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], ""]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "caption"], ""]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-924",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], "bad"]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "bad",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "bad",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "caption"], "bad"]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-925",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], []]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "caption"], []]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-926",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], [1]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": [1],
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": [1],
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "caption"], [1]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-927",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "caption"], {}]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "caption"], {}]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-928",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "caption"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": {
+              "key": "value"
+            },
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": {
+                  "key": "value"
+                },
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              [
+                "set",
+                ["metadata", "image_metadata", "caption"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-missing-929",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["remove", ["metadata", "image_metadata", "caption"]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "KeyError",
+        "message": "'caption'"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["remove", ["metadata", "image_metadata", "caption"]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-930",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], null]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": null,
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], null]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-931",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], false]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": false,
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], false]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-932",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], true]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": true,
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], true]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-933",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], 0]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": 0,
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], 0]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-934",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], 1]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": 1,
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], 1]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-935",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], 1.5]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": 1.5,
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], 1.5]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-936",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], ""]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], ""]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-937",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], "bad"]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "bad",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], "bad"]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-938",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], []]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": [],
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], []]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-939",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], [1]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": [1],
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], [1]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-940",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "text"], {}]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": {},
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "text"], {}]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-941",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "text"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": {
+                  "key": "value"
+                },
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              [
+                "set",
+                ["metadata", "image_metadata", "text"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-missing-942",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["remove", ["metadata", "image_metadata", "text"]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["remove", ["metadata", "image_metadata", "text"]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-943",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], null]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": null,
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "image_metadata", "image_location"], null]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-944",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], false]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": false,
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "image_metadata", "image_location"], false]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-945",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], true]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": true,
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": true,
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], true],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "image_location"], true]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-946",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], 0]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": 0,
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "image_metadata", "image_location"], 0]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-947",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], 1]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": 1,
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": 1,
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], 1],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "image_location"], 1]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-948",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], 1.5]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": 1.5,
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": 1.5,
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], 1.5],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "image_location"], 1.5]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-949",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], ""]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": "",
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "image_metadata", "image_location"], ""]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-950",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], "bad"]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": "bad",
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": "bad",
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], "bad"],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "image_location"], "bad"]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-951",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], []]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "image_metadata", "image_location"], []]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-952",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], [1]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1],
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], [1]],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              ["set", ["metadata", "image_metadata", "image_location"], [1]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-953",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "image_metadata", "image_location"], {}]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": {},
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "image_metadata", "image_location"], {}]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-954",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": {
+                "key": "value"
+              },
+              "max_dimensions": [100, 200],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": {
+                  "key": "value"
+                },
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                {
+                  "key": "value"
+                }
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                [100, 200]
+              ],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-missing-955",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["remove", ["metadata", "image_metadata", "image_location"]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "KeyError",
+        "message": "'image_location'"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              ["remove", ["metadata", "image_metadata", "image_location"]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-956",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                null
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": null
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                null
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-957",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                false
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": false,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": false
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                false
+              ],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                false
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-958",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                true
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": true,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": true
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], true],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                true
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-959",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                0
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": 0,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": 0
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], 0],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                0
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-960",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                1
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": 1,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": 1
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], 1],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                1
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-961",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                1.5
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": 1.5,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": 1.5
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], 1.5],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                1.5
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-962",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                ""
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": "",
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": ""
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], ""],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                ""
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-963",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                "bad"
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": "bad",
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": "bad"
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                "bad"
+              ],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                "bad"
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-964",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                []
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": []
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], []],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                []
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-965",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                [1]
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": [1],
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [1]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], [1]],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                [1]
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-966",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                {}
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": {},
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": {}
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], {}],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                {}
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-967",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Caption",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": [1, 2, 3, 4],
+              "max_dimensions": {
+                "key": "value"
+              },
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": {
+                  "key": "value"
+                }
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "set",
+                ["metadata", "content_metadata", "location"],
+                [1, 2, 3, 4]
+              ],
+              [
+                "set",
+                ["metadata", "content_metadata", "max_dimensions"],
+                {
+                  "key": "value"
+                }
+              ],
+              [
+                "set",
+                ["metadata", "image_metadata", "image_location_max_dimensions"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-missing-968",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "remove",
+                ["metadata", "image_metadata", "image_location_max_dimensions"]
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "KeyError",
+        "message": "'image_location_max_dimensions'"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "image"],
+              [
+                "remove",
+                ["metadata", "image_metadata", "image_location_max_dimensions"]
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-969",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], null]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], null]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-970",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], false]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], false]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-971",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], true]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "object of type 'bool' has no len()"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], true]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-972",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], 0]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], 0]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-973",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], 1]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "object of type 'int' has no len()"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], 1]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-974",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], 1.5]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "object of type 'float' has no len()"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], 1.5]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-975",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], ""]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], ""]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-976",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], "bad"]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "bad",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "bad"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], "bad"]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-977",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], []]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], []]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-978",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], [1]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": [1],
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": [1]
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], [1]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-979",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], {}]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": []
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              ["set", ["metadata", "audio_metadata", "audio_transcript"], {}]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-980",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              [
+                "set",
+                ["metadata", "audio_metadata", "audio_transcript"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": {
+              "key": "value"
+            },
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": {
+                  "key": "value"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null],
+              [
+                "set",
+                ["metadata", "audio_metadata", "audio_transcript"],
+                {
+                  "key": "value"
+                }
+              ]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "nested-missing-981",
+      "input": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["remove", ["metadata", "audio_metadata", "audio_transcript"]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "KeyError",
+        "message": "'audio_transcript'"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["document_type"], "audio"],
+              ["remove", ["metadata", "audio_metadata", "audio_transcript"]]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-982",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], null]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "'NoneType' object does not support item assignment"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], null]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-983",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], false]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "'bool' object does not support item assignment"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], false]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-984",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], true]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "'bool' object does not support item assignment"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], true]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-985",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], 0]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "'int' object does not support item assignment"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], 0]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-986",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], 1]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "'int' object does not support item assignment"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], 1]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-987",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], 1.5]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "'float' object does not support item assignment"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], 1.5]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-988",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], ""]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "'str' object does not support item assignment"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], ""]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-989",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], "bad"]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "'str' object does not support item assignment"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], "bad"]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-990",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], []]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "list indices must be integers or slices, not str"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], []]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-991",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], [1]]]
+          }
+        ]
+      ],
+      "expected": {
+        "error": "TypeError",
+        "message": "list indices must be integers or slices, not str"
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [["set", ["metadata", "content_metadata"], [1]]]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-992",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [
+              ["remove", ["metadata", "content_metadata", "subtype"]],
+              ["remove", ["metadata", "content_metadata", "page_number"]]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Synthetic 雪🌲",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          },
+          {
+            "text": "Synthetic 雪🌲",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [
+              ["remove", ["metadata", "content_metadata", "subtype"]],
+              ["remove", ["metadata", "content_metadata", "page_number"]],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          }
+        ]
+      ]
+    },
+    {
+      "name": "late-error-993",
+      "input": [
+        [
+          {
+            "$entry_delta": []
+          },
+          {
+            "$entry_delta": [
+              ["remove", ["metadata", "content_metadata", "subtype"]],
+              ["remove", ["metadata", "content_metadata", "page_number"]],
+              ["set", ["metadata", "content_metadata", "key"], "value"]
+            ]
+          }
+        ]
+      ],
+      "expected": {
+        "ok": [
+          {
+            "text": "Synthetic 雪🌲",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "subtype": "table",
+              "page_number": 1,
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          },
+          {
+            "text": "Synthetic 雪🌲",
+            "vector": [0.25, -0.5],
+            "source": {
+              "source_name": "synthetic.txt"
+            },
+            "content_metadata": {
+              "key": "value",
+              "location": null,
+              "max_dimensions": null,
+              "table_metadata": {
+                "table_content": "Table",
+                "table_location": [1, 2, 3, 4],
+                "table_location_max_dimensions": [100, 200]
+              },
+              "image_metadata": {
+                "caption": "Caption",
+                "text": "Page",
+                "image_location": [1, 2, 3, 4],
+                "image_location_max_dimensions": [100, 200]
+              },
+              "audio_metadata": {
+                "audio_transcript": "Transcript"
+              }
+            }
+          }
+        ]
+      },
+      "mutated": [
+        [
+          {
+            "$entry_delta": [
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          },
+          {
+            "$entry_delta": [
+              ["remove", ["metadata", "content_metadata", "subtype"]],
+              ["remove", ["metadata", "content_metadata", "page_number"]],
+              ["set", ["metadata", "content_metadata", "key"], "value"],
+              ["set", ["metadata", "content_metadata", "location"], null],
+              ["set", ["metadata", "content_metadata", "max_dimensions"], null]
+            ]
+          }
+        ]
+      ]
+    }
+  ]
+}

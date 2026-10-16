@@ -12,8 +12,20 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 pub struct Preparation {
     pub config: Config,
+    pub profile_import_max: i64,
+    pub documents: tokio::sync::OnceCell<Arc<crate::document_processor::Processor>>,
+    pub document_tools: HashMap<String, Arc<crate::document_tools::Adapter>>,
+    pub domain_tools: HashMap<String, Arc<crate::domain_retriever::Adapter>>,
+    pub docs_tools: HashMap<String, crate::nvidia_docs::Settings>,
+    pub search_tools: HashMap<String, crate::perplexity_search::Settings>,
+    pub user_tools: HashMap<String, crate::user_interaction::Tool>,
+    pub skill_tools: HashMap<String, crate::agent_skills::Tool>,
+    pub sandbox_tools: HashMap<String, crate::llm_sandbox::Tool>,
+    pub weather_tools: HashMap<String, crate::nws_weather::Tool>,
     pub memory: Memory,
+    pub memory_tools: crate::memory_tools::Tools,
     pub outputs: OutputStore,
+    pub output_readers: HashMap<String, crate::output::OutputReader>,
     pub telemetry: Option<crate::telemetry::Telemetry>,
     pub mcp: Option<Arc<crate::mcp::Mcp>>,
 }
@@ -288,7 +300,110 @@ pub fn base_prepare(
 
 impl Preparation {
     pub fn new(config: Config, http: reqwest::Client) -> Result<Arc<Self>> {
+        let mut output_readers = HashMap::new();
+        let mut document_tools = HashMap::new();
+        let mut domain_tools = HashMap::new();
+        let mut docs_tools = HashMap::new();
+        let mut search_tools = HashMap::new();
+        let mut user_tools = HashMap::new();
+        let mut skill_tools = HashMap::new();
+        let mut sandbox_tools = HashMap::new();
+        let mut weather_tools = HashMap::new();
+        let embedders = Arc::new(crate::embeddings::Registry::new(&config.raw));
+        if let Some(functions) = config.raw["functions"].as_object() {
+            for (name, raw) in functions {
+                if raw["_type"] == "nws_weather" {
+                    weather_tools.insert(name.clone(), crate::nws_weather::Tool::new(raw)?);
+                }
+                if raw["_type"] == "llm_sandbox" {
+                    sandbox_tools.insert(
+                        name.clone(),
+                        crate::llm_sandbox::Tool::new(raw, &config.env)?,
+                    );
+                }
+                if raw["_type"] == "agent_skills" {
+                    skill_tools.insert(
+                        name.clone(),
+                        crate::agent_skills::Tool::new(raw, &config.env)?,
+                    );
+                }
+                if raw["_type"] == "user_interaction" {
+                    user_tools.insert(
+                        name.clone(),
+                        crate::user_interaction::Tool::new(raw, &config.env)?,
+                    );
+                }
+                if raw["_type"] == "perplexity_search" {
+                    search_tools.insert(
+                        name.clone(),
+                        crate::perplexity_search::Settings::new(raw, &config.env)?,
+                    );
+                }
+                if raw["_type"] == "nvidia_docs" {
+                    docs_tools.insert(name.clone(), crate::nvidia_docs::Settings::new(raw)?);
+                }
+                if raw["_type"] == "domain_retriever" {
+                    domain_tools.insert(
+                        name.clone(),
+                        Arc::new(crate::domain_retriever::Adapter::with_embedders(
+                            &config,
+                            raw,
+                            embedders.clone(),
+                        )?),
+                    );
+                }
+                if raw["_type"] == "tool_output_retriever" {
+                    output_readers.insert(name.clone(), crate::output::OutputReader::new(&config)?);
+                }
+                if raw["_type"] == "nat_nv_ingest" {
+                    document_tools.insert(
+                        name.clone(),
+                        Arc::new(crate::document_tools::Adapter::with_embedders(
+                            &config,
+                            raw,
+                            embedders.clone(),
+                        )?),
+                    );
+                }
+            }
+        }
+        if let Some(mappings) = config.workflow()["skill_model_profiles"].as_object()
+            && !mappings.is_empty()
+        {
+            let selected = names(config.workflow().get("tools"))?;
+            let available = skill_tools
+                .iter()
+                .filter(|(name, tool)| selected.contains(name) && tool.settings.exposes_loading())
+                .map(|(_, tool)| {
+                    // Validation uses a separate configuration/parser in the retained
+                    // registry. Do not initialize the tool's lazy catalog here.
+                    crate::agent_skills::Parser::discover(std::path::Path::new(
+                        tool.settings.values["skills_directory"].as_str().unwrap(),
+                    ))
+                    .map(|parser| parser.names())
+                })
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            if mappings.keys().any(|name| !available.contains(name)) {
+                bail!("Unknown or unavailable skill_model_profiles");
+            }
+        }
         Ok(Arc::new(Self {
+            output_readers,
+            documents: tokio::sync::OnceCell::new(),
+            document_tools,
+            domain_tools,
+            docs_tools,
+            search_tools,
+            user_tools,
+            skill_tools,
+            sandbox_tools,
+            weather_tools,
+            profile_import_max: integer(&json!(
+                config.variable("PROFILE_IMPORT_MAX_ENTRIES", "250")
+            ))?,
             mcp: if config.variable("DAEDALUS_AUTHORIZATION", "rust") == "rust" {
                 Some(crate::mcp::Mcp::new(&config)?)
             } else {
@@ -297,6 +412,7 @@ impl Preparation {
             telemetry: crate::telemetry::Telemetry::new(&config)?,
             outputs: OutputStore::new(&config)?,
             memory: Memory::new(&config, http)?,
+            memory_tools: crate::memory_tools::Tools::new(&config)?,
             config,
         }))
     }
@@ -326,6 +442,32 @@ impl Preparation {
             let raw = &self.config.raw["functions"][name];
             if raw["_type"] == "current_datetime" {
                 schemas.insert(name.clone(), vec![clock_schema(name, raw)]);
+            } else if raw["_type"] == "tool_output_retriever" {
+                schemas.insert(
+                    name.clone(),
+                    vec![crate::output_retriever::schema(name, raw)],
+                );
+            } else if crate::memory_tools::owns(raw["_type"].as_str().unwrap_or("")) {
+                schemas.insert(name.clone(), vec![crate::memory_tools::schema(name, raw)]);
+            } else if raw["_type"] == "nat_nv_ingest" {
+                schemas.insert(name.clone(), vec![self.document_tools[name].schema(name)]);
+            } else if raw["_type"] == "domain_retriever" {
+                schemas.insert(name.clone(), vec![self.domain_tools[name].schema(name)]);
+            } else if raw["_type"] == "nvidia_docs" {
+                schemas.insert(name.clone(), vec![self.docs_tools[name].schema(name)?]);
+            } else if raw["_type"] == "perplexity_search" {
+                schemas.insert(name.clone(), vec![self.search_tools[name].schema(name)?]);
+            } else if raw["_type"] == "user_interaction" {
+                schemas.insert(
+                    name.clone(),
+                    vec![self.user_tools[name].settings.schema(name)?],
+                );
+            } else if raw["_type"] == "agent_skills" {
+                schemas.insert(name.clone(), vec![self.skill_tools[name].schema(name)?]);
+            } else if raw["_type"] == "llm_sandbox" {
+                schemas.insert(name.clone(), vec![self.sandbox_tools[name].schema(name)?]);
+            } else if raw["_type"] == "nws_weather" {
+                schemas.insert(name.clone(), vec![self.weather_tools[name].schema(name)?]);
             } else if self.mcp.is_some() && self.config.raw["function_groups"].get(name).is_some() {
                 groups.push(name.clone());
             } else {

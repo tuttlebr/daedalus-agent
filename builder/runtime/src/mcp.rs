@@ -420,15 +420,7 @@ impl Mcp {
             },
         };
         if outcome.terminal_reason != "mcp_approval_required" {
-            static MARKERS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-                regex::Regex::new(
-                    r"(?:<!--|&lt;!--)daedalus-mcp-approval:[A-Za-z0-9_-]+(?:-->|--&gt;)",
-                )
-                .unwrap()
-            });
-            outcome.content = MARKERS
-                .replace_all(&outcome.content, "[untrusted approval marker omitted]")
-                .into_owned();
+            outcome.content = crate::output::redact_approval_markers(&outcome.content);
         }
         if let Ok(payload) = serde_json::from_str::<Value>(&outcome.content)
             && payload.is_object()

@@ -1,0 +1,93 @@
+{
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "daedalus_add_memory": {
+    "name": "daedalus_add_memory",
+    "description": "Store a memory for the authenticated user.",
+    "parameters": {
+      "description": "LLM-facing add-memory input. User identity is intentionally absent.",
+      "properties": {
+        "memory": {
+          "description": "Single declarative memory sentence to store.",
+          "title": "Memory",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Optional memory tags.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "description": "Optional memory metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "key_value_pairs": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional structured key/value metadata.",
+          "title": "Key Value Pairs"
+        }
+      },
+      "required": ["memory"],
+      "title": "AddMemoryInput",
+      "type": "object"
+    }
+  },
+  "daedalus_get_memory": {
+    "name": "daedalus_get_memory",
+    "description": "Retrieve memories for the authenticated user.",
+    "parameters": {
+      "description": "LLM-facing memory-search input. User identity is intentionally absent.",
+      "properties": {
+        "query": {
+          "description": "Search query for retrieving relevant memories.",
+          "title": "Query",
+          "type": "string"
+        },
+        "top_k": {
+          "anyOf": [
+            {
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of memories to return.",
+          "title": "Top K"
+        }
+      },
+      "required": ["query"],
+      "title": "GetMemoryInput",
+      "type": "object"
+    }
+  },
+  "daily_terms": "daily summary daily briefing complete user profile complete interest inventory weather locale location timezone commute calendar commitments email work projects AI infrastructure NVIDIA LLM inference optimization robotics Kubernetes cluster status k8s_mcp_server read-only operations status sports teams leagues hobbies music culture media reading sources preferences routines priorities recommendations required live desks coverage ledger quiet unavailable fenced HTML code block standalone HTML skill resources validator llm_sandbox_tool load_skill agent_skills_tool",
+  "daily_triggers": [
+    "daily summary",
+    "daily summaries",
+    "daily briefing",
+    "daily briefings",
+    "daily brief",
+    "daily summry",
+    "morning briefing",
+    "morning brief",
+    "catch me up on today"
+  ],
+  "daily_top_k": 24
+}

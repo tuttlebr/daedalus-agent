@@ -1,0 +1,66 @@
+{
+  "configuration_schema": {
+    "description": "Configuration for the role-aware vLLM embeddings provider.",
+    "properties": {
+      "api_key": {
+        "anyOf": [
+          {
+            "format": "password",
+            "type": "string",
+            "writeOnly": true
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional bearer token for the vLLM server.",
+        "title": "Api Key"
+      },
+      "base_url": {
+        "description": "vLLM server URL, `/v1` base URL, or embeddings endpoint.",
+        "title": "Base Url",
+        "type": "string"
+      },
+      "model_name": {
+        "description": "Served vLLM embedding model name.",
+        "title": "Model Name",
+        "type": "string"
+      },
+      "timeout_seconds": {
+        "default": 60.0,
+        "exclusiveMinimum": 0,
+        "title": "Timeout Seconds",
+        "type": "number"
+      },
+      "truncate_prompt_tokens": {
+        "anyOf": [
+          {
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Truncate Prompt Tokens"
+      },
+      "max_concurrency": {
+        "default": 8,
+        "maximum": 64,
+        "minimum": 1,
+        "title": "Max Concurrency",
+        "type": "integer"
+      },
+      "verify_ssl": {
+        "default": true,
+        "title": "Verify Ssl",
+        "type": "boolean"
+      }
+    },
+    "required": ["base_url", "model_name"],
+    "title": "DaedalusVLLMEmbedderConfig",
+    "type": "object"
+  }
+}

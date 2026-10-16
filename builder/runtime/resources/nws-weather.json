@@ -1,0 +1,92 @@
+{
+  "defaults": {
+    "description": null,
+    "verbose": false,
+    "user_agent": "daedalus-weather/1.0",
+    "timeout": 20,
+    "points_cache_ttl_seconds": 86400
+  },
+  "configuration_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "verbose": {
+        "default": false,
+        "title": "Verbose",
+        "type": "boolean"
+      },
+      "user_agent": {
+        "default": "daedalus-weather/1.0",
+        "title": "User Agent",
+        "type": "string"
+      },
+      "timeout": {
+        "default": 20,
+        "maximum": 60,
+        "minimum": 5,
+        "title": "Timeout",
+        "type": "number"
+      },
+      "points_cache_ttl_seconds": {
+        "default": 86400,
+        "maximum": 86400,
+        "minimum": 0,
+        "title": "Points Cache Ttl Seconds",
+        "type": "number"
+      }
+    },
+    "title": "NwsWeatherFunctionConfig",
+    "type": "object"
+  },
+  "schema": {
+    "name": "nws_weather",
+    "description": "Get sourced US weather from the official NWS API by latitude and longitude. Returns today and the next three complete local days by default, active alerts, fetch/issue times and explicit coverage gaps. Optionally includes current observations; never treats unavailable data as no alerts.",
+    "parameters": {
+      "properties": {
+        "latitude": {
+          "description": "Latitude of the US location.",
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude",
+          "type": "number"
+        },
+        "longitude": {
+          "description": "Longitude of the US location.",
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude",
+          "type": "number"
+        },
+        "days": {
+          "default": 4,
+          "description": "Today plus following local calendar days.",
+          "maximum": 7,
+          "minimum": 1,
+          "title": "Days",
+          "type": "integer"
+        },
+        "include_observations": {
+          "default": false,
+          "description": "Also request the latest station observation.",
+          "title": "Include Observations",
+          "type": "boolean"
+        }
+      },
+      "required": ["latitude", "longitude"],
+      "title": "WeatherInput",
+      "type": "object"
+    }
+  },
+  "source_sha256": "2cb8b086d81c448efc8e8dc2894c661a23384ef3652d28617d891fcb9c9be045"
+}

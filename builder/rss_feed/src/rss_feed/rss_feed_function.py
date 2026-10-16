@@ -567,9 +567,13 @@ async def rss_feed_function(config: RssFeedFunctionConfig, builder: ToolRegistry
                     response.raise_for_status()
                     fetched_at = datetime.now(UTC)
                 with phase_timing("daedalus.rss.feed_parse", {"feed_scope": scope}):
-                    parsed = await asyncio.to_thread(
-                        fastfeedparser.parse, response.text
-                    )
+                    content = response.text
+                    # parse(str) also accepts URLs and would fetch them through
+                    # its own unguarded client. This response is already fetched
+                    # content; it must never introduce another network request.
+                    if content.startswith(("http://", "https://")):
+                        raise ValueError("RSS response must contain feed content.")
+                    parsed = await asyncio.to_thread(fastfeedparser.parse, content)
                     entries = []
                     for entry in parsed.entries[: config.max_entries]:
                         title, link = entry.get("title", ""), entry.get("link", "")

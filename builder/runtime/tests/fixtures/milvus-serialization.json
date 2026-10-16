@@ -1,0 +1,2447 @@
+{
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "cases": [
+    {
+      "name": "text-0",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"a\\ud800b\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'str'>} in",
+            "stead. Detail: 'utf-8' codec can't encode character '\\ud800' in position 1: surr",
+            "ogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-1",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"\\ud83c\\udf32\\udfff\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'str'>} in",
+            "stead. Detail: 'utf-8' codec can't encode character '\\udfff' in position 1: surr",
+            "ogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-2",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"\\ud800\\ud900\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'str'>} in",
+            "stead. Detail: 'utf-8' codec can't encode characters in position 0-1: surrogates",
+            " not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-3",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"\\ud800x\\udfff\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'str'>} in",
+            "stead. Detail: 'utf-8' codec can't encode character '\\ud800' in position 0: surr",
+            "ogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-4",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"\\udb80\\udc00\\ud800\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'str'>} in",
+            "stead. Detail: 'utf-8' codec can't encode character '\\ud800' in position 1: surr",
+            "ogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-5",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qLggXEhBjb250ZW50X21ldGFk",
+            "YXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqDggVEgR0ZXh0GgQyAgoAKhMIFxIFJG1ldGEaBkoE",
+            "CgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-6",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": 1}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'int'>} in",
+            "stead. Detail: 'int' object is not iterable)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-7",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": true}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'bool'>} i",
+            "nstead. Detail: 'bool' object is not iterable)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-8",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": []}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'list'>} i",
+            "nstead. Detail: bad argument type for built-in operation)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-9",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": {}}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {text} field should be a varchar, but got a {<class 'dict'>} i",
+            "nstead. Detail: bad argument type for built-in operation)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "text-10",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": null}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qLggXEhBjb250ZW50X21ldGFk",
+            "YXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqDAgVEgR0ZXh0GgIyACoTCBcSBSRtZXRhGgZKBAoC",
+            "e30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-11",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": \"a\\ud800b\"}, \"content_metadata\": {",
+          "\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {source} field should be a json, but got a {<class 'dict'>} in",
+            "stead. Detail: str is not valid UTF-8: surrogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-12",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"\\udfff\": \"value\"}, \"content_metadata\": {\"p",
+          "age_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {source} field should be a json, but got a {<class 'dict'>} in",
+            "stead. Detail: str is not valid UTF-8: surrogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-13",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": \"\\udb80\\udc00\\ud800\"}, \"content_me",
+          "tadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {source} field should be a json, but got a {<class 'dict'>} in",
+            "stead. Detail: str is not valid UTF-8: surrogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-14",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": 18446744073709551615}, \"content_me",
+          "tadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Ki4IFxIGc291cmNl",
+            "GiJKIAoeeyJ2YWx1ZSI6MTg0NDY3NDQwNzM3MDk1NTE2MTV9Ki4IFxIQY29udGVudF9tZXRhZGF0YRoV",
+            "ShMKEXsicGFnZV9udW1iZXIiOjB9OgEBKicIFRIEdGV4dBodMhsKGVN5bnRoZXRpYyBpbmRleGVkIOmb",
+            "qvCfjLIqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-15",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": 18446744073709551616}, \"content_me",
+          "tadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {source} field should be a json, but got a {<class 'dict'>} in",
+            "stead. Detail: Integer exceeds 64-bit range)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-16",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": -9223372036854775808}, \"content_me",
+          "tadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Ki4IFxIGc291cmNl",
+            "GiJKIAoeeyJ2YWx1ZSI6LTkyMjMzNzIwMzY4NTQ3NzU4MDh9Ki4IFxIQY29udGVudF9tZXRhZGF0YRoV",
+            "ShMKEXsicGFnZV9udW1iZXIiOjB9OgEBKicIFRIEdGV4dBodMhsKGVN5bnRoZXRpYyBpbmRleGVkIOmb",
+            "qvCfjLIqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-17",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": -9223372036854775809}, \"content_me",
+          "tadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {source} field should be a json, but got a {<class 'dict'>} in",
+            "stead. Detail: Integer exceeds 64-bit range)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-18",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": 1e-07}, \"content_metadata\": {\"page",
+          "_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Kh4IFxIGc291cmNl",
+            "GhJKEAoOeyJ2YWx1ZSI6MWUtN30qLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJl",
+            "ciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRh",
+            "GgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-19",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": 1e+100}, \"content_metadata\": {\"pag",
+          "e_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KiAIFxIGc291cmNl",
+            "GhRKEgoQeyJ2YWx1ZSI6MWUrMTAwfSouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVt",
+            "YmVyIjowfToBASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1l",
+            "dGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-20",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"value\": -0.0}, \"content_metadata\": {\"page_",
+          "number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Kh4IFxIGc291cmNl",
+            "GhJKEAoOeyJ2YWx1ZSI6LTAuMH0qLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJl",
+            "ciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRh",
+            "GgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-21",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [], \"content_metadata\": {\"page_number\": 0}, ",
+          "\"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhIIFxIGc291cmNl",
+            "GgZKBAoCW10qLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqJwgV",
+            "EgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-22",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [1, \"\\u96ea\\ud83c\\udf32\"], \"content_metadata",
+          "\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Kh0IFxIGc291cmNl",
+            "GhFKDwoNWzEsIumbqvCfjLIiXSouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVy",
+            "IjowfToBASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEa",
+            "BkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-23",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": 1, \"content_metadata\": {\"page_number\": 0}, \"",
+          "text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhEIFxIGc291cmNl",
+            "GgVKAwoBMSouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASonCBUS",
+            "BHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-24",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": true, \"content_metadata\": {\"page_number\": 0}",
+          ", \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhQIFxIGc291cmNl",
+            "GghKBgoEdHJ1ZSouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASon",
+            "CBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTAB",
+            "OAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-25",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": null, \"content_metadata\": {\"page_number\": 0}",
+          ", \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Kg4IFxIGc291cmNl",
+            "GgJKACouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASonCBUSBHRl",
+            "eHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-26",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\", \"content_metadata\": {\"page_number\": 0}, ",
+          "\"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: Input is a zero-le",
+            "ngth, empty document: line 1 column 1 (char 0). Input string: '')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-27",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"bad\", \"content_metadata\": {\"page_number\": 0",
+          "}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: 'bad')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-28",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{ \\\"x\\\": \\\"\\u96ea\\ud83c\\udf32\\\" }\", \"conten",
+          "t_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}",
+          "]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KiIIFxIGc291cmNl",
+            "GhZKFAoSeyAieCI6ICLpm6rwn4yyIiB9Ki4IFxIQY29udGVudF9tZXRhZGF0YRoVShMKEXsicGFnZV9u",
+            "dW1iZXIiOjB9OgEBKicIFRIEdGV4dBodMhsKGVN5bnRoZXRpYyBpbmRleGVkIOmbqvCfjLIqEwgXEgUk",
+            "bWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-29",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"x\\\":\\\"\\\\ud800\\\"}\", \"content_metadata\": {",
+          "\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: no low surrogate i",
+            "n string: line 1 column 13 (char 12). Input string: '{\"x\":\"\\\\ud800\"}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-30",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"x\\\":\\\"\\\\udfff\\\"}\", \"content_metadata\": {",
+          "\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: invalid high surro",
+            "gate in string: line 1 column 7 (char 6). Input string: '{\"x\":\"\\\\udfff\"}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-31",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"x\\\":\\\"\\\\ud83c\\\\udf32\\\"}\", \"content_metad",
+          "ata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KiQIFxIGc291cmNl",
+            "GhhKFgoUeyJ4IjoiXHVkODNjXHVkZjMyIn0qLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdl",
+            "X251bWJlciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcS",
+            "BSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-32",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"x\\\":1,}\", \"content_metadata\": {\"page_num",
+          "ber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: trailing comma is ",
+            "not allowed: line 1 column 7 (char 6). Input string: '{\"x\":1,}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-33",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"x\\\":NaN}\", \"content_metadata\": {\"page_nu",
+          "mber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 6 (char 5). Input string: '{\"x\":NaN}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "source-34",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"x\\\":1e309}\", \"content_metadata\": {\"page_",
+          "number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: number is infinity",
+            " when parsed as double: line 1 column 6 (char 5). Input string: '{\"x\":1e309}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-35",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": \"a\\ud800b\"}, \"text\": \"Synthetic indexed \\u96e",
+          "a\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {content_metadata} field should be a json, but got a {<class '",
+            "dict'>} instead. Detail: str is not valid UTF-8: surrogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-36",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"\\udfff\": \"value\"}, \"text\": \"Synthetic indexed \\u96ea\\",
+          "ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {content_metadata} field should be a json, but got a {<class '",
+            "dict'>} instead. Detail: str is not valid UTF-8: surrogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-37",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": \"\\udb80\\udc00\\ud800\"}, \"text\": \"Synthetic ind",
+          "exed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {content_metadata} field should be a json, but got a {<class '",
+            "dict'>} instead. Detail: str is not valid UTF-8: surrogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-38",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": 18446744073709551615}, \"text\": \"Synthetic ind",
+          "exed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qOwgXEhBjb250ZW50X21ldGFk",
+            "YXRhGiJKIAoeeyJ2YWx1ZSI6MTg0NDY3NDQwNzM3MDk1NTE2MTV9OgEBKicIFRIEdGV4dBodMhsKGVN5",
+            "bnRoZXRpYyBpbmRleGVkIOmbqvCfjLIqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-39",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": 18446744073709551616}, \"text\": \"Synthetic ind",
+          "exed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {content_metadata} field should be a json, but got a {<class '",
+            "dict'>} instead. Detail: Integer exceeds 64-bit range)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-40",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": -9223372036854775808}, \"text\": \"Synthetic ind",
+          "exed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qOwgXEhBjb250ZW50X21ldGFk",
+            "YXRhGiJKIAoeeyJ2YWx1ZSI6LTkyMjMzNzIwMzY4NTQ3NzU4MDh9OgEBKicIFRIEdGV4dBodMhsKGVN5",
+            "bnRoZXRpYyBpbmRleGVkIOmbqvCfjLIqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-41",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": -9223372036854775809}, \"text\": \"Synthetic ind",
+          "exed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {content_metadata} field should be a json, but got a {<class '",
+            "dict'>} instead. Detail: Integer exceeds 64-bit range)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-42",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": 1e-07}, \"text\": \"Synthetic indexed \\u96ea\\ud8",
+          "3c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qKwgXEhBjb250ZW50X21ldGFk",
+            "YXRhGhJKEAoOeyJ2YWx1ZSI6MWUtN306AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg",
+            "6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-43",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": 1e+100}, \"text\": \"Synthetic indexed \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qLQgXEhBjb250ZW50X21ldGFk",
+            "YXRhGhRKEgoQeyJ2YWx1ZSI6MWUrMTAwfToBASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhl",
+            "ZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-44",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"value\": -0.0}, \"text\": \"Synthetic indexed \\u96ea\\ud83",
+          "c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qKwgXEhBjb250ZW50X21ldGFk",
+            "YXRhGhJKEAoOeyJ2YWx1ZSI6LTAuMH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg",
+            "6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-45",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": [], \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qHwgXEhBjb250ZW50X21ldGFk",
+            "YXRhGgZKBAoCW106AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcS",
+            "BSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-46",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": [1, \"\\u96ea\\ud83c\\udf32\"], \"text\": \"Synthetic indexed \\",
+          "u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qKggXEhBjb250ZW50X21ldGFk",
+            "YXRhGhFKDwoNWzEsIumbqvCfjLIiXToBASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDp",
+            "m6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-47",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": 1, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qHggXEhBjb250ZW50X21ldGFk",
+            "YXRhGgVKAwoBMToBASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIF",
+            "JG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-48",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": true, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qIQgXEhBjb250ZW50X21ldGFk",
+            "YXRhGghKBgoEdHJ1ZToBASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMI",
+            "FxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-49",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": null, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qGwgXEhBjb250ZW50X21ldGFk",
+            "YXRhGgJKADoBAConCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1l",
+            "dGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-50",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"\", \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: Input is a zero-le",
+            "ngth, empty document: line 1 column 1 (char 0). Input string: '')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-51",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"bad\", \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: 'bad')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-52",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"{ \\\"x\\\": \\\"\\u96ea\\ud83c\\udf32\\\" }\", \"text\": \"Synthetic",
+          " indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qLwgXEhBjb250ZW50X21ldGFk",
+            "YXRhGhZKFAoSeyAieCI6ICLpm6rwn4yyIiB9OgEBKicIFRIEdGV4dBodMhsKGVN5bnRoZXRpYyBpbmRl",
+            "eGVkIOmbqvCfjLIqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-53",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"{\\\"x\\\":\\\"\\\\ud800\\\"}\", \"text\": \"Synthetic indexed \\u96e",
+          "a\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: no low surrogate i",
+            "n string: line 1 column 13 (char 12). Input string: '{\"x\":\"\\\\ud800\"}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-54",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"{\\\"x\\\":\\\"\\\\udfff\\\"}\", \"text\": \"Synthetic indexed \\u96e",
+          "a\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: invalid high surro",
+            "gate in string: line 1 column 7 (char 6). Input string: '{\"x\":\"\\\\udfff\"}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-55",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"{\\\"x\\\":\\\"\\\\ud83c\\\\udf32\\\"}\", \"text\": \"Synthetic indexe",
+          "d \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qMQgXEhBjb250ZW50X21ldGFk",
+            "YXRhGhhKFgoUeyJ4IjoiXHVkODNjXHVkZjMyIn06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGlu",
+            "ZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-56",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"{\\\"x\\\":1,}\", \"text\": \"Synthetic indexed \\u96ea\\ud83c\\u",
+          "df32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: trailing comma is ",
+            "not allowed: line 1 column 7 (char 6). Input string: '{\"x\":1,}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-57",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"{\\\"x\\\":NaN}\", \"text\": \"Synthetic indexed \\u96ea\\ud83c\\",
+          "udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 6 (char 5). Input string: '{\"x\":NaN}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "content_metadata-58",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": \"{\\\"x\\\":1e309}\", \"text\": \"Synthetic indexed \\u96ea\\ud83",
+          "c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: number is infinity",
+            " when parsed as double: line 1 column 6 (char 5). Input string: '{\"x\":1e309}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-59",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\u",
+          "d83c\\udf32\", \"custom\": \"\\ud800\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, please check it.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-60",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\u",
+          "d83c\\udf32\", \"custom\": {\"x\": \"\\udfff\"}}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, please check it.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-61",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\u",
+          "d83c\\udf32\", \"custom\": 18446744073709551616}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, please check it.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-62",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\u",
+          "d83c\\udf32\", \"custom\": -9223372036854775809}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, please check it.)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-63",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\u",
+          "d83c\\udf32\", \"custom\": null}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qLggXEhBjb250ZW50X21ldGFk",
+            "YXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4",
+            "ZWQg6Zuq8J+MsiogCBcSBSRtZXRhGhNKEQoPeyJjdXN0b20iOm51bGx9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "dynamic-64",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"source_name\": \"Synthetic \\u96ea\\ud83c\\udf3",
+          "2\"}, \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\u",
+          "d83c\\udf32\", \"custom\": []}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KjMIFxIGc291cmNl",
+            "GidKJQojeyJzb3VyY2VfbmFtZSI6IlN5bnRoZXRpYyDpm6rwn4yyIn0qLggXEhBjb250ZW50X21ldGFk",
+            "YXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4",
+            "ZWQg6Zuq8J+MsioeCBcSBSRtZXRhGhFKDwoNeyJjdXN0b20iOltdfTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-127",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[{\"snow\": \"\\u96ea\", \"number\": 1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud8",
+          "3c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KqoCCBcSBnNvdXJj",
+            "ZRqdAkqaAgqXAltbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1t7InNub3ciOiLpm6oiLCJudW1iZXIiOjF9XV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXSouCBcSEGNvbnRl",
+            "bnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASonCBUSBHRleHQaHTIbChlTeW50aGV0",
+            "aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-128",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[{\"snow\": \"\\u96ea\", \"number\": 1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\u",
+          "d83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KqwCCBcSBnNvdXJj",
+            "ZRqfAkqcAgqZAltbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbeyJzbm93Ijoi6ZuqIiwibnVtYmVyIjoxfV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dKi4IFxIQY29u",
+            "dGVudF9tZXRhZGF0YRoVShMKEXsicGFnZV9udW1iZXIiOjB9OgEBKicIFRIEdGV4dBodMhsKGVN5bnRo",
+            "ZXRpYyBpbmRleGVkIOmbqvCfjLIqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-252",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u96ea\", \"number\": 1}]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed ",
+          "\\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KqQECBcSBnNvdXJj",
+            "ZRqXBEqUBAqRBFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW3sic25vdyI6IumbqiIsIm51bWJlciI6MX1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV0q",
+            "LggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqJwgVEgR0ZXh0Gh0y",
+            "GwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-253",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u96ea\", \"number\": 1}",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexe",
+          "d \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KqYECBcSBnNvdXJj",
+            "ZRqZBEqWBAqTBFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1t7InNub3ciOiLpm6oiLCJudW1iZXIiOjF9XV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XSouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASonCBUSBHRleHQa",
+            "HTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-254",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u96ea\", \"number\": 1",
+          "}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic inde",
+          "xed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Kq4ECBcSBnNvdXJj",
+            "ZRqhBEqeBAqbBFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbeyJzbm93IjogIlx1OTZlYSIsICJudW1iZXIiOiAxfV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dKi4IFxIQY29udGVudF9tZXRhZGF0YRoVShMKEXsicGFnZV9udW1iZXIiOjB9OgEBKicI",
+            "FRIEdGV4dBodMhsKGVN5bnRoZXRpYyBpbmRleGVkIOmbqvCfjLIqEwgXEgUkbWV0YRoGSgQKAnt9MAE4",
+            "AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-255",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u96ea\", \"number\": ",
+          "1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic in",
+          "dexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KrAECBcSBnNvdXJj",
+            "ZRqjBEqgBAqdBFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW3sic25vdyI6ICJcdTk2ZWEiLCAibnVtYmVyIjogMX1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV0qLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEq",
+            "JwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30w",
+            "ATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-256",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u96ea\", \"number\":",
+          " 1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic ",
+          "indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KrIECBcSBnNvdXJj",
+            "ZRqlBEqiBAqfBFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1t7InNub3ciOiAiXHU5NmVhIiwgIm51bWJlciI6IDF9XV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXSouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToB",
+            "ASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7",
+            "fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-257",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u96ea\", \"number\"",
+          ": 1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Syntheti",
+          "c indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KrQECBcSBnNvdXJj",
+            "ZRqnBEqkBAqhBFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbeyJzbm93IjogIlx1OTZlYSIsICJudW1iZXIiOiAxfV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dKi4IFxIQY29udGVudF9tZXRhZGF0YRoVShMKEXsicGFnZV9udW1iZXIiOjB9",
+            "OgEBKicIFRIEdGV4dBodMhsKGVN5bnRoZXRpYyBpbmRleGVkIOmbqvCfjLIqEwgXEgUkbWV0YRoGSgQK",
+            "Ant9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-511",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u9",
+          "6ea\", \"number\": 1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]], \"content_metadata\": {\"page_nu",
+          "mber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KrAICBcSBnNvdXJj",
+            "ZRqjCEqgCAqdCFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1t7InNub3ciOiAiXHU5NmVhIiwg",
+            "Im51bWJlciI6IDF9XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXSouCBcSEGNvbnRlbnRfbWV0",
+            "YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5k",
+            "ZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-512",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u",
+          "96ea\", \"number\": 1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]], \"content_metadata\": {\"page_",
+          "number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KrIICBcSBnNvdXJj",
+            "ZRqlCEqiCAqfCFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbeyJzbm93IjogIlx1OTZlYSIs",
+            "ICJudW1iZXIiOiAxfV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dKi4IFxIQY29udGVudF9t",
+            "ZXRhZGF0YRoVShMKEXsicGFnZV9udW1iZXIiOjB9OgEBKicIFRIEdGV4dBodMhsKGVN5bnRoZXRpYyBp",
+            "bmRleGVkIOmbqvCfjLIqEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-600",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"sn",
+          "ow\": \"\\u96ea\", \"number\": 1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]], \"content_me",
+          "tadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KuIJCBcSBnNvdXJj",
+            "ZRrVCUrSCQrPCVtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW3sic25vdyI6ICJcdTk2ZWEiLCAibnVtYmVyIjogMX1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV0qLggXEhBjb250ZW50X21ldGFk",
+            "YXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4",
+            "ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-depth-900",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"snow\": \"\\u96ea\", \"numb",
+          "er\": 1}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Sy",
+          "nthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KroOCBcSBnNvdXJj",
+            "ZRqtDkqqDgqnDltbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW3sic25vdyI6ICJcdTk2ZWEiLCAibnVtYmVyIjogMX1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV0qLggXEhBjb250ZW50X21ldGFk",
+            "YXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4",
+            "ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-77",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \" \", \"content_metadata\": {\"page_number\": 0},",
+          " \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: input data is empt",
+            "y: line 1 column 1 (char 0). Input string: ' ')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-78",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\n\\t\", \"content_metadata\": {\"page_number\": ",
+          "0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: input data is empt",
+            "y: line 1 column 1 (char 0). Input string: '\\n\\t')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-79",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"[\", \"content_metadata\": {\"page_number\": 0},",
+          " \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected end of ",
+            "data: line 1 column 2 (char 1). Input string: '[')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-80",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"\", \"content_metadata\": {\"page_number\": 0",
+          "}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected end of ",
+            "data: line 1 column 3 (char 2). Input string: '{\"')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-81",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"\", \"content_metadata\": {\"page_number\": 0}",
+          ", \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected end of ",
+            "data: line 1 column 2 (char 1). Input string: '\"')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-82",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{]\", \"content_metadata\": {\"page_number\": 0}",
+          ", \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 2 (char 1). Input string: '{]')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-83",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"[1,\", \"content_metadata\": {\"page_number\": 0",
+          "}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected end of ",
+            "data: line 1 column 4 (char 3). Input string: '[1,')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-84",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"[1 2]\", \"content_metadata\": {\"page_number\":",
+          " 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 4 (char 3). Input string: '[1 2]')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-85",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"a\\\" 1}\", \"content_metadata\": {\"page_numb",
+          "er\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 6 (char 5). Input string: '{\"a\" 1}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-86",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"a\\\":}\", \"content_metadata\": {\"page_numbe",
+          "r\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 6 (char 5). Input string: '{\"a\":}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-87",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"a\\\":01}\", \"content_metadata\": {\"page_num",
+          "ber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: number with leadin",
+            "g zero is not allowed: line 1 column 6 (char 5). Input string: '{\"a\":01}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-88",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"a\\\":1.}\", \"content_metadata\": {\"page_num",
+          "ber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: no digit after dec",
+            "imal point: line 1 column 8 (char 7). Input string: '{\"a\":1.}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-89",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"a\\\":1e}\", \"content_metadata\": {\"page_num",
+          "ber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: no digit after exp",
+            "onent sign: line 1 column 8 (char 7). Input string: '{\"a\":1e}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-90",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"a\\\":-}\", \"content_metadata\": {\"page_numb",
+          "er\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: no digit after min",
+            "us sign: line 1 column 7 (char 6). Input string: '{\"a\":-}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-91",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"nul\", \"content_metadata\": {\"page_number\": 0",
+          "}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected end of ",
+            "data: line 1 column 4 (char 3). Input string: 'nul')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-92",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"True\", \"content_metadata\": {\"page_number\": ",
+          "0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: 'True')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-93",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"true x\", \"content_metadata\": {\"page_number\"",
+          ": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected content",
+            " after document: line 1 column 6 (char 5). Input string: 'true x')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-94",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"\\\\x\\\"\", \"content_metadata\": {\"page_number",
+          "\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: invalid escaped ch",
+            "aracter in string: line 1 column 3 (char 2). Input string: '\"\\\\x\"')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-95",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"\\\\u12\\\"\", \"content_metadata\": {\"page_numb",
+          "er\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: invalid escaped se",
+            "quence in string: line 1 column 2 (char 1). Input string: '\"\\\\u12\"')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-96",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"\\\\ud800\\\\ud800\\\"\", \"content_metadata\": {\"",
+          "page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: invalid low surrog",
+            "ate in string: line 1 column 8 (char 7). Input string: '\"\\\\ud800\\\\ud800\"')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-97",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"\\\\ud800x\\\"\", \"content_metadata\": {\"page_n",
+          "umber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: no low surrogate i",
+            "n string: line 1 column 8 (char 7). Input string: '\"\\\\ud800x\"')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-98",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"\\\\udfff\\\"\", \"content_metadata\": {\"page_nu",
+          "mber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: invalid high surro",
+            "gate in string: line 1 column 2 (char 1). Input string: '\"\\\\udfff\"')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-99",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"a\\nb\\\"\", \"content_metadata\": {\"page_numbe",
+          "r\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected control",
+            " character in string: line 1 column 3 (char 2). Input string: '\"a\\nb\"')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-100",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\ufeff{}\", \"content_metadata\": {\"page_numbe",
+          "r\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 1 (char 0). Input string: '\\ufeff{}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-101",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\\"\\u96ea\\ud83c\\udf32\\\":NaN}\", \"content_met",
+          "adata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: unexpected charact",
+            "er: line 1 column 7 (char 6). Input string: '{\"雪🌲\":NaN}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-102",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"{\\n\\\"\\u96ea\\\": 1,\\n}\", \"content_metadata\": ",
+          "{\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: trailing comma is ",
+            "not allowed: line 2 column 7 (char 8). Input string: '{\\n\"雪\": 1,\\n}')>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-103",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"null\", \"content_metadata\": {\"page_number\": ",
+          "0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhQIFxIGc291cmNl",
+            "GghKBgoEbnVsbCouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASon",
+            "CBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTAB",
+            "OAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-104",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"true\", \"content_metadata\": {\"page_number\": ",
+          "0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhQIFxIGc291cmNl",
+            "GghKBgoEdHJ1ZSouCBcSEGNvbnRlbnRfbWV0YWRhdGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASon",
+            "CBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTAB",
+            "OAE="
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-105",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"false\", \"content_metadata\": {\"page_number\":",
+          " 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhUIFxIGc291cmNl",
+            "GglKBwoFZmFsc2UqLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEq",
+            "JwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30w",
+            "ATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-106",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"[1,2]\", \"content_metadata\": {\"page_number\":",
+          " 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KhUIFxIGc291cmNl",
+            "GglKBwoFWzEsMl0qLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEq",
+            "JwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30w",
+            "ATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-107",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"Snow \\u96ea\\ud83c\\udf32\\\"\", \"content_meta",
+          "data\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Kh4IFxIGc291cmNl",
+            "GhJKEAoOIlNub3cg6Zuq8J+MsiIqLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJl",
+            "ciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRh",
+            "GgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "json-syntax-108",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": \"\\\"\\ud800\\\"\", \"content_metadata\": {\"page_num",
+          "ber\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=Invalid JSON string: str is not valid U",
+            "TF-8: surrogates not allowed: line 1 column 1 (char 0). Input string: '\"\\ud800\"'",
+            ")>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "fallback-value-109",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"unit\": \"\\ud800\"}]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud",
+          "83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KqEECBcSBnNvdXJj",
+            "ZRqUBEqRBAqOBFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbeyJ1bml0IjogIlx1ZDgwMCJ9XV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV0qLggX",
+            "EhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEqJwgVEgR0ZXh0Gh0yGwoZ",
+            "U3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30wATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "fallback-value-110",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"integer\": 184467440737095516",
+          "16}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]], \"content_metadata\": {\"page_number\": 0}, \"text\": \"Synthetic in",
+          "dexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KrAECBcSBnNvdXJj",
+            "ZRqjBEqgBAqdBFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbeyJpbnRlZ2VyIjogMTg0NDY3NDQwNzM3MDk1NTE2MTZ9XV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV0qLggXEhBjb250ZW50X21ldGFkYXRhGhVKEwoReyJwYWdlX251bWJlciI6MH06AQEq",
+            "JwgVEgR0ZXh0Gh0yGwoZU3ludGhldGljIGluZGV4ZWQg6Zuq8J+MsioTCBcSBSRtZXRhGgZKBAoCe30w",
+            "ATgB"
+          ]
+        }
+      }
+    },
+    {
+      "name": "error-before-deep",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"before\": \"\\ud800\", \"deep\": [[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{",
+          "\"integer\": 18446744073709551616}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}, \"content_metadata\": {\"page_numb",
+          "er\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "error": "DataNotMatchException",
+        "message": {
+          "$string_parts": [
+            "<DataNotMatchException: (code=1, message=The Input data type is inconsistent wit",
+            "h defined schema, {source} field should be a json, but got a {<class 'dict'>} in",
+            "stead. Detail: str is not valid UTF-8: surrogates not allowed)>"
+          ]
+        }
+      }
+    },
+    {
+      "name": "deep-before-error",
+      "rows_json": {
+        "$string_parts": [
+          "[{\"vector\": [0.25, -0.5], \"source\": {\"deep\": [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[",
+          "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[{\"integer\": 184467440",
+          "73709551616}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+          "]]]]]]]]]]]]]]]]]]]]]]]]]], \"after\": \"\\ud800\"}, \"content_metadata\": {\"page_numbe",
+          "r\": 0}, \"text\": \"Synthetic indexed \\u96ea\\ud83c\\udf32\"}]"
+        ]
+      },
+      "expected": {
+        "base64": {
+          "$string_parts": [
+            "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/Ks0ECBcSBnNvdXJj",
+            "ZRrABEq9BAq6BHsiZGVlcCI6IFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tb",
+            "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbeyJpbnRlZ2VyIjogMTg0NDY3NDQwNzM3MDk1",
+            "NTE2MTZ9XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1d",
+            "XV1dXV1dXV1dXV1dXV1dXV1dXV0sICJhZnRlciI6ICJcdWQ4MDAifSouCBcSEGNvbnRlbnRfbWV0YWRh",
+            "dGEaFUoTChF7InBhZ2VfbnVtYmVyIjowfToBASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhl",
+            "ZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7fTABOAE="
+          ]
+        }
+      }
+    }
+  ]
+}

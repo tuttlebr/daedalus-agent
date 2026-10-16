@@ -11,7 +11,7 @@ import { buildNatRequestHeaders } from '@/server/chat/natMessages';
 import { requireAuthenticatedUser } from '@/server/session/_utils';
 
 // Replacement waits for durable retention before deleting the old profile.
-// The backend owns a 140s total budget; leave time to receive its outcome.
+// Retention can take 120s; allow additional time for inventory and cleanup.
 const PROFILE_IMPORT_TIMEOUT_MS = 150_000;
 
 export const config = {

@@ -2,6 +2,7 @@ import { FC, memo } from 'react';
 import ReactMarkdown, { Options } from 'react-markdown';
 
 import { normalizeLatexDelimiters } from '@/utils/app/latexNormalizer';
+import { remarkSearchResults } from '@/utils/app/remarkSearchResults';
 import { sanitizeSchema } from '@/utils/app/sanitizeSchema';
 
 import { getReactMarkDownCustomComponents } from './CustomComponents';
@@ -73,6 +74,9 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
     // Build remark plugins
     const remarkPlugins: any[] = [remarkGfm];
+    if (allowHtml) {
+      remarkPlugins.push(remarkSearchResults);
+    }
     if (enableMath) {
       remarkPlugins.push([remarkMath, { singleDollarTextMath: false }]);
     }

@@ -8,6 +8,7 @@ binary entrypoint and no tool service; the baseline uses its normal supervisor.
 import argparse
 import concurrent.futures
 import contextlib
+import copy
 import json
 import os
 import subprocess  # nosec B404 - fixed argv for disposable fixture containers
@@ -41,6 +42,7 @@ class MemoryPeers(Peers):
         self.memory_waiting = threading.Event()
         self.memory_disconnected = threading.Event()
         self.block_memory = False
+        self.retained_memories = {}
 
     def handler(self):
         peers = self
@@ -77,15 +79,24 @@ class MemoryPeers(Peers):
                 elif self.path.endswith("/memories/recall"):
                     self.reply(
                         {
-                            "results": [
-                                {
-                                    "text": "Synthetic retained fact",
-                                    "type": "world",
-                                    "mentioned_at": "2026-10-01T00:00:00Z",
-                                }
-                            ]
+                            "results": peers.retained_memories.get(
+                                self.path.removesuffix("/memories/recall"),
+                                [
+                                    {
+                                        "text": "Synthetic retained fact",
+                                        "type": "world",
+                                        "mentioned_at": "2026-10-01T00:00:00Z",
+                                    }
+                                ],
+                            )
                         }
                     )
+                elif self.path.endswith("/memories"):
+                    peers.retained_memories[self.path.removesuffix("/memories")] = [
+                        {"text": item["content"], "type": "world"}
+                        for item in body["items"]
+                    ]
+                    self.reply({})
                 else:
                     self.reply({})
 
@@ -177,6 +188,9 @@ def environment(
     configure=None,
     extra_env=None,
     fixture_files=None,
+    redis_json=False,
+    fixture_mounts=(),
+    namespace_factory=None,
 ):
     peers = peers or MemoryPeers()
 
@@ -188,7 +202,9 @@ def environment(
     threading.Thread(target=server.serve_forever, daemon=True).start()
     names = []
     process = None
-    with tempfile.TemporaryDirectory(prefix="daedalus-p1-") as directory:
+    with tempfile.TemporaryDirectory(
+        prefix="daedalus-p1-"
+    ) as directory, contextlib.ExitStack() as resources:
         root = Path(directory)
         root.chmod(0o755)
         for name, content in (fixture_files or {}).items():
@@ -322,6 +338,11 @@ def environment(
                 "",
                 "--appendonly",
                 "no",
+                *(
+                    ["--loadmodule", "/opt/redis-stack/lib/rejson.so"]
+                    if redis_json
+                    else []
+                ),
                 stdout=subprocess.DEVNULL,
             )
             admin = redis.Redis(  # nosec B106 - disposable synthetic credential
@@ -354,6 +375,15 @@ def environment(
                 "DAEDALUS_AUTHORIZATION": "rust" if minimal else "python",
             }
             env.update(extra_env(server.server_port) if extra_env else {})
+            namespace = (
+                resources.enter_context(
+                    namespace_factory(
+                        root, server.server_port, redis_port, runtime_port
+                    )
+                )
+                if namespace_factory
+                else {}
+            )
             command = [
                 "docker",
                 "run",
@@ -361,7 +391,7 @@ def environment(
                 "--name",
                 backend_name,
                 "--network",
-                "host",
+                namespace.get("network", "host"),
                 "--read-only",
                 "--tmpfs",
                 "/tmp",
@@ -370,6 +400,8 @@ def environment(
             ]  # nosec B108 - container tmpfs
             for key, value in env.items():
                 command += ["-e", f"{key}={value}"]
+            for source, target in [*fixture_mounts, *namespace.get("mounts", [])]:
+                command += ["-v", f"{source}:{target}:ro"]
             if resource_limits:
                 command += ["--cpus", "2", "--memory", "2g"]
             names.append(backend_name)
@@ -409,6 +441,7 @@ def environment(
                         "process": process,
                         "root": root,
                         "environment": env,
+                        "namespace": namespace,
                         "readiness_ms": (time.monotonic() - started) * 1000,
                     }
         finally:
@@ -692,6 +725,25 @@ asyncio.run(main())
     return report
 
 
+def compare_preparation(result, baseline, current_python=None):
+    # Tool-policy enforcement predates the public memory port. Retain the raw
+    # P0 evidence and account for exactly those three model-wire additions.
+    expected = copy.deepcopy(baseline)
+    policy = json.loads(
+        (ROOT / "builder/runtime/resources/tool-policy.json").read_text()
+    )
+    for request in expected["model_requests"]:
+        if policy["instructions"] not in request["instructions"]:
+            request["instructions"] += "\n\n" + policy["instructions"]
+        request.setdefault("tool_choice", "auto")
+        for tool in request["tools"]:
+            if tool["name"] == "current_datetime_tool":
+                tool.setdefault("description", policy["clock_description"])
+    require(result == expected, "Unexplained memory/preparation contract difference")
+    if current_python is not None:
+        require(result == current_python, "Current Python/Rust preparation changed")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", required=True)
@@ -702,6 +754,10 @@ if __name__ == "__main__":
         help="Compare model and memory requests with this baseline image",
     )
     parser.add_argument("--report", type=Path)
+    parser.add_argument(
+        "--current-python-image",
+        help="Compare the current Python rollback profile without normalization",
+    )
     parser.add_argument(
         "--rollback-image",
         help="Test Python/Rust cache compatibility and Redis atomicity",
@@ -721,9 +777,14 @@ if __name__ == "__main__":
             args.report.with_suffix(".baseline.json").write_text(
                 json.dumps(baseline, indent=2) + "\n"
             )
-        require(
-            result == baseline, "Unexplained memory/preparation contract difference"
-        )
+        current = None
+        if args.current_python_image:
+            current = check(args.current_python_image, args.redis_image, minimal=False)
+            if args.report:
+                args.report.with_suffix(".current-python.json").write_text(
+                    json.dumps(current, indent=2) + "\n"
+                )
+        compare_preparation(result, baseline, current)
     print(
         "P1 image contracts passed: chat, clock, profiles, memory, identity, Stop and TLS/ACL Redis."
     )

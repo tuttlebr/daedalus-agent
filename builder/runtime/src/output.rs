@@ -4,7 +4,7 @@ use crate::{
     storage::Store,
 };
 use anyhow::Result;
-use flate2::{Compression, write::ZlibEncoder};
+use flate2::{Compression, Decompress, FlushDecompress, Status, write::ZlibEncoder};
 use regex::Regex;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -17,6 +17,14 @@ use std::{
 use tokio::sync::Mutex;
 
 const MARKER: &str = "_daedalus_compacted_tool_output";
+pub fn redact_approval_markers(content: &str) -> String {
+    static MARKERS: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?:<!--|&lt;!--)daedalus-mcp-approval:[A-Za-z0-9_-]+(?:-->|--&gt;)").unwrap()
+    });
+    MARKERS
+        .replace_all(content, "[untrusted approval marker omitted]")
+        .into_owned()
+}
 static ERRORS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:critical|denied|error|exception|failed|failure|fatal|invalid|missing|not[ -]?ready|timeout|unavailable|unhealthy|warning)\b").unwrap()
 });
@@ -37,6 +45,38 @@ fn text_range(s: &str, start: usize, end: usize) -> String {
 }
 pub fn reference(content: &str) -> String {
     format!("tor_{:x}", Sha256::digest(content.as_bytes()))[..36].into()
+}
+pub fn valid_reference(reference: &str) -> bool {
+    reference.len() == 36
+        && reference.starts_with("tor_")
+        && reference.as_bytes()[4..]
+            .iter()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))
+}
+
+fn decode(payload: &[u8]) -> Result<Option<String>> {
+    let Some(payload) = payload.strip_prefix(b"z1") else {
+        return Ok(None);
+    };
+    let mut decoder = Decompress::new(true);
+    let mut content = Vec::new();
+    loop {
+        let mut buffer = [0; 16 * 1024];
+        let before_in = decoder.total_in();
+        let before_out = decoder.total_out();
+        let status = decoder.decompress(
+            &payload[before_in as usize..],
+            &mut buffer,
+            FlushDecompress::None,
+        )?;
+        content.extend_from_slice(&buffer[..(decoder.total_out() - before_out) as usize]);
+        if status == Status::StreamEnd {
+            return Ok(Some(String::from_utf8(content)?));
+        }
+        if decoder.total_in() == before_in && decoder.total_out() == before_out {
+            anyhow::bail!("Invalid tool output cache entry");
+        }
+    }
 }
 pub fn key(user: &str, reference: &str) -> String {
     format!(
@@ -91,6 +131,61 @@ impl OutputStore {
             disabled_until: Mutex::new(None),
         })
     }
+}
+
+/// Python creates one reader per configured retriever factory. Keep its error
+/// backoff independent of other retrievers and the run's compaction writer.
+pub struct OutputReader {
+    store: Store,
+    disabled_until: Mutex<Option<Instant>>,
+}
+impl OutputReader {
+    pub fn new(config: &Config) -> Result<Self> {
+        Ok(Self {
+            store: Store::new(config)?,
+            disabled_until: Mutex::new(None),
+        })
+    }
+    pub async fn get(&self, user: &str, reference_id: &str) -> Option<String> {
+        if user.is_empty()
+            || !valid_reference(reference_id)
+            || self
+                .disabled_until
+                .lock()
+                .await
+                .is_some_and(|t| t > Instant::now())
+        {
+            return None;
+        }
+        let result: Result<Option<String>> = async {
+            let payload: Option<Vec<u8>> = self
+                .store
+                .command(redis::cmd("GET").arg(key(user, reference_id)))
+                .await?;
+            let Some(payload) = payload else {
+                return Ok(None);
+            };
+            let Some(content) = decode(&payload)? else {
+                return Ok(None);
+            };
+            if reference(&content) != reference_id {
+                tracing::warn!(event = "tool_output_cache_integrity_failed");
+                return Ok(None);
+            }
+            Ok(Some(content))
+        }
+        .await;
+        match result {
+            Ok(content) => content,
+            Err(_) => {
+                *self.disabled_until.lock().await = Some(Instant::now() + Duration::from_secs(30));
+                tracing::warn!(event = "tool_output_retrieval_cache_unavailable");
+                None
+            }
+        }
+    }
+}
+impl OutputStore {
     pub async fn optimize(&self, user: &str, tool: &str, query: &str, content: &str) -> String {
         let (lossless, reversible) = preview(content, tool, query, &self.settings);
         let Some(compacted) = reversible else {
@@ -249,7 +344,7 @@ pub fn compact(value: &Value) -> String {
 /// Rust's Debug formatter chooses a different shortest decimal for some ties.
 /// serde_json's formatter has the matching tie rule; apply Python's decimal
 /// notation thresholds, trailing .0 and minimum two-digit signed exponent.
-fn python_float(value: f64) -> String {
+pub(crate) fn python_float(value: f64) -> String {
     if value == 0.0 {
         return if value.is_sign_negative() {
             "-0.0"
@@ -475,4 +570,47 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
         return (lossless, acceptable(&envelope));
     }
     (lossless, None)
+}
+
+#[cfg(test)]
+mod retrieval_tests {
+    use super::*;
+
+    fn encoded(content: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(3));
+        encoder.write_all(content).unwrap();
+        [b"z1".as_slice(), &encoder.finish().unwrap()].concat()
+    }
+
+    #[test]
+    fn compressed_reader_checks_version_utf8_checksum_and_stream_end() {
+        let text = "雪🌲e\u{301}".repeat(20_000);
+        let payload = encoded(text.as_bytes());
+        assert_eq!(decode(&payload).unwrap(), Some(text));
+        for end in [2, 3, payload.len() / 2, payload.len() - 1] {
+            assert!(decode(&payload[..end]).is_err(), "truncated at {end}");
+        }
+        let mut corrupt = payload.clone();
+        *corrupt.last_mut().unwrap() ^= 1;
+        assert!(decode(&corrupt).is_err());
+        assert!(decode(&encoded(b"\xff")).is_err());
+        assert_eq!(decode(b"z0legacy").unwrap(), None);
+        assert_eq!(decode(b"").unwrap(), None);
+        assert_eq!(decode(&encoded(b"")).unwrap(), Some(String::new()));
+        let trailing = [encoded(b"compatible"), b"trailing".to_vec()].concat();
+        assert_eq!(decode(&trailing).unwrap().as_deref(), Some("compatible"));
+    }
+
+    #[test]
+    fn only_lowercase_opaque_references_are_accepted() {
+        assert!(valid_reference(&reference("雪🌲")));
+        for invalid in [
+            "tor_".to_string(),
+            format!("tor_{}", "A".repeat(32)),
+            format!("tor_{}\n", "a".repeat(32)),
+            format!("tor_{}", "雪".repeat(32)),
+        ] {
+            assert!(!valid_reference(&invalid));
+        }
+    }
 }

@@ -168,15 +168,30 @@ impl Config {
         Ok(config)
     }
     pub fn new(raw: Value, env: HashMap<String, String>) -> Result<Self> {
-        let python_tools = raw["functions"]
-            .as_object()
-            .is_some_and(|f| f.values().any(|v| v["_type"] != "current_datetime"))
-            || env
-                .get("DAEDALUS_AUTHORIZATION")
-                .is_some_and(|s| s == "python")
-                && raw["function_groups"]
-                    .as_object()
-                    .is_some_and(|g| !g.is_empty());
+        let python_tools = raw["functions"].as_object().is_some_and(|f| {
+            f.values().any(|v| {
+                !matches!(
+                    v["_type"].as_str(),
+                    Some(
+                        "current_datetime"
+                            | "tool_output_retriever"
+                            | "nat_nv_ingest"
+                            | "domain_retriever"
+                            | "nvidia_docs"
+                            | "perplexity_search"
+                            | "user_interaction"
+                            | "agent_skills"
+                            | "llm_sandbox"
+                            | "nws_weather"
+                    )
+                ) && !crate::memory_tools::owns(v["_type"].as_str().unwrap_or(""))
+            })
+        }) || env
+            .get("DAEDALUS_AUTHORIZATION")
+            .is_some_and(|s| s == "python")
+            && raw["function_groups"]
+                .as_object()
+                .is_some_and(|g| !g.is_empty());
         let config = Self {
             policy_raw: raw.clone(),
             raw,
@@ -255,6 +270,36 @@ impl Config {
             bail!("Configured required tools need the transitional Python executor");
         }
         for (name, function) in functions {
+            if function["_type"] == "nws_weather" {
+                crate::nws_weather::Settings::new(function)?;
+            }
+            if function["_type"] == "agent_skills" {
+                crate::agent_skills::Settings::new(function)?;
+            }
+            if function["_type"] == "llm_sandbox" {
+                crate::llm_sandbox::Settings::new(function, &self.env)?;
+            }
+            if function["_type"] == "user_interaction" {
+                crate::user_interaction::Settings::new(function)?;
+            }
+            if function["_type"] == "perplexity_search" {
+                crate::perplexity_search::Settings::new(function, &self.env)?;
+            }
+            if function["_type"] == "nvidia_docs" {
+                crate::nvidia_docs::Settings::new(function)?;
+            }
+            if function["_type"] == "domain_retriever" {
+                crate::domain_retriever::Settings::new(function, &self.env)?;
+            }
+            if function["_type"] == "nat_nv_ingest" {
+                crate::document_tools::Settings::new(function, &self.env)?;
+            }
+            if crate::memory_tools::owns(function["_type"].as_str().unwrap_or("")) {
+                crate::memory_tools::validate(function)?;
+            }
+            if function["_type"] == "tool_output_retriever" {
+                crate::output_retriever::Settings::new(function)?;
+            }
             if function["_type"] == "source_verifier"
                 && let Some(value) = function.get("max_concurrency")
                 && !value.as_u64().is_some_and(|n| (1..=8).contains(&n))

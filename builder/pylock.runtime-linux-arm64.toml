@@ -682,12 +682,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/5c/b5/8f48e906c3e020527
 wheels = [{ url = "https://files.pythonhosted.org/packages/77/c1/6e422f34e569cf8e18df68d1939c81c099d2b61e4f7d9621c8a77560799c/pydantic_settings-2.14.2-py3-none-any.whl", upload-time = 2026-06-19T13:44:55Z, size = 61715, hashes = { sha256 = "a20c97b37910b6550d5ea50fbcc2d4187defe58cd57070b73863d069419c9440" } }]
 
 [[packages]]
-name = "pydub"
-version = "0.25.1"
-sdist = { url = "https://files.pythonhosted.org/packages/fe/9a/e6bca0eed82db26562c73b5076539a4a08d3cffd19c3cc5913a3e61145fd/pydub-0.25.1.tar.gz", upload-time = 2021-03-10T02:09:54Z, size = 38326, hashes = { sha256 = "980a33ce9949cab2a569606b65674d748ecbca4f0796887fd6f46173a7b0d30f" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/a6/53/d78dc063216e62fc55f6b2eebb447f6a4b0a59f55c8406376f76bf959b08/pydub-0.25.1-py2.py3-none-any.whl", upload-time = 2021-03-10T02:09:53Z, size = 32327, hashes = { sha256 = "65617e33033874b59d87db603aa1ed450633288aefead953b30bded59cb599a6" } }]
-
-[[packages]]
 name = "pygments"
 version = "2.20.0"
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", upload-time = 2026-03-29T13:29:33Z, size = 4955991, hashes = { sha256 = "6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f" } }
@@ -866,12 +860,6 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/5e/f5/0c41cb68dcae6b7
 [[packages]]
 name = "source-verifier"
 directory = { path = "source_verifier", editable = true }
-
-[[packages]]
-name = "speechrecognition"
-version = "3.17.0"
-sdist = { url = "https://files.pythonhosted.org/packages/ae/91/442c0ec260ad94ec1f6cae74fa065811f0e4416e4dc38f658ee1052498e4/speechrecognition-3.17.0.tar.gz", upload-time = 2026-06-17T11:16:52Z, size = 32859772, hashes = { sha256 = "bd7e609c2ebea1680e75fc5dfbd8b44388c316f134c8d44fa2a30c0f50b346be" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/aa/e7/13e260a9cb53a40177783a882ebdfa437b2414fa21ca6f1cb8d9043b3fc9/speechrecognition-3.17.0-py3-none-any.whl", upload-time = 2026-06-17T11:16:49Z, size = 32855722, hashes = { sha256 = "754f2cd9d7fbeff5e05ad91b906350cb7983fd2ef82002d91e117ac44aa94efa" } }]
 
 [[packages]]
 name = "sse-starlette"
