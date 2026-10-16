@@ -149,6 +149,10 @@ function_groups:
       auth_provider: hue_mcp_server
   espn_mcp_server:
     _type: mcp_client
+    defer_discovery: true
+    discovery_description: >-
+      Read ESPN fantasy football leagues, teams, rosters, matchups, players,
+      free agents, drafts, transactions, and account status.
     tool_call_timeout: 120
     reconnect_enabled: true
     reconnect_max_attempts: 3
@@ -190,6 +194,9 @@ function_groups:
       auth_provider: espn_mcp_server
   x_mcp_server:
     _type: mcp_client
+    defer_discovery: true
+    discovery_description: >-
+      Search X posts, news, trends, users, timelines, mentions, and engagement.
     include:
       - search_news
       - get_news
@@ -261,6 +268,10 @@ function_groups:
       auth_provider: x_mcp_server
   github_mcp_server:
     _type: mcp_client
+    defer_discovery: true
+    discovery_description: >-
+      Read and search GitHub repositories, code, issues, pull requests,
+      commits, branches, releases, and Actions runs.
     include:
       - actions_list
       - get_commit
@@ -416,6 +427,10 @@ function_groups:
       url: https://docsmcp.googleapis.com/mcp/v1
   k8s_mcp_server:
     _type: mcp_client
+    defer_discovery: true
+    discovery_description: >-
+      Inspect Kubernetes clusters, resources, pod logs, events, ownership,
+      API resources, and contexts. Read-only operations.
     # Reviewed read-only surface from daedalus-context. Write, exec, agent, and
     # Helm mutation tools remain unavailable even if the upstream role drifts.
     include:
@@ -451,6 +466,10 @@ function_groups:
       auth_provider: k8s_mcp_server
   unifi_mcp_server:
     _type: mcp_client
+    defer_discovery: true
+    discovery_description: >-
+      Inspect UniFi sites, devices, clients, networks, Wi-Fi broadcasts,
+      WAN interfaces, pending devices, and device statistics.
     include:
       - getInfo
       - listSites
@@ -820,6 +839,7 @@ functions:
     verbose: false
   webscrape_tool:
     _type: webscrape
+    max_concurrency: 4
     allowed_schemes:
       - http
       - https

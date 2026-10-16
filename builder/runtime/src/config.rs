@@ -149,10 +149,13 @@ pub fn names(value: Option<&Value>) -> Result<Vec<String>> {
 }
 
 impl Config {
-    /// Only the stateless, application-owned verifier can overlap same-kind calls.
+    /// Only reviewed stateless tools can overlap same-kind calls.
     pub fn tool_concurrency(&self, name: &str) -> usize {
         let function = &self.raw["functions"][name];
-        if function["_type"] == "source_verifier" {
+        if matches!(
+            function["_type"].as_str(),
+            Some("source_verifier" | "webscrape")
+        ) {
             function["max_concurrency"].as_u64().unwrap_or(1) as usize
         } else {
             1
@@ -300,11 +303,13 @@ impl Config {
             if function["_type"] == "tool_output_retriever" {
                 crate::output_retriever::Settings::new(function)?;
             }
-            if function["_type"] == "source_verifier"
-                && let Some(value) = function.get("max_concurrency")
+            if matches!(
+                function["_type"].as_str(),
+                Some("source_verifier" | "webscrape")
+            ) && let Some(value) = function.get("max_concurrency")
                 && !value.as_u64().is_some_and(|n| (1..=8).contains(&n))
             {
-                bail!("Invalid source verifier max_concurrency: expected an integer from 1 to 8");
+                bail!("Invalid stateless tool max_concurrency: expected an integer from 1 to 8");
             }
             if function["_type"] == "current_datetime" {
                 if function
@@ -450,4 +455,39 @@ pub fn validate_model(model: &Value) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod concurrency_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn configured(kind: &str, limit: Value) -> Result<Config> {
+        Config::new(
+            json!({"llms":{"main":{"base_url":"http://model.invalid/v1","model_name":"fixture"}},
+                "functions":{"test":{"_type":kind,"max_concurrency":limit}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+            Default::default(),
+        )
+    }
+
+    #[test]
+    fn reviewed_stateless_tools_have_bounded_concurrency() {
+        for kind in ["source_verifier", "webscrape"] {
+            assert_eq!(
+                configured(kind, json!(4)).unwrap().tool_concurrency("test"),
+                4
+            );
+            for invalid in [json!(0), json!(9), json!(true), json!(1.5), json!("4")] {
+                assert!(configured(kind, invalid).is_err());
+            }
+        }
+        // A custom tool cannot opt into overlapping shared state.
+        assert_eq!(
+            configured("fixture_stateful", json!(8))
+                .unwrap()
+                .tool_concurrency("test"),
+            1
+        );
+    }
 }

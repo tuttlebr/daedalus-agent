@@ -256,6 +256,7 @@ class Peers:
                             "RENDERER_FALLBACK",
                             "SKILL_ROUTE",
                             "DEFERRED_DISCOVERY",
+                            "DEFERRED_REQUIRED",
                             "INCOMPLETE",
                             "STREAM_RECOVER",
                             "STREAM_TRUNCATED",
@@ -460,6 +461,8 @@ class Peers:
                             else "fixture_deferred__connect"
                         ]
                         if scenario == "DEFERRED_DISCOVERY"
+                        else ["fixture_deferred__next_read"]
+                        if scenario == "DEFERRED_REQUIRED"
                         else ["agent_skills_tool"]
                         if scenario == "SKILL_ROUTE"
                         else ["fixture_mcp__write_item", "fixture_second__slow_read"]
@@ -1263,6 +1266,21 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert "fixture_deferred__next_read" in connected_names  # nosec B101 - executable contract check
                 assert "fixture_deferred__write_item" not in connected_names  # nosec B101 - executable contract check
                 assert len(requests) == 3 and peers.calls == ["next_read"]  # nosec B101 - executable contract check
+                peers.calls.clear()
+                before = len(peers.requests)
+                required = chat(
+                    "DEFERRED_REQUIRED",
+                    "discovery-required",
+                    tool_choice={
+                        "type": "function",
+                        "function": {"name": "fixture_deferred__next_read"},
+                    },
+                )
+                assert '"finish_reason":"stop"' in required, required  # nosec B101
+                assert "Function Complete: fixture_deferred__next_read" in required  # nosec B101
+                assert peers.calls == ["next_read"], peers.calls  # nosec B101
+                names = {tool["name"] for tool in peers.requests[before]["tools"]}
+                assert names == {"fixture_deferred__next_read"}, names  # nosec B101
                 peers.calls.clear()
                 invalid_clock = chat("CLOCK_EXTRA", "clock-extra-run")
                 assert "The real datetime tool completed" in invalid_clock  # nosec B101

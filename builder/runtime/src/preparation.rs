@@ -492,8 +492,19 @@ impl Preparation {
             }
         }
         if let Some(mcp) = &self.mcp {
+            // Explicit API tool selection must still work when its group is
+            // deferred. Discovery reads schemas; execution retains its gate.
+            let requirement = crate::tool_contracts::Requirement::parse(body)?;
+            let (eager, deferred): (Vec<_>, Vec<_>) = groups.into_iter().partition(|group| {
+                matches!(&requirement, crate::tool_contracts::Requirement::Named(name)
+                    if name.starts_with(&format!("{group}__")) && name != &format!("{group}__connect"))
+            });
             schemas.extend(
-                mcp.catalogue(&groups, header(headers, "x-user-id"), true)
+                mcp.catalogue(&deferred, header(headers, "x-user-id"), true)
+                    .await,
+            );
+            schemas.extend(
+                mcp.catalogue(&eager, header(headers, "x-user-id"), false)
                     .await,
             );
         }

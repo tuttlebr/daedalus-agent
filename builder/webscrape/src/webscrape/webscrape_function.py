@@ -27,7 +27,7 @@ from nat_helpers.safe_http import (
     get_public_response,
 )
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
-from pydantic import Field
+from pydantic import Field, StrictInt
 
 try:
     import tiktoken
@@ -94,6 +94,12 @@ class WebscrapeFunctionConfig(ToolConfig, name="webscrape"):
     """Configuration for the webscrape function."""
 
     description: str | None = None
+    max_concurrency: StrictInt = Field(
+        default=1,
+        ge=1,
+        le=8,
+        description="Maximum simultaneous scrapes across runs sharing this tool.",
+    )
 
     user_agent: str = Field(
         default="daedalus-webscraper/1.0",
@@ -623,6 +629,7 @@ def _validate_url(
 
 @register_tool(config_type=WebscrapeFunctionConfig)
 async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegistry):
+    slots = asyncio.Semaphore(config.max_concurrency)
     async with public_content_session(builder) as content_session:
         async with AnonymousPublicClient(
             headers={"User-Agent": config.user_agent},
@@ -632,7 +639,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
             trust_env=False,
         ) as robots_client:
 
-            async def _response_fn(url: str) -> str:
+            async def _fetch_response(url: str) -> str:
                 """Return markdown from a bounded, anonymous public URL fetch."""
                 try:
                     url, parsed_url = _validate_url(url.strip(), config.allowed_schemes)
@@ -697,6 +704,11 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                         "Unable to retrieve page content. The site may require "
                         "JavaScript or is blocking automated access."
                     )
+
+            async def _response_fn(url: str) -> str:
+                """Scrape public content within the shared tool concurrency limit."""
+                async with slots:
+                    return await _fetch_response(url)
 
             yield ToolDefinition.from_fn(
                 _response_fn,

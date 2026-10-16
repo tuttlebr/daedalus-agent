@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Built-image Python verifier scheduling, state and cancellation contracts.
+"""Built-image Python verifier/scrape scheduling, state and cancellation contracts.
 
 Only external source/model transports are fixtures. Registry, critic, tool
 service and Rust lifecycle execute from the image. Native retrieval is covered
@@ -65,7 +65,36 @@ class LeafPeers(Peers):
         class Handler(super().handler()):
             def do_GET(self):
                 url = parse_qs(urlparse(self.path).query)["url"][0]
-                index = int(url.rsplit("/", 1)[-1])
+                index = int(urlparse(url).path.rsplit("/", 1)[-1])
+                if "/scrape/" in url:
+                    with peers.lock:
+                        peers.active += 1
+                        peers.peak = max(peers.peak, peers.active)
+                    peers.started.set()
+                    try:
+                        if "/block/" in url and self.wait_for_disconnect(
+                            threading.Event(), peers.release_tool
+                        ):
+                            with peers.lock:
+                                peers.disconnected += 1
+                            return
+                        time.sleep([0.30, 0.08, 0.15][index % 3])
+                        data = (
+                            f"<html><head><title>Fixture {index}</title></head>"
+                            f"<body><h1>Fixture {index}</h1><p>Station {index} "
+                            f"measured {index + 10} units in this synthetic report. "
+                            "This is a controlled source for scheduling tests.</p>"
+                            "</body></html>"
+                        ).encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers()
+                        self.wfile.write(data)
+                    finally:
+                        with peers.lock:
+                            peers.active -= 1
+                    return
                 data = f"Synthetic measurement report. Fixture station {index} measured {index + 10} units. All values are exact.".encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")
@@ -272,7 +301,7 @@ class LeafPeers(Peers):
         return Handler
 
 
-def fixture(image, redis_image, peers, limit=3, parallel=True):
+def fixture(image, redis_image, peers, limit=3, parallel=True, *, scrape=False):
     def configure(config, port, runtime_port):
         config["functions"] = {
             "current_datetime_tool": {"_type": "current_datetime"},
@@ -286,6 +315,12 @@ def fixture(image, redis_image, peers, limit=3, parallel=True):
         }
         if limit is None:
             del config["functions"]["source_verifier_tool"]["max_concurrency"]
+        if scrape:
+            config["functions"]["webscrape_tool"] = {
+                "_type": "webscrape",
+                "respect_robots_txt": False,
+                **({"max_concurrency": limit} if limit is not None else {}),
+            }
         config["llms"]["critic"] = {
             **config["llms"]["main"],
             "base_url": f"http://127.0.0.1:{port}/critic/v1",
@@ -593,6 +628,89 @@ def check(image, redis_image):
                 )
             report.append(
                 {
+                    "limit": limit,
+                    "parallel": parallel,
+                    "peak": peers.peak,
+                    "latency_ms": result["latency_ms"],
+                    "passed": True,
+                }
+            )
+    for limit, parallel in [(4, True), (3, True), (1, True), (None, True), (4, False)]:
+        peers = LeafPeers()
+        with fixture(image, redis_image, peers, limit, parallel, scrape=True) as env:
+            peers.plan = [
+                {
+                    "name": "webscrape_tool",
+                    "arguments": {
+                        "url": f"https://sources.test/scrape/{i}?run={uuid.uuid4()}"
+                    },
+                }
+                for i in range(8)
+            ]
+            result = measure(env)
+            verify(result, peers.plan)
+            expected = (limit or 1) if parallel else 1
+            require(peers.peak == expected, "Wrong shared scrape overlap")
+            require(result["peak_tools"] == expected, "Wrong scrape scheduler bound")
+            for event in result["ends"]:
+                index = int(event["id"].split("_")[-1])
+                require(
+                    f"Station {index} measured {index + 10} units" in event["payload"],
+                    "Scrape result bound to the wrong call",
+                )
+            if limit == 3 and parallel:
+                peers.peak = 0
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    together = list(
+                        pool.map(
+                            lambda user: measure(env, user=user),
+                            ["synthetic-alice", "synthetic-bob"],
+                        )
+                    )
+                for run in together:
+                    verify(run, peers.plan)
+                require(
+                    peers.peak == 3, "Concurrent runs exceeded the shared scrape bound"
+                )
+                for control in ["steer", "cancel"]:
+                    peers.plan = [
+                        {
+                            "name": "webscrape_tool",
+                            "arguments": {
+                                "url": f"https://sources.test/scrape/block/{i}?run={uuid.uuid4()}"
+                            },
+                        }
+                        for i in range(6)
+                    ]
+                    peers.release_tool.clear()
+                    peers.disconnected = 0
+                    interrupted = measure(env, control)
+                    require(
+                        len(interrupted["starts"]) == 3,
+                        "Queued scrapes ran after control",
+                    )
+                    if control == "steer":
+                        require(
+                            interrupted["terminal"] == "stop"
+                            and len(interrupted["ends"]) == 3,
+                            "Steering lost accepted scrape results",
+                        )
+                    else:
+                        require(
+                            interrupted["terminal"] == "error"
+                            and interrupted["errors"],
+                            "Scrape cancellation did not terminate",
+                        )
+                        deadline = time.monotonic() + 5
+                        while peers.active and time.monotonic() < deadline:
+                            time.sleep(0.02)
+                        require(
+                            peers.active == 0 and peers.disconnected == 3,
+                            "Scrape cancellation did not clean up transports",
+                        )
+            report.append(
+                {
+                    "tool": "webscrape",
                     "limit": limit,
                     "parallel": parallel,
                     "peak": peers.peak,

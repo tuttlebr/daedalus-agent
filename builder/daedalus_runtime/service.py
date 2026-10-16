@@ -200,6 +200,27 @@ class ToolService:
             asyncio.gather(*(local_schema(name) for name in local_names)),
             self.mcp.catalogue(group_names, user, initial=True),
         )
+        choice = body.get("tool_choice")
+        if isinstance(choice, dict) and choice.get("type") == "function":
+            function = choice.get("function")
+            name = (
+                function.get("name") if isinstance(function, dict) else None
+            ) or choice.get("name")
+            group = next(
+                (
+                    group
+                    for group in group_names
+                    if isinstance(name, str)
+                    and name.startswith(group + "__")
+                    and name != group + "__connect"
+                ),
+                None,
+            )
+            if group:
+                remote = [
+                    tool for tool in remote if not tool["name"].startswith(group + "__")
+                ]
+                remote.extend(await self.mcp.catalogue([group], user, initial=False))
         tools = [*local, *remote]
         if not autonomy:
             try:

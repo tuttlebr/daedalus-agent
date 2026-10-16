@@ -801,9 +801,12 @@ impl Agent {
                 }
                 let group = self.execution_group(&name);
                 if preparation.is_some() {
-                    // The verifier is read-only and has no run-scoped executor state.
+                    // Scraping and verification have no run-scoped executor state.
                     // Never replace shared state with a concurrent call's snapshot.
-                    if group != "native:source_verifier" {
+                    if !matches!(
+                        group.as_str(),
+                        "native:source_verifier" | "native:webscrape"
+                    ) {
                         executor_states.insert(group.clone(), outcome.executor_state.clone());
                     }
                     if let Some(preparation) = &preparation {

@@ -68,12 +68,14 @@ The runtime also enforces a separate 30-minute deadline for the entire agent
 run, including model and tool calls. Invalid configuration logs identify fields
 and validation categories while omitting configured values and credentials.
 
-`functions.source_verifier_tool.max_concurrency` controls independent claim
-checks (integer 1–8, default 1). The shipped workflow enables two. Set it to
-`1` to return to serial verification; `workflow.parallel_tool_calls: false`
-also serializes dispatch within each run. The Python tool instance applies
-the same claim-check limit across concurrent runs. Other stateful tools retain
-their existing serialization. `make migration` includes the built-image
+`functions.source_verifier_tool.max_concurrency` and
+`functions.webscrape_tool.max_concurrency` control independent claim checks and
+scrapes (integer 1–8, default 1). The shipped workflow enables two verifications
+and four scrapes. Set either to `1` to restore its serial dispatch;
+`workflow.parallel_tool_calls: false` serializes all dispatch within each run.
+Each Python tool instance also enforces its limit across concurrent runs. Scrape
+admission covers robots checks, retrieval and conversion. Other stateful tools
+retain their existing serialization. `make migration` includes the built-image
 retrieval, result-binding, concurrency, steering, and cancellation checks in
 `builder/migration/leaf_check.py`.
 
@@ -127,3 +129,6 @@ a disposable Redis instance. `make runtime` builds and checks both runtime
 languages; `make helm` validates chart rendering. These checks do not measure
 live provider latency. Benchmark representative conversations before claiming
 an end-to-end speed improvement.
+
+For model/context growth, tool scheduling, interruption semantics and repeatable
+measurement commands, see the [long-running workflow review](long-running-workflows.md).

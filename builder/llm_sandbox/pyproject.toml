@@ -17,8 +17,5 @@ classifiers = ["Programming Language :: Python"]
 packages = ["llm_sandbox"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-llm_sandbox = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

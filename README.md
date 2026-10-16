@@ -176,18 +176,18 @@ own configuration before use.
 
 ## Code map
 
-| Path                                        | Purpose                                                                      |
-| ------------------------------------------- | ---------------------------------------------------------------------------- |
-| [`frontend/`](frontend/README.md)           | Next.js UI, API routes, stream worker, WebSocket sidecar, and PWA            |
-| [`backend/`](backend/)                      | Agent workflow YAML; start with `local-chat-config.yaml`                     |
-| [`builder/`](builder/)                      | Python tools, application routes, toolkit adapters, runtime image, and tests |
-| [`protocol/`](protocol/README.md)           | Shared payload schemas and generated types                                   |
-| [`skills/`](skills/)                        | Instructions loaded by the agent when configured                             |
-| [`helm/daedalus/`](helm/daedalus/README.md) | Kubernetes deployment chart                                                  |
-| [`custom-values.yaml`](custom-values.yaml)  | My home deployment overrides                                                 |
-| [`Makefile`](Makefile)                      | Local counterparts to CI checks; run `make help`                             |
+| Path                                        | Purpose                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| [`frontend/`](frontend/README.md)           | Next.js UI, API routes, stream worker, WebSocket sidecar, and PWA        |
+| [`backend/`](backend/)                      | Agent workflow YAML; start with `local-chat-config.yaml`                 |
+| [`builder/`](builder/)                      | Rust runtime and APIs, Python leaf tools and adapters, images, and tests |
+| [`protocol/`](protocol/README.md)           | Shared payload schemas and generated types                               |
+| [`skills/`](skills/)                        | Instructions loaded by the agent when configured                         |
+| [`helm/daedalus/`](helm/daedalus/README.md) | Kubernetes deployment chart                                              |
+| [`custom-values.yaml`](custom-values.yaml)  | My home deployment overrides                                             |
+| [`Makefile`](Makefile)                      | Local counterparts to CI checks; run `make help`                         |
 
-For development, use Node.js 22 and Python 3.12. See
+For development, use Node.js 22, Python 3.12 and Rust 1.95. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks by area.
 
 ## License
