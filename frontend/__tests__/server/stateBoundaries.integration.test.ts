@@ -342,6 +342,7 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
             createdAt: 1,
             updatedAt: 3,
             finalizedAt: 3,
+            generationDurationMs: 2,
             intermediateSteps: steps,
           };
           const journal = {
