@@ -15,7 +15,7 @@ import {
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
-import { Badge, Button } from '@/components/primitives';
+import { Badge, Button, Select } from '@/components/primitives';
 import { GlassCard, ModalSurface } from '@/components/surfaces';
 
 import { useUISettingsStore } from '@/state/uiSettingsStore';
@@ -546,20 +546,20 @@ export function MemoryCenter() {
             />
           </label>
           {tab === 'memories' && (
-            <select
+            <Select
               value={memoryType}
               onChange={(event) => {
                 setMemoryType(event.target.value);
                 setOffset(0);
               }}
               aria-label="Memory type"
-              className="min-h-touch-min rounded-lg border border-separator/70 bg-dark-bg-secondary px-3 text-sm text-dark-text-primary"
+              containerClassName="w-full sm:w-44"
             >
               <option value="">All types</option>
               <option value="world">Facts</option>
               <option value="experience">Experiences</option>
               <option value="observation">Observations</option>
-            </select>
+            </Select>
           )}
           <Button type="submit" variant="secondary" size="sm">
             Search
@@ -644,7 +644,7 @@ export function MemoryCenter() {
                         <span className="block font-medium text-dark-text-primary">
                           {knowledgePage.name}
                         </span>
-                        <span className="mt-1 block text-xs text-dark-text-muted">
+                        <span className="mt-1 line-clamp-3 text-xs leading-relaxed text-dark-text-muted">
                           {knowledgePage.description}
                         </span>
                       </span>

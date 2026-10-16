@@ -44,7 +44,7 @@ interface OutputActionSheetProps {
 }
 
 /**
- * The compact output inspector used below the desktop-detail breakpoint.
+ * The compact output inspector used when the desktop sidebar is unavailable.
  * A selected image has one stable place for all actions, rather than five
  * competing controls on every small canvas tile.
  */
@@ -80,7 +80,7 @@ export function OutputActionSheet({
       onClose={onClose}
       position="bottom"
       aria-label="Selected image actions"
-      className="w-full lg:hidden"
+      className="w-full max-w-2xl"
     >
       <section
         aria-labelledby="selected-output-title"

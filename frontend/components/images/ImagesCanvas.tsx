@@ -36,6 +36,7 @@ interface ImagesCanvasProps {
   selectedImageId: string | null;
   onSelectImage: (imageId: string) => void;
   onOpenSelectedImage?: () => void;
+  openActionsOnSelect?: boolean;
   emptyState?: React.ReactNode;
 }
 
@@ -53,6 +54,7 @@ export const ImagesCanvas = memo(function ImagesCanvas({
   selectedImageId,
   onSelectImage,
   onOpenSelectedImage,
+  openActionsOnSelect,
   emptyState,
 }: ImagesCanvasProps) {
   const isMobile = useIsMobile();
@@ -92,7 +94,8 @@ export const ImagesCanvas = memo(function ImagesCanvas({
                   selected={selectedImageId === img.imageId}
                   onSelect={() => {
                     onSelectImage(img.imageId);
-                    if (!isLarge) onOpenSelectedImage?.();
+                    if (openActionsOnSelect ?? !isLarge)
+                      onOpenSelectedImage?.();
                   }}
                 />
               ) : loading && idx < loadingSlots ? (

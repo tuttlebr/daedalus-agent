@@ -259,6 +259,13 @@ svg.tabler-icon {
   min-width: 0;
   overflow-y: auto;
 }
+/* A sheet's body owns scrolling so its Done button cannot leave the screen.
+   Bound it by the dialog's measured keyboard viewport as well as the screen.
+   This must override the generic modal panel's overflow and height rules. */
+.app-dialog-panel.app-popover-sheet {
+  max-height: min(85dvh, 100%);
+  overflow: hidden;
+}
 /* The sheet receives programmatic focus for its announcement. Its controls
    retain their focus rings when navigating with a keyboard. */
 .app-dialog-panel:focus-visible {

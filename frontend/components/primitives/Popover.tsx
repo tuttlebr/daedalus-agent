@@ -160,7 +160,7 @@ export const Popover = memo(
             position="bottom"
             aria-label={accessibleLabel}
             className={classNames(
-              'flex max-h-[85vh] w-full flex-col overflow-hidden',
+              'app-popover-sheet flex min-h-0 w-full flex-col',
               'rounded-t-3xl bg-panel',
               'border-t border-separator/70',
               className,
@@ -181,7 +181,7 @@ export const Popover = memo(
                 </button>
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pb-safe-bottom">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-safe-bottom">
               {children}
             </div>
           </ModalSurface>
@@ -194,13 +194,18 @@ export const Popover = memo(
         ref={containerRef}
         className="relative inline-flex"
         onBlur={(event) => {
-          if (
-            open &&
-            event.relatedTarget instanceof Node &&
-            !event.currentTarget.contains(event.relatedTarget) &&
-            !document.querySelector('dialog[open]')
-          )
-            close();
+          if (!open) return;
+          const container = event.currentTarget;
+          const next = event.relatedTarget;
+          // WebKit reports null when Tab moves focus out of the document.
+          // Wait for focus to settle, keeping native select pickers intact.
+          queueMicrotask(() => {
+            if (
+              !container.contains(next ?? document.activeElement) &&
+              !document.querySelector('dialog[open]')
+            )
+              close();
+          });
         }}
       >
         {triggerEl}

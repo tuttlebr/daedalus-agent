@@ -1,6 +1,9 @@
 'use client';
 
-import { IconAdjustmentsHorizontal } from '@tabler/icons-react';
+import {
+  IconAdjustmentsHorizontal,
+  IconChevronDown,
+} from '@tabler/icons-react';
 import React, { memo } from 'react';
 
 import {
@@ -57,23 +60,25 @@ export const AdjustPopover = memo(function AdjustPopover({
       }
     >
       <div className="divide-y divide-separator">
-        <section aria-labelledby="create-presets-heading" className="p-1">
-          <h3
-            id="create-presets-heading"
-            className="px-3 pt-3 text-xs font-medium uppercase tracking-wider text-muted"
-          >
-            Presets
-          </h3>
+        <section aria-label="Image settings">
+          <ImageSettingsPanel variant="sheet" />
+        </section>
+        <details className="group/presets p-4">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
+            <span>Presets</span>
+            <IconChevronDown
+              size={18}
+              aria-hidden="true"
+              className="shrink-0 transition-transform group-open/presets:rotate-180 motion-reduce:transition-none"
+            />
+          </summary>
           <PresetsPanel
             mode={mode}
             presets={presetsForMode(mode)}
             onApply={handleApply}
             showHeading={false}
           />
-        </section>
-        <section aria-label="Advanced settings">
-          <ImageSettingsPanel variant="sheet" />
-        </section>
+        </details>
       </div>
     </Popover>
   );

@@ -1,5 +1,6 @@
 'use client';
 
+import { IconChevronDown } from '@tabler/icons-react';
 import React, { memo, useEffect, useMemo, useState, useId } from 'react';
 
 import {
@@ -10,7 +11,7 @@ import {
   type ImageSize,
 } from '@/utils/app/imageModelCapabilities';
 
-import { Textarea } from '@/components/primitives';
+import { Select, Textarea } from '@/components/primitives';
 
 import {
   useImagePanelStore,
@@ -94,33 +95,33 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
   const customSize = params.size && !isPopularImageSize(params.size, model);
 
   return (
-    <div
+    <details
+      open
       className={classNames(
-        variant === 'sidebar'
-          ? 'flex h-full flex-col gap-5 overflow-y-auto p-4'
-          : 'p-4',
+        'group/settings min-w-0',
+        variant === 'sidebar' ? 'h-full overflow-y-auto p-4' : 'p-4',
       )}
     >
-      <div>
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium text-primary">Settings</div>
-          </div>
-          <span className="rounded-full bg-fill/5 px-2 py-1 text-xs text-muted md:text-[0.75rem]">
-            {mode}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-3">
-          <Select
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-sm font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus [&::-webkit-details-marker]:hidden">
+        <span>Settings</span>
+        <IconChevronDown
+          size={18}
+          aria-hidden="true"
+          className="shrink-0 transition-transform group-open/settings:rotate-180 motion-reduce:transition-none"
+        />
+      </summary>
+      <div className="space-y-5 pt-3">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,8rem),1fr))] gap-3">
+          <LabeledSelect
             label="Model"
+            className="col-span-full"
             value={model}
             options={[{ value: caps.model, label: caps.label }]}
             onChange={(value) => {
               if (value === caps.model) setModel(caps.model);
             }}
           />
-          <Select
+          <LabeledSelect
             label="Outputs"
             value={String(params.n ?? 1)}
             options={caps.outputCounts.map((value) => ({
@@ -132,7 +133,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
               setParam('n', next === 1 ? undefined : next);
             }}
           />
-          <Select
+          <LabeledSelect
             label="Quality"
             value={params.quality ?? ''}
             options={qualityOptions}
@@ -151,7 +152,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
               setParam('size', (value || undefined) as ImageParams['size'])
             }
           />
-          <Select
+          <LabeledSelect
             label="Format"
             value={params.output_format ?? 'png'}
             options={formatOptions}
@@ -162,23 +163,6 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
               )
             }
           />
-          <Select
-            label="Background"
-            value={params.background ?? ''}
-            options={backgroundOptions}
-            onChange={(value) =>
-              setParam(
-                'background',
-                (value || undefined) as ImageParams['background'],
-              )
-            }
-          />
-          {params.background === 'transparent' && (
-            <p className="col-span-full text-[0.75rem] leading-relaxed text-muted">
-              Transparent output uses PNG or WebP. For best results, describe an
-              isolated subject and avoid asking for a backdrop or scene.
-            </p>
-          )}
           {(params.output_format === 'jpeg' ||
             params.output_format === 'webp') && (
             <NumberInput
@@ -195,7 +179,7 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
             />
           )}
           {mode === 'generate' && (
-            <Select
+            <LabeledSelect
               label="Moderation"
               value={params.moderation ?? ''}
               options={moderationOptions}
@@ -207,28 +191,46 @@ export const ImageSettingsPanel = memo(function ImageSettingsPanel({
               }
             />
           )}
-        </div>
-      </div>
-
-      {mode === 'edit' && (
-        <div className="border-t border-separator/70 pt-4">
-          <label
-            htmlFor={preserveId}
-            className="mb-2 block text-xs font-medium text-muted"
-          >
-            Preserve list
-          </label>
-          <Textarea
-            id={preserveId}
-            value={preserveList}
-            onChange={(e) => setPreserveList(e.target.value)}
-            placeholder="face, pose, clothing, camera angle, lighting"
-            rows={3}
-            className="text-xs"
+          <LabeledSelect
+            label="Background"
+            className="col-span-full"
+            value={params.background ?? ''}
+            options={backgroundOptions}
+            onChange={(value) =>
+              setParam(
+                'background',
+                (value || undefined) as ImageParams['background'],
+              )
+            }
           />
+          {params.background === 'transparent' && (
+            <p className="col-span-full text-[0.75rem] leading-relaxed text-muted">
+              Transparent output uses PNG or WebP. For best results, describe an
+              isolated subject and avoid asking for a backdrop or scene.
+            </p>
+          )}
         </div>
-      )}
-    </div>
+
+        {mode === 'edit' && (
+          <div className="border-t border-separator/70 pt-4">
+            <label
+              htmlFor={preserveId}
+              className="mb-2 block text-xs font-medium text-muted"
+            >
+              Preserve list
+            </label>
+            <Textarea
+              id={preserveId}
+              value={preserveList}
+              onChange={(e) => setPreserveList(e.target.value)}
+              placeholder="face, pose, clothing, camera angle, lighting"
+              rows={3}
+              className="text-xs"
+            />
+          </div>
+        )}
+      </div>
+    </details>
   );
 });
 
@@ -288,8 +290,8 @@ function SizeControl({
   return (
     <div className="col-span-full">
       <FieldLabel htmlFor={sizeId}>Size</FieldLabel>
-      <div className="grid grid-cols-[1fr_auto] gap-2">
-        <select
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <Select
           id={sizeId}
           value={customActive || draftingCustom ? 'custom' : value ?? ''}
           onChange={(e) => {
@@ -303,7 +305,6 @@ function SizeControl({
             setHeight('');
             onChange(e.target.value);
           }}
-          className={fieldClassName}
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>
@@ -311,11 +312,11 @@ function SizeControl({
             </option>
           ))}
           <option value="custom">Custom</option>
-        </select>
+        </Select>
         <button
           type="button"
           onClick={startCustom}
-          className="h-11 rounded-md border border-separator/70 bg-control px-2 text-sm text-secondary transition-colors hover:bg-fill/5 hover:text-primary md:min-h-9 md:text-xs"
+          className="h-11 rounded-lg border border-separator/70 bg-control px-3 text-sm text-secondary transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           Custom
         </button>
@@ -391,12 +392,14 @@ function FieldLabel({
   );
 }
 
-function Select({
+function LabeledSelect({
   label,
   value,
   options,
   onChange,
+  className,
 }: {
+  className?: string;
   label: string;
   value: string;
   options: Option<string>[];
@@ -404,20 +407,15 @@ function Select({
 }) {
   const id = useId();
   return (
-    <div>
+    <div className={classNames('min-w-0', className)}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <select
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={fieldClassName}
-      >
+      <Select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }
@@ -464,4 +462,4 @@ function formatSizeLabel(size: ImageSize): string {
 }
 
 const fieldClassName =
-  'min-h-11 w-full min-w-0 rounded-lg border border-separator/70 bg-control px-2 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-focus md:min-h-9 md:text-xs';
+  'h-11 w-full min-w-0 rounded-lg border border-separator/70 bg-control px-3 text-base text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:text-sm';

@@ -5,6 +5,8 @@ import {
   IconEdit,
   IconExternalLink,
   IconMessage,
+  IconLayoutSidebarRightCollapse,
+  IconLayoutSidebarRightExpand,
   IconTrash,
 } from '@tabler/icons-react';
 import React, {
@@ -312,6 +314,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const operationRef = useRef<ImageOperation | null>(null);
   const stoppingRef = useRef(false);
   const isDesktop = useIsDesktop();
+  const [settingsOpen, setSettingsOpen] = useState(true);
   const [outputActionsOpen, setOutputActionsOpen] = useState(false);
   const [recoverableJobId, setRecoverableJobId] = useState<string | null>(null);
 
@@ -619,7 +622,21 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
         <div className="order-3 min-w-0 w-full md:order-none md:w-auto">
           <ModeSegmentedControl fullWidth />
         </div>
-        <div className="ml-auto flex justify-end md:flex-1">
+        <div className="ml-auto flex items-center justify-end gap-2 md:flex-1">
+          <button
+            type="button"
+            aria-expanded={settingsOpen}
+            aria-controls="create-settings-sidebar"
+            onClick={() => setSettingsOpen((open) => !open)}
+            className="hidden min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-secondary transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:inline-flex"
+          >
+            {settingsOpen ? (
+              <IconLayoutSidebarRightCollapse size={18} aria-hidden="true" />
+            ) : (
+              <IconLayoutSidebarRightExpand size={18} aria-hidden="true" />
+            )}
+            Settings
+          </button>
           <HistoryToggleButton />
         </div>
       </header>
@@ -642,6 +659,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
               selectedImageId={selectedImageId}
               onSelectImage={setSelectedImageId}
               onOpenSelectedImage={() => setOutputActionsOpen(true)}
+              openActionsOnSelect={!isDesktop || !settingsOpen}
               emptyState={
                 <CreateEmptyState mode={mode} inputCount={inputCount} />
               }
@@ -674,7 +692,14 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
           <ImagesDock onSubmit={submit} onStop={stopGeneration} />
         </div>
 
-        <aside className="hidden w-[360px] flex-none flex-col border-l border-separator/70 bg-app/90 lg:flex">
+        <aside
+          id="create-settings-sidebar"
+          aria-label="Create settings and output details"
+          className={classNames(
+            'w-[360px] flex-none flex-col border-l border-separator/70 bg-app/90',
+            settingsOpen ? 'hidden lg:flex' : 'hidden',
+          )}
+        >
           <div className="min-h-0 flex-1">
             <ImageSettingsPanel />
           </div>
@@ -691,7 +716,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
 
       <HistoryDrawer />
       <OutputActionSheet
-        open={outputActionsOpen && !isDesktop}
+        open={outputActionsOpen && (!isDesktop || !settingsOpen)}
         image={selectedImage}
         onClose={() => setOutputActionsOpen(false)}
         onReuseAsInput={reuseRef}

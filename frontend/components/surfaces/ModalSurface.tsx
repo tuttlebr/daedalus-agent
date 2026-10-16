@@ -71,7 +71,7 @@ export const ModalSurface = memo(
       left: 'items-stretch justify-start',
       right: 'items-stretch justify-end',
       center: 'app-dialog-centered items-center justify-center safe-y',
-      bottom: 'items-end justify-center',
+      bottom: 'items-end justify-center safe-top',
       fullscreen: 'items-stretch justify-stretch',
     };
 
@@ -96,10 +96,29 @@ export const ModalSurface = memo(
             dialog.querySelectorAll<HTMLElement>(
               'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
             ),
-          ).filter(
-            (el) =>
-              el.getClientRects().length && !el.closest('[hidden], [inert]'),
-          );
+          ).filter((el) => {
+            if (
+              !el.getClientRects().length ||
+              el.tabIndex < 0 ||
+              el.closest('[hidden], [inert]')
+            )
+              return false;
+            // Chromium can report rectangles for controls inside a closed
+            // details element. Only its summary participates in tab order.
+            for (
+              let parent = el.parentElement;
+              parent && parent !== dialog;
+              parent = parent.parentElement
+            ) {
+              if (
+                parent instanceof HTMLDetailsElement &&
+                !parent.open &&
+                !parent.querySelector(':scope > summary')?.contains(el)
+              )
+                return false;
+            }
+            return true;
+          });
           const first = controls[0];
           const last = controls[controls.length - 1];
           if (!first) {

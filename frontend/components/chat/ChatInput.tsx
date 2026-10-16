@@ -26,7 +26,7 @@ import { uploadVideo, getVideoMimeType } from '@/utils/app/videoHandler';
 
 import { Message } from '@/types/chat';
 
-import { IconButton } from '@/components/primitives';
+import { IconButton, Select } from '@/components/primitives';
 import { Textarea } from '@/components/primitives';
 import { DropZone } from '@/components/primitives';
 import { ProgressBar } from '@/components/primitives';
@@ -855,10 +855,11 @@ export const ChatInput = memo(
                       <span className="text-xs text-dark-text-muted flex-shrink-0">
                         Ingest to:
                       </span>
-                      <select
+                      <Select
                         value={selectedCollection}
                         onChange={(e) => setSelectedCollection(e.target.value)}
-                        className="flex-1 bg-dark-bg-tertiary text-dark-text-primary text-xs border border-separator/70 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-focus"
+                        aria-label="Ingest to knowledge base"
+                        containerClassName="flex-1"
                       >
                         <option value="">Select a knowledge base...</option>
                         <option value={INLINE_MODE}>
@@ -874,7 +875,7 @@ export const ChatInput = memo(
                             {collection.displayName}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
                     {selectedCollection === INLINE_MODE && (
                       <div className="mt-2 flex flex-col gap-2 rounded-lg border border-nvidia-blue/20 bg-nvidia-blue/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
