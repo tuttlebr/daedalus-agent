@@ -34,16 +34,11 @@ import {
 } from '@/utils/app/streamingBuffer';
 
 import { Message } from '@/types/chat';
-import {
-  getEventCategory,
-  IntermediateStep,
-  IntermediateStepCategory,
-} from '@/types/intermediateSteps';
+import { IntermediateStep } from '@/types/intermediateSteps';
 
 import { useAuth } from '@/components/auth';
 import { IconButton } from '@/components/primitives';
 
-import { AgentHeartbeat } from './AgentHeartbeat';
 import { ChatInput } from './ChatInput';
 import { DocumentIngestProgress } from './DocumentIngestProgress';
 import { MessageBubble } from './MessageBubble';
@@ -52,7 +47,6 @@ import { branding } from '@/generated/branding';
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { v4 as uuidv4 } from 'uuid';
 
-const MAX_HEARTBEAT_CATEGORIES = 24;
 const INITIAL_VISIBLE_MESSAGES = 80;
 const LOAD_OLDER_MESSAGES_STEP = 40;
 const OAUTH_SUCCESS_VISIBLE_MS = 3000;
@@ -119,13 +113,6 @@ function mergeIntermediateStep(
     },
   };
   return nextSteps;
-}
-
-function getStepCategory(step: IntermediateStep): IntermediateStepCategory {
-  if (step?.payload?.event_type) {
-    return getEventCategory(step.payload.event_type);
-  }
-  return IntermediateStepCategory.CUSTOM;
 }
 
 function getCompactActivityText(step: IntermediateStep): string {
@@ -229,7 +216,6 @@ export const ChatView = memo(() => {
       {
         text?: string;
         announcement?: string;
-        categories?: IntermediateStepCategory[];
       }
     >
   >({});
@@ -248,32 +234,11 @@ export const ChatView = memo(() => {
     },
     [],
   );
-  const setStepCategories = useCallback(
-    (
-      convId: string,
-      categories:
-        | IntermediateStepCategory[]
-        | ((current: IntermediateStepCategory[]) => IntermediateStepCategory[]),
-    ) => {
-      setActivityByConversation((current) => ({
-        ...current,
-        [convId]: {
-          ...current[convId],
-          categories:
-            typeof categories === 'function'
-              ? categories(current[convId]?.categories || [])
-              : categories,
-        },
-      }));
-    },
-    [],
-  );
   const selectedActivity = selectedConversationId
     ? activityByConversation[selectedConversationId]
     : undefined;
   const activityText = selectedActivity?.text || '';
   const streamAnnouncement = selectedActivity?.announcement || '';
-  const stepCategories = selectedActivity?.categories || [];
   const [oauthPrompts, setOauthPrompts] = useState<OAuthPromptState[]>([]);
   const [visibleMessageCount, setVisibleMessageCount] = useState(
     INITIAL_VISIBLE_MESSAGES,
@@ -568,10 +533,6 @@ export const ChatView = memo(() => {
 
       const lastStep = steps[steps.length - 1];
       setActivityText(convId, getCompactActivityText(lastStep));
-      setStepCategories(
-        convId,
-        steps.map(getStepCategory).slice(-MAX_HEARTBEAT_CATEGORIES),
-      );
 
       updateAssistantMessage(
         convId,
@@ -581,7 +542,7 @@ export const ChatView = memo(() => {
         assistantMessageId,
       );
     },
-    [updateAssistantMessage, setActivityText, setStepCategories],
+    [updateAssistantMessage, setActivityText],
   );
 
   const appendStreamingStep = useCallback(
@@ -607,9 +568,6 @@ export const ChatView = memo(() => {
       );
 
       setActivityText(convId, getCompactActivityText(step));
-      setStepCategories(convId, (current) =>
-        [...current, getStepCategory(step)].slice(-MAX_HEARTBEAT_CATEGORIES),
-      );
       updateAssistantMessage(
         convId,
         {
@@ -618,7 +576,7 @@ export const ChatView = memo(() => {
         assistantMessageId,
       );
     },
-    [updateAssistantMessage, setActivityText, setStepCategories],
+    [updateAssistantMessage, setActivityText],
   );
 
   const flushPendingStreamingUpdates = useCallback(
@@ -896,7 +854,6 @@ export const ChatView = memo(() => {
               }
               setStreaming(convId, false);
               setActivityText(convId, '');
-              setStepCategories(convId, []);
               setStreamAnnouncement(
                 convId,
                 status.status === 'completed'
@@ -946,7 +903,6 @@ export const ChatView = memo(() => {
           flushPendingStreamingUpdates,
           queueStreamingUpdate,
           setActivityText,
-          setStepCategories,
           setStreamAnnouncement,
         ],
       ),
@@ -988,7 +944,6 @@ export const ChatView = memo(() => {
           // Stop streaming
           setStreaming(convId, false);
           setActivityText(convId, '');
-          setStepCategories(convId, []);
           setStreamAnnouncement(convId, 'Response complete');
           finishOAuthPromptsForJob(convId, meta?.jobId, true);
 
@@ -1006,7 +961,6 @@ export const ChatView = memo(() => {
           finishOAuthPromptsForJob,
           flushPendingStreamingUpdates,
           setActivityText,
-          setStepCategories,
           setStreamAnnouncement,
         ],
       ),
@@ -1058,7 +1012,6 @@ export const ChatView = memo(() => {
 
           setStreaming(convId, false);
           setActivityText(convId, '');
-          setStepCategories(convId, []);
           setStreamAnnouncement(convId, 'Response interrupted');
           clearOpenedOAuthPromptsForConversation(convId);
           setOauthPrompts((current) =>
@@ -1072,7 +1025,6 @@ export const ChatView = memo(() => {
           clearOpenedOAuthPromptsForConversation,
           flushPendingStreamingUpdates,
           setActivityText,
-          setStepCategories,
           setStreamAnnouncement,
         ],
       ),
@@ -1108,14 +1060,13 @@ export const ChatView = memo(() => {
         role: 'assistant',
         content: '',
         intermediateSteps: [],
-        metadata: { turnId },
+        metadata: { turnId, startedAt: Date.now() },
       };
       addMessage(convId, assistantMessage);
 
       // Mark as streaming
       setStreaming(convId, true);
       setActivityText(convId, 'Starting...');
-      setStepCategories(convId, []);
       setStreamAnnouncement(convId, 'Response started');
       clearOpenedOAuthPromptsForConversation(convId);
       setOauthPrompts((current) =>
@@ -1185,7 +1136,6 @@ export const ChatView = memo(() => {
       scrollToBottom,
       clearOpenedOAuthPromptsForConversation,
       setActivityText,
-      setStepCategories,
       setStreamAnnouncement,
     ],
   );
@@ -1236,7 +1186,25 @@ export const ChatView = memo(() => {
       }
       setStreaming(selectedConversationId, false);
       setActivityText(selectedConversationId, '');
-      setStepCategories(selectedConversationId, []);
+
+      const stoppedMessage = findAssistantMessage(
+        useConversationStore
+          .getState()
+          .conversations.find((c) => c.id === selectedConversationId)
+          ?.messages || [],
+      );
+      if (stoppedMessage) {
+        updateAssistantMessage(
+          selectedConversationId,
+          { metadata: { ...stoppedMessage.metadata, stopped: true } },
+          stoppedMessage.id,
+        );
+        const stoppedConversation = useConversationStore
+          .getState()
+          .conversations.find((c) => c.id === selectedConversationId);
+        if (stoppedConversation)
+          saveConversation({ ...stoppedConversation, updatedAt: Date.now() });
+      }
       setStreamAnnouncement(selectedConversationId, 'Response stopped');
       clearOpenedOAuthPromptsForConversation(selectedConversationId);
       setOauthPrompts((current) =>
@@ -1246,11 +1214,11 @@ export const ChatView = memo(() => {
   }, [
     selectedConversationId,
     cancelJob,
+    updateAssistantMessage,
     setStreaming,
     flushPendingStreamingUpdates,
     clearOpenedOAuthPromptsForConversation,
     setActivityText,
-    setStepCategories,
     setStreamAnnouncement,
   ]);
 
@@ -1387,6 +1355,29 @@ export const ChatView = memo(() => {
                     message={msg}
                     messageIndex={messageIndex}
                     isStreaming={isAssistantStreaming}
+                    activityProgress={
+                      isAssistantStreaming
+                        ? {
+                            status: selectedConversationId
+                              ? jobStatusByConversationId[
+                                  selectedConversationId
+                                ]?.status
+                              : undefined,
+                            startedAt:
+                              (selectedConversationId
+                                ? jobStatusByConversationId[
+                                    selectedConversationId
+                                  ]?.createdAt
+                                : undefined) || msg.metadata?.startedAt,
+                            updatedAt: selectedConversationId
+                              ? jobStatusByConversationId[
+                                  selectedConversationId
+                                ]?.updatedAt
+                              : undefined,
+                            text: activityText,
+                          }
+                        : undefined
+                    }
                     onRetry={canRetry ? handleRetryMessage : undefined}
                   />
                 );
@@ -1405,16 +1396,7 @@ export const ChatView = memo(() => {
                     }
                   />
                 </div>
-              ) : (
-                isStreaming && (
-                  <div className="w-full">
-                    <AgentHeartbeat
-                      currentActivityText={activityText}
-                      completedStepCategories={stepCategories}
-                    />
-                  </div>
-                )
-              )}
+              ) : null}
             </div>
           )}
         </div>

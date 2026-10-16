@@ -1,309 +1,230 @@
-import React, { useState, useMemo, useEffect, useRef, useId } from 'react';
+import { IconX } from '@tabler/icons-react';
+import React, { useState, useMemo, useEffect } from 'react';
 
 import {
-  searchSteps,
-  migrateOldStepFormat,
   consolidateSteps,
+  flattenSteps,
+  normalizeSteps,
+  OPERATION_LABELS,
+  type OperationStatus,
 } from '@/utils/app/intermediateSteps';
-import {
-  loadIntermediateSteps,
-  saveIntermediateSteps,
-  getIntermediateStepCount,
-} from '@/utils/app/intermediateStepsDB';
-import { Logger } from '@/utils/logger';
 
-import {
-  IntermediateStep,
-  getEventState,
-  IntermediateStepState,
-} from '@/types/intermediateSteps';
+import { IntermediateStepCategory } from '@/types/intermediateSteps';
+
+import { AgentHeartbeat } from '@/components/chat/AgentHeartbeat';
+import { ModalSurface } from '@/components/surfaces';
 
 import { StepTimeline } from './StepTimeline';
 import { ViewToggle } from './ViewToggle';
 
-import { useConversationStore } from '@/state';
-
-const logger = new Logger('IntermediateSteps');
+export interface ActivityProgress {
+  status?: 'pending' | 'streaming' | 'oauth_required' | 'completed' | 'error';
+  startedAt?: number;
+  updatedAt?: number;
+  text?: string;
+}
 
 interface IntermediateStepsProps {
   steps: any[];
   className?: string;
-  conversationId?: string;
+  isStreaming?: boolean;
+  durationMs?: number;
+  hasError?: boolean;
+  stopped?: boolean;
+  progress?: ActivityProgress;
 }
 
-const INITIAL_STEPS_TO_SHOW = 5;
-const STEPS_TO_LOAD_MORE = 10;
+export function formatActivityElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  if (seconds < 1) return '<1s';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor(
+    (seconds % 3600) / 60,
+  )}m ${seconds % 60}s`;
+}
 
 export const IntermediateSteps: React.FC<IntermediateStepsProps> = ({
   steps,
   className = '',
-  conversationId,
+  isStreaming = false,
+  durationMs,
+  hasError = false,
+  stopped = false,
+  progress,
 }) => {
-  const selectedConversationId = useConversationStore(
-    (s) => s.selectedConversationId,
-  );
-  const streamingConversationIds = useConversationStore(
-    (s) => s.streamingConversationIds,
-  );
-  const activeConversationId = conversationId || selectedConversationId;
-  const resolvedIsStreaming = Boolean(
-    activeConversationId && streamingConversationIds.has(activeConversationId),
-  );
-
-  const activityId = useId();
   const [searchTerm, setSearchTerm] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
-  const [displayedSteps, setDisplayedSteps] = useState<IntermediateStep[]>([]);
-  const [totalStepsCount, setTotalStepsCount] = useState(0);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [loadedCount, setLoadedCount] = useState(INITIAL_STEPS_TO_SHOW);
-
-  // Migrate old steps to new format if needed
-  const migratedSteps = useMemo(() => {
-    if (!steps || steps.length === 0) return [];
-
-    let normalizedSteps: IntermediateStep[];
-
-    if (steps[0]?.payload?.event_type) {
-      normalizedSteps = steps as IntermediateStep[];
-    } else {
-      const migrated = steps
-        .map((step) => migrateOldStepFormat(step))
-        .filter((step) => step !== null) as IntermediateStep[];
-      normalizedSteps = migrated;
-    }
-
-    // Deduplicate steps by UUID
-    const deduplicatedMap = new Map<string, IntermediateStep>();
-    normalizedSteps.forEach((step) => {
-      if (step?.payload?.UUID) {
-        const existing = deduplicatedMap.get(step.payload.UUID);
-        if (
-          !existing ||
-          step.payload.event_timestamp > existing.payload.event_timestamp
-        ) {
-          deduplicatedMap.set(step.payload.UUID, step);
-        }
-      }
-    });
-
-    return Array.from(deduplicatedMap.values())
-      .filter((step) => {
-        if (!step?.payload?.event_type) {
-          return false;
-        }
-        return (
-          getEventState(step.payload.event_type) !== IntermediateStepState.CHUNK
-        );
-      })
-      .sort((a, b) => a.payload.event_timestamp - b.payload.event_timestamp);
-  }, [steps]);
-
-  // Persist steps to IndexedDB, debounced so a streaming run doesn't trigger a
-  // full-array write on every streamed step (F-015). UI state updates stay
-  // immediate; only the IndexedDB write is coalesced to the settle window.
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    const convId = conversationId || selectedConversationId;
-    if (!convId || migratedSteps.length === 0) return;
-
-    setTotalStepsCount(migratedSteps.length);
-    setDisplayedSteps(migratedSteps);
-    setLoadedCount(migratedSteps.length);
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      saveIntermediateSteps(convId, migratedSteps).catch((err) =>
-        logger.error('Failed to save intermediate steps:', err),
-      );
-    }, 500);
-
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, [migratedSteps, conversationId, selectedConversationId]);
-
-  // Load initial steps from DB only when switching conversations
-  useEffect(() => {
-    const loadInitialSteps = async () => {
-      if (!conversationId && !selectedConversationId) return;
-
-      const convId = conversationId || selectedConversationId;
-      if (!convId) return;
-
-      if (migratedSteps.length === 0) {
-        try {
-          const count = await getIntermediateStepCount(convId);
-          setTotalStepsCount(count);
-
-          if (count > 0) {
-            const loaded = await loadIntermediateSteps(
-              convId,
-              Math.max(0, count - INITIAL_STEPS_TO_SHOW),
-              INITIAL_STEPS_TO_SHOW,
-            );
-            setDisplayedSteps(loaded);
-            setLoadedCount(loaded.length);
-          }
-        } catch (error) {
-          logger.error('Failed to load initial steps:', error);
-        }
-      }
-    };
-
-    loadInitialSteps();
-  }, [conversationId, selectedConversationId, migratedSteps.length]);
-
-  // Consolidated count for the badge
-  const consolidatedCount = useMemo(() => {
-    return consolidateSteps(displayedSteps, !resolvedIsStreaming).length;
-  }, [displayedSteps, resolvedIsStreaming]);
-
-  const handleLoadMore = async () => {
-    if (isLoadingMore) return;
-
-    const convId = conversationId || selectedConversationId;
-    if (!convId) return;
-
-    setIsLoadingMore(true);
-    try {
-      const startIndex = Math.max(
-        0,
-        totalStepsCount - loadedCount - STEPS_TO_LOAD_MORE,
-      );
-      const countToLoad = Math.min(
-        STEPS_TO_LOAD_MORE,
-        totalStepsCount - loadedCount,
-      );
-
-      const olderSteps = await loadIntermediateSteps(
-        convId,
-        startIndex,
-        countToLoad,
-      );
-
-      const existingUUIDs = new Set(
-        displayedSteps.map((s) => s.payload?.UUID).filter(Boolean),
-      );
-      const newSteps = olderSteps.filter(
-        (step) => !existingUUIDs.has(step.payload?.UUID),
-      );
-
-      setDisplayedSteps((prev) => [...newSteps, ...prev]);
-      setLoadedCount((prev) => prev + newSteps.length);
-    } catch (error) {
-      logger.error('Failed to load more steps:', error);
-    } finally {
-      setIsLoadingMore(false);
-    }
-  };
-
-  const hasSteps = migratedSteps && migratedSteps.length > 0;
-  const hasMoreSteps =
-    migratedSteps.length === 0 && loadedCount < totalStepsCount;
-
-  if (!hasSteps && !resolvedIsStreaming) {
-    return null;
+  const [now, setNow] = useState(Date.now);
+  const [mountedAt] = useState(Date.now);
+  const normalized = useMemo(() => normalizeSteps(steps), [steps]);
+  const operations = useMemo(
+    () => flattenSteps(consolidateSteps(normalized, !isStreaming)),
+    [normalized, isStreaming],
+  );
+  const tools = operations.filter(
+    (step) => step.category === IntermediateStepCategory.TOOL,
+  );
+  const activeTools = tools.filter((step) =>
+    ['active', 'retrying', 'waiting', 'queued'].includes(step.status),
+  );
+  const current =
+    activeTools[0] ||
+    [...operations].reverse().find((step) => step.status === 'active');
+  const writing =
+    isStreaming &&
+    activeTools.length === 0 &&
+    progress?.text === 'Generating response';
+  const waiting = isStreaming && progress?.status === 'oauth_required';
+  const queued =
+    isStreaming && progress?.status === 'pending' && operations.length === 0;
+  const unfinished = operations.some((step) => step.status === 'interrupted');
+  const failedTools = tools.filter((step) => step.status === 'failed').length;
+  let status: OperationStatus = isStreaming
+    ? current?.status || 'active'
+    : 'completed';
+  let label = writing
+    ? 'Preparing the answer'
+    : current?.friendlyName ||
+      (operations.length
+        ? 'Preparing next step'
+        : progress?.text || 'Thinking');
+  if (
+    isStreaming &&
+    current &&
+    ['waiting', 'queued', 'retrying'].includes(current.status)
+  )
+    label = `${OPERATION_LABELS[current.status]} · ${current.friendlyName}`;
+  if (waiting) {
+    status = 'waiting';
+    label = 'Waiting for authorization';
+  } else if (queued) {
+    status = 'queued';
+    label = 'Queued';
+  } else if (isStreaming && activeTools.length > 1) {
+    label = `${activeTools.length} tools in progress`;
+  } else if (!isStreaming) {
+    status = stopped
+      ? 'interrupted'
+      : hasError
+      ? 'failed'
+      : unfinished
+      ? 'interrupted'
+      : 'completed';
+    label = stopped
+      ? 'Stopped'
+      : hasError
+      ? 'Response interrupted'
+      : unfinished
+      ? 'Finished with interrupted activity'
+      : 'Completed';
+    if (
+      typeof durationMs === 'number' &&
+      Number.isFinite(durationMs) &&
+      durationMs >= 0
+    )
+      label += ` in ${formatActivityElapsed(durationMs)}`;
   }
+  const timestamps = normalized
+    .map((step) => step.payload.event_timestamp * 1000)
+    .filter(Number.isFinite);
+  const startedAt =
+    progress?.startedAt ??
+    (timestamps.length
+      ? timestamps.reduce(
+          (earliest, timestamp) => Math.min(earliest, timestamp),
+          Infinity,
+        )
+      : mountedAt);
+  const updatedAt = timestamps.reduce(
+    (latest, timestamp) => Math.max(latest, timestamp),
+    progress?.updatedAt || startedAt,
+  );
+  const idleSeconds = Math.max(0, Math.floor((now - updatedAt) / 1000));
+  const toolCount = `${tools.length} tool call${tools.length === 1 ? '' : 's'}`;
+  const detail = isStreaming
+    ? idleSeconds >= 10 && !waiting && !queued
+      ? `last update ${idleSeconds}s ago`
+      : activeTools.length === 1 && current?.status === 'active'
+      ? '1 tool running'
+      : failedTools
+      ? `${failedTools} tool${failedTools === 1 ? '' : 's'} failed · continuing`
+      : undefined
+    : [
+        tools.length ? toolCount : undefined,
+        failedTools ? `${failedTools} failed` : undefined,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+
+  useEffect(() => {
+    if (!isStreaming) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isStreaming]);
+
+  // Announce semantic changes, never the elapsed timer or freshness countdown.
+  const announcement = `${label}${
+    !isStreaming && detail ? ` · ${detail}` : ''
+  }`;
 
   return (
-    <div
-      className={`app-card border rounded-2xl overflow-hidden flex flex-col max-h-[60dvh] ${className}`}
-    >
-      <div className="sticky top-0 z-10">
-        <button
-          type="button"
-          aria-expanded={isExpanded}
-          aria-controls={activityId}
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="group w-full px-3 py-2 sm:px-4 sm:py-2.5 text-left text-sm font-medium text-primary hover:bg-fill/5 transition-all flex items-center justify-between"
-        >
-          <span className="flex items-center gap-2.5">
-            <span className="text-sm font-semibold tracking-tight">
-              Agent Activity
-            </span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-all ${
-                resolvedIsStreaming
-                  ? 'bg-nvidia-green/15 text-nvidia-green border border-nvidia-green/20'
-                  : 'bg-fill/10 text-secondary border border-separator/70'
-              }`}
-            >
-              {resolvedIsStreaming && (
-                <span className="relative flex h-1.5 w-1.5">
-                  <span
-                    className="absolute inline-flex h-full w-full rounded-full bg-nvidia-green opacity-75 animate-ping"
-                    aria-hidden
-                  />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-nvidia-green" />
-                </span>
-              )}
-              <span>{consolidatedCount}</span>
-            </span>
-          </span>
-          <svg
-            className={`w-4 h-4 transition-transform duration-200 ease-out text-muted ${
-              isExpanded ? 'rotate-180' : ''
-            }`}
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path
-              fillRule="evenodd"
-              d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </button>
-        {resolvedIsStreaming && (
-          <div className="h-0.5 bg-gradient-to-r from-transparent via-nvidia-green to-transparent animate-pulse" />
-        )}
+    <div className={`w-full min-w-0 ${className}`}>
+      <AgentHeartbeat
+        label={label}
+        detail={detail}
+        elapsed={
+          isStreaming ? formatActivityElapsed(now - startedAt) : undefined
+        }
+        status={status}
+        step={current}
+        writing={writing}
+        expanded={isExpanded}
+        onClick={() => setIsExpanded(true)}
+      />
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {announcement}
       </div>
-
-      {isExpanded && (
-        <div
-          id={activityId}
-          className="flex-1 flex flex-col min-h-0 animate-slide-in"
-        >
-          <div className="sticky top-0 z-10 border-b border-separator/70">
-            <ViewToggle
-              searchTerm={searchTerm}
-              onSearchChange={setSearchTerm}
-            />
+      <ModalSurface
+        open={isExpanded}
+        onClose={() => setIsExpanded(false)}
+        aria-label="Agent activity"
+        className="flex max-h-[80dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-separator bg-panel"
+      >
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-separator/70 px-4 py-2">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-primary">
+              Agent activity
+            </h3>
+            <p className="truncate text-xs text-muted">
+              {label}
+              {tools.length ? ` · ${toolCount}` : ''}
+            </p>
           </div>
-
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <StepTimeline
-              steps={
-                searchTerm
-                  ? searchSteps(displayedSteps, searchTerm)
-                  : displayedSteps
-              }
-              isStreaming={resolvedIsStreaming}
-              isSearching={!!searchTerm.trim()}
-            />
-
-            {hasMoreSteps && !isLoadingMore && (
-              <div className="p-3 flex justify-center">
-                <button
-                  onClick={handleLoadMore}
-                  className="px-3 py-1.5 text-xs font-medium text-muted bg-fill/[0.06] hover:bg-fill/10 rounded-lg transition-colors border border-separator/70"
-                >
-                  Load{' '}
-                  {Math.min(STEPS_TO_LOAD_MORE, totalStepsCount - loadedCount)}{' '}
-                  older
-                </button>
-              </div>
-            )}
-
-            {isLoadingMore && (
-              <div className="p-3 flex justify-center">
-                <div className="text-xs text-muted">Loading...</div>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => setIsExpanded(false)}
+            aria-label="Close agent activity"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg text-muted hover:bg-fill/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
+            <IconX size={18} aria-hidden="true" />
+          </button>
         </div>
-      )}
+        <ViewToggle searchTerm={searchTerm} onSearchChange={setSearchTerm} />
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <StepTimeline
+            steps={normalized}
+            isStreaming={isStreaming}
+            searchTerm={searchTerm}
+          />
+        </div>
+      </ModalSurface>
     </div>
   );
 };

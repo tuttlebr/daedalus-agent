@@ -30,7 +30,7 @@ export function searchSteps(
       return true;
 
     // Search in function name
-    if (step.function_ancestry.function_name.toLowerCase().includes(term))
+    if (step.function_ancestry?.function_name?.toLowerCase().includes(term))
       return true;
 
     // Search in data (limited to avoid performance issues)
@@ -59,11 +59,30 @@ export function formatDuration(ms: number): string {
 
 // ─── User-Friendly Consolidated Steps ────────────────────────────────────────
 
+export type OperationStatus =
+  | 'active'
+  | 'completed'
+  | 'failed'
+  | 'interrupted'
+  | 'queued'
+  | 'waiting'
+  | 'retrying';
+
+export const OPERATION_LABELS: Record<OperationStatus, string> = {
+  active: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+  interrupted: 'Interrupted',
+  queued: 'Queued',
+  waiting: 'Waiting for input',
+  retrying: 'Retrying',
+};
+
 export interface ConsolidatedStep {
   id: string;
   friendlyName: string;
   category: IntermediateStepCategory;
-  status: 'active' | 'completed';
+  status: OperationStatus;
   duration?: number;
   context?: string;
   input?: any;
@@ -75,9 +94,10 @@ export interface ConsolidatedStep {
 }
 
 const FRIENDLY_NAMES: Record<string, string> = {
-  webscrape: 'Searching the web',
+  webscrape: 'Reading a website',
   serpapi_search: 'Searching the web',
   smart_milvus: 'Searching knowledge base',
+  llm_sandbox: 'Running code',
   visual_media: 'Working with image',
   rss_feed: 'Reading RSS feeds',
   nat_nv_ingest: 'Processing document',
@@ -108,7 +128,7 @@ export function getFriendlyName(step: IntermediateStep): string {
   const category = getEventCategory(step.payload.event_type);
   const rawName = (
     step.payload.name ||
-    step.function_ancestry.function_name ||
+    step.function_ancestry?.function_name ||
     ''
   ).toLowerCase();
 
@@ -122,7 +142,7 @@ export function getFriendlyName(step: IntermediateStep): string {
 
   // Clean up the raw name if we have one
   if (step.payload.name) return cleanupName(step.payload.name);
-  if (step.function_ancestry.function_name)
+  if (step.function_ancestry?.function_name)
     return cleanupName(step.function_ancestry.function_name);
 
   return CATEGORY_LABELS[category] || 'Processing';
@@ -138,7 +158,7 @@ function extractContext(step: IntermediateStep): string | undefined {
   const meta = step.payload.metadata;
   if (meta) {
     const toolInputs = (meta as any).tool_inputs;
-    if (toolInputs) {
+    if (toolInputs != null) {
       if (typeof toolInputs === 'string') return truncate(toolInputs, 120);
       // Try to extract a query/url/input field from tool inputs
       const queryField =
@@ -150,17 +170,6 @@ function extractContext(step: IntermediateStep): string | undefined {
         toolInputs.prompt;
       if (queryField && typeof queryField === 'string')
         return truncate(queryField, 120);
-      // If it's an object with few keys, show a brief summary
-      const keys = Object.keys(toolInputs);
-      if (keys.length <= 3) {
-        const parts = keys.map((k) => {
-          const v = toolInputs[k];
-          return `${k}: ${
-            typeof v === 'string' ? truncate(v, 40) : JSON.stringify(v)
-          }`;
-        });
-        return truncate(parts.join(', '), 120);
-      }
     }
   }
 
@@ -181,17 +190,123 @@ function extractOutput(step: IntermediateStep): any {
   const meta = step.payload.metadata;
   if (meta) {
     const toolOutputs = (meta as any).tool_outputs;
-    if (toolOutputs) return toolOutputs;
+    if (toolOutputs !== undefined) return toolOutputs;
     const chatResponses = (meta as any).chat_responses;
     if (chatResponses) return chatResponses;
     const spanOutputs = (meta as any).span_outputs;
     if (spanOutputs) return spanOutputs;
   }
   return (
-    step.payload.data?.output ||
-    step.payload.data?.result ||
+    step.payload.data?.output ??
+    step.payload.data?.result ??
     step.payload.data?.response
   );
+}
+
+/** Normalize once at the UI boundary; messages remain the source of truth per turn. */
+export function normalizeSteps(steps: any[]): IntermediateStep[] {
+  const byId = new Map<string, IntermediateStep>();
+  for (const raw of steps) {
+    const step = raw?.payload?.event_type ? raw : migrateOldStepFormat(raw);
+    if (!step?.payload?.UUID) continue;
+    const previous = byId.get(step.payload.UUID);
+    if (
+      previous &&
+      previous.payload.event_timestamp > step.payload.event_timestamp
+    )
+      continue;
+    byId.set(step.payload.UUID, {
+      ...step,
+      parent_id: step.parent_id || 'root',
+      function_ancestry: step.function_ancestry || {
+        node_id: step.payload.UUID,
+        parent_id: step.parent_id || null,
+        function_name: step.payload.name || '',
+        depth: 0,
+      },
+    });
+  }
+  return [...byId.values()];
+}
+
+export function flattenSteps(steps: ConsolidatedStep[]): ConsolidatedStep[] {
+  return steps.flatMap((step) => [step, ...flattenSteps(step.children)]);
+}
+
+export function parseStepOutput(output: any): any {
+  if (typeof output !== 'string') return output;
+  try {
+    return JSON.parse(output);
+  } catch {
+    return output;
+  }
+}
+
+function operationStatus(
+  step: IntermediateStep,
+  fallback: OperationStatus,
+): OperationStatus {
+  const output =
+    getEventCategory(step.payload.event_type) === IntermediateStepCategory.TOOL
+      ? parseStepOutput(extractOutput(step))
+      : undefined;
+  const sources = [
+    step.payload,
+    step.payload.metadata,
+    step.payload.data,
+    output,
+  ];
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    if (source.isError === true || source.is_error === true || source.error)
+      return 'failed';
+    switch (source.status) {
+      case 'error':
+      case 'failed':
+      case 'failure':
+        return 'failed';
+      case 'cancelled':
+      case 'canceled':
+      case 'interrupted':
+        return 'interrupted';
+      case 'queued':
+      case 'pending':
+        return 'queued';
+      case 'waiting':
+      case 'oauth_required':
+      case 'approval_required':
+        return 'waiting';
+      case 'retrying':
+        return 'retrying';
+    }
+  }
+  if (typeof output === 'string' && /^(Error:|Tool failed \()/.test(output))
+    return 'failed';
+  return fallback;
+}
+
+/** Brief, factual tool outcomes; never turn model prompts into activity summaries. */
+export function getOutcomeSummary(step: ConsolidatedStep): string {
+  if (step.category !== IntermediateStepCategory.TOOL)
+    return OPERATION_LABELS[step.status];
+  const output = parseStepOutput(step.output);
+  if (step.status === 'completed') {
+    for (const key of ['matches', 'results', 'documents', 'items']) {
+      if (Array.isArray(output?.[key])) return `${output[key].length} ${key}`;
+    }
+    if (Array.isArray(output))
+      return `${output.length} result${output.length === 1 ? '' : 's'}`;
+  }
+  const summary =
+    typeof output === 'string'
+      ? output
+      : output?.summary ?? output?.message ?? output?.error ?? output?.content;
+  if (typeof summary === 'string' && summary.trim())
+    return `${OPERATION_LABELS[step.status]} · ${truncate(
+      summary.replace(/\s+/g, ' ').trim(),
+      120,
+    )}`;
+  return OPERATION_LABELS[step.status];
 }
 
 function truncate(str: string, maxLen: number): string {
@@ -211,7 +326,7 @@ export function consolidateSteps(
   steps: IntermediateStep[],
   isComplete?: boolean,
 ): ConsolidatedStep[] {
-  const sorted = [...steps].sort(
+  const sorted = normalizeSteps(steps).sort(
     (a, b) => a.payload.event_timestamp - b.payload.event_timestamp,
   );
 
@@ -226,7 +341,7 @@ export function consolidateSteps(
     const state = getEventState(step.payload.event_type);
     if (state === IntermediateStepState.CHUNK) return;
 
-    const key = `${
+    const key = `${getEventCategory(step.payload.event_type)}::${
       step.payload.name || step.function_ancestry.function_name
     }::${step.parent_id}`;
 
@@ -271,14 +386,14 @@ export function consolidateSteps(
     }
 
     consolidated.push({
-      id: end.payload.UUID,
+      id: start.payload.UUID,
       friendlyName: getFriendlyName(end),
       category: getEventCategory(end.payload.event_type),
-      status: 'completed',
+      status: operationStatus(end, 'completed'),
       duration,
       context: extractContext(start) || extractContext(end),
       input:
-        start.payload.data?.input ||
+        start.payload.data?.input ??
         (start.payload.metadata as any)?.tool_inputs,
       output: extractOutput(end),
       startStep: start,
@@ -288,17 +403,21 @@ export function consolidateSteps(
     });
   });
 
-  // Unpaired STARTs: active while streaming, completed once the response is done
+  // A missing END is not evidence of success, even after a turn finishes.
   startQueues.forEach((queue) => {
     queue.forEach((start) => {
+      const status = operationStatus(start, 'active');
       consolidated.push({
         id: start.payload.UUID,
         friendlyName: getFriendlyName(start),
         category: getEventCategory(start.payload.event_type),
-        status: isComplete ? 'completed' : 'active',
+        status:
+          isComplete && status !== 'failed' && status !== 'interrupted'
+            ? 'interrupted'
+            : status,
         context: extractContext(start),
         input:
-          start.payload.data?.input ||
+          start.payload.data?.input ??
           (start.payload.metadata as any)?.tool_inputs,
         startStep: start,
         children: [],
@@ -319,7 +438,7 @@ export function consolidateSteps(
       id: end.payload.UUID,
       friendlyName: getFriendlyName(end),
       category: getEventCategory(end.payload.event_type),
-      status: 'completed',
+      status: operationStatus(end, 'completed'),
       duration,
       context: extractContext(end),
       output: extractOutput(end),

@@ -4,6 +4,9 @@ import React, { useState, useId } from 'react';
 import {
   ConsolidatedStep,
   formatDuration,
+  getOutcomeSummary,
+  OPERATION_LABELS,
+  parseStepOutput,
 } from '@/utils/app/intermediateSteps';
 import {
   normalizeLatexDelimiters,
@@ -13,7 +16,6 @@ import {
 import {
   getEventState,
   IntermediateStepCategory,
-  TraceMetadata,
 } from '@/types/intermediateSteps';
 
 import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
@@ -33,7 +35,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
   const category = consolidatedStep.category;
 
   const renderContent = (data: any, title: string) => {
-    if (!data) return null;
+    if (data === undefined || data === null) return null;
 
     if (typeof data === 'string') {
       const normalizedContent = normalizeLatexDelimiters(data);
@@ -106,28 +108,34 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
     }
   };
 
-  // Extract the meaningful input/output for display
-  const meta = step.payload.metadata as TraceMetadata | undefined;
-  const toolInputs = meta?.tool_inputs;
-  const toolOutputs = meta?.tool_outputs;
-  const chatResponses = meta?.chat_responses;
-  const spanOutputs = meta?.span_outputs;
-  const dataInput = step.payload.data?.input;
-  const dataOutput = step.payload.data?.output || step.payload.data?.result;
-
-  const hasUserContent = !!(
-    toolInputs ||
-    toolOutputs ||
-    chatResponses ||
-    spanOutputs ||
-    dataInput ||
-    dataOutput
-  );
+  const isTool = category === IntermediateStepCategory.TOOL;
+  const isModel = category === IntermediateStepCategory.LLM;
+  const input = consolidatedStep.input;
+  const output = consolidatedStep.output;
+  const parsedOutput = parseStepOutput(output);
+  const results: any[] = Array.isArray(parsedOutput)
+    ? parsedOutput
+    : ['matches', 'results', 'documents', 'items']
+        .map((key) => parsedOutput?.[key])
+        .find(Array.isArray) || [];
+  const resultText =
+    typeof parsedOutput === 'string'
+      ? parsedOutput
+      : parsedOutput?.summary || parsedOutput?.message || parsedOutput?.content;
+  const resultUrl = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return;
+    try {
+      const url = new URL(value);
+      return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined;
+    } catch {
+      return;
+    }
+  };
 
   return (
-    <div className="min-w-0 flex flex-col">
+    <div className="min-h-0 min-w-0 flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-separator/70">
+      <div className="flex flex-shrink-0 items-center justify-between p-4 border-b border-separator/70">
         <div className="min-w-0 flex-1">
           <h3 className="text-base font-semibold text-primary break-words">
             {consolidatedStep.friendlyName}
@@ -144,73 +152,93 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
                 </span>
               </>
             )}
-            {consolidatedStep.status === 'active' && (
-              <span className="text-xs text-nvidia-green font-medium">
-                In progress
-              </span>
-            )}
+            <span
+              className={
+                consolidatedStep.status === 'failed'
+                  ? 'text-xs text-error'
+                  : 'text-xs text-muted'
+              }
+            >
+              {OPERATION_LABELS[consolidatedStep.status]}
+            </span>
           </div>
         </div>
         <button
           type="button"
           aria-label="Close activity details"
           onClick={onClose}
-          className="p-1.5 hover:bg-fill/10 rounded-lg transition-all text-muted hover:text-primary flex-shrink-0"
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-fill/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus flex-shrink-0"
         >
           <IconX size={18} />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {/* Context summary */}
-        {consolidatedStep.context && (
-          <div className="bg-nvidia-green/[0.06] border border-nvidia-green/10 rounded-lg p-3">
-            <p className="text-sm text-secondary">{consolidatedStep.context}</p>
-          </div>
-        )}
-
-        {/* User-relevant content: what went in, what came out */}
-        {hasUserContent && (
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="rounded-lg border border-separator/70 bg-fill/5 p-3">
+          <p className="text-sm text-secondary">
+            {getOutcomeSummary(consolidatedStep)}
+          </p>
+          {consolidatedStep.context && (
+            <p className="mt-1 break-words text-xs text-muted">
+              {consolidatedStep.context}
+            </p>
+          )}
+        </div>
+        {!isModel && (
           <div className="space-y-1">
-            {toolInputs && renderContent(toolInputs, 'What was requested')}
-            {!toolInputs && dataInput && renderContent(dataInput, 'Input')}
-            {toolOutputs && renderContent(toolOutputs, 'Result')}
-            {!toolOutputs &&
-              chatResponses &&
-              renderContent(chatResponses, 'Response')}
-            {!toolOutputs &&
-              !chatResponses &&
-              spanOutputs &&
-              renderContent(spanOutputs, 'Output')}
-            {!toolOutputs &&
-              !chatResponses &&
-              !spanOutputs &&
-              dataOutput &&
-              renderContent(dataOutput, 'Result')}
+            {typeof input === 'string' &&
+              renderContent(input, isTool ? 'What was requested' : 'Input')}
+            {typeof resultText === 'string' &&
+              renderContent(resultText.slice(0, 4000), 'Result')}
+            {results.length > 0 && (
+              <ul className="space-y-2 text-sm text-secondary">
+                {results.slice(0, 8).map((result, index) => {
+                  const url = resultUrl(result?.url || result?.link);
+                  const rawTitle =
+                    typeof result === 'string'
+                      ? result
+                      : result?.title || result?.name;
+                  const title =
+                    typeof rawTitle === 'string'
+                      ? rawTitle
+                      : `Result ${index + 1}`;
+                  return (
+                    <li
+                      key={index}
+                      className="break-words rounded-lg border border-separator/70 p-3"
+                    >
+                      {url ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline"
+                        >
+                          {title}
+                        </a>
+                      ) : (
+                        <span>{title}</span>
+                      )}
+                      {typeof result?.snippet === 'string' && (
+                        <p className="mt-1 text-xs text-muted">
+                          {result.snippet}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {results.length > 8 && (
+              <p className="text-xs text-muted">
+                Showing 8 of {results.length} results. Open Technical details
+                for the full result.
+              </p>
+            )}
           </div>
         )}
 
-        {/* Token usage — shown by default since it's useful */}
-        {step.payload.usage_info && (
-          <div className="rounded-lg bg-fill/[0.04] p-3">
-            <div className="flex items-center gap-4 text-xs text-muted">
-              {step.payload.usage_info.token_usage?.total_tokens && (
-                <span>
-                  {step.payload.usage_info.token_usage.total_tokens.toLocaleString()}{' '}
-                  tokens
-                </span>
-              )}
-              {step.payload.usage_info.num_llm_calls > 0 && (
-                <span>
-                  {step.payload.usage_info.num_llm_calls} LLM call
-                  {step.payload.usage_info.num_llm_calls > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Advanced Details — collapsed by default */}
+        {/* Technical details — collapsed by default */}
         <div className="border-t border-separator/70 pt-3 mt-4">
           <button
             type="button"
@@ -224,11 +252,34 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
             ) : (
               <IconChevronRight size={14} />
             )}
-            Advanced Details
+            Technical details
           </button>
 
           {showAdvanced && (
             <div id={advancedId} className="mt-3 space-y-3 animate-slide-in">
+              {/* Usage and raw data stay in the technical disclosure. */}
+              {step.payload.usage_info && (
+                <div className="rounded-lg bg-fill/[0.04] p-3">
+                  <div className="flex items-center gap-4 text-xs text-muted">
+                    {step.payload.usage_info.token_usage?.total_tokens && (
+                      <span>
+                        {step.payload.usage_info.token_usage.total_tokens.toLocaleString()}{' '}
+                        tokens
+                      </span>
+                    )}
+                    {step.payload.usage_info.num_llm_calls > 0 && (
+                      <span>
+                        {step.payload.usage_info.num_llm_calls} LLM call
+                        {step.payload.usage_info.num_llm_calls > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {renderContent(input, 'Arguments')}
+              {renderContent(output, 'Full result')}
+
               {/* Raw event info */}
               <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-secondary">
                 <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">

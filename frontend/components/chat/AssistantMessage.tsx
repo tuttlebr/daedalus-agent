@@ -26,6 +26,7 @@ import { parseMcpApprovalMarker } from '@/utils/app/mcpApproval';
 
 import { Message } from '@/types/chat';
 
+import type { ActivityProgress } from '@/components/agent/IntermediateSteps';
 import { Avatar, IconButton, Badge } from '@/components/primitives';
 import { ModalSurface } from '@/components/surfaces';
 
@@ -61,6 +62,7 @@ interface AssistantMessageProps {
   message: Message;
   messageIndex: number;
   isStreaming?: boolean;
+  activityProgress?: ActivityProgress;
   onRetry?: () => void;
 }
 
@@ -69,6 +71,7 @@ export const AssistantMessage = memo(
     message,
     messageIndex,
     isStreaming = false,
+    activityProgress,
     onRetry,
   }: AssistantMessageProps) => {
     const [copied, setCopied] = useState(false);
@@ -100,7 +103,8 @@ export const AssistantMessage = memo(
       Boolean(content) &&
       typeof durationMs === 'number' &&
       Number.isFinite(durationMs) &&
-      durationMs >= 0;
+      durationMs >= 0 &&
+      !((hasSteps || message.metadata?.stopped) && enableIntermediateSteps);
     // classifyResponseContent returns a fresh object literal, so without this
     // ResponseDocument's shallow memo never bails and re-renders per token.
     const responseDocument = useMemo(
@@ -157,19 +161,6 @@ export const AssistantMessage = memo(
             </Badge>
           )}
 
-          {/* Intermediate steps */}
-          {hasSteps && enableIntermediateSteps && !isStreaming && (
-            <Suspense
-              fallback={
-                <div className="h-8 bg-fill/[0.02] rounded-lg animate-pulse mb-2" />
-              }
-            >
-              <div className="mb-2 w-full min-w-0">
-                <IntermediateSteps steps={message.intermediateSteps!} />
-              </div>
-            </Suspense>
-          )}
-
           {/* Error banner */}
           {hasError && !isStreaming && (
             <div
@@ -216,7 +207,7 @@ export const AssistantMessage = memo(
               }
             />
           ) : (
-            (content || isStreaming) && (
+            content && (
               <div className="relative w-full min-w-0">
                 <div
                   aria-busy={isStreaming}
@@ -347,6 +338,26 @@ export const AssistantMessage = memo(
               </div>
             )
           )}
+          {!mcpApproval &&
+            !isAutonomousFeedHtml &&
+            (isStreaming ||
+              ((hasSteps || message.metadata?.stopped) &&
+                enableIntermediateSteps)) && (
+              <Suspense fallback={<div className="h-11 md:h-8" />}>
+                <IntermediateSteps
+                  steps={
+                    enableIntermediateSteps
+                      ? message.intermediateSteps || []
+                      : []
+                  }
+                  isStreaming={isStreaming}
+                  durationMs={durationMs}
+                  hasError={hasError}
+                  stopped={message.metadata?.stopped === true}
+                  progress={activityProgress}
+                />
+              </Suspense>
+            )}
           {showDuration && (
             <small
               className="mt-1 px-1 text-xs text-secondary tabular-nums"

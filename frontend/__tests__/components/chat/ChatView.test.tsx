@@ -32,24 +32,29 @@ vi.mock('@/utils/app/conversation', () => ({
   saveConversation: vi.fn(),
 }));
 
-vi.mock('@/components/chat/AgentHeartbeat', () => ({
-  AgentHeartbeat: ({ currentActivityText, completedStepCategories }: any) => (
-    <div data-testid="heartbeat">
-      {currentActivityText || 'Thinking...'}
-      <span data-testid="activity-categories">
-        {completedStepCategories.join(',')}
-      </span>
-    </div>
+vi.mock('@/components/chat/ChatInput', () => ({
+  ChatInput: ({ onStop }: any) => (
+    <button data-testid="chat-input" onClick={onStop}>
+      Stop response
+    </button>
   ),
 }));
 
-vi.mock('@/components/chat/ChatInput', () => ({
-  ChatInput: () => <div data-testid="chat-input" />,
-}));
-
 vi.mock('@/components/chat/MessageBubble', () => ({
-  MessageBubble: ({ message }: any) => (
-    <div data-testid="message">{message.content}</div>
+  MessageBubble: ({ message, isStreaming, activityProgress }: any) => (
+    <div data-testid="message">
+      {message.content}
+      {isStreaming && (
+        <div data-testid="heartbeat">
+          {activityProgress?.text || 'Thinking...'}
+          <span data-testid="activity-categories">
+            {(message.intermediateSteps || [])
+              .map((step: any) => step.payload.event_type.split('_')[0])
+              .join(',')}
+          </span>
+        </div>
+      )}
+    </div>
   ),
 }));
 
@@ -159,7 +164,7 @@ describe('ChatView OAuth banner', () => {
     expect(categories()).toBe('LLM');
 
     act(() => store.selectConversation('conv-1'));
-    expect(categories()).toBe('TOOL,TOOL');
+    expect(categories()).toBe('TOOL');
     act(() => store.selectConversation('conv-2'));
     act(() =>
       mocks.asyncOptions.onComplete(
@@ -186,6 +191,24 @@ describe('ChatView OAuth banner', () => {
     expect(container.querySelector('[role="status"]')?.textContent).not.toBe(
       'Response complete',
     );
+    act(() => root.unmount());
+  });
+
+  it('persists an explicit stopped outcome on the correct assistant message', async () => {
+    const { root, container } = renderChatView();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="chat-input"]')!
+        .click(),
+    );
+    expect(mocks.cancelJob).toHaveBeenCalledWith('conv-1');
+    const conversation = useConversationStore
+      .getState()
+      .conversations.find((c) => c.id === 'conv-1')!;
+    expect(conversation.messages[1].metadata?.stopped).toBe(true);
+    expect(
+      useConversationStore.getState().streamingConversationIds.has('conv-1'),
+    ).toBe(false);
     act(() => root.unmount());
   });
 

@@ -1,89 +1,70 @@
-import {
-  IconChevronRight,
-  IconChevronDown,
-  IconBrain,
-  IconTool,
-  IconGitBranch,
-  IconCheck,
-  IconLoader2,
-} from '@tabler/icons-react';
+import { IconChevronRight, IconChevronDown } from '@tabler/icons-react';
 import React, { useState, useMemo, useId } from 'react';
 
 import {
   consolidateSteps,
   ConsolidatedStep,
   formatDuration,
+  flattenSteps,
+  getOutcomeSummary,
+  OPERATION_LABELS,
 } from '@/utils/app/intermediateSteps';
 
-import {
-  IntermediateStep,
-  IntermediateStepCategory,
-} from '@/types/intermediateSteps';
+import { IntermediateStep } from '@/types/intermediateSteps';
 
 import { ModalSurface } from '@/components/surfaces';
 
+import { ActivityIcon } from './ActivityIcon';
 import { StepDetails } from './StepDetails';
 
 interface StepTimelineProps {
   steps: IntermediateStep[];
   isStreaming: boolean;
   isSearching?: boolean;
+  searchTerm?: string;
 }
 
 export const StepTimeline: React.FC<StepTimelineProps> = ({
   steps,
   isStreaming,
   isSearching = false,
+  searchTerm = '',
 }) => {
   const timelineId = useId();
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const [selectedStep, setSelectedStep] = useState<ConsolidatedStep | null>(
-    null,
-  );
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
 
   const consolidated = useMemo(
     () => consolidateSteps(steps, !isStreaming),
     [steps, isStreaming],
   );
 
+  const allOperations = useMemo(
+    () => flattenSteps(consolidated),
+    [consolidated],
+  );
+  const selectedStep = allOperations.find((step) => step.id === selectedStepId);
+  const filtered = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return consolidated;
+    const filter = (nodes: ConsolidatedStep[]): ConsolidatedStep[] =>
+      nodes.flatMap((node) => {
+        const children = filter(node.children);
+        const matches = `${node.friendlyName} ${
+          node.context || ''
+        } ${getOutcomeSummary(node)}`
+          .toLowerCase()
+          .includes(term);
+        return matches
+          ? [node]
+          : children.length
+          ? [{ ...node, children }]
+          : [];
+      });
+    return filter(consolidated);
+  }, [consolidated, searchTerm]);
   const showSkeleton = isStreaming && consolidated.length === 0;
-  const showEmptyState = !isStreaming && consolidated.length === 0;
-
-  const getCategoryIcon = (
-    category: IntermediateStepCategory,
-    status: 'active' | 'completed',
-  ) => {
-    if (status === 'active') {
-      return <IconLoader2 size={16} className="animate-spin" />;
-    }
-    switch (category) {
-      case IntermediateStepCategory.LLM:
-        return <IconBrain size={16} />;
-      case IntermediateStepCategory.TOOL:
-        return <IconTool size={16} />;
-      case IntermediateStepCategory.WORKFLOW:
-        return <IconGitBranch size={16} />;
-      default:
-        return <IconCheck size={16} />;
-    }
-  };
-
-  const getCategoryColor = (
-    category: IntermediateStepCategory,
-    status: 'active' | 'completed',
-  ) => {
-    if (status === 'active') return 'text-nvidia-green';
-    switch (category) {
-      case IntermediateStepCategory.LLM:
-        return 'text-nvidia-blue';
-      case IntermediateStepCategory.TOOL:
-        return 'text-nvidia-teal';
-      case IntermediateStepCategory.WORKFLOW:
-        return 'text-nvidia-purple';
-      default:
-        return 'text-muted';
-    }
-  };
+  const showEmptyState = filtered.length === 0 && !showSkeleton;
 
   const toggleNode = (id: string) => {
     setExpandedNodes((prev) => {
@@ -101,9 +82,9 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
     step: ConsolidatedStep,
     depth: number = 0,
   ): React.ReactNode => {
-    const isExpanded = expandedNodes.has(step.id);
+    const isExpanded = expandedNodes.has(step.id) || Boolean(searchTerm.trim());
     const hasChildren = step.children.length > 0;
-    const isActive = step.status === 'active';
+    const isActive = step.status === 'active' || step.status === 'retrying';
 
     return (
       <div key={step.id} className="group/step">
@@ -143,18 +124,21 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
             className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded-lg px-2 py-3 text-left hover:bg-fill/5"
             onClick={(event) => {
               event.currentTarget.focus({ preventScroll: true });
-              setSelectedStep(step);
+              setSelectedStepId(step.id);
             }}
           >
             {/* Category icon */}
             <span
               aria-hidden="true"
-              className={`mt-1 flex-shrink-0 ${getCategoryColor(
-                step.category,
-                step.status,
-              )}`}
+              className={`mt-1 flex-shrink-0 ${
+                step.status === 'failed'
+                  ? 'text-error'
+                  : isActive
+                  ? 'text-primary motion-safe:animate-pulse'
+                  : 'text-muted'
+              }`}
             >
-              {getCategoryIcon(step.category, step.status)}
+              <ActivityIcon step={step} status={step.status} />
             </span>
 
             {/* Name and context */}
@@ -171,19 +155,24 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
                   {step.context}
                 </span>
               )}
+              {step.endStep && (
+                <span className="mt-1 block text-xs text-muted">
+                  {getOutcomeSummary(step)}
+                </span>
+              )}
             </span>
 
-            {/* Duration or active indicator */}
-            <span className="flex-shrink-0 ml-auto">
-              {isActive ? (
-                <span className="text-xs text-nvidia-green font-medium">
-                  working...
-                </span>
-              ) : step.duration ? (
-                <span className="text-xs text-muted">
+            <span className="ml-auto flex-shrink-0 text-right text-xs text-muted">
+              <span
+                className={step.status === 'failed' ? 'text-error' : undefined}
+              >
+                {OPERATION_LABELS[step.status]}
+              </span>
+              {step.duration !== undefined && (
+                <span className="mt-1 block tabular-nums">
                   {formatDuration(step.duration)}
                 </span>
-              ) : null}
+              )}
             </span>
           </button>
         </div>
@@ -215,7 +204,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
   if (showEmptyState) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-sm text-muted">
-        {isSearching
+        {isSearching || searchTerm.trim()
           ? 'No activity matches your search.'
           : 'No activity recorded yet.'}
       </div>
@@ -225,19 +214,20 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
   return (
     <div className="min-w-0">
       <div className="min-w-0 py-2 px-1 space-y-0.5">
-        {consolidated.map((step) => renderStep(step))}
+        {filtered.map((step) => renderStep(step))}
       </div>
 
       {selectedStep && (
         <ModalSurface
           open
-          onClose={() => setSelectedStep(null)}
+          onClose={() => setSelectedStepId(null)}
           aria-label={`${selectedStep.friendlyName} details`}
-          className="w-full max-w-3xl rounded-2xl border border-separator bg-panel"
+          className="flex max-h-[80dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-separator bg-panel"
         >
           <StepDetails
+            key={selectedStep.id}
             consolidatedStep={selectedStep}
-            onClose={() => setSelectedStep(null)}
+            onClose={() => setSelectedStepId(null)}
           />
         </ModalSurface>
       )}

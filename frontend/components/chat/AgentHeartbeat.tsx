@@ -1,102 +1,84 @@
 'use client';
 
-import {
-  IconBrain,
-  IconTool,
-  IconSearch,
-  IconPhoto,
-  IconCode,
-  IconWorldWww,
-} from '@tabler/icons-react';
-import { memo, useState, useEffect, useRef } from 'react';
+import { IconChevronRight } from '@tabler/icons-react';
+import { memo } from 'react';
 
-import { IntermediateStepCategory } from '@/types/intermediateSteps';
+import type {
+  ConsolidatedStep,
+  OperationStatus,
+} from '@/utils/app/intermediateSteps';
 
-import classNames from 'classnames';
+import { ActivityIcon } from '@/components/agent/ActivityIcon';
 
 interface AgentHeartbeatProps {
-  currentActivityText: string;
-  completedStepCategories: IntermediateStepCategory[];
+  label: string;
+  detail?: string;
+  elapsed?: string;
+  status: OperationStatus;
+  step?: ConsolidatedStep;
+  writing?: boolean;
+  expanded: boolean;
+  onClick: () => void;
 }
 
-const CATEGORY_ICONS: Partial<Record<string, React.ElementType>> = {
-  llm: IconBrain,
-  tool: IconTool,
-  search: IconSearch,
-  image: IconPhoto,
-  code: IconCode,
-  web: IconWorldWww,
-};
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}m ${s}s`;
-}
-
-/**
- * Agent streaming indicator with three warm dots and activity text.
- * Shown during active response generation.
- */
+/** One stable line opens the turn's activity without shifting the conversation. */
 export const AgentHeartbeat = memo(
-  ({ currentActivityText, completedStepCategories }: AgentHeartbeatProps) => {
-    const [elapsed, setElapsed] = useState(0);
-    const startRef = useRef(Date.now());
-
-    useEffect(() => {
-      startRef.current = Date.now();
-      setElapsed(0);
-      const timer = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
-      }, 1000);
-      return () => clearInterval(timer);
-    }, []);
-
-    const recentCategories = completedStepCategories.slice(-6);
-
-    return (
-      <div className="animate-morph-in">
-        {/* Activity row */}
-        <div className="flex items-center gap-2 px-3 py-2">
-          {/* Step category icons */}
-          <div className="flex items-center -space-x-1">
-            {recentCategories.map((cat, i) => {
-              const Icon =
-                CATEGORY_ICONS[String(cat).toLowerCase()] || IconTool;
-              return (
-                <span
-                  key={`${cat}-${i}`}
-                  className={classNames(
-                    'w-5 h-5 rounded-full flex items-center justify-center',
-                    'bg-panel text-primary',
-                  )}
-                >
-                  <Icon size={12} />
-                </span>
-              );
-            })}
-          </div>
-
-          <span className="typing-indicator" aria-hidden="true">
-            <span className="typing-dot" />
-            <span className="typing-dot" />
-            <span className="typing-dot" />
-          </span>
-
-          {/* Activity text */}
-          <span className="text-xs text-dark-text-muted truncate flex-1">
-            {currentActivityText || 'Thinking...'}
-          </span>
-
-          {/* Elapsed timer */}
-          <span className="text-xs font-mono flex-shrink-0 text-secondary">
-            {formatElapsed(elapsed)}
-          </span>
-        </div>
-      </div>
-    );
-  },
+  ({
+    label,
+    detail,
+    elapsed,
+    status,
+    step,
+    writing,
+    expanded,
+    onClick,
+  }: AgentHeartbeatProps) => (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.currentTarget.focus({ preventScroll: true });
+        onClick();
+      }}
+      aria-label={`${label}${
+        detail ? ` · ${detail}` : ''
+      }. View agent activity`}
+      aria-haspopup="dialog"
+      aria-expanded={expanded}
+      className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-secondary hover:bg-fill/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:min-h-8"
+    >
+      <span
+        className={
+          status === 'failed'
+            ? 'text-error'
+            : status === 'active' || status === 'retrying'
+            ? 'text-primary motion-safe:animate-pulse'
+            : 'text-muted'
+        }
+      >
+        <ActivityIcon step={step} status={status} writing={writing} />
+      </span>
+      <span
+        className="min-w-0 flex-1 truncate"
+        title={[label, detail].filter(Boolean).join(' · ')}
+      >
+        {label}
+        {detail && <span className="text-muted"> · {detail}</span>}
+      </span>
+      {elapsed && (
+        <span
+          aria-hidden="true"
+          className="flex-shrink-0 tabular-nums text-muted"
+        >
+          {elapsed}
+        </span>
+      )}
+      <IconChevronRight
+        size={14}
+        className="flex-shrink-0"
+        aria-hidden="true"
+      />
+    </button>
+  ),
 );
 
 AgentHeartbeat.displayName = 'AgentHeartbeat';

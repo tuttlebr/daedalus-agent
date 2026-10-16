@@ -4,6 +4,8 @@ import { memo } from 'react';
 
 import { Message } from '@/types/chat';
 
+import type { ActivityProgress } from '@/components/agent/IntermediateSteps';
+
 import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
 
@@ -11,6 +13,7 @@ interface MessageBubbleProps {
   message: Message;
   messageIndex: number;
   isStreaming?: boolean;
+  activityProgress?: ActivityProgress;
   onRetry?: () => void;
 }
 
@@ -22,6 +25,7 @@ export const MessageBubble = memo(
     message,
     messageIndex,
     isStreaming = false,
+    activityProgress,
     onRetry,
   }: MessageBubbleProps) => {
     // Skip empty messages
@@ -39,6 +43,7 @@ export const MessageBubble = memo(
       !hasSteps &&
       !hasAttachments &&
       !message.errorMessages?.message &&
+      !message.metadata?.stopped &&
       !isStreaming
     ) {
       return null;
@@ -66,6 +71,7 @@ export const MessageBubble = memo(
         message={message}
         messageIndex={messageIndex}
         isStreaming={isStreaming}
+        activityProgress={activityProgress}
         onRetry={onRetry}
       />
     );
