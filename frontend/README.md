@@ -2,7 +2,8 @@
 
 Next.js 15 frontend for Daedalus. It owns authentication, browser chat
 orchestration, multimodal uploads, conversation persistence, real-time updates,
-and PWA behavior on top of the NeMo Agent Toolkit backend.
+and PWA behavior on top of the Rust agent runtime and Python leaf tool service.
+See the [current architecture](../docs/architecture.md) for backend ownership.
 
 ## What It Does
 

@@ -100,6 +100,25 @@ rollout; extending timeouts alone cannot make runs restartable. If resumable
 execution becomes necessary, checkpoint tool receipts and unresolved mutations
 before designing replay or adoption.
 
+## Deployment verification
+
+The runtime change was committed as `16d977d` and deployed as Helm revision 78.
+All six application deployments became available and application image digests
+matched the release evidence. The mounted workflow verified scrape concurrency
+4 and all five newly deferred groups. A normal automatic-selection clock
+request completed through the live model and Rust tool path in 1.52 seconds.
+
+Forced clock selection exposed a separate provider behavior: even when given
+an empty-object schema and explicit instructions, the gateway/model proposed
+`{"arguments":"{}"}`. The strict validator rejected it and terminated after
+the bounded correction attempt. A direct synthetic request to the model
+endpoint reproduced the wrapper without the agent runtime. This identifies
+the upstream proposal as the source of the invalid shape; it does not isolate
+the gateway from its model. Automatic tool selection succeeded. The runtime
+continues to reject unsupported arguments rather than silently reinterpret
+them. Both preparation modes passed the built-image named-tool contracts
+against the scripted provider.
+
 ## Reproduce and validate
 
 Read logs locally and project only content-free fields. The full log can

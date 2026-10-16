@@ -1,5 +1,11 @@
 # Daedalus skills architecture review
 
+This is the historical October 3 review. Its validation counts, failures and
+NeMo Agent Toolkit references describe that snapshot, not the current release.
+The current backend uses Rust for orchestration and native skill loading, with
+a Python leaf service and explicit preparation fallback. See the
+[current architecture](architecture.md) and [runtime ownership](rust-migration.md).
+
 Reviewed on 2026-10-03 against the current application source and a locally built
 backend image. The complete catalog contains **17 skills, 83 bundled resources,
 and 6 Python helpers**. The review covers every entrypoint, supporting resource,
