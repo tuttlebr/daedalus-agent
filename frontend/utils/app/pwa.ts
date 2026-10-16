@@ -99,18 +99,3 @@ export const clearPrivateCaches = async (): Promise<void> => {
     }
   }
 };
-
-export const setupOfflineDetection = (
-  onOffline?: () => void,
-  onOnline?: () => void,
-) => {
-  window.addEventListener('offline', () => {
-    console.log('App is offline');
-    onOffline?.();
-  });
-
-  window.addEventListener('online', () => {
-    console.log('App is back online');
-    onOnline?.();
-  });
-};

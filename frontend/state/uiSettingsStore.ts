@@ -212,9 +212,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
   ),
 );
 
-export const useLightMode = () =>
-  useUISettingsStore((state) => state.lightMode);
-
 // ============================================================================
 // DevTools
 // ============================================================================

@@ -1,8 +1,10 @@
 """Contract checks between backend YAML and custom tool signatures."""
 
 import ast
+import hashlib
 import json
 import re
+import ssl
 import sys
 import tomllib
 from pathlib import Path
@@ -410,6 +412,19 @@ def test_backend_build_context_excludes_local_generated_metadata():
     assert "**/*.egg-info/" in dockerignore
     assert "**/__pycache__/" in dockerignore
     assert "tests/" in dockerignore
+
+
+def test_public_http_trust_bundle_matches_its_frozen_provenance():
+    resources = DOCKERFILE.parent / "runtime" / "resources"
+    provenance = json.loads((resources / "public-http.json").read_text())
+    bundle = resources / "public-ca.pem"
+    pem = bundle.read_bytes()
+
+    assert hashlib.sha256(pem).hexdigest() == provenance["certifi_sha256"]
+    assert b"PRIVATE KEY" not in pem
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_verify_locations(cafile=bundle)
+    assert context.cert_store_stats()["x509_ca"] > 100
 
 
 def test_local_packages_declare_every_direct_runtime_import():

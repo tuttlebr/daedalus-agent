@@ -1,7 +1,6 @@
 """Freeze the model-facing document adapter's schemas and response formatting.
 
-Run with --network none in the immutable baseline for legacy schemas, or with
---configured and the retained Python revision for current operation contracts.
+Run with --network none in the retained Python image for current operation contracts.
 This captures adapter contracts only; actual service acceptance is separate.
 """
 
@@ -18,7 +17,8 @@ from unittest.mock import patch
 from export_authorization import BASELINE, fixture_strings
 
 
-async def export(root, revision, configured):
+async def export(root, revision):
+    import daedalus_runtime.tool_contracts as contracts
     import daedalus_runtime.tools as definitions
     import pydantic
     from daedalus_runtime.retrieval import Document
@@ -30,8 +30,7 @@ async def export(root, revision, configured):
         async with contextlib.asynccontextmanager(document.nv_ingest_function)(
             default, None
         ) as tool:
-            if configured:
-                tool.configure_contract("nat_nv_ingest", default)
+            tool.configure_contract("nat_nv_ingest", default)
             schema = tool.schema("user_documents")
             reference = {
                 "documentId": "synthetic-document",
@@ -97,7 +96,7 @@ async def export(root, revision, configured):
             ]
             validation = []
             for raw in inputs:
-                errors = list(tool.validator.iter_errors(raw))[:8] if configured else []
+                errors = list(tool.validator.iter_errors(raw))[:8]
                 if errors:
                     expected = {
                         "contract_errors": [
@@ -263,21 +262,15 @@ async def export(root, revision, configured):
 
     identity = {
         "retained_revision": revision,
-        "configured_contract": configured,
+        "configured_contract": True,
         "pydantic": pydantic.__version__,
         "source_sha256": {
             module.__name__: hashlib.sha256(
                 Path(module.__file__).read_bytes()
             ).hexdigest()
-            for module in [document, definitions]
+            for module in [document, definitions, contracts]
         },
     }
-    if configured:
-        import daedalus_runtime.tool_contracts as contracts
-
-        identity["source_sha256"][contracts.__name__] = hashlib.sha256(
-            Path(contracts.__file__).read_bytes()
-        ).hexdigest()
     resource = {
         **identity,
         "schema": schema,
@@ -291,10 +284,9 @@ async def export(root, revision, configured):
         "environment_defaults": environment_defaults,
         "formatting": formatting,
     }
-    stem = "document-tools" if configured else "document-tools-legacy"
     for path, value in [
-        (root / f"resources/{stem}.json", resource),
-        (root / f"tests/fixtures/{stem}.json", fixture_strings(fixtures)),
+        (root / "resources/document-tools.json", resource),
+        (root / "tests/fixtures/document-tools.json", fixture_strings(fixtures)),
     ]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
@@ -303,11 +295,10 @@ async def export(root, revision, configured):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--revision", default=BASELINE)
-    parser.add_argument("--configured", action="store_true")
+    parser.add_argument("--revision", required=True)
     args = parser.parse_args()
-    if args.configured and args.revision == BASELINE:
+    if args.revision == BASELINE:
         parser.error(
             "The baseline predates operation contracts; specify the retained revision"
         )
-    asyncio.run(export(args.root, args.revision, args.configured))
+    asyncio.run(export(args.root, args.revision))

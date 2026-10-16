@@ -130,15 +130,6 @@ export async function getSession(
   return session;
 }
 
-// Check if user is authenticated
-async function isAuthenticated(
-  req: NextApiRequest,
-  res: NextApiResponse,
-): Promise<boolean> {
-  const session = await getSession(req, res);
-  return session !== null;
-}
-
 // Destroy session
 export async function destroySession(
   req: NextApiRequest,
@@ -151,19 +142,4 @@ export async function destroySession(
   // Expire the cookie too, so the browser does not keep presenting a sid that a
   // subsequent login would otherwise rebind to a new session.
   clearSessionCookie(req, res);
-}
-
-// Middleware to protect API routes
-export function requireAuth(
-  handler: (req: NextApiRequest, res: NextApiResponse) => Promise<void>,
-) {
-  return async (req: NextApiRequest, res: NextApiResponse) => {
-    const authenticated = await isAuthenticated(req, res);
-
-    if (!authenticated) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    return handler(req, res);
-  };
 }

@@ -189,13 +189,6 @@ export async function listGoals(userId: string): Promise<AutonomyGoal[]> {
   return getList<AutonomyGoal>(userId, 'goals');
 }
 
-export async function saveGoals(
-  userId: string,
-  goals: AutonomyGoal[],
-): Promise<void> {
-  await mutateGoals(userId, () => goals);
-}
-
 export async function mutateGoals(
   userId: string,
   mutate: (goals: AutonomyGoal[]) => AutonomyGoal[],

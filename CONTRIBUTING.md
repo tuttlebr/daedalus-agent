@@ -15,7 +15,6 @@ license](LICENSE).
 For a bug, include the commit, setup you used, steps to reproduce, expected
 behavior, and actual behavior. Mention which backend configuration and optional
 services are involved. Redact credentials and personal content from logs.
-For security issues, see [SECURITY.md](SECURITY.md).
 
 For a substantial feature or new dependency, open an issue describing the use
 case and proposed approach before investing in a large implementation. Small

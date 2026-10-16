@@ -1,6 +1,5 @@
 *~
 ._*
-._*
 *$py.class
 *.7z
 .apdisk
@@ -16,7 +15,6 @@ autonomous-images/
 *.backup
 *.bak
 build/
-.cache/
 .cache/
 Cargo.lock
 .classpath
@@ -36,7 +34,6 @@ coverage.xml
 custom-backend/
 *.db
 Desktop.ini
-dist/
 dist/
 *.dll
 .dmypy.json
@@ -107,6 +104,7 @@ out/
 .pdm-python
 .pdm.toml
 *.pem
+!builder/runtime/resources/public-ca.pem
 pip-delete-this-directory.txt
 pip-log.txt
 .planning/
@@ -131,7 +129,6 @@ secrets/
 .settings/
 skill.oms.sig
 skills-workspace/
-*.so
 *.so
 .Spotlight-V100
 *.sqlite

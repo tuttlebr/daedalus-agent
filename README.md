@@ -44,7 +44,6 @@ the initial build includes substantial Python dependencies.
 | Understand the request path and find code to change | [Architecture and adaptation](docs/architecture.md)                               |
 | Add integrations or adapt my home deployment        | [Operations reference](docs/operations.md), [Helm guide](helm/daedalus/README.md) |
 | Fix a bug or contribute an improvement              | [Contributing](CONTRIBUTING.md)                                                   |
-| Understand security boundaries or report an issue   | [Security](SECURITY.md)                                                           |
 
 ## Local setup
 

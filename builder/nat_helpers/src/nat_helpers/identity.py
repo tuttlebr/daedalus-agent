@@ -120,14 +120,6 @@ def request_id_from_context_or_none() -> str | None:
     return request_id or None
 
 
-def conversation_id_from_context_or_none() -> str | None:
-    try:
-        conversation_id = trusted_request_header_from_context("x-conversation-id")
-    except Exception:
-        return None
-    return conversation_id or None
-
-
 def approval_token_from_context() -> str:
     """Read the worker-supplied approval credential from trusted HTTP metadata.
 

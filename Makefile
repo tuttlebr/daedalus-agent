@@ -119,8 +119,8 @@ migration: migration-baseline ## differential, Python-free MCP/OAuth, TLS/ACL an
 	$(MIGRATION_PYTHON) builder/migration/document_workers_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/document-workers.json
 	$(MIGRATION_PYTHON) builder/migration/authorization_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --report $(MIGRATION_REPORT_DIR)/authorization.json
 
-candidate-browser: ## real frontend/stream worker against the Python-free candidate image
-	cd frontend && E2E_CANDIDATE_IMAGE=$(MIGRATION_MINIMAL_IMAGE) E2E_CANDIDATE_REDIS_IMAGE=$(MIGRATION_REDIS_IMAGE) E2E_MILVUS_PEER_IMAGE=$(MIGRATION_BASELINE_IMAGE) E2E_PYTHON=$(MIGRATION_PYTHON) npm run e2e -- --project=chromium
+candidate-browser: ## real frontend/stream worker against the full deployable candidate image
+	cd frontend && E2E_CANDIDATE_IMAGE=$(RUNTIME_IMAGE) E2E_CANDIDATE_REDIS_IMAGE=$(MIGRATION_REDIS_IMAGE) E2E_MILVUS_PEER_IMAGE=$(MIGRATION_BASELINE_IMAGE) E2E_PYTHON=$(MIGRATION_PYTHON) npm run e2e -- --project=chromium
 
 migration-benchmark: ## frozen synthetic performance gates; run on an idle host after make migration
 	$(MIGRATION_PYTHON) builder/migration/benchmark.py --baseline $(MIGRATION_BASELINE_IMAGE) --candidate $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --output $(MIGRATION_REPORT_DIR)/performance

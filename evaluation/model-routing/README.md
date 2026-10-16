@@ -1,9 +1,14 @@
 # Frozen routing workload
 
-This is historical evidence from the NeMo runtime. Reproduce these published
-results using the original image recorded in `provenance.json` and the archived
-runner in `legacy/`. It is not a benchmark of the current Rust runtime. Use
-`builder/runtime_http_check.py` for current runtime integration checks.
+This directory preserves historical evidence from the retired NeMo runtime.
+The obsolete evaluator has been removed; its source remains in Git history at
+`987e57f:evaluation/model-routing/legacy/evaluate_model_routing.py`. Reproducing
+these results requires that evaluator and the original image recorded in
+`provenance.json`. The current backend does not include its NeMo dependencies.
+
+Use `builder/runtime_http_check.py` for current runtime integration checks and
+[the Rust migration guide](../../docs/rust-migration.md) for current performance
+measurements. The JSON results here do not benchmark the Rust runtime.
 
 Frozen before candidate comparison on 2026-09-16: 24 synthetic tasks covering
 routine lookups, daily-summary selection, fantasy finality and score arithmetic,
@@ -46,15 +51,7 @@ model pages. They are standard token-price estimates, not an invoice, and exclud
 infrastructure charges. Fixture tools perform no model calls; the recorded
 main-agent calls therefore cover all model costs in this controlled workload.
 
-## Reproduce
-
-First build the backend image and run its deterministic HTTP checks as described
-in [the operator guide](../../docs/model-routing.md#verification). Prepare three
-reachable Switchyard endpoints using the routes/targets recorded in
-`provenance.json`: deployed baseline, isolated proposed policy and isolated
-DeepSeek low/high alternative. Supply the normal transport and credentials
-through each gateway's existing configuration mechanism. Never change production
-policy merely to run this evaluation.
+## Provider compatibility
 
 The compatibility probe uses only the Python standard library:
 
@@ -64,34 +61,12 @@ python3 scripts/smoke_model_routing.py \
 ```
 
 Set `OPENAI_API_KEY` in the environment if the gateway requires authentication.
-The evaluator uses packages installed in the backend image and writes bounded
-results after every completed sample:
-
-```bash
-mkdir -p /tmp/routing-results
-docker run --rm --network host --entrypoint python \
-  --user "$(id -u):$(id -g)" -e OPENAI_API_KEY \
-  -v "$PWD/evaluation/model-routing/legacy/evaluate_model_routing.py:/evaluation_runner.py:ro" \
-  -v "$PWD/evaluation/model-routing:/evaluation:ro" \
-  -v /tmp/routing-results:/results \
-  ORIGINAL_NEMO_BACKEND_IMAGE /evaluation_runner.py \
-  --fixtures /evaluation \
-  --baseline-url http://127.0.0.1:14000/v1 \
-  --proposed-url http://127.0.0.1:14001/v1 \
-  --deepseek-url http://127.0.0.1:14002/v1 \
-  --output /results/results.json --repeats 2
-```
-
-`--resume` preserves completed samples and rejects changed task or price
-assumptions. If a process is interrupted during a provider call, record that
-candidate's unmeasured attempt under `harness_interruptions` in the saved report;
-its total cost must remain unknown. A timeout does not authorize silently
-discarding attempts or restarting the entire comparison.
+This checks the provider transport; it does not rerun the historical workload.
 
 The saved run's JSON schema describes nullable winner fields as `string or null`
 without revealing the expected value. One in-flight attempt was interrupted to
 correct this schema description before any winner task ran; all 20 unaffected
 completed samples were retained. Its unmeasured cost remains in the report.
 Canonical JSON task hashes identify the frozen content independently of
-formatting. Results and deployment limitations are discussed in the
-[verification report](../../docs/model-routing-validation.md).
+formatting. Preserve the recorded interruption and unknown cost when interpreting
+the saved results.

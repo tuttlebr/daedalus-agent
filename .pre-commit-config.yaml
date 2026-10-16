@@ -78,9 +78,7 @@ repos:
         entry: bash -c 'cd frontend && node node_modules/prettier/bin-prettier.js --config prettier.config.js --write "${@/#/../}"' --
         language: system
         files: \.(css|html|js|jsx|json|md|ts|tsx|yaml|yml)$
-        # Preserve the original review evidence byte-for-byte. This exception
-        # applies only to formatting; secret and integrity hooks still run.
-        exclude: '(^helm/.*/templates/)|(^charts/.*/templates/)|(^REVIEW_(REPORT|COVERAGE|VALIDATION)\.md$)'
+        exclude: '(^helm/.*/templates/)|(^charts/.*/templates/)'
       - id: helm-lint-daedalus
         name: Helm lint daedalus (if helm installed)
         entry: "bash -c 'command -v helm >/dev/null 2>&1 || exit 0; helm lint helm/daedalus'"

@@ -23,7 +23,6 @@ export {
 // UI Settings Store
 export {
   useUISettingsStore,
-  useLightMode,
   // Types
   type UISettingsState,
   type UISettingsActions,

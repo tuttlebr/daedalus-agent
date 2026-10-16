@@ -86,13 +86,6 @@ interface ImageJobStatus {
   completedAt?: number;
 }
 
-export async function loadImageHistory(): Promise<HistoryEntry[]> {
-  const res = await fetch('/api/images/history', { credentials: 'include' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as { history?: HistoryEntry[] };
-  return Array.isArray(data.history) ? data.history : [];
-}
-
 function generatedRef(
   image: Pick<GalleryImage, 'imageId' | 'params'>,
 ): ImageRef {

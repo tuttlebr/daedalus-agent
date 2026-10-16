@@ -580,27 +580,6 @@ class HindsightClient:
             params=params,
         )
 
-    async def delete_documents_with_tag(self, *, user_id: str, tag: str) -> int:
-        deleted = 0
-        while True:
-            page = await self.list_documents(
-                user_id=user_id,
-                limit=100,
-                offset=0,
-                tags=[tag],
-            )
-            items = page.get("items", [])
-            document_ids = [
-                str(item.get("id", ""))
-                for item in items
-                if isinstance(item, dict) and str(item.get("id", "")).strip()
-            ]
-            if not document_ids:
-                return deleted
-            for document_id in document_ids:
-                await self.delete_document(user_id=user_id, document_id=document_id)
-                deleted += 1
-
     async def get_document(
         self,
         *,
