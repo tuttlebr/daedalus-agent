@@ -114,14 +114,22 @@ class ResponsePeers(Peers):
                     for item in inputs
                     if item.get("type") == "function_call_output"
                 ]
-                if len(results) < 2 and peers.mode != "stream":
+                if len(results) < 2 and peers.mode not in ("stream", "stream_retry"):
                     items = [
-                        message("Unwanted tool-round commentary. "),
+                        message(
+                            ("First update.", "Second update.")[len(results)]
+                            if peers.mode == "boundaries"
+                            else "Unwanted tool-round commentary. "
+                        ),
                         call("current_datetime_tool", {}, str(len(results))),
                     ]
+                    if peers.mode == "silent":
+                        items = items[1:]
                 else:
                     directed = "REVISED_VALUE" in json.dumps(inputs)
                     text = "REVISED_VALUE" if directed else "FINAL_VALUE"
+                    if peers.mode == "stream_retry":
+                        text = "keeper" if peers.failed_once else "Book"
                     if peers.mode == "final_prose":
                         text = "Extra final prose. " + text
                     if peers.mode == "oversized":
@@ -140,7 +148,10 @@ class ResponsePeers(Peers):
 
                     if not send_item(self, items[0], 0, pause=pause):
                         return
-                    if peers.mode == "retry" and not peers.failed_once:
+                    if (
+                        peers.mode in ("retry", "stream_retry")
+                        and not peers.failed_once
+                    ):
                         peers.failed_once = True
                         self.event(
                             {
@@ -175,6 +186,32 @@ def check(image, redis_image):
                 "DAEDALUS_AUTHORIZATION": preparation,
             },
         ) as env:
+            for fields in ({}, {"response_mode": "streaming"}):
+                peers.reset("boundaries")
+                result = measure(env, request_fields=fields)
+                require(
+                    result["answer"]
+                    == "First update.\n\nSecond update.\n\nFINAL_VALUE",
+                    "Separate model rounds ran together in the visible answer",
+                )
+                require(
+                    result["terminal"] == "stop" and len(result["starts"]) == 2,
+                    "Boundary fixture did not complete its tool rounds",
+                )
+            peers.reset("silent")
+            result = measure(env)
+            require(
+                result["answer"] == "FINAL_VALUE",
+                "Silent tool rounds added empty paragraphs",
+            )
+            peers.reset("stream_retry")
+            result = measure(env)
+            require(
+                result["answer"] == "Bookkeeper"
+                and result["terminal"] == "stop"
+                and len(peers.requests) == 2,
+                "Retry inserted a paragraph inside a continued word",
+            )
             for explicit in (False, True):
                 peers.reset("tools")
                 result = measure(
@@ -252,19 +289,34 @@ def check(image, redis_image):
                     "Normal streaming or final-only withholding regressed",
                 )
                 require(result["answer"] == "FINAL_VALUE", "Stream text lost")
-            for control in ("steer", "cancel"):
+            for control, final_only in (
+                ("steer", True),
+                ("cancel", True),
+                ("steer", False),
+                ("cancel", False),
+            ):
                 peers.reset(control)
                 run_id = str(uuid.uuid4())
+                visible_final = threading.Event()
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     future = pool.submit(
                         measure,
                         env,
-                        message="Return only the final value.",
+                        message="Return only the final value."
+                        if final_only
+                        else "Execute the synthetic fixture plan.",
                         request_id=run_id,
+                        on_text=lambda text: visible_final.set()
+                        if text == "FINAL"
+                        else None,
                     )
                     require(
                         peers.model_waiting.wait(10),
                         "Model did not reach control barrier",
+                    )
+                    require(
+                        final_only or visible_final.wait(2),
+                        "Partial answer was not visible before control",
                     )
                     command = {"type": control, "command_id": str(uuid.uuid4())}
                     if control == "steer":
@@ -283,9 +335,18 @@ def check(image, redis_image):
                     len(result["starts"]) == 2 and peers.model_disconnected.wait(2),
                     "Control replayed tools or left provider running",
                 )
+                expected = (
+                    ""
+                    if final_only
+                    else (
+                        "Unwanted tool-round commentary. \n\n"
+                        "Unwanted tool-round commentary. \n\nFINAL"
+                    )
+                )
+                if control == "steer":
+                    expected += ("" if final_only else "\n\n") + "REVISED_VALUE"
                 require(
-                    result["answer"] == ("REVISED_VALUE" if control == "steer" else ""),
-                    "Stale text survived control",
+                    result["answer"] == expected, "Control lost visible text boundaries"
                 )
             peers.reset("heartbeat")
             result = measure(env, message="Return only the final value.")
@@ -303,7 +364,7 @@ def check(image, redis_image):
                 trust_env=False,
             )
             require(bad.status_code == 400, "Invalid presentation mode accepted")
-            report.append({"preparation": preparation, "passed": True, "cases": 13})
+            report.append({"preparation": preparation, "passed": True, "cases": 19})
     return report
 
 

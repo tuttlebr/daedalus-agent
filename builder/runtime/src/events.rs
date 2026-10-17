@@ -9,6 +9,34 @@ pub struct Events {
     pub sender: mpsc::Sender<Bytes>,
 }
 
+/// Text within one model response is tokenized arbitrarily. Separate completed
+/// response blocks at the source, where model/tool boundaries are still known;
+/// downstream consumers can then append every delta verbatim.
+#[derive(Default)]
+pub struct ResponseText {
+    emitted: bool,
+    separate: bool,
+}
+
+impl ResponseText {
+    pub fn begin_block(&mut self) {
+        self.separate = self.emitted;
+    }
+
+    pub async fn delta(&mut self, events: &Events, content: &str) -> Result<()> {
+        if content.is_empty() {
+            return Ok(());
+        }
+        if self.separate {
+            events.delta("\n\n").await?;
+            self.separate = false;
+        }
+        events.delta(content).await?;
+        self.emitted = true;
+        Ok(())
+    }
+}
+
 impl Events {
     pub async fn raw(&self, data: String) -> Result<()> {
         self.sender

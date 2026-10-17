@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::control::{Command, RunHandle};
-use crate::events::Events;
+use crate::events::{Events, ResponseText};
 use crate::logging::{Phase, label};
 
 #[derive(Deserialize, Serialize)]
@@ -300,6 +300,7 @@ impl Agent {
         let mut decode_recoveries = 0;
         let mut retrying_decode = false;
         let mut resume_text = false;
+        let mut response_text = ResponseText::default();
         let mut briefing_text_fallback = false;
         let mut briefing_fallback_started = false;
         let mut executor_states: HashMap<String, Value> = HashMap::new();
@@ -318,6 +319,11 @@ impl Agent {
             self.drain().await?;
             for (_, instruction) in &self.pending {
                 response_policy.observe_user(instruction);
+            }
+            // A retry continues already visible text, potentially mid-word.
+            // Tool rounds and steering instead begin a new response block.
+            if !resume_text || !self.pending.is_empty() {
+                response_text.begin_block();
             }
             self.apply(&mut history).await?;
             iterations += 1;
@@ -463,7 +469,7 @@ impl Agent {
                                 }
                                 partial.push_str(&text);
                                 if !withhold_text {
-                                    self.events.delta(&text).await?;
+                                    response_text.delta(&self.events, &text).await?;
                                     last_activity = Instant::now();
                                 } else if last_activity.elapsed() >= Duration::from_secs(15) {
                                     self.events.raw(": model active\n\n".into()).await?;
@@ -635,7 +641,7 @@ impl Agent {
                     bail!("Model completed without an answer");
                 }
                 if withhold_text {
-                    self.events.delta(&partial).await?;
+                    response_text.delta(&self.events, &partial).await?;
                 }
                 self.events.finish("stop").await?;
                 return Ok(());
@@ -918,7 +924,8 @@ impl Agent {
                         .event("mcp_approval_required", json!({"marker":content}))
                         .await?;
                 }
-                self.events.delta(&content).await?;
+                response_text.begin_block();
+                response_text.delta(&self.events, &content).await?;
                 self.events
                     .finish(if reason == "mcp_approval_required" {
                         "mcp_approval_required"

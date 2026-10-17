@@ -127,6 +127,12 @@ Tool events and activity heartbeats still arrive during execution. Ordinary chat
 continues to stream; explicit streaming also overrides auto detection. Existing
 tool-choice withholding and approval boundaries still apply.
 
+Ordinary streaming separates successive model rounds and terminal tool output
+with paragraph breaks. The runtime owns these boundaries; the stream worker and
+browser append its deltas verbatim. Chunks within a round and retries continuing
+already visible text remain contiguous, including words split across chunks.
+Silent or withheld rounds add no empty paragraphs.
+
 The buffer is capped at 1 MiB; exceeding it fails the run. Final-only presentation
 delays the first answer text until completion. It does not validate JSON, remove
 prose from the final answer, prove factual correctness or grant tool permissions.
