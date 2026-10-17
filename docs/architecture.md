@@ -198,6 +198,10 @@ user or conversation identifiers.
 
 ## Where to change things
 
+The [focused Harness2 review](harness-improvement-review.md) proposes model
+capability gates, configuration-aware evaluations and recoverable research
+context, with evidence and acceptance criteria for each change.
+
 | Behavior                                                                 | Entry points                                                                                       |
 | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | Model/tool rounds, steering, retries and call binding                    | `builder/runtime/src/agent.rs`, `control.rs`, `provider.rs`                                        |

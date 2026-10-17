@@ -390,6 +390,7 @@ def measure(
         "ends": [],
         "terminal": None,
         "errors": [],
+        "answer": "",
         "done": False,
         "peak_tools": 0,
     }
@@ -459,6 +460,7 @@ def measure(
                     if event_type == "error":
                         result["errors"].append(event)
                     for choice in event.get("choices", []):
+                        result["answer"] += choice.get("delta", {}).get("content", "")
                         if choice.get("daedalus_terminal"):
                             result["terminal"] = choice["finish_reason"]
     result["latency_ms"] = (time.monotonic() - started) * 1000

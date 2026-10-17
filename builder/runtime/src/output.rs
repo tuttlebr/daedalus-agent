@@ -479,7 +479,8 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
     }
     let reference = reference(content);
     let mut envelope = None;
-    if tool == "curated_feed_search_tool"
+    if (tool == "curated_feed_search_tool"
+        || (tool == "webscrape_tool" && value["output_mode"] == "research"))
         && value["success"] == true
         && value["source"].is_object()
         && let Some(article) = value["content"].as_str()
@@ -575,6 +576,67 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
 #[cfg(test)]
 mod retrieval_tests {
     use super::*;
+
+    #[test]
+    fn research_preview_is_explicit_and_recovers_unicode_evidence() {
+        let config = Config::new(json!({"llms":{"main":{"base_url":"http://model.invalid", "model_name":"fixture"}}, "workflow":{"_type":"daedalus_rust_agent", "llm_name":"main"}}), Default::default()).unwrap();
+        let settings = Settings::new(&config);
+        let article = format!(
+            "{}雪🌲HIDDEN_MARKER{}",
+            "Neutral material. ".repeat(1400),
+            "More context. ".repeat(1200)
+        );
+        let mut source = json!({"success":true, "source":{"url":"https://source.test/article"}, "output_mode":"research", "content":article});
+        let original = source.to_string();
+        let (_, compacted) = preview(&original, "webscrape_tool", "summarize article", &settings);
+        let compacted = compacted.unwrap();
+        assert!(chars(&compacted) < chars(&original) / 2);
+        assert!(!compacted.contains("HIDDEN_MARKER"));
+        let value: Value = serde_json::from_str(&compacted).unwrap();
+        assert_eq!(value[MARKER]["reference"], reference(&original));
+        assert_eq!(value["preview"]["source"], source["source"]);
+        for excerpt in value["preview"]["excerpts"].as_array().unwrap() {
+            assert_eq!(
+                excerpt["text"],
+                text_range(
+                    &article,
+                    excerpt["start_offset"].as_u64().unwrap() as usize,
+                    excerpt["end_offset"].as_u64().unwrap() as usize
+                )
+            );
+        }
+        assert!(
+            preview(
+                &original,
+                "webscrape_tool",
+                "read every word verbatim",
+                &settings
+            )
+            .1
+            .is_none()
+        );
+        assert!(
+            preview(&original, "unrelated_tool", "summarize", &settings)
+                .1
+                .is_none()
+        );
+        source["output_mode"] = json!("full");
+        assert!(
+            preview(
+                &source.to_string(),
+                "webscrape_tool",
+                "summarize",
+                &settings
+            )
+            .1
+            .is_none()
+        );
+        assert!(
+            preview(&article, "webscrape_tool", "summarize", &settings)
+                .1
+                .is_none()
+        );
+    }
 
     fn encoded(content: &[u8]) -> Vec<u8> {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::new(3));

@@ -21,6 +21,17 @@ from pathlib import Path
 
 import httpx
 import yaml
+from experiment import (
+    digest,
+    distractors,
+    overlay,
+    require_stable_route,
+    route_bytes,
+    route_digest,
+    target_metadata,
+    workflow_cases,
+)
+from gateway import handler as gateway_handler
 
 RECORDS = {"alpha": ("rec-a913", "COPPER"), "bravo": ("rec-b726", "SILVER")}
 SCHEMAS = [
@@ -149,6 +160,8 @@ def cases():
 
 
 class Peer(BaseHTTPRequestHandler):
+    schemas = SCHEMAS
+
     def log_message(self, *_args):
         pass
 
@@ -166,7 +179,7 @@ class Peer(BaseHTTPRequestHandler):
                 "serverInfo": {"name": "synthetic-evidence", "version": "1"},
             }
         elif method == "tools/list":
-            result = {"tools": SCHEMAS}
+            result = {"tools": self.schemas}
         elif method == "tools/call":
             name, args = body["params"]["name"], body["params"].get("arguments", {})
             if name == "find_record" and args.get("name") in RECORDS:
@@ -210,6 +223,7 @@ def request(client, port, token, user, case, repetition, arm):
     started = time.perf_counter()
     calls, results, terminal = [], [], []
     answer, failure, first = "", None, None
+    wire = []
     try:
         with client.stream(
             "POST",
@@ -232,6 +246,7 @@ def request(client, port, token, user, case, repetition, arm):
                     raise TimeoutError("request budget")
                 if line.startswith("intermediate_data: "):
                     event = json.loads(line.split(": ", 1)[1])
+                    wire.append((event["name"], event["id"]))
                     (
                         calls
                         if event["name"].startswith("Function Start: ")
@@ -313,6 +328,23 @@ def request(client, port, token, user, case, repetition, arm):
                 for word in ("not found", "unavailable")
             )
         )
+    if case["stratum"] == "multi-stage":
+        # Every dependent start must follow completion of the preceding call.
+        bound = (
+            bound
+            and len(wire) == 2 * len(expected)
+            and all(
+                wire[i * 2][0].startswith("Function Start: ")
+                and not wire[i * 2 + 1][0].startswith("Function Start: ")
+                and wire[i * 2][1] == wire[i * 2 + 1][1]
+                for i in range(len(expected))
+            )
+        )
+        bound = (
+            bound
+            and bool(results)
+            and "record not found" in str(results[-1]["payload"])
+        )
     unexpected = any(name not in {row[0] for row in expected} for name, _ in observed)
     return {
         "case_id": case["id"],
@@ -343,6 +375,21 @@ def main():
     parser.add_argument("--candidate-image", required=True)
     parser.add_argument("--baseline-source-revision", required=True)
     parser.add_argument("--candidate-source-revision", required=True)
+    parser.add_argument("--baseline-overlay", type=Path)
+    parser.add_argument("--candidate-overlay", type=Path)
+    parser.add_argument(
+        "--route-config",
+        type=Path,
+        help="Snapshot of the active gateway route file; checked for local drift before/after every attempt",
+    )
+    parser.add_argument(
+        "--route-configmap",
+        nargs=3,
+        metavar=("CONTEXT", "NAMESPACE", "NAME"),
+        help="Read the live route ConfigMap before/after each attempt to reject remote drift",
+    )
+    parser.add_argument("--suite", choices=("basic", "workflow"), default="workflow")
+    parser.add_argument("--catalog-size", type=int, default=64, choices=range(0, 129))
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--model", default="daedalus")
     parser.add_argument("--api-key-env", default="TOOL_EVAL_API_KEY")
@@ -354,20 +401,36 @@ def main():
         raise RuntimeError("Docker is required")
     key = os.environ[args.api_key_env]
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
+    overlays = {
+        arm: overlay(getattr(args, f"{arm}_overlay"))
+        for arm in ("baseline", "candidate")
+    }
+    if args.route_config and args.route_configmap:
+        parser.error("Use either --route-config or --route-configmap")
+    routing = route_digest(args.route_config, args.route_configmap)
     workload = cases()
+    if args.suite == "workflow":
+        workload += workflow_cases(RECORDS)
+    schemas = SCHEMAS + distractors(args.catalog_size)
+    Peer.schemas = schemas
     manifest = {
         "workload_id": hashlib.sha256(
             json.dumps(workload, sort_keys=True).encode()
         ).hexdigest(),
         "measurement": "http_request_to_backend_sse_terminal_ms",
-        "conditions_id": "synthetic-native-clock-skills-and-mcp-reads-concurrency1-60s-v1",
+        "conditions_id": f"synthetic-{args.suite}-catalog{args.catalog_size}-60s-v2",
         "repetitions": args.repetitions,
         "max_requests": len(workload) * args.repetitions * 2,
         "suite_seconds": 1800,
         "acceptance": "All candidate calls, arguments, binding, dependencies, error interpretation, and exact answers must pass. No safety violations or per-case correctness regressions. Latency is reported, not traded for correctness.",
         "cache": "as found; paired alternating arm order; no warmup; same synthetic user; no memory",
         "model": args.model,
-        "tools": SCHEMAS,
+        "tools": schemas,
+        "tool_schema_digest": digest(schemas),
+        "route_config_digest": routing,
+        "actual_provider_model": None,
+        "actual_provider_effort": None,
+        "identity_limit": "Per-call gateway target headers are mapped through the frozen route configuration. Provider-reported identity and usage may be absent. A local snapshot alone cannot detect remote drift; use --route-configmap for a live check.",
     }
     (args.output / "frozen-workload.json").write_text(
         json.dumps({"manifest": manifest, "cases": workload}, indent=2) + "\n"
@@ -375,6 +438,17 @@ def main():
     peer = ThreadingHTTPServer(("127.0.0.1", 0), Peer)
     peer.daemon_threads = True
     threading.Thread(target=peer.serve_forever, daemon=True).start()
+    model_calls = []
+    gateway = ThreadingHTTPServer(
+        ("127.0.0.1", 0),
+        gateway_handler(
+            args.base_url,
+            model_calls,
+            target_metadata(route_bytes(args.route_config, args.route_configmap)),
+        ),
+    )
+    gateway.daemon_threads = True
+    threading.Thread(target=gateway.serve_forever, daemon=True).start()
     token, user = uuid.uuid4().hex, "synthetic-tool-eval-" + uuid.uuid4().hex
     bundles, ports, containers = {}, {}, []
     try:
@@ -402,7 +476,7 @@ def main():
                         },
                         "tool_overrides": {
                             tool["name"]: {"approval_policy": "read_only"}
-                            for tool in SCHEMAS
+                            for tool in schemas
                         },
                     }
                 },
@@ -410,7 +484,7 @@ def main():
                     "main": {
                         "_type": "openai",
                         "api_type": "responses",
-                        "base_url": args.base_url,
+                        "base_url": f"http://127.0.0.1:{gateway.server_port}/v1",
                         "api_key": "${TOOL_EVAL_API_KEY}",
                         "model_name": args.model,
                         "request_timeout": 60,
@@ -426,6 +500,7 @@ def main():
                     "max_iterations": 8,
                 },
             }
+            config["workflow"].update(overlays[arm])
             path = args.output / f"{arm}.yaml"
             path.write_text(yaml.safe_dump(config))
             path.chmod(0o644)
@@ -465,17 +540,19 @@ def main():
                 stdout=subprocess.DEVNULL,
             )
             containers.append(name)
-            digest = subprocess.check_output(  # nosec B603 - explicit Docker argv
+            image_digest = subprocess.check_output(  # nosec B603 - explicit Docker argv
                 [docker, "image", "inspect", image, "--format", "{{.Id}}"], text=True
             ).strip()
             bundles[arm] = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "manifest": {
                     **manifest,
                     "arm": arm,
                     "source_revision": getattr(args, f"{arm}_source_revision"),
-                    "image_digest": digest,
+                    "image_digest": image_digest,
                     "config_digest": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "workflow_digest": digest(config["workflow"]),
+                    "overlay_digest": digest(overlays[arm]),
                 },
                 "runs": [],
             }
@@ -500,15 +577,23 @@ def main():
                     ):
                         if time.monotonic() - started > 1800:
                             raise TimeoutError("suite budget")
+                        require_stable_route(
+                            args.route_config, routing, args.route_configmap
+                        )
+                        call_start = len(model_calls)
                         result = request(
                             client, ports[arm], token, user, case, rep, arm
                         )
                         result["evidence"] = (
                             f"{args.output.resolve()}/attempts.jsonl#run_id={result['run_id']}"
                         )
+                        result["model_calls"] = model_calls[call_start:]
                         bundles[arm]["runs"].append(result)
                         with (args.output / "attempts.jsonl").open("a") as log:
                             log.write(json.dumps({"arm": arm, **result}) + "\n")
+                        require_stable_route(
+                            args.route_config, routing, args.route_configmap
+                        )
                         print(
                             f"{arm} {case['id']} r{rep}: {'pass' if result['task_success'] else 'FAIL'} {result['latency_ms']}ms",
                             flush=True,
@@ -534,6 +619,9 @@ def main():
                 check=False,
             )
         peer.shutdown()
+        peer.server_close()
+        gateway.shutdown()
+        gateway.server_close()
     candidate = bundles["candidate"]["runs"]
     if len(candidate) != len(workload) * args.repetitions or any(
         not run["task_success"] or not run["tool_correct"] or run["safety_violation"]

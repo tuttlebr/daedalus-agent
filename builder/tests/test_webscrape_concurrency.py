@@ -1,6 +1,7 @@
 """Scrape admission spans robots checks and fetches across concurrent runs."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -81,3 +82,67 @@ def test_shared_scrape_bound_and_cancellation(monkeypatch, limit):
 def test_invalid_concurrency(value):
     with pytest.raises(ValidationError):
         scrape.WebscrapeFunctionConfig(max_concurrency=value)
+
+
+def test_research_mode_preserves_source_before_full_mode_token_limit(monkeypatch):
+    original = (
+        "# Synthetic article\n\n_Source: https://sources.test/article_\n"
+        + "Evidence. " * 2000
+        + "TAIL_MARKER"
+    )
+
+    async def article(self, url, **kwargs):
+        return SimpleNamespace(
+            url=url, markdown=original, fetched_at="2026-10-17T00:00:00Z"
+        ), "miss"
+
+    async def exercise():
+        registry = ToolRegistry(
+            {
+                "functions": {
+                    "webscrape_tool": {
+                        "_type": "webscrape",
+                        "respect_robots_txt": False,
+                        "max_output_tokens": 100,
+                        "enable_research_mode": True,
+                    }
+                }
+            }
+        )
+        try:
+            tool = await registry.get_function("webscrape_tool")
+            arguments = {"url": "https://sources.test/article"}
+            full = await tool.ainvoke(arguments)
+            research = json.loads(
+                await tool.ainvoke({**arguments, "output_mode": "research"})
+            )
+            assert "TAIL_MARKER" not in full
+            assert research["content"].endswith("TAIL_MARKER")
+            assert research["output_mode"] == "research"
+            assert research["source"]["url"] == arguments["url"]
+            assert "_Fetched:" in research["content"]
+            with pytest.raises(ValidationError):
+                await tool.ainvoke({**arguments, "output_mode": "summarize"})
+        finally:
+            await registry.close()
+
+    monkeypatch.setattr(PublicContentSession, "article", article)
+    asyncio.run(exercise())
+
+
+def test_research_mode_requires_operator_opt_in():
+    async def exercise():
+        registry = ToolRegistry({"functions": {"scrape": {"_type": "webscrape"}}})
+        try:
+            tool = await registry.get_function("scrape")
+            schema = tool.schema("scrape")
+            assert set(schema["parameters"]["properties"]) == {"url"}
+            assert "output_mode" not in schema["description"]
+            with pytest.raises(ValidationError):
+                await tool.ainvoke(
+                    {"url": "https://sources.test/article", "output_mode": "research"}
+                )
+        finally:
+            await registry.close()
+
+    asyncio.run(exercise())

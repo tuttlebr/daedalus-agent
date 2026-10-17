@@ -6,6 +6,7 @@ import os
 import re
 import tempfile
 from collections.abc import Iterable
+from typing import Literal
 from urllib.parse import ParseResult, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -94,6 +95,10 @@ class WebscrapeFunctionConfig(ToolConfig, name="webscrape"):
     """Configuration for the webscrape function."""
 
     description: str | None = None
+    enable_research_mode: bool = Field(
+        default=False,
+        description="Expose experimental archived research excerpts and exact retrieval.",
+    )
     max_concurrency: StrictInt = Field(
         default=1,
         ge=1,
@@ -639,7 +644,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
             trust_env=False,
         ) as robots_client:
 
-            async def _fetch_response(url: str) -> str:
+            async def _fetch_response(url: str, output_mode: str) -> str:
                 """Return markdown from a bounded, anonymous public URL fetch."""
                 try:
                     url, parsed_url = _validate_url(url.strip(), config.allowed_schemes)
@@ -691,6 +696,21 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                         + f"\n_Fetched: {article.fetched_at}; cache: {cache_status}_",
                         1,
                     )
+                    if output_mode == "research":
+                        # Archive the complete converted source before the runtime
+                        # chooses excerpts. Full/document mode keeps its old limit.
+                        return json.dumps(
+                            {
+                                "success": True,
+                                "output_mode": "research",
+                                "source": {
+                                    "url": article.url,
+                                    "fetched_at": article.fetched_at,
+                                },
+                                "content": content,
+                            },
+                            ensure_ascii=False,
+                        )
                     return _truncate_to_token_limit(
                         content, config.max_output_tokens, config.truncation_message
                     )[0]
@@ -705,18 +725,33 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                         "JavaScript or is blocking automated access."
                     )
 
-            async def _response_fn(url: str) -> str:
+            async def _research_response_fn(
+                url: str, output_mode: Literal["full", "research"] = "full"
+            ) -> str:
                 """Scrape public content within the shared tool concurrency limit."""
                 async with slots:
-                    return await _fetch_response(url)
+                    return await _fetch_response(url, output_mode)
 
+            async def _response_fn(url: str) -> str:
+                """Scrape public content within the shared tool concurrency limit."""
+                return await _research_response_fn(url)
+
+            research_description = (
+                " Use output_mode=research for article research: the complete "
+                "converted source can be archived with retrievable excerpts. "
+                "Retrieve omitted context before making claims; a preview cannot "
+                "establish absence. Use full (default) for code, documents or "
+                "verbatim reading."
+                if config.enable_research_mode
+                else ""
+            )
             yield ToolDefinition.from_fn(
-                _response_fn,
+                _research_response_fn if config.enable_research_mode else _response_fn,
                 description=config.description
                 or (
                     "Scrape public web content and convert to markdown with source "
                     "URL and fetch time. Uses bounded anonymous article caching and "
                     "connection-time public DNS validation; document converters only "
-                    "receive local response files."
+                    "receive local response files." + research_description
                 ),
             )

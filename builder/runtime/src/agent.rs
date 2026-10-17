@@ -219,6 +219,13 @@ impl Agent {
         };
         tracing::info!(
             event = "prepare_finished",
+            harness_version = 1,
+            harness_digest = crate::harness::identity(
+                &prepared,
+                &preparation
+                    .as_ref()
+                    .map_or(json!({}), |p| p.config.workflow().clone())
+            ),
             elapsed_ms = preparing.elapsed().as_millis() as u64,
             model = label(&prepared.model.model_name),
             api_type = label(&prepared.model.api_type),
@@ -399,6 +406,7 @@ impl Agent {
             };
             tracing::info!(
                 event = "model_call_started",
+                catalog_digest = crate::harness::digest(&json!(tools)),
                 model_call,
                 iteration = iterations,
                 attempt = retry_attempt + 1,
@@ -1223,7 +1231,13 @@ impl Agent {
                                 .outputs
                                 .optimize(
                                     &user,
-                                    name,
+                                    if preparation.config.raw["functions"][name]["_type"]
+                                        == "webscrape"
+                                    {
+                                        "webscrape_tool"
+                                    } else {
+                                        name
+                                    },
                                     context["query"].as_str().unwrap_or(""),
                                     &outcome.content,
                                 )

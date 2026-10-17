@@ -125,8 +125,10 @@ def test_cache_failure_fails_open_to_lossless_json():
     assert COMPACTION_MARKER not in result.content
 
 
-def test_public_article_excerpts_preserve_provenance_and_exact_recovery(monkeypatch):
-    tool_name = "curated_feed_search_tool"
+@pytest.mark.parametrize("tool_name", ["curated_feed_search_tool", "webscrape_tool"])
+def test_public_article_excerpts_preserve_provenance_and_exact_recovery(
+    monkeypatch, tool_name
+):
     article = (
         "# Source title\n\n_Source: https://example.com/article_\n\n"
         + "Ordinary context. " * 800
@@ -139,12 +141,9 @@ def test_public_article_excerpts_preserve_provenance_and_exact_recovery(monkeypa
         "query": "hardware limitation",
         "fetched_at": "2026-09-21T12:00:00Z",
         "content_truncated": True,
+        **({"output_mode": "research"} if tool_name == "webscrape_tool" else {}),
     }
-    original = (
-        json.dumps({**metadata, "content": article})
-        if tool_name == "curated_feed_search_tool"
-        else article
-    )
+    original = json.dumps({**metadata, "content": article})
     store = MemoryStore()
     result = _run(
         optimize_tool_content(

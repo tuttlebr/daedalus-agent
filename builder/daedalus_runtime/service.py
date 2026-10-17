@@ -374,7 +374,14 @@ class ToolService:
             if not explicit and not result.get("terminal"):
                 optimized = await optimize_tool_content(
                     result["content"],
-                    tool_name=body.name,
+                    tool_name=(
+                        "webscrape_tool"
+                        if self.config.get("functions", {})
+                        .get(body.name, {})
+                        .get("_type")
+                        == "webscrape"
+                        else body.name
+                    ),
                     query=run.query,
                     user_id=run.user,
                     store=self.outputs,

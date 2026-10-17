@@ -4,8 +4,8 @@ The model does not need repeated JSON keys or every routine row to decide its
 next step.  This module keeps a representative, query-aware preview in the
 prompt and stores the exact original in user-isolated Redis for bounded
 retrieval.  Content that is small, unstructured, unsafe to parse, or cannot be
-cached passes through unchanged. Only structured RSS article results are
-eligible for text excerpts; generic scrapes may contain code or documents.
+cached passes through unchanged. Structured RSS results and explicitly requested
+research scrapes are eligible for excerpts; ordinary scrapes remain intact.
 """
 
 from __future__ import annotations
@@ -434,7 +434,14 @@ def _article_preview(
 ) -> tuple[str, str] | None:
     """Keep attributed, verbatim windows without pretending they are complete."""
     metadata: dict[str, Any]
-    if tool_name == "curated_feed_search_tool" and parsed is not None:
+    if parsed is not None and (
+        tool_name == "curated_feed_search_tool"
+        or (
+            tool_name == "webscrape_tool"
+            and isinstance(parsed.value, dict)
+            and parsed.value.get("output_mode") == "research"
+        )
+    ):
         value = parsed.value
         if (
             not isinstance(value, dict)
