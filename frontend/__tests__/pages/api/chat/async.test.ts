@@ -15,6 +15,7 @@ import {
 } from '@/server/chat/backendSelection';
 import {
   MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS,
+  STREAM_CONNECT_TIMEOUT_MS,
   STREAM_READ_IDLE_TIMEOUT_MS,
 } from '@/server/chat/constants';
 import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
@@ -2630,15 +2631,54 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(complete[0].fullResponse).toBe('Done');
   });
 
-  it('accepts NAT clean EOF after final assistant content', async () => {
-    const { statusKey, store } = await runStreamTurn([
-      'data: {"choices":[{"delta":{"content":"HANDOFF_OK"}}]}\n',
-    ]);
+  it.each(['', 'Incomplete answer'])(
+    'fails transport EOF without a terminal marker, preserving partial content %j',
+    async (content) => {
+      const { statusKey, store } = await runStreamTurn([
+        'intermediate_data: {"name":"Function Complete: <calc>","id":"t1","payload":"**Function Output:**\\n```\\nIntermediate result\\n```"}\n',
+        `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`,
+      ]);
 
-    const status = store.get(statusKey);
-    expect(status?.status).toBe('completed');
-    expect(status?.fullResponse).toBe('HANDOFF_OK');
-  });
+      const status = store.get(statusKey);
+      expect(status).toMatchObject({
+        status: 'error',
+        error: 'Backend response stream ended before completion',
+        partialResponse: content,
+      });
+      expect(status.fullResponse).toBeUndefined();
+      expect(status.intermediateSteps).toHaveLength(1);
+      const assistant = store
+        .get('daedalus:conversation:conv-1')
+        .messages.at(-1);
+      expect(assistant.content).toBe(
+        content || '[Error occurred before response was generated]',
+      );
+      expect(eventsOfType('chat_complete')[0].error).toBe(status.error);
+    },
+  );
+
+  it.each(['completed', 'error'])(
+    'preserves answer whitespace in %s status, history and completion events',
+    async (outcome) => {
+      const content = '    indented code\n    café 😀\n\n';
+      const { statusKey, store } = await runStreamTurn([
+        `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`,
+        outcome === 'completed'
+          ? 'data: [DONE]\n\n'
+          : 'event: error\ndata: {"error":{"message":"Interrupted"}}\n\n',
+      ]);
+
+      const status = store.get(statusKey);
+      expect(status.status).toBe(outcome);
+      expect(
+        outcome === 'completed' ? status.fullResponse : status.partialResponse,
+      ).toBe(content);
+      expect(
+        store.get('daedalus:conversation:conv-1').messages.at(-1).content,
+      ).toBe(content);
+      expect(eventsOfType('chat_complete')[0].fullResponse).toBe(content);
+    },
+  );
 
   it.each([
     {
@@ -2971,38 +3011,41 @@ describe('chat/async streaming + finalize (characterization)', () => {
     );
   });
 
-  it('keeps oauth_required prompts when the stream closes without content', async () => {
-    const { jobId, statusKey, store } = await runStreamTurn(
-      [
-        'event: oauth_required\n',
-        'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
-        'data: [DONE]\n',
-      ],
-      { expectNoFinalize: true },
-    );
+  it.each(['data: [DONE]\n', ''])(
+    'keeps oauth_required prompts when the stream closes without content (%j)',
+    async (terminal) => {
+      const { jobId, statusKey, store } = await runStreamTurn(
+        [
+          'event: oauth_required\n',
+          'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+          terminal,
+        ],
+        { expectNoFinalize: true },
+      );
 
-    const oauthUpdate = publishedEvents()
-      .filter((e) => e.channel === `job:${jobId}:status`)
-      .map((e) => e.data)
-      .find((d) => d.status === 'oauth_required');
-    expect(oauthUpdate).toBeDefined();
-    expect(oauthUpdate.authUrl).toBe('https://accounts.google.com/auth');
-    expect(oauthUpdate.oauthState).toBe('xyz');
-    expect(oauthUpdate.oauthRequests).toEqual([
-      {
-        id: 'xyz:https://accounts.google.com/auth',
-        authUrl: 'https://accounts.google.com/auth',
-        oauthState: 'xyz',
-        service: 'Google Workspace',
-      },
-    ]);
-    expect(oauthUpdate.progress).toBe(0);
+      const oauthUpdate = publishedEvents()
+        .filter((e) => e.channel === `job:${jobId}:status`)
+        .map((e) => e.data)
+        .find((d) => d.status === 'oauth_required');
+      expect(oauthUpdate).toBeDefined();
+      expect(oauthUpdate.authUrl).toBe('https://accounts.google.com/auth');
+      expect(oauthUpdate.oauthState).toBe('xyz');
+      expect(oauthUpdate.oauthRequests).toEqual([
+        {
+          id: 'xyz:https://accounts.google.com/auth',
+          authUrl: 'https://accounts.google.com/auth',
+          oauthState: 'xyz',
+          service: 'Google Workspace',
+        },
+      ]);
+      expect(oauthUpdate.progress).toBe(0);
 
-    const status = store.get(statusKey);
-    expect(status?.status).toBe('oauth_required');
-    expect(status?.finalizedAt).toBeUndefined();
-    expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
-  });
+      const status = store.get(statusKey);
+      expect(status?.status).toBe('oauth_required');
+      expect(status?.finalizedAt).toBeUndefined();
+      expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
+    },
+  );
 
   it('fails immediately when an OAuth prompt cannot be persisted', async () => {
     const { statusKey, store } = await runStreamTurn(
@@ -3224,6 +3267,57 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(status?.status).toBe('error');
       expect(status?.error).toContain('idle');
       expect(typeof status?.finalizedAt).toBe('number');
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('finalizes the connection timeout with its cause and releases the user slot', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+      mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+      const store = wireRedisStore();
+      const fetchSpy = stubFetch(
+        (_url, options) =>
+          new Promise((_resolve, reject) => {
+            options.signal.addEventListener(
+              'abort',
+              () => reject(options.signal.reason),
+              { once: true },
+            );
+          }),
+      );
+      const res = makeRes();
+      await handler(
+        {
+          method: 'POST',
+          headers: { cookie: 'sid=current-session' },
+          body: { messages: [{ role: 'user', content: 'hello' }] },
+        } as any,
+        res,
+      );
+      const jobId = res.json.mock.calls[0][0].jobId;
+      const execution = executeQueuedJob(store, jobId);
+      await vi.advanceTimersByTimeAsync(STREAM_CONNECT_TIMEOUT_MS);
+      await execution;
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(store.get(`daedalus:async-job-status:${jobId}`)).toMatchObject({
+        status: 'error',
+        error: `Backend did not return response headers within ${STREAM_CONNECT_TIMEOUT_MS}ms`,
+        finalizedAt: expect.any(Number),
+      });
+      expect(
+        mocks.redisEval.mock.calls.some(
+          ([script, _count, key, member]) =>
+            script.includes("redis.call('ZREM'") &&
+            key === 'daedalus:async-user-jobs:testuser' &&
+            member === jobId,
+        ),
+      ).toBe(true);
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();

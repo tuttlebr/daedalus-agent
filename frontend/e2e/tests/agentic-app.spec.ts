@@ -434,11 +434,10 @@ test('cancels active backend work through the durable job endpoint', async ({
     page.getByText('E2E cancellation pending', { exact: true }),
   ).toBeVisible();
 
-  const dots = page.locator('.typing-indicator .typing-dot');
-  await expect(dots).toHaveCount(3);
-  for (const dot of await dots.all()) {
-    await expect(dot).toHaveCSS('background-color', 'rgb(255, 192, 74)');
-  }
+  const activity = page
+    .getByRole('button', { name: /View agent activity/ })
+    .last();
+  await expect(activity).toBeVisible();
 
   const cancelResponse = page.waitForResponse(
     (response) =>
@@ -455,7 +454,6 @@ test('cancels active backend work through the durable job endpoint', async ({
   await expect(
     page.getByRole('button', { name: 'Stop generating' }),
   ).toBeHidden();
-  await expect(dots).toHaveCount(0);
   await expect
     .poll(async () => {
       const status = await browserGet(page, `/api/chat/async?jobId=${jobId}`);
@@ -509,9 +507,63 @@ test('preserves assistant text and research evidence after a late error and relo
   await page.reload();
   await expect(page.getByText(answer, { exact: true })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Agent Activity/ }),
+    page.getByRole('button', { name: /View agent activity/ }).last(),
   ).toBeVisible();
 });
+
+for (const truncated of [false, true]) {
+  test(`preserves formatted output after ${
+    truncated ? 'unexpected EOF' : 'completion'
+  } and reload`, async ({ page }) => {
+    await login(page);
+    const jobCreated = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith('/api/chat/async'),
+    );
+    await sendMessage(
+      page,
+      `E2E_EXACT_WHITESPACE${truncated ? ' TRUNCATED' : ''}`,
+    );
+    const created = await jobCreated;
+    const { jobId } = await created.json();
+    const { conversationId } = created.request().postDataJSON();
+    await expect
+      .poll(
+        async () =>
+          JSON.parse(
+            (
+              await browserGet(page, `/api/chat/async?jobId=${jobId}`)
+            ).body,
+          ).status,
+      )
+      .toBe(truncated ? 'error' : 'completed');
+
+    const answer = '    preserved_indentation()\n    café_😀\n\n';
+    const status = JSON.parse(
+      (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
+    );
+    expect(truncated ? status.partialResponse : status.fullResponse).toBe(
+      answer,
+    );
+    if (truncated)
+      expect(status.error).toBe(
+        'Backend response stream ended before completion',
+      );
+    const stored = JSON.parse(
+      (await browserGet(page, `/api/conversations/${conversationId}`)).body,
+    );
+    expect(stored.messages.at(-1).content).toBe(answer);
+    expect(Boolean(stored.messages.at(-1).errorMessages)).toBe(truncated);
+    await expect(
+      page.locator('pre').filter({ hasText: 'preserved_indentation()' }).last(),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.locator('pre').filter({ hasText: 'preserved_indentation()' }).last(),
+    ).toBeVisible();
+  });
+}
 
 test('rejects a second active job for the same conversation', async ({
   page,

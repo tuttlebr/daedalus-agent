@@ -767,6 +767,18 @@ export async function startBackgroundStreamReader(
       if (streamDone) break;
     }
 
+    // Transport EOF alone cannot establish that the agent finished. A pod or
+    // proxy can close the connection after any token or intermediate tool.
+    // OAuth handoff is the one nonterminal exit owned by the worker.
+    if (!streamDone) {
+      const status = (await jsonGet(statusKey)) as AsyncJobStatus | null;
+      if (status?.status === 'oauth_required' && !partialResponse.trim()) {
+        await persistPendingState();
+        return;
+      }
+      throw new Error('Backend response stream ended before completion');
+    }
+
     // The gate owns the approval prompt. Discard any model prose produced
     // before cancellation and persist only the compact structured marker.
     if (pendingApprovalMarker) {
@@ -816,38 +828,34 @@ export async function startBackgroundStreamReader(
       partialResponseLength: partialResponse.length,
     });
   } catch (err: any) {
-    const idleTimedOut = err?.name === 'StreamIdleTimeoutError';
-    if (
-      !idleTimedOut &&
-      (err?.name === 'AbortError' || abortController.signal.aborted)
-    ) {
-      // Cancellation/finalization is handled by the caller that set the abort.
+    if (control.signal?.aborted) {
+      // Only an external abort delegates finalization to the worker. Our own
+      // connection/idle deadlines must persist their error and release slots.
       logger.info(`Job ${jobId}: Stream reader aborted cleanly`);
-      if (control.signal?.aborted) {
-        const currentStatus = (await jsonGet(
-          statusKey,
-        )) as AsyncJobStatus | null;
-        if (
-          currentStatus?.finalizedAt ||
-          currentStatus?.status === 'completed' ||
-          currentStatus?.status === 'error'
-        ) {
-          pendingResponseDelta = '';
-          pendingSteps = [];
-          await clearStreamState(jobId).catch(() => {});
-        } else {
-          await persistPendingState().catch(() => {});
-          if (control.signal.reason instanceof StreamUserCancellationError) {
-            control.signal.reason.snapshot = {
-              response: partialResponse,
-              pendingSteps,
-              persistedStepCount,
-            };
-          }
+      const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
+      if (
+        currentStatus?.finalizedAt ||
+        currentStatus?.status === 'completed' ||
+        currentStatus?.status === 'error'
+      ) {
+        pendingResponseDelta = '';
+        pendingSteps = [];
+        await clearStreamState(jobId).catch(() => {});
+      } else {
+        await persistPendingState().catch(() => {});
+        if (control.signal.reason instanceof StreamUserCancellationError) {
+          control.signal.reason.snapshot = {
+            response: partialResponse,
+            pendingSteps,
+            persistedStepCount,
+          };
         }
-        throw abortReason(control.signal);
       }
+      throw abortReason(control.signal);
     } else {
+      const error = abortController.signal.aborted
+        ? abortReason(abortController.signal)
+        : err;
       // The direct backend cancel can close SSE before the worker's Redis
       // polling timer fires. Keep that outcome a user stop, not a backend error.
       const cancelled = Boolean(
@@ -855,7 +863,7 @@ export async function startBackgroundStreamReader(
       );
       if (cancelled)
         logger.info(`Job ${jobId}: Backend acknowledged cancellation`);
-      else logger.error(`Job ${jobId}: Stream reader error: ${err.message}`);
+      else logger.error(`Job ${jobId}: Stream reader error: ${error.message}`);
       // A tool result is intermediate data, not an assistant answer. Preserve
       // any actual content tokens, but never promote lastToolOutput when the
       // backend reports an error.
@@ -865,7 +873,7 @@ export async function startBackgroundStreamReader(
         jobRequest,
         cancelled
           ? 'Job canceled by user'
-          : err.message || 'Backend stream reader failed',
+          : error.message || 'Backend stream reader failed',
         {
           response: partialResponse,
           pendingSteps,

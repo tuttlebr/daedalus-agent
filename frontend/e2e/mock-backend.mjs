@@ -130,6 +130,13 @@ async function streamChat(req, res) {
     return;
   }
 
+  if (prompt.includes('E2E_EXACT_WHITESPACE')) {
+    sendToken(res, '    preserved_indentation()\n    café_😀\n\n');
+    await wait(1000);
+    res.end(prompt.includes('TRUNCATED') ? '' : 'data: [DONE]\n\n');
+    return;
+  }
+
   if (prompt.includes('E2E_DISCONNECT')) {
     sendToken(res, 'E2E before disconnect');
     await wait(2_500);
@@ -147,7 +154,8 @@ async function streamChat(req, res) {
   }
 
   if (prompt.includes('E2E_HTML')) {
-    const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4' +
+    const photo =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4' +
       'nGNUzlvKwMDAxMDAwMDAAAAOMAE6oWWQPwAAAABJRU5ErkJggg==';
     sendToken(
       res,

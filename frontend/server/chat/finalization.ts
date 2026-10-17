@@ -515,9 +515,9 @@ export async function finalizeSuccess(
     logger.error(`Job ${jobId}: Failed to process images`, error);
   }
 
-  const responseContent =
-    (processedContent && processedContent.trim()) ||
-    '[No response was generated]';
+  const responseContent = processedContent.trim()
+    ? processedContent
+    : '[No response was generated]';
   const finalizedAt = Date.now();
   const assistantMessageId =
     jobRequest.assistantMessageId ||
@@ -645,9 +645,9 @@ export async function finalizeError(
   const assistantMessageId =
     jobRequest.assistantMessageId ||
     (jobRequest.conversationId ? uuidv4() : undefined);
-  const conversationContent =
-    (processedContent && processedContent.trim()) ||
-    '[Error occurred before response was generated]';
+  const conversationContent = processedContent.trim()
+    ? processedContent
+    : '[Error occurred before response was generated]';
   const journal: NewJobFinalizationJournal = {
     version: 1,
     state: 'pending',

@@ -180,7 +180,7 @@ export function attachSandboxArtifacts(
   response: string,
   artifacts: SandboxArtifactRef[],
 ): string {
-  let content = (response || '').replace(MARKER_LINE, '').trim();
+  let content = (response || '').replace(MARKER_LINE, '');
   const unique = new Map<string, SandboxArtifactRef>();
   for (const value of artifacts) {
     const artifact = normalizeArtifact(value);
