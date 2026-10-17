@@ -110,6 +110,31 @@ still terminates at the existing approval boundary. This is a caller contract,
 not a natural-language parser or a permission grant. Ordinary chat continues to
 stream normally and relies on guidance plus semantic evaluation for tool selection.
 
+## Final-only answers
+
+The backend chat API accepts `response_mode: "auto"` (default), `"streaming"`, or
+`"final_only"`. Auto recognizes common English exact-output requests in the
+current user message or subsequent steering, such as “return only” and “without
+commentary.” It does not inspect tool results or older conversation messages.
+Once selected, final-only presentation lasts for the rest of that run. Callers
+can select an explicit mode to avoid natural-language inference.
+
+Final-only presentation buffers each model round. Text accompanying tool calls
+remains in model history but is excluded from the visible answer. Only a complete
+answer with no tool calls, no pending steering and a successful completion fence
+is emitted. Failed, interrupted and incomplete rounds never expose partial text.
+Tool events and activity heartbeats still arrive during execution. Ordinary chat
+continues to stream; explicit streaming also overrides auto detection. Existing
+tool-choice withholding and approval boundaries still apply.
+
+The buffer is capped at 1 MiB; exceeding it fails the run. Final-only presentation
+delays the first answer text until completion. It does not validate JSON, remove
+prose from the final answer, prove factual correctness or grant tool permissions.
+If the final answer itself violates the requested format, semantic evaluation
+still fails. `builder/migration/response_check.py` exercises the built image in
+both preparation modes, including retries, cancellation, steering, heartbeat
+delivery and incremental streaming.
+
 ## Removed surfaces and migration
 
 `content_distiller_tool` and its package are removed. A second model summary

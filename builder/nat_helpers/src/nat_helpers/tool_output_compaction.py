@@ -39,6 +39,14 @@ _COMPLETE_OUTPUT_INTENT = re.compile(
     r"verbatim)\b|\bhow many\b|\bare there (?:any|no)\b|\blist (?:all|every)\b",
     re.IGNORECASE,
 )
+_RESEARCH_COMPLETE_OUTPUT_INTENT = re.compile(
+    r"\b(?:all|complete|count|entire|every|exhaustive|full|raw|verbatim)\b"
+    r"|\bhow many\b|\bare there (?:any|no)\b"
+    r"|\b(?:list|enumerate|extract|report|return)\s+each\b"
+    r"|\beach\s+(?:line|word|character|byte|paragraph|sentence|item|entry|record|measurement|fact|detail)\b"
+    r"|\bexact\s+(?:source|content|document|text|article|code|transcript|output)\b",
+    re.IGNORECASE,
+)
 _WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{2,}")
 _STOP_WORDS = {
     "about",
@@ -566,7 +574,16 @@ async def optimize_tool_content(
 
     if original_chars < settings.min_chars:
         return lossless
-    if _COMPLETE_OUTPUT_INTENT.search(query):
+    research = (
+        tool_name == "webscrape_tool"
+        and parsed is not None
+        and isinstance(parsed.value, dict)
+        and parsed.value.get("output_mode") == "research"
+        and parsed.value.get("success") is True
+        and isinstance(parsed.value.get("content"), str)
+    )
+    preserve = _RESEARCH_COMPLETE_OUTPUT_INTENT if research else _COMPLETE_OUTPUT_INTENT
+    if preserve.search(query):
         # Exact counts, exhaustive lists, and absence claims should not depend
         # on the model noticing a retrieval marker. Preserve the whole result.
         return lossless

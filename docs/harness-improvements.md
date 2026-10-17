@@ -5,6 +5,9 @@ This implements the first experiments from the
 generation, durable execution recovery and a total context-window budget remain
 future work.
 
+The [exact-response follow-up](research-response-validation.md) records the
+subsequent runtime fix and expanded research workload results.
+
 ## Runtime changes
 
 `webscrape_tool` can expose `output_mode: research` for article research when
@@ -29,6 +32,16 @@ advertised catalog digest, preserving visibility when discovery changes it.
 The implementation selects fields explicitly and excludes API keys and messages.
 Image/source and gateway identity are recorded by the evaluation manifest.
 
+The runtime now supports final-only presentation for exact-output requests; see
+[the response contract](tool-correctness.md#final-only-answers). It withholds
+text accompanying tool calls and emits only a completed final model answer.
+Ordinary streaming, tool receipts and control events remain available. The
+answer itself is never rewritten to satisfy an evaluator.
+
+Explicit research mode also distinguishes precision requests (such as preserving
+exact labels or reading each URL once) from exhaustive source reads. Full-text,
+verbatim, count and absence questions retain the full-content path.
+
 Production tool-policy instructions remain unchanged. Two prompt-only candidates
 were evaluated and rejected; neither demonstrated complete correctness on the
 expanded workload.
@@ -49,7 +62,7 @@ completion before mutating deployment resources. All six currently configured
 target combinations passed this gate. Availability checks remain separate from
 Kubernetes readiness and semantic workload evaluation.
 
-## Preserved failures
+## Initial experiment failures
 
 The first expanded paired run stopped when the candidate ignored a no-tool
 instruction, queried an unrelated record and substituted its value for evidence
@@ -75,7 +88,7 @@ evidence remains in `/tmp/daedalus-harness-release-20261017/` under `paired-v2`,
 `paired-v3`, `paired-v4`, `live-research.json` and `live-research-v2.json`. These
 experiments do not support a model-quality or latency improvement claim.
 
-## Validation scope
+## Initial validation scope
 
 Python validation passed 1,913 tests with 79.36% coverage; five existing tests
 were skipped. Rust validation passed 105 tests, with 22 service-dependent tests
@@ -90,7 +103,7 @@ about 5,000–6,300, at the cost of one retrieval round. These are context-size
 measurements, not billing estimates or live latency improvements.
 
 Research mode must pass the live paired correctness and research comparisons
-before enabling it in production. This release deploys experiment infrastructure
-and diagnostic identities while keeping the rejected behavior changes disabled.
-The fixtures cover bounded workflows; they do not establish quality for every
-production integration or a complete real-world daily briefing.
+before enabling it in production. The fixtures cover bounded workflows; they
+do not establish quality for every production integration or a complete
+real-world daily briefing. The final-only follow-up adds multi-source research,
+missing evidence, citation binding and steering checks to this release gate.

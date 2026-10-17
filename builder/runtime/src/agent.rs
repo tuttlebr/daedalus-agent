@@ -183,6 +183,7 @@ impl Agent {
 
     pub async fn run(mut self, body: Value) -> Result<()> {
         let mut requirement = crate::tool_contracts::Requirement::parse(&body)?;
+        let mut response_policy = crate::response_policy::ResponsePolicy::parse(&body)?;
         let mut missing_tool_recoveries = 0;
         let preparing = Instant::now();
         tracing::info!(event = "prepare_started");
@@ -310,10 +311,14 @@ impl Agent {
             .map(|m| m.content.clone())
             .unwrap_or_default();
         let initial_menu = crate::tool_contracts::initial_menu(&prepared.tools, &query);
+        response_policy.observe_user(&query);
         while iterations < prepared.max_iterations
             || (briefing_text_fallback && !briefing_fallback_started)
         {
             self.drain().await?;
+            for (_, instruction) in &self.pending {
+                response_policy.observe_user(instruction);
+            }
             self.apply(&mut history).await?;
             iterations += 1;
             let final_synthesis = briefing_text_fallback
@@ -326,7 +331,8 @@ impl Agent {
                 && self.revision == 0
                 && matches!(requirement, crate::tool_contracts::Requirement::Auto)
                 && initial_menu.is_some();
-            let withhold_text = requirement.pending() || review_tool_omission;
+            let withhold_text =
+                response_policy.final_only() || requirement.pending() || review_tool_omission;
             let tools: Vec<_> = prepared
                 .tools
                 .iter()
@@ -407,6 +413,7 @@ impl Agent {
             tracing::info!(
                 event = "model_call_started",
                 catalog_digest = crate::harness::digest(&json!(tools)),
+                final_only = response_policy.final_only(),
                 model_call,
                 iteration = iterations,
                 attempt = retry_attempt + 1,
@@ -451,10 +458,16 @@ impl Agent {
                             }
                             received_item = true;
                             if let Item::Event(StreamEvent::Text { text, .. }) = item {
-                                last_activity = Instant::now();
+                                if withhold_text && partial.len().saturating_add(text.len()) > crate::response_policy::MAX_WITHHELD_BYTES {
+                                    return Err(anyhow::anyhow!("Withheld response exceeded output limit").context(Phase("model_stream")));
+                                }
                                 partial.push_str(&text);
                                 if !withhold_text {
                                     self.events.delta(&text).await?;
+                                    last_activity = Instant::now();
+                                } else if last_activity.elapsed() >= Duration::from_secs(15) {
+                                    self.events.raw(": model active\n\n".into()).await?;
+                                    last_activity = Instant::now();
                                 }
                             } else if last_activity.elapsed() >= Duration::from_secs(15) {
                                 // Reasoning and argument fragments are private,
@@ -620,6 +633,9 @@ impl Agent {
                 }
                 if partial.is_empty() {
                     bail!("Model completed without an answer");
+                }
+                if withhold_text {
+                    self.events.delta(&partial).await?;
                 }
                 self.events.finish("stop").await?;
                 return Ok(());

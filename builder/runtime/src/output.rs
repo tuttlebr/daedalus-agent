@@ -31,6 +31,17 @@ static ERRORS: LazyLock<Regex> = LazyLock::new(|| {
 static COMPLETE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:all|complete|count|each|entire|every|exact|exhaustive|full|raw|verbatim)\b|\bhow many\b|\bare there (?:any|no)\b|\blist (?:all|every)\b").unwrap()
 });
+static RESEARCH_COMPLETE: LazyLock<Regex> = LazyLock::new(|| {
+    // Precise identifiers and per-source read limits do not request the entire
+    // article. Keep exhaustive/verbatim requests on the full-content path.
+    Regex::new(concat!(
+        r"(?i)\b(?:all|complete|count|entire|every|exhaustive|full|raw|verbatim)\b",
+        r"|\bhow many\b|\bare there (?:any|no)\b",
+        r"|\b(?:list|enumerate|extract|report|return)\s+each\b",
+        r"|\beach\s+(?:line|word|character|byte|paragraph|sentence|item|entry|record|measurement|fact|detail)\b",
+        r"|\bexact\s+(?:source|content|document|text|article|code|transcript|output)\b"
+    )).unwrap()
+});
 pub fn chars(s: &str) -> usize {
     s.chars().count()
 }
@@ -474,7 +485,16 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
     } else {
         content.into()
     };
-    if original < s.min_chars || COMPLETE.is_match(query) {
+    let research = tool == "webscrape_tool"
+        && value["output_mode"] == "research"
+        && value["success"] == true
+        && value["content"].is_string();
+    let preserve = if research {
+        &*RESEARCH_COMPLETE
+    } else {
+        &*COMPLETE
+    };
+    if original < s.min_chars || preserve.is_match(query) {
         return (lossless, None);
     }
     let reference = reference(content);
@@ -590,6 +610,29 @@ mod retrieval_tests {
         let original = source.to_string();
         let (_, compacted) = preview(&original, "webscrape_tool", "summarize article", &settings);
         let compacted = compacted.unwrap();
+        assert!(
+            preview(
+                &original,
+                "webscrape_tool",
+                "Read each URL once and preserve exact Unicode labels",
+                &settings
+            )
+            .1
+            .is_some()
+        );
+        for query in [
+            "List each fact",
+            "Read each line",
+            "Return exact source text",
+            "Are there no corrections?",
+        ] {
+            assert!(
+                preview(&original, "webscrape_tool", query, &settings)
+                    .1
+                    .is_none(),
+                "{query}"
+            );
+        }
         assert!(chars(&compacted) < chars(&original) / 2);
         assert!(!compacted.contains("HIDDEN_MARKER"));
         let value: Value = serde_json::from_str(&compacted).unwrap();

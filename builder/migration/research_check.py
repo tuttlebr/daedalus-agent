@@ -171,6 +171,12 @@ class LiveResearchPeers(ResearchPeers):
         super().__init__()
         self.base_url, self.model = base_url, model
         self.usage = []
+        self.model_calls = []
+        self.targets = {}
+
+    def before_forward(self, handler, body):
+        """Optional control barrier for isolated workflow/steering experiments."""
+        return False
 
     def handler(self):
         peers = self
@@ -179,6 +185,9 @@ class LiveResearchPeers(ResearchPeers):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 body["model"] = peers.model
+                peers.requests.append(body)
+                if peers.before_forward(self, body):
+                    return
                 peers.round_sizes.append(
                     len(json.dumps(body["input"], ensure_ascii=False))
                 )
@@ -201,6 +210,16 @@ class LiveResearchPeers(ResearchPeers):
                             )
                         },
                     ) as response:
+                        target = response.headers.get("x-model-router-selected-model")
+                        metadata = {
+                            "selected_target": target,
+                            "configured_provider_model": None,
+                            "configured_effort": None,
+                            "provider_reported_model": None,
+                            "usage": None,
+                            **peers.targets.get(target, {}),
+                        }
+                        peers.model_calls.append(metadata)
                         self.send_response(response.status_code)
                         self.send_header(
                             "Content-Type",
@@ -216,6 +235,10 @@ class LiveResearchPeers(ResearchPeers):
                                 event = json.loads(line[6:])
                                 if event.get("type") == "response.completed":
                                     peers.usage.append(event["response"].get("usage"))
+                                    metadata["usage"] = event["response"].get("usage")
+                                    metadata["provider_reported_model"] = event[
+                                        "response"
+                                    ].get("model")
 
         return Handler
 
@@ -288,7 +311,7 @@ def check(image, redis_image):
                 started = time.monotonic()
                 result = measure(
                     env,
-                    message="Summarize the synthetic report, then look up its release label.",
+                    message="Summarize the synthetic report, then look up its release label. Read each source once and preserve exact Unicode labels.",
                 )
                 require(
                     result["terminal"] == "stop" and not result["errors"],

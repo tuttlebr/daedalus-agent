@@ -89,8 +89,10 @@ candidates; a provider may change underlying weights without changing its name.
 Research mode is disabled by default. An experimental configuration must set
 `enable_research_mode: true` on the webscrape function and include
 `tool_output_retriever_tool`. The check below enables the flag only in its
-isolated fixture. Live trials currently fail exact-format assertions, so the
-production configuration keeps the flag disabled.
+isolated fixture. Initial live trials failed exact-format assertions. The
+[final-only follow-up](../../docs/research-response-validation.md) records the
+runtime fix and subsequent comparison; enabling production mode also requires
+the broader paired correctness gate.
 
 The built-image research check uses actual scrape conversion, output storage,
 retrieval and both preparation paths, with only external source/model transports
@@ -109,3 +111,30 @@ a synthetic article. Set `TOOL_EVAL_API_KEY` through the environment. This mode
 requires exact answers and retrieval of omitted evidence, preserves every
 attempt, and reports recurring context size, usage and latency. These small
 controlled trials do not establish general research quality or tail latency.
+
+`research_workflow_check.py` extends that comparison to two available articles
+and one unavailable source. A second workload injects steering after a completed
+source read, requiring the agent to retain its receipt while adding sources.
+Both workloads require exact JSON, correctly attributed Unicode facts, recovery
+of evidence omitted from research previews and no repeated source fetches.
+
+```bash
+builder/.venv/bin/python builder/migration/research_workflow_check.py \
+  --image <candidate-image> --redis-image <redis-image> \
+  --source-revision <candidate-commit> \
+  --base-url http://127.0.0.1:4000/v1 --model daedalus/high \
+  --route-configmap <context> <namespace> <switchyard-configmap> \
+  --output /tmp/research-workflows
+```
+
+Three alternating full/research pairs per workload produce 12 attempts. Frozen
+limits allow 12 model calls, 12 tool calls and 90 seconds per attempt. Maximum
+serialized model input is 200,000 characters for full mode and 60,000 for
+research; research must also use at most 50% of full mode's maximum recurring
+input within every pair. These measure fixture context size, not billing tokens
+or a general context-window bound. Report latency separately: evidence recovery
+can add model rounds. The run stops on the first failed assertion and preserves
+all collected attempts. A new candidate requires a new output directory.
+
+`make migration` runs the deterministic research and response-presentation
+contracts; real-model experiments require a separately authorized gateway.

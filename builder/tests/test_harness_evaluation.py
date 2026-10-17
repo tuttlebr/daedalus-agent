@@ -128,3 +128,95 @@ def test_gateway_records_identity_and_usage_without_changing_stream():
         for server in (proxy, upstream):
             server.shutdown()
             server.server_close()
+
+
+research = load("research")
+
+
+def research_result(mode):
+    starts, ends = [], []
+
+    def append(name, args, value):
+        identifier = str(len(starts))
+        starts.append(
+            {"id": identifier, "name": "Function Start: " + name, "payload": args}
+        )
+        ends.append(
+            {"id": identifier, "name": "Function Complete: " + name, "payload": value}
+        )
+
+    for index, (url, marker) in enumerate(research.SOURCES.items()):
+        reference = f"tor_fixture_{index}"
+        value = (
+            json.dumps(
+                {
+                    "_daedalus_compacted_tool_output": {"reference": reference},
+                    "preview": {
+                        "source": {"url": url},
+                        "content": "Excerpt without required evidence",
+                    },
+                }
+            )
+            if mode == "research"
+            else url + " " + marker
+        )
+        append("webscrape_tool", {"url": url, "output_mode": mode}, value)
+        if mode == "research":
+            append(
+                "tool_output_retriever_tool",
+                {"reference": reference, "query": "verification"},
+                marker,
+            )
+    append(
+        "webscrape_tool",
+        {"url": research.MISSING, "output_mode": mode},
+        "Error: source unavailable",
+    )
+    return {
+        "answer": json.dumps(research.EXPECTED),
+        "starts": starts,
+        "ends": ends,
+        "done": True,
+        "terminal": "stop",
+        "errors": [],
+        "latency_ms": 1000,
+    }
+
+
+@pytest.mark.parametrize("mode", ["full", "research"])
+def test_research_gate_requires_exact_answer_and_bound_source_evidence(mode):
+    result = research_result(mode)
+    assert research.assess(result, mode)["passed"]
+    result["answer"] = "Here is the answer: " + result["answer"]
+    assert not research.assess(result, mode)["passed"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing_evidence",
+        "wrong_reference",
+        "duplicate_fetch",
+        "wrong_binding",
+        "invented_gap",
+        "wrong_citation",
+    ],
+)
+def test_research_gate_rejects_plausible_but_unsupported_answers(fault):
+    result = research_result("research")
+    if fault == "missing_evidence":
+        result["ends"][1]["payload"] = "No matching evidence"
+    elif fault == "wrong_reference":
+        result["starts"][1]["payload"]["reference"] = "tor_other_user"
+    elif fault == "duplicate_fetch":
+        result["starts"].append({**result["starts"][0], "id": "duplicate"})
+        result["ends"].append({**result["ends"][0], "id": "duplicate"})
+    elif fault == "wrong_binding":
+        result["ends"][1]["id"] = "missing"
+    elif fault == "invented_gap":
+        result["ends"][-1]["payload"] = "The source has no release label."
+    else:
+        value = json.loads(result["answer"])
+        value["findings"][0]["source"] = research.MISSING
+        result["answer"] = json.dumps(value)
+    assert not research.assess(result, "research")["passed"]

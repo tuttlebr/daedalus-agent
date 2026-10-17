@@ -71,6 +71,7 @@ mod protocol;
 mod provider;
 mod public_http;
 mod reranker_order;
+mod response_policy;
 mod storage;
 mod telemetry;
 mod tool_contracts;
@@ -174,6 +175,9 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     }
     if tool_contracts::Requirement::parse(&body).is_err() {
         return error(400, "Invalid tool_choice");
+    }
+    if response_policy::ResponsePolicy::parse(&body).is_err() {
+        return error(400, "Invalid response_mode");
     }
     let run_id = headers
         .get("x-daedalus-request-id")

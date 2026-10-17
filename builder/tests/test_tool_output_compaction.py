@@ -401,3 +401,37 @@ def test_backend_enables_reversible_compaction_contract():
     assert workflow["tool_output_compaction_min_chars"] >= 1_000
     assert workflow["tool_output_compaction_max_items"] >= 5
     assert workflow["tool_output_cache_ttl_seconds"] >= 300
+
+
+@pytest.mark.parametrize(
+    "query, compacted",
+    [
+        ("Read each URL once and preserve exact Unicode labels", True),
+        ("List each fact", False),
+        ("Read each line", False),
+        ("Return exact source text", False),
+        ("Are there no corrections?", False),
+    ],
+)
+def test_explicit_research_distinguishes_precision_from_exhaustive_reading(
+    query, compacted
+):
+    original = json.dumps(
+        {
+            "success": True,
+            "output_mode": "research",
+            "source": {"url": "https://sources.test/article"},
+            "content": "Ordinary background. " * 4000,
+        }
+    )
+    result = _run(
+        optimize_tool_content(
+            original,
+            tool_name="webscrape_tool",
+            query=query,
+            user_id="user-a",
+            store=MemoryStore(),
+            settings=_settings(),
+        )
+    )
+    assert (result.mode == "reversible_preview") == compacted

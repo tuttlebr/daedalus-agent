@@ -377,6 +377,8 @@ def measure(
     extra_headers=None,
     request_id=None,
     message="Execute the synthetic fixture plan.",
+    request_fields=None,
+    on_text=None,
 ):
     run_id = request_id or str(uuid.uuid4())
     headers = env["headers"] | {
@@ -391,6 +393,8 @@ def measure(
         "terminal": None,
         "errors": [],
         "answer": "",
+        "first_answer_ms": None,
+        "activity_comments": 0,
         "done": False,
         "peak_tools": 0,
     }
@@ -404,6 +408,7 @@ def measure(
             json={
                 "stream": True,
                 "messages": [{"role": "user", "content": message}],
+                **(request_fields or {}),
             },
         ) as response:
             response.raise_for_status()
@@ -413,6 +418,8 @@ def measure(
                     raise TimeoutError("Frozen request limit")
                 if line.startswith("event: "):
                     event_type = line[7:]
+                if line == ": model active":
+                    result["activity_comments"] += 1
                 if line.startswith("intermediate_data: "):
                     event = json.loads(line.split(": ", 1)[1])
                     active_tools += (
@@ -460,7 +467,15 @@ def measure(
                     if event_type == "error":
                         result["errors"].append(event)
                     for choice in event.get("choices", []):
-                        result["answer"] += choice.get("delta", {}).get("content", "")
+                        text = choice.get("delta", {}).get("content", "")
+                        result["answer"] += text
+                        if text:
+                            if result["first_answer_ms"] is None:
+                                result["first_answer_ms"] = (
+                                    time.monotonic() - started
+                                ) * 1000
+                            if on_text:
+                                on_text(text)
                         if choice.get("daedalus_terminal"):
                             result["terminal"] = choice["finish_reason"]
     result["latency_ms"] = (time.monotonic() - started) * 1000

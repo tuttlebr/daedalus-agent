@@ -81,6 +81,8 @@ migration: migration-baseline ## differential, Python-free MCP/OAuth, TLS/ACL an
 	mkdir -p $(MIGRATION_REPORT_DIR)
 	$(MIGRATION_PYTHON) builder/migration/differential.py --baseline $(MIGRATION_BASELINE_IMAGE) --candidate $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --output $(MIGRATION_REPORT_DIR)/differential
 	$(MIGRATION_PYTHON) builder/migration/leaf_check.py --image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/leaf.json
+	$(MIGRATION_PYTHON) builder/migration/response_check.py --image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE)
+	$(MIGRATION_PYTHON) builder/migration/research_check.py --image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/research.json
 	$(MIGRATION_PYTHON) builder/migration/image_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --rollback-image $(MIGRATION_BASELINE_IMAGE) --compare-image $(MIGRATION_BASELINE_IMAGE) --current-python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/minimal.json
 	$(MIGRATION_PYTHON) builder/migration/output_retriever_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/output-retriever.json
 	$(MIGRATION_PYTHON) builder/migration/memory_tools_check.py --image $(MIGRATION_MINIMAL_IMAGE) --full-image $(RUNTIME_IMAGE) --baseline $(MIGRATION_BASELINE_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/memory-tools.json
