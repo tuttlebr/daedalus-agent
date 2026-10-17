@@ -72,8 +72,25 @@ container builds, scans, and a disposable Kubernetes test cluster. You do not
 need every infrastructure tool to improve a README or work on a frontend unit
 test. The pull request still runs the repository's CI checks.
 
-Optional local hooks: install `pre-commit`, run `pre-commit install`, and use
-`pre-commit run --files <changed-files>` once frontend dependencies are installed.
+Install `pre-commit` and run `pre-commit run --files <changed-files>` before
+submitting, with frontend dependencies installed for the formatting hook.
+`pre-commit install` optionally runs these hooks automatically on each commit.
+
+## Style and regression coverage
+
+Follow [AGENTS.md](AGENTS.md) for repository conventions: four-space Python with
+Ruff/isort; two-space TypeScript with single quotes and trailing commas, checked
+by ESLint/Prettier. Use `test_*.py` for pytest, `*.test.ts` or `*.test.tsx` for
+Vitest, and `*.spec.ts` for Playwright. Add regression coverage for behavior
+changes. Preserve the 65% Python coverage floor and the frontend thresholds in
+[`vitest.config.ts`](frontend/vitest.config.ts).
+
+For documentation changes, check relative links and anchors, confirm paths and
+commands against the current source, and exercise setup steps in a fresh clone
+with synthetic credentials. Record which commands ran, their results, and any
+steps you could not test in the
+[pull request description](.github/pull_request_template.md). Never put real
+credentials, conversations, or private model endpoints in examples or fixtures.
 
 ## Pull requests
 

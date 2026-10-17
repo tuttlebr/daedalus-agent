@@ -1,62 +1,43 @@
-# Daedalus Helm Chart
+# Daedalus Helm chart
 
-The backend now runs the Rust Rig/Tokio agent with a supervised, loopback-only
-Python tool service. `make deploy` still builds and publishes both application
-images and performs the existing preflights. Helm supplies `DAEDALUS_CONFIG_FILE`
-and `DAEDALUS_PORT`; the Python tool port must not be exposed. Existing Redis
-records and Google grants retain their keys. See [runtime migration settings](../../docs/operations.md).
+Use this reference to configure the Kubernetes resources, Secrets, storage,
+and network policies for your installation. Start with the
+[deployment procedure](../../docs/operations.md#deploy-to-kubernetes) for the
+supported build, preflight, and rollout commands. For local text chat, use the
+[README](../../README.md#local-setup).
 
-This chart deploys the full Kubernetes form of Daedalus rather than just a simple frontend and backend pair.
+## Prerequisites
+
+- Helm 3 and a Kubernetes cluster with registry access and suitable storage.
+- Application and repository-owned Redis images, built and published through
+  `make deploy` or the signed release workflow.
+- Separate backend, frontend, and stream-worker Secrets and any configured
+  integration services; see [Secrets](#secrets).
+- Values adapted for your hostnames, TLS, storage, and network policies. The
+  repository's [custom-values.yaml](../../custom-values.yaml) is a home deployment
+  example; [values.yaml](values.yaml) defines the chart defaults.
 
 ## What The Chart Deploys
 
 Depending on values, the chart can deploy:
 
 - nginx and ingress for external traffic entry
-- the Next.js frontend
+- the Next.js frontend and dedicated stream worker
 - the backend deployment
 - Redis Stack using the repository-owned, security-updated runtime image
 - the autonomous-agent worker Deployment
 - PVCs, PodDisruptionBudget, NetworkPolicy, and optional Cilium policies
 
-Start with the [project README](../../README.md) for local setup. The
-[operations reference](../../docs/operations.md) contains the full deployment
-guide and request-flow diagrams. This file focuses on the chart itself;
-`custom-values.yaml` records the maintainer's home deployment settings.
-
-## Prerequisites
-
-- Helm 3.x
-- A Kubernetes cluster with access to your image registry
-- Backend, frontend, and repository-owned Redis container images pushed to a registry
-- Separate allowlisted backend, frontend, and stream-worker Secrets
+The backend runs the Rust agent with a supervised Python tool service on
+loopback. Helm supplies `DAEDALUS_CONFIG_FILE` and `DAEDALUS_PORT`; do not expose
+the Python tool port. The stream worker runs separately from the frontend and
+uses the same image.
 
 ## Secrets
 
-### Completion Web Push
-
-Kubernetes completion notifications require an explicit opt-in:
-`frontend.streamWorker.pushNotifications.enabled: true`, plus
-`NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in the stream-worker
-Secret. The chart sets `PUSH_NOTIFICATIONS_ENABLED` consistently in the API and
-worker. With the default `false`, neither subscription admission nor sending
-is enabled; existing subscriptions are retained. Compose keeps its existing
-VAPID-based opt-in unless that environment flag explicitly disables it.
-
-Only HTTPS port 443 endpoints from FCM (`fcm.googleapis.com`), Mozilla
-(`updates.push.services.mozilla.com`) and Apple (`*.push.apple.com`) are
-supported. Other providers require a reviewed application/policy change.
-Cilium permits those provider names only. Standard NetworkPolicy cannot use
-DNS names: set `frontend.streamWorker.pushNotifications.cidrs` to the current,
-reviewed provider IP ranges. Enabling push without ranges in standard mode
-fails rendering; unrestricted `/0` ranges are rejected. Keep the ranges
-current as providers change them. No public egress is added to frontend pods.
-
-Enablement changes require a Helm rollout; disabling the value is reversible
-and preserves registrations. Native delivery and certificate validation must
-also succeed; a rendered rule alone does not prove network connectivity.
-
 ### Workload credentials
+
+Configure login hashes as described in [login configuration](../../docs/operations.md#login-configuration).
 
 `make deploy` filters `.env` into three workload-specific Secrets. It doesn't
 copy the full file into any pod:
@@ -121,7 +102,7 @@ For Google Workspace MCP, the backend secret must include
 `GOOGLE_MCP_CLIENT_ID`, `GOOGLE_MCP_CLIENT_SECRET`, and
 `GOOGLE_MCP_REDIRECT_URI`. The redirect URI must be registered on the
 Google OAuth client and should point at the public nginx backend redirect
-path, for example `https://daedalus.ddns.me/auth/redirect`. One OAuth client is
+path, for example `https://assistant.example/auth/redirect`. One OAuth client is
 shared by Gmail, Calendar, and Docs. Add the scope union
 listed in `.env.template` to the consent configuration. Before deployment,
 enable both `docs.googleapis.com` and `docsmcp.googleapis.com` in that OAuth
@@ -196,28 +177,52 @@ overlap, and performs a byte-compatible rollback. Those generated certificates
 are test-only and aren't written to the repository. Production certificates
 and keys must remain externally supplied.
 
-## Install Or Upgrade
+### Completion Web Push
+
+Kubernetes completion notifications require an explicit opt-in:
+`frontend.streamWorker.pushNotifications.enabled: true`, plus
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in the stream-worker
+Secret. The chart sets `PUSH_NOTIFICATIONS_ENABLED` consistently in the API and
+worker. With the default `false`, neither subscription admission nor sending
+is enabled; existing subscriptions are retained. Compose keeps its existing
+VAPID-based opt-in unless that environment flag explicitly disables it.
+
+Only HTTPS port 443 endpoints from FCM (`fcm.googleapis.com`), Mozilla
+(`updates.push.services.mozilla.com`) and Apple (`*.push.apple.com`) are
+supported. Other providers require a reviewed application/policy change.
+Cilium permits those provider names only. Standard NetworkPolicy cannot use
+DNS names: set `frontend.streamWorker.pushNotifications.cidrs` to the current,
+reviewed provider IP ranges. Enabling push without ranges in standard mode
+fails rendering; unrestricted `/0` ranges are rejected. Keep the ranges
+current as providers change them. No public egress is added to frontend pods.
+
+Enablement changes require a Helm rollout; disabling the value is reversible
+and preserves registrations. Native delivery and certificate validation must
+also succeed; a rendered rule alone does not prove network connectivity.
+
+## Install or upgrade
+
+Follow [Deploy to Kubernetes](../../docs/operations.md#deploy-to-kubernetes),
+including the preview and rollout verification. To select a release, namespace,
+credential file, values file, or workflow, pass options through the Make target
+from the repository root:
 
 ```sh
-make deploy
+make deploy DEPLOY_ARGS='--release <release> --namespace <namespace> --env-file <env-file> --values <values-file> --backend-config <config-file>'
 ```
 
-To select a release, namespace, values file, or backend workflow config, pass
-the deployment implementation options through the Make target:
+Replace the angle-bracket placeholders with your paths and names. Direct Helm
+commands are useful for linting and rendering; the supported application
+deployment path is `make deploy`, which includes preflights and Secret
+synchronization.
 
-```sh
-make deploy DEPLOY_ARGS='--release <release> --namespace <namespace> --values <values-file> --backend-config <config-file>'
-```
+The full workflow uses the Responses API. Config overlays using application
+`base:` inheritance are also resolved by the MCP authorization policy loader.
+See [runtime configuration](../../docs/operations.md#runtime-configuration)
+for compatibility selectors and rollback boundaries.
 
-Run these commands from the repository root. Direct Helm commands are useful
-for chart linting and rendering, but are not a supported application deployment
-path because they bypass the repository preflight and Secret synchronization.
-
-The canonical config uses the OpenAI-compatible Responses API. Overlay configs
-that inherit it through application `base:` support are also honored by the backend's
-MCP authorization policy loader, which resolves the same `base:` chain.
-
-The repo-level [`../../custom-values.yaml`](../../custom-values.yaml) is the opinionated example for production-style deployments. RedisInsight isn't shipped. Use an authenticated, time-bounded local client through `kubectl port-forward` when interactive Redis inspection is required.
+RedisInsight is not shipped. Use an authenticated, time-bounded local client
+through `kubectl port-forward` when interactive Redis inspection is required.
 
 ### Release Evidence
 
@@ -266,11 +271,15 @@ or deployment.
 
 The standard browser flow is:
 
-1. Client request enters the cluster through `Ingress`
-2. `Ingress` forwards to the chart-managed `nginx` service
-3. nginx proxies `/` and `/api/*` to the `frontend` service
-4. Frontend routes work to the `backend-default` service
-5. Backend pods use Redis plus optional integrations such as Milvus, NV-Ingest, Phoenix, and external model APIs
+1. Ingress forwards to the chart-managed nginx service.
+2. nginx proxies `/` and `/api/*` to Next.js, and `/ws` to its WebSocket sidecar.
+3. The frontend authenticates the user, selects a backend, and queues the job
+   in Redis. The dedicated stream worker opens the backend request.
+4. The Rust backend calls the model and configured tools; the worker persists
+   output and publishes events for the browser.
+
+See the [request-path diagram](../../docs/architecture.md#request-path) for
+ownership and recovery boundaries.
 
 ### RAG Secret Contract
 
@@ -307,17 +316,9 @@ are rendered as backend pod annotations (and as a frontend annotation for the
 document-object Secret), ensuring environment-based credentials rotate without
 putting credential values or hashes into the release.
 
-Verify a production rollout through the application readiness endpoint, not
-only pod readiness:
-
-```sh
-kubectl -n daedalus rollout status deployment/daedalus-backend-default
-kubectl -n daedalus port-forward service/daedalus-backend-default 18000:8000
-curl -fsS http://127.0.0.1:18000/health/ready
-```
-
-The last command is run in a second shell while the port-forward is active and
-must report the RAG dependency ready.
+Follow [rollout verification](../../docs/operations.md#verify-a-rollout) to check
+application readiness and the configured dependencies, then test a chat through
+the frontend. An HTTP 200 in `degraded` mode does not prove RAG is available.
 
 nginx can also proxy backend paths directly:
 
@@ -325,7 +326,9 @@ nginx can also proxy backend paths directly:
 - `/generate/`
 - `/v1/`
 
-Those routes are selected by path and `X-Backend-Type` header, which allows callers to bypass the frontend pod for direct backend API access when desired.
+Those routes use the path and `X-Backend-Type` header for backend selection.
+They retain backend authentication requirements. Set
+`nginx.config.restrictedMode=true` to disable these direct backend routes.
 
 ## Operational Notes
 
@@ -356,15 +359,19 @@ Those routes are selected by path and `X-Backend-Type` header, which allows call
 
 ## NFS Ownership Runbook
 
-Before deploying workloads that write to existing `nfs-client` PVCs, audit the export policy on the NFS server (for example with `exportfs -v`). It should report `all_squash,anonuid=977,anongid=988`.
+For the home `nfs-client` setup, audit the NFS export policy with `exportfs -v`.
+Its expected policy is `all_squash,anonuid=977,anongid=988`.
 
-During a maintenance window, stop affected NFS-backed workloads and normalize existing PVC directories on the NFS server:
+These UID/GID values describe the home export policy above; match your own
+server's policy before applying them. During a maintenance window, stop affected
+workloads, back up the data, and set `DAEDALUS_PVC_DIR` to the specific Daedalus
+PVC directory on the NFS server before normalizing its ownership:
 
 ```sh
-root=/var/nfs/shared/kubernetes
-chown -R 977:988 "$root"
-chmod -R u+rwX,g+rwX,o-rwx "$root"
-find "$root" -type d -exec chmod g+s {} +
+DAEDALUS_PVC_DIR=/path/to/daedalus/pvc-data
+chown -R 977:988 "$DAEDALUS_PVC_DIR"
+chmod -R u+rwX,g+rwX,o-rwx "$DAEDALUS_PVC_DIR"
+find "$DAEDALUS_PVC_DIR" -type d -exec chmod g+s {} +
 exportfs -ra
 ```
 
@@ -372,4 +379,4 @@ exportfs -ra
 
 - [`values.yaml`](values.yaml) for the default chart values
 - [`../../custom-values.yaml`](../../custom-values.yaml) for the maintainer's home deployment settings
-- [Operations reference](../../docs/operations.md) for deployment instructions and Kubernetes flow diagrams
+- [Operations reference](../../docs/operations.md) for deployment and rollout verification

@@ -5,190 +5,151 @@
 # Daedalus
 
 Daedalus is a self-hosted AI assistant I build and maintain for myself and my
-wife. I'm Brandon Tuttle, an independent developer, and this is my personal
-project. Our two-person household is the use case that guides its design.
+wife. I'm Brandon Tuttle, an independent developer, and our two-person
+household guides the design of this personal project.
 
-I'm sharing the code so other developers can understand it, run their own
-version, adapt individual tools, and contribute useful improvements. It combines
-a Next.js chat application with a Rust agent runtime using Rig, Tokio, and Axum.
-An application-owned Python service runs the existing tools and MCP integrations.
-NeMo Agent Toolkit is no longer installed or used.
+It combines a Next.js chat application, a Rust agent runtime built with Rig,
+Tokio, and Axum, and a Python tool service. Chat history and streaming work with
+the local setup below. Image creation, retrieval, durable memory, integrations,
+and scheduled work depend on the additional services you configure.
 
-While a response is running, type a direction in the composer and send it.
-The runtime interrupts model generation, retains results from started tool calls,
-skips queued calls, and continues with your direction. Delivery uses the existing
-WebSocket connection; it requires no WebRTC media server.
+You can steer a running response by sending another direction in the composer.
+The agent keeps results from tools already started and uses your direction for
+the next model round. See the [request path](docs/architecture.md#request-path)
+for the execution and recovery boundaries.
 
-The app includes chat history and streaming, image creation, document retrieval,
-durable memory, tool integrations, and scheduled background work. Those
-capabilities depend on the services you configure. Start with text chat, then add
-what you need.
-
-## Project expectations
-
-I maintain this around my own use and available time. Contributions are welcome;
-there is no support team, guaranteed response time, or fixed release schedule.
-The repository includes tests and deployment controls, but use by two people
-does not establish suitability for a larger or public service.
-
-My home setup uses Kubernetes and several external services. Those choices are
-visible as worked examples. The local starting point below needs Docker Compose
-and one compatible model endpoint. It still uses the application's full images;
-the initial build includes substantial Python dependencies.
+Contributions are welcome. I maintain this around my own use and available
+time; there is no support team, guaranteed response time, or fixed release
+schedule. Use by two people does not establish suitability for a public service.
 
 ## Start here
 
-| You want to...                                      | Read this                                                                         |
-| --------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Run text chat with your own model endpoint          | [Local setup](#local-setup)                                                       |
-| Understand the request path and find code to change | [Architecture and adaptation](docs/architecture.md)                               |
-| Add integrations or adapt my home deployment        | [Operations reference](docs/operations.md), [Helm guide](helm/daedalus/README.md) |
-| Fix a bug or contribute an improvement              | [Contributing](CONTRIBUTING.md)                                                   |
+| You want to...                                    | Read this                                                                                                                           |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Run local text chat                               | [Local setup](#local-setup)                                                                                                         |
+| Find code or add one integration                  | [Architecture and adaptation](docs/architecture.md)                                                                                 |
+| Operate an installation or move to Kubernetes     | [Operations](docs/operations.md), [Helm chart](helm/daedalus/README.md)                                                             |
+| Develop the UI or run browser tests               | [Frontend](frontend/README.md), [Browser tests](frontend/e2e/README.md)                                                             |
+| Change shared payloads or agent instructions      | [Protocol](protocol/README.md), [Skill guidelines](skills/AGENTS.md)                                                                |
+| Contribute a fix                                  | [Contributing](CONTRIBUTING.md), [Repository guidelines](AGENTS.md)                                                                 |
+| Understand tool execution and exact answers       | [Tool contracts](docs/tool-correctness.md)                                                                                          |
+| Validate model or research changes                | [Evaluation guide](evaluation/tool-correctness/README.md), [Research and response validation](docs/research-response-validation.md) |
+| Review long-running workflows and recovery limits | [Workflow review](docs/long-running-workflows.md)                                                                                   |
+| Understand Rust ownership and rollback            | [Runtime migration](docs/rust-migration.md)                                                                                         |
+| Review the Harness2 design work                   | [Focused review](docs/harness-improvement-review.md), [Implementation and evidence](docs/harness-improvements.md)                   |
+| Understand skill maintenance or image signing     | [Skills review](docs/skills-review.md), [Content Credentials](docs/content-credentials.md)                                          |
 
 ## Local setup
 
-You need Git, Docker with the Compose plugin and BuildKit support, and an API
-endpoint with a model that supports the **Responses API and tool calling**.
-Have its API root URL, model name, and credential ready. Model serving happens
-outside this stack; no GPU is required by the app containers themselves.
+Prerequisites: Git, Docker with the Compose plugin and BuildKit support, Bash,
+OpenSSL, curl, and a model endpoint supporting the **Responses API and tool
+calling**. Have its API root, model name, and credential ready. The containers
+supply Node, Python, and Rust; no host language toolchains or GPU are required
+for this path. The first build includes substantial Python dependencies and can
+take longer than the configuration steps.
 
-Run these commands in a fresh clone:
+Run all commands below from the repository root in the same Bash session.
+
+### 1. Configure the model and session
 
 ```bash
 git clone https://github.com/tuttlebr/daedalus-agent.git
 cd daedalus-agent
 cp .env.example .env
+openssl rand -base64 32
 ```
 
-Edit `.env` and fill in:
+Copy the generated secret into `SESSION_SECRET` in `.env`, then fill in:
 
-| Variable                                           | Value                                                       |
-| -------------------------------------------------- | ----------------------------------------------------------- |
-| `TOOL_CALLING_LLM_MODEL_BASE_URL`                  | Your provider's API root, usually ending in `/v1`           |
-| `TOOL_CALLING_LLM_MODEL_MODEL`                     | A model available at that endpoint                          |
-| `TOOL_CALLING_LLM_MODEL_API_KEY`                   | Its API credential                                          |
-| `SESSION_SECRET`                                   | A fresh value from `openssl rand -base64 32`                |
-| `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `AUTH_NAME` | Your login, bcrypt cost-12-or-higher hash, and display name |
+| Variable                          | Value                                             |
+| --------------------------------- | ------------------------------------------------- |
+| `TOOL_CALLING_LLM_MODEL_BASE_URL` | Your provider's API root, usually ending in `/v1` |
+| `TOOL_CALLING_LLM_MODEL_MODEL`    | A tool-capable model available there              |
+| `TOOL_CALLING_LLM_MODEL_API_KEY`  | Its credential                                    |
+| `AUTH_USERNAME`, `AUTH_NAME`      | Your login and display name                       |
 
-The example selects [`backend/local-chat-config.yaml`](backend/local-chat-config.yaml),
-which contains text chat and a clock tool. It has no MCP servers, retrieval,
-Hindsight memory, or tracing configured. The default backend uses `/responses` for model requests. Set the model
-configuration's `api_type: chat` for a Chat Completions endpoint.
-Inside a container, `localhost` refers to that container, so use a URL reachable
-from Docker for a model you host yourself.
+Leave `AUTH_PASSWORD_HASH` empty until step 2. Keep `.env` private and out of Git.
+Inside Docker, `localhost` refers to the container; a self-hosted model needs a
+URL reachable from the backend container.
 
-Generate the login hash without putting the password in shell history:
+The example selects [`backend/local-chat-config.yaml`](backend/local-chat-config.yaml):
+one model and a native clock tool. It configures no MCP servers, retrieval,
+Hindsight memory, sandbox, autonomy, or tracing. It sends model requests to
+`/responses`. If your endpoint supports Chat Completions instead, change
+`llms.main.api_type` to `chat` in that YAML before starting the backend.
 
-```bash
-cd frontend
-read -rsp 'Password: ' DAEDALUS_PASSWORD; echo
-AUTH_PASSWORD_INPUT="$DAEDALUS_PASSWORD" node -e 'console.log(require("bcryptjs").hashSync(process.env.AUTH_PASSWORD_INPUT, 12))'
-unset DAEDALUS_PASSWORD AUTH_PASSWORD_INPUT
-```
-
-Copy the result into `AUTH_PASSWORD_HASH` in single quotes. This is the
-one-way verifier for the existing local login: the frontend compares submitted
-passwords to it with bcrypt, but the deploy Secret and long-lived process no
-longer need the original password. It does not enable MFA or change sessions.
-Daedalus no longer accepts plaintext login passwords in its environment.
-
-For an existing installation, enter each user's current password into the same
-command and replace `AUTH_PASSWORD` with `AUTH_PASSWORD_HASH`, or
-`AUTH_USER_N_PASSWORD` with `AUTH_USER_N_PASSWORD_HASH`. Keep the username and
-password themselves unchanged. This is a configuration-format migration, not a
-password reset; existing server-side sessions remain valid across the rollout.
-
-Build the application images, then start the services:
+### 2. Build and create your login hash
 
 ```bash
 docker compose build backend frontend redis
-docker compose up -d nginx frontend stream-worker backend redis object-store object-store-init
+docker compose build nginx object-store
 ```
 
-Open **http://localhost:8080**, sign in, and ask for the current date and time.
-A completed answer using the clock tool checks the model and tool path. Start a
-second conversation and reload to check saved history.
-
-To see service status and diagnose startup:
+The second command builds the repository's proxy and object-store images; they
+are also needed by a fresh installation. Use the built frontend image to hash
+your password, without installing Node or npm packages on the host:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 backend stream-worker frontend
+read -rsp 'Password: ' DAEDALUS_PASSWORD; printf '\n'
+printf '%s' "$DAEDALUS_PASSWORD" | docker compose run --rm -T --no-deps \
+  --entrypoint node frontend -e \
+  'console.log(require("bcryptjs").hashSync(require("node:fs").readFileSync(0, "utf8"), 12))'
+unset DAEDALUS_PASSWORD
+```
+
+Copy the hash into `AUTH_PASSWORD_HASH` in `.env`, enclosed in **single quotes**
+so Compose preserves its `$` characters. The application requires bcrypt cost
+12 or greater. For multiple accounts or an existing plaintext configuration,
+see [login configuration](docs/operations.md#login-configuration).
+
+### 3. Start and verify
+
+```bash
+docker compose up -d nginx frontend stream-worker backend redis object-store object-store-init
+docker compose ps -a
 curl -fsS http://127.0.0.1:8000/health/ready
 ```
 
-A healthy backend does not test your model credentials; the chat request does.
-If the model request fails, check the endpoint, model, credentials, and Responses
-API support. Recreate the backend after editing its YAML:
+The backend, Redis, object store, and stream worker should become healthy;
+`redis-volume-init` and `object-store-init` should exit successfully. Readiness
+checks backend dependencies, not your model credentials.
+
+Open **http://localhost:8080**, sign in, and ask: **"Use the clock tool to tell me
+the current date and time."** A completed tool-backed answer verifies the model,
+tool, queue, and streaming path. Start a second conversation and reload to check
+saved history.
+
+If startup or chat fails, inspect service logs:
 
 ```bash
-docker compose up -d --force-recreate backend
+docker compose logs --tail=100 backend stream-worker frontend
 ```
 
-Stop the stack with `docker compose down`. Redis data remains in `redis/data/`
-and document objects remain in a Docker volume. Local Compose uses plaintext
-HTTP and development storage credentials; its frontend ports are published on
-host interfaces. Use it on a trusted development machine. See the
-[deployment reference](docs/operations.md) before exposing an installation.
-Compose runs a short root-only volume initialization step, then Redis itself
-runs as UID 977 and GID 988 with a read-only root filesystem.
+For model errors, check the API root, model name, credential, and selected API
+type. After changing `.env` or backend YAML, recreate the affected services:
 
-### Two accounts
-
-To use two logins, replace the single-user `AUTH_*` entries with consecutively
-numbered entries. Give each account its own password:
-
-```dotenv
-AUTH_USER_1_USERNAME=alex
-AUTH_USER_1_PASSWORD_HASH='$2b$12$...'
-AUTH_USER_1_NAME=Alex
-AUTH_USER_2_USERNAME=sam
-AUTH_USER_2_PASSWORD_HASH='$2b$12$...'
-AUTH_USER_2_NAME=Sam
+```bash
+docker compose up -d --force-recreate backend stream-worker frontend nginx
 ```
 
-User ownership checks apply to conversations, uploads, jobs, and private state.
-The deployment operator controls the services and their stored data.
+Stop with `docker compose down`. Redis history remains in `redis/data/` and
+document objects remain in the Docker volume. Compose publishes plaintext HTTP
+with development storage credentials; use a trusted development machine. See
+[exposure and storage](docs/operations.md#exposure-and-storage) before making
+an installation accessible to others.
 
-## Add capabilities when you need them
+## Add a capability
 
-The full integration example is [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml),
-with environment settings in [`.env.template`](.env.template). It includes my
-assistant preferences and home service assumptions. Use the
-[adaptation guide](docs/architecture.md#where-to-change-things) to add one
-integration at a time.
+Start with [one integration at a time](docs/architecture.md#where-to-change-things).
+The full example, [`backend/tool-calling-config.yaml`](backend/tool-calling-config.yaml)
+and [`.env.template`](.env.template), is opinionated around my home services and
+assistant preferences. It is a reference for adapting your working setup.
 
-| Capability                               | Additional requirements                                                       |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| Image creation and analysis              | Configured image and vision providers                                         |
-| Document ingestion and retrieval         | NV-Ingest, Milvus, compatible embeddings/reranking, and object storage wiring |
-| Durable agent memory                     | Hindsight service and credentials                                             |
-| GitHub, Google Workspace, or other tools | Corresponding MCP endpoints, credentials or OAuth, and tool policies          |
-| Sandbox execution and generated files    | Compatible sandbox service, token, and artifact storage                       |
-| Scheduled autonomous work                | Autonomous worker deployment, account identity, and the tools its tasks need  |
-| Tracing                                  | Phoenix or another configured tracing exporter                                |
-
-Compose supplies Redis and S3-compatible storage. It does not start the external
-services in this table or the autonomous worker. The UI still shows features
-whose integrations are absent; text chat is the supported scope of the local
-starting configuration. Create, retrieval, memory, and Autonomy require their
-own configuration before use.
-
-## Code map
-
-| Path                                        | Purpose                                                                  |
-| ------------------------------------------- | ------------------------------------------------------------------------ |
-| [`frontend/`](frontend/README.md)           | Next.js UI, API routes, stream worker, WebSocket sidecar, and PWA        |
-| [`backend/`](backend/)                      | Agent workflow YAML; start with `local-chat-config.yaml`                 |
-| [`builder/`](builder/)                      | Rust runtime and APIs, Python leaf tools and adapters, images, and tests |
-| [`protocol/`](protocol/README.md)           | Shared payload schemas and generated types                               |
-| [`skills/`](skills/)                        | Instructions loaded by the agent when configured                         |
-| [`helm/daedalus/`](helm/daedalus/README.md) | Kubernetes deployment chart                                              |
-| [`custom-values.yaml`](custom-values.yaml)  | My home deployment overrides                                             |
-| [`Makefile`](Makefile)                      | Local counterparts to CI checks; run `make help`                         |
-
-For development, use Node.js 22, Python 3.12 and Rust 1.95. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks by area.
+Compose supplies Redis and S3-compatible storage. The UI also exposes features
+whose external services are absent; those features need their own configuration.
+The [capability requirements](docs/architecture.md#capability-requirements)
+identify what to add for images, retrieval, memory, tools, sandbox, autonomy,
+and tracing.
 
 ## License
 

@@ -1,4 +1,11 @@
-# Runtime architecture
+# Architecture and adaptation
+
+Use this page to follow a chat request and find the code or configuration to
+change. Prerequisite: a working [local chat setup](../README.md#local-setup).
+For source changes, use the toolchains and checks in
+[CONTRIBUTING.md](../CONTRIBUTING.md#development-and-checks).
+
+## Request path
 
 The browser connects to the Next.js application and its authenticated WebSocket
 server. Redis owns queued jobs, streamed output, conversation history, and
@@ -17,6 +24,18 @@ flowchart LR
     Rust -->|loopback, authenticated| Python[Python leaf tools + image API]
     Autonomy[Python autonomous worker] --> Rust
 ```
+
+1. The frontend authenticates a submission and reserves a per-user slot in Redis.
+2. A stream worker claims the queued job and opens an SSE request to the backend.
+3. The Rust loop calls the model and authorized tools. Python executes the leaf
+   tools it still owns; the local clock runs entirely in Rust.
+4. The worker persists output in Redis and publishes live events to the browser
+   through WebSocket, with authenticated HTTP polling for recovery.
+
+The diagram includes optional integrations. The local configuration needs only
+the browser, frontend, Redis, worker, backend, and model endpoint; Compose also
+starts object storage. See [capability requirements](#capability-requirements)
+for the rest.
 
 Redis makes chat admission, queue ownership, streamed output and finalization
 recoverable. The model/tool execution itself lives in the backend process.
@@ -40,6 +59,86 @@ when a sixth submission is rejected.
 Activity text, tool categories and accessibility announcements are scoped to
 their conversation, so background runs cannot replace the selected chat's
 indicator or clear it when another run completes.
+
+## Code map
+
+| Path                                                        | Responsibility                                                               |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [`frontend/`](../frontend/README.md)                        | Next.js UI and APIs, Redis job queue, stream worker, WebSocket sidecar       |
+| [`builder/runtime/`](../builder/runtime/)                   | Rust agent loop, public backend APIs, native tools, provider and MCP clients |
+| [`builder/daedalus_runtime/`](../builder/daedalus_runtime/) | Python tool service, supervisor, and remaining adapters                      |
+| [`backend/`](../backend/)                                   | Workflow YAML; `local-chat-config.yaml` is the starting point                |
+| [`protocol/`](../protocol/README.md)                        | Shared schemas and generated Rust, TypeScript, and Python types              |
+| [`skills/`](../skills/AGENTS.md)                            | Agent instructions, loaded only when configured                              |
+| [`helm/daedalus/`](../helm/daedalus/README.md)              | Kubernetes resources and values                                              |
+| [`scripts/`](../scripts/), [`Makefile`](../Makefile)        | Validation, release, and development commands                                |
+
+## Capability requirements
+
+The home integration example is [tool-calling-config.yaml](../backend/tool-calling-config.yaml),
+with environment settings in [.env.template](../.env.template). It includes
+household-specific instructions, endpoints, and policies; select the parts you
+need instead of switching your local setup to the entire file.
+
+| Capability                               | Additional requirements                                                       |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| Image creation and analysis              | Configured image and vision providers                                         |
+| Document ingestion and retrieval         | NV-Ingest, Milvus, compatible embeddings/reranking, and object-storage wiring |
+| Durable agent memory                     | Hindsight service and credentials; enable the memory mode                     |
+| GitHub, Google Workspace, or other tools | MCP endpoints, credentials or OAuth, and tool policies                        |
+| Sandbox execution and generated files    | Compatible sandbox service, token, and artifact storage                       |
+| Scheduled autonomous work                | Autonomous worker deployment, account identity, and non-interactive tools     |
+| Tracing                                  | Phoenix or another configured tracing exporter                                |
+
+Compose does not start these external integrations or the autonomous worker.
+Credentials and reachable endpoints alone do not register tools: the workflow
+must expose them. Runtime skills provide instructions, not new permissions.
+
+## Where to change things
+
+The [focused Harness2 review](harness-improvement-review.md) proposes model
+capability gates, configuration-aware evaluations and recoverable research
+context, with evidence and acceptance criteria for each change.
+
+| Behavior                                                                 | Entry points                                                                                       |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Model/tool rounds, steering, retries and call binding                    | `builder/runtime/src/agent.rs`, `control.rs`, `provider.rs`                                        |
+| Configuration, model profiles, native tool ownership and inbound history | `builder/runtime/src/config.rs`, `preparation.rs`                                                  |
+| Public API ownership and run deadlines                                   | `builder/runtime/src/main.rs` and its route modules                                                |
+| MCP discovery, sessions, OAuth and approvals                             | `builder/runtime/src/mcp.rs`, `oauth.rs`, `authorization.rs`                                       |
+| Recoverable output previews and exact retrieval                          | `builder/runtime/src/output.rs`, `output_retriever.rs`                                             |
+| Remaining Python leaf tools and fallback preparation                     | `builder/daedalus_runtime/tools.py`, `service.py` and each tool package                            |
+| Chat submission, admission, queue leases and recovery                    | `frontend/server/jobSubmission.ts`, `frontend/server/chat/streamQueue.ts`, `streamWorker.ts`       |
+| SSE reading, status persistence and finalization                         | `frontend/server/chat/streamReader.ts`, `streamState.ts`, `finalization.ts`                        |
+| Scheduled goals and autonomous work                                      | `builder/autonomous_agent/src/autonomous_agent/worker.py`, `backend_client.py`                     |
+| Enabled capabilities and deployment                                      | `backend/tool-calling-config.yaml`, `backend/local-chat-config.yaml`, `helm/daedalus`, `deploy.sh` |
+
+Add native Rust tools in preparation and dispatch, with shared schemas and
+service/built-image contracts. Remaining Python tools use the explicit factory
+list in `daedalus_runtime/tools.py`; importing a package does not automatically
+grant it access. Grant exposure in workflow YAML and preserve authenticated
+identity, approval policy and cancellation when adding an integration.
+
+To add one integration to an already working installation:
+
+1. Copy `backend/local-chat-config.yaml` to a private workflow file. Point
+   `BACKEND_CONFIG_FILE` at it for Compose, or pass `--backend-config` to the
+   Kubernetes deployment command. Keep the clock as a baseline check.
+2. Add the service's configuration under `functions` or `function_groups`, using
+   the corresponding block in the full example as a reference. Supply its
+   credentials in your private environment or scoped Kubernetes Secret. Add
+   only the intended function or group names to `workflow.tools`.
+3. Configure the service itself and its network access. For Kubernetes, use the
+   [chart's credential and network settings](../helm/daedalus/README.md).
+4. Recreate the local backend or use the [deployment procedure](operations.md#deploy-to-kubernetes).
+   Check readiness, repeat the clock request, then make one read-only request
+   that actually uses the new integration. Readiness alone does not prove a
+   model can select and use its tools.
+
+For changes to a tool implementation or provider, also run the applicable
+[built-image checks](../CONTRIBUTING.md#development-and-checks).
+
+## Runtime and provider boundaries
 
 `builder/runtime` uses Rig for OpenAI Responses or Chat Completions, Tokio for
 concurrency, and Axum for HTTP. Its application-owned loop controls model calls,
@@ -97,33 +196,10 @@ new user turns for the automatic profile and reuses that tier during tool
 continuations. Explicit profiles bypass the judge. Gateway state is in memory;
 missing state after restart defaults to the capable tier in our patched build.
 
-Backend application logs are JSON lines on stdout. They record run start/end,
-preparation, model attempts and retries, time to the first model event, tool
-execution, steering, cancellation, approval waits, and process lifecycle. A final
-run summary includes elapsed time, model/tool call counts, and reported token
-usage. Failures include their stage, category, and HTTP status when available.
-Prompts, answers, tool arguments/results, user identities, credentials, raw
-provider errors, and OAuth URLs are excluded from these application logs.
+See [runtime logs](operations.md#runtime-logs) to correlate model attempts,
+tool calls, and terminal events with a frontend job.
 
-`LOG_LEVEL=INFO` is the default for both processes; `DEBUG` also logs MCP
-discovery timings, and `WARN`/`ERROR` reduce progress output. Rust additionally
-honors `RUST_LOG` when set. Use `daedalus_runtime=debug` to scope Rust diagnostics
-to application events. Uvicorn and other dependencies retain their own log
-formats. No Phoenix collector is needed to see application logs.
-
-Follow the backend with:
-
-```bash
-kubectl -n daedalus logs -f deployment/daedalus-backend-default -c backend
-```
-
-The Rust `span.run_id` and Python `fields.run_id` identify the same frontend job.
-To inspect one run, filtering out non-JSON server messages:
-
-```bash
-kubectl -n daedalus logs deployment/daedalus-backend-default -c backend --since=30m |
-  jq -R 'fromjson? | select((.span.run_id // .fields.run_id) == "RUN_ID")'
-```
+## Tool ownership and control
 
 `builder/daedalus_runtime` runs Python tools on loopback port 8001. The Rust
 process is the public backend on port 8000. The supervisor starts both, waits
@@ -184,6 +260,8 @@ losing refresh tokens. Model or user instructions cannot bypass approval:
 the MCP gate binds a one-use credential to the user, server, operation, and
 canonical arguments. Uncertain remote mutations are never automatically retried.
 
+## Optional telemetry
+
 Optional Phoenix export records content-free run counters and tool phase spans.
 It omits prompts, tool arguments, results, identities, and credentials. The run
 records how many responses actually reported usage so missing usage is not
@@ -195,28 +273,3 @@ cannot exhaust the span attribute limit and discard terminal metrics.
 The `telemetry_started` lifecycle log records the Phoenix `trace_id` inside the
 existing run context, allowing exact trace-to-run correlation without exporting
 user or conversation identifiers.
-
-## Where to change things
-
-The [focused Harness2 review](harness-improvement-review.md) proposes model
-capability gates, configuration-aware evaluations and recoverable research
-context, with evidence and acceptance criteria for each change.
-
-| Behavior                                                                 | Entry points                                                                                       |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Model/tool rounds, steering, retries and call binding                    | `builder/runtime/src/agent.rs`, `control.rs`, `provider.rs`                                        |
-| Configuration, model profiles, native tool ownership and inbound history | `builder/runtime/src/config.rs`, `preparation.rs`                                                  |
-| Public API ownership and run deadlines                                   | `builder/runtime/src/main.rs` and its route modules                                                |
-| MCP discovery, sessions, OAuth and approvals                             | `builder/runtime/src/mcp.rs`, `oauth.rs`, `authorization.rs`                                       |
-| Recoverable output previews and exact retrieval                          | `builder/runtime/src/output.rs`, `output_retriever.rs`                                             |
-| Remaining Python leaf tools and fallback preparation                     | `builder/daedalus_runtime/tools.py`, `service.py` and each tool package                            |
-| Chat submission, admission, queue leases and recovery                    | `frontend/server/jobSubmission.ts`, `frontend/server/chat/streamQueue.ts`, `streamWorker.ts`       |
-| SSE reading, status persistence and finalization                         | `frontend/server/chat/streamReader.ts`, `streamState.ts`, `finalization.ts`                        |
-| Scheduled goals and autonomous work                                      | `builder/autonomous_agent/src/autonomous_agent/worker.py`, `backend_client.py`                     |
-| Enabled capabilities and deployment                                      | `backend/tool-calling-config.yaml`, `backend/local-chat-config.yaml`, `helm/daedalus`, `deploy.sh` |
-
-Add native Rust tools in preparation and dispatch, with shared schemas and
-service/built-image contracts. Remaining Python tools use the explicit factory
-list in `daedalus_runtime/tools.py`; importing a package does not automatically
-grant it access. Grant exposure in workflow YAML and preserve authenticated
-identity, approval policy and cancellation when adding an integration.
