@@ -112,3 +112,80 @@ def test_legacy_comparison_rejects_unexplained_model_and_schema_changes(differen
         == "Synthetic fixture instructions."
     )
     assert "tool_choice" not in baseline["model_requests"][0]
+
+
+@pytest.fixture
+def memory_report():
+    bank = "/v1/default/banks/synthetic-alice"
+    return {
+        "model_requests": [],
+        "memory_requests": {
+            "first-chat": [
+                ["GET", bank + "/config", None],
+                ["PATCH", bank + "/config", {"updates": {"budget": "low"}}],
+                ["GET", bank + "/knowledge-base/search?q=previous+project", None],
+                ["GET", bank + "/knowledge-base/pages/project", None],
+                [
+                    "POST",
+                    bank + "/memories/recall",
+                    {"query": "previous project", "budget": "low"},
+                ],
+            ],
+            "second-chat": [],
+        },
+        "status": "passed",
+    }
+
+
+@pytest.mark.parametrize("recall_position", [2, 3, 4])
+def test_memory_comparison_allows_independent_recall_scheduling(
+    differential, memory_report, recall_position
+):
+    original = copy.deepcopy(memory_report)
+    concurrent = copy.deepcopy(memory_report)
+    requests = concurrent["memory_requests"]["first-chat"]
+    requests.insert(recall_position, requests.pop())
+    differential.compare_preparation(concurrent, memory_report, memory_report)
+    differential.compare_preparation(memory_report, memory_report, concurrent)
+    assert memory_report == original
+    assert requests[recall_position][1].endswith("/memories/recall")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "missing",
+        "duplicate",
+        "body",
+        "bank",
+        "conversation",
+        "page_before_search",
+        "recall_before_bootstrap",
+        "mutation_order",
+    ],
+)
+def test_memory_comparison_rejects_contract_changes(
+    differential, memory_report, change
+):
+    changed = copy.deepcopy(memory_report)
+    requests = changed["memory_requests"]["first-chat"]
+    if change == "missing":
+        requests.pop()
+    elif change == "duplicate":
+        requests.append(copy.deepcopy(requests[-1]))
+    elif change == "body":
+        requests[-1][2]["query"] = "another project"
+    elif change == "bank":
+        requests[-1][1] = requests[-1][1].replace("synthetic-alice", "synthetic-bob")
+    elif change == "conversation":
+        changed["memory_requests"]["second-chat"].append(requests.pop())
+    elif change == "page_before_search":
+        requests[2], requests[3] = requests[3], requests[2]
+    elif change == "recall_before_bootstrap":
+        requests.insert(1, requests.pop())
+    elif change == "mutation_order":
+        requests[0], requests[1] = requests[1], requests[0]
+    with pytest.raises(AssertionError, match="Unexplained"):
+        differential.compare_preparation(changed, memory_report)
+    with pytest.raises(AssertionError, match="Current Python/Rust"):
+        differential.compare_preparation(memory_report, memory_report, changed)

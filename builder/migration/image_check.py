@@ -519,11 +519,14 @@ def check(image, redis_image, minimal=True, rollback_image=None):
             "Internal route exposed",
         )
         observations = []
+        memory_observations = {}
         for profile in (None, "default", "deep", "deep_max"):
             before = len(peers.requests)
+            memory_before = len(peers.memory_requests)
+            conversation = f"profile-{profile}"
             response = client.post(
                 endpoint,
-                headers={**headers, "x-conversation-id": f"profile-{profile}"},
+                headers={**headers, "x-conversation-id": conversation},
                 json={
                     "stream": False,
                     "messages": [
@@ -555,7 +558,9 @@ def check(image, redis_image, minimal=True, rollback_image=None):
                 "Recall evidence missing",
             )
             observations.append(request)
+            memory_observations[conversation] = peers.memory_requests[memory_before:]
         # Cancellation while preparation owns an in-flight memory request.
+        memory_before = len(peers.memory_requests)
         peers.block_memory = True
         stopped_headers = {
             **headers,
@@ -700,7 +705,10 @@ asyncio.run(main())
             baseline_store("read")
         report = {
             "model_requests": observations,
-            "memory_requests": peers.memory_requests,
+            "memory_requests": {
+                **memory_observations,
+                "stop-prepare": peers.memory_requests[memory_before:],
+            },
             "status": "passed",
         }
     with environment(
@@ -758,6 +766,45 @@ asyncio.run(main())
     return report
 
 
+def preparation_contract(report):
+    """Ignore only recall scheduling relative to independent page reads.
+
+    Each chat retains its own requests. Bootstrap mutations, bank identity,
+    search-before-page ordering, bodies and duplicate requests remain visible.
+    The raw report is left intact as evidence of the actual wire order.
+    """
+    contract = copy.deepcopy(report)
+    for conversation, requests in contract.get("memory_requests", {}).items():
+        ordered, reads = [], []
+        bank = None
+
+        def flush():
+            ordered.extend(request for request in reads if request[0] == "GET")
+            ordered.extend(request for request in reads if request[0] == "POST")
+            reads.clear()
+
+        for request in requests:
+            method, path, _ = request
+            match = re.fullmatch(
+                r"(/v1/default/banks/[^/]+)/(knowledge-base/search\?.*|knowledge-base/pages/[^/?]+|memories/recall)",
+                path,
+            )
+            independent = match and (
+                (method == "GET" and match[2].startswith("knowledge-base/"))
+                or (method == "POST" and match[2] == "memories/recall")
+            )
+            if not independent or match[1] != bank:
+                flush()
+                bank = match[1] if independent else None
+            if independent:
+                reads.append(request)
+            else:
+                ordered.append(request)
+        flush()
+        contract["memory_requests"][conversation] = ordered
+    return contract
+
+
 def compare_preparation(result, baseline, current_python=None):
     # Tool-policy enforcement predates the public memory port. Retain the raw
     # P0 evidence and account for exactly those three model-wire additions.
@@ -772,9 +819,16 @@ def compare_preparation(result, baseline, current_python=None):
         for tool in request["tools"]:
             if tool["name"] == "current_datetime_tool":
                 tool.setdefault("description", policy["clock_description"])
-    require(result == expected, "Unexplained memory/preparation contract difference")
+    actual = preparation_contract(result)
+    require(
+        actual == preparation_contract(expected),
+        "Unexplained memory/preparation contract difference",
+    )
     if current_python is not None:
-        require(result == current_python, "Current Python/Rust preparation changed")
+        require(
+            actual == preparation_contract(current_python),
+            "Current Python/Rust preparation changed",
+        )
 
 
 if __name__ == "__main__":
