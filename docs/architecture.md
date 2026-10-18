@@ -80,15 +80,16 @@ with environment settings in [.env.template](../.env.template). It includes
 household-specific instructions, endpoints, and policies; select the parts you
 need instead of switching your local setup to the entire file.
 
-| Capability                               | Additional requirements                                                       |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| Image creation and analysis              | Configured image and vision providers                                         |
-| Document ingestion and retrieval         | NV-Ingest, Milvus, compatible embeddings/reranking, and object-storage wiring |
-| Durable agent memory                     | Hindsight service and credentials; enable the memory mode                     |
-| GitHub, Google Workspace, or other tools | MCP endpoints, credentials or OAuth, and tool policies                        |
-| Sandbox execution and generated files    | Compatible sandbox service, token, and artifact storage                       |
-| Scheduled autonomous work                | Autonomous worker deployment, account identity, and non-interactive tools     |
-| Tracing                                  | Phoenix or another configured tracing exporter                                |
+| Capability                               | Additional requirements                                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Image creation and analysis              | Configured image and vision providers                                                                                                       |
+| Document ingestion and retrieval         | NV-Ingest, Milvus, compatible embeddings/reranking, and object-storage wiring                                                               |
+| Durable agent memory                     | Hindsight service and credentials; enable the memory mode                                                                                   |
+| GitHub, Google Workspace, or other tools | MCP endpoints, credentials or OAuth, and tool policies                                                                                      |
+| Sandbox execution and generated files    | Compatible sandbox service, token, and artifact storage                                                                                     |
+| Durable offline experiments and evidence | Exploration v2 service, grant-signing Secret, tool registration and artifact publication; see [sandbox exploration](sandbox-exploration.md) |
+| Scheduled autonomous work                | Autonomous worker deployment, account identity, and non-interactive tools                                                                   |
+| Tracing                                  | Phoenix or another configured tracing exporter                                                                                              |
 
 Compose does not start these external integrations or the autonomous worker.
 Credentials and reachable endpoints alone do not register tools: the workflow
@@ -215,6 +216,14 @@ Rust proxy. The [ownership table](rust-migration.md#current-ownership) and
 Internal tool endpoints require the shared internal credential and are blocked
 at the public Rust proxy. Tool identities come from authenticated request
 context, never model arguments.
+
+`sandbox_exploration_tool` is a native Rust tool with a Python compatibility
+adapter sharing the same JSON schema. It sends short-lived owner/conversation
+grants to the separate OpenShell exploration service. Sessions, asynchronous
+runs, file checkpoints and evidence live there; publication reuses the frontend
+artifact path after integrity checks. The legacy `llm_sandbox_tool` retains its
+Bubblewrap contract. See [sandbox exploration](sandbox-exploration.md) for
+configuration, limits and recovery semantics.
 
 For Rust-prepared runs, Python supplies a catalogue and executes leaf calls with
 an explicit versioned context; it does not own a second agent run. The full

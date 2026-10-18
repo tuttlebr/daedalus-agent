@@ -113,6 +113,24 @@ usable across chats, restarts, and replicas. The Docs flow requests offline,
 incremental authorization so Google can issue a refresh token for durable
 access.
 
+### Exploration grant signer
+
+`exploration.enabled` defaults to true. It injects `EXPLORATION_BASE_URL` from
+`exploration.baseUrl` and `EXPLORATION_GRANT_KEY` from the `key` entry in
+`exploration.grantSecret` (default `exploration-grants`). Provision that Secret
+in the backend namespace using the sandbox bootstrap before starting the backend.
+It is separate from the legacy `LLM_SANDBOX_API_KEY` and is not mounted into
+untrusted exploration workloads.
+
+With `backend.networkPolicy.enabled`, the chart allows backend egress to pods
+labeled `app: exploration-api` in `exploration.namespace` on TCP 8080. The sandbox
+chart must allow the matching ingress. The tool also needs its workflow
+registration and the existing frontend artifact publication configuration.
+
+If exploration is not installed, set `exploration.enabled: false` and remove
+`sandbox_exploration_tool` from the workflow. Otherwise a missing Secret blocks
+backend startup. See [sandbox exploration](../../docs/sandbox-exploration.md).
+
 ### Redis ACL, TLS, And Rotation
 
 `global.nodePlacement.allowedArchitectures` adds required architecture affinity
@@ -261,6 +279,7 @@ or deployment.
 | `backend.default.*`       | Backend deployment and config                                                                                                                   |
 | `backend.persistence.*`   | PVCs used by backend pods                                                                                                                       |
 | `backend.networkPolicy.*` | Kubernetes and optional Cilium restrictions                                                                                                     |
+| `exploration.*`           | Exploration API endpoint/namespace, grant Secret and backend network access                                                                     |
 | `contextServices.espnMcp` | ESPN MCP namespace and port for backend egress (defaults: `daedalus`, `8000`); limited to pods labeled `app.kubernetes.io/name=espn-mcp-server` |
 | `nginx.*`                 | nginx deployment, direct backend routing, TLS, restricted mode                                                                                  |
 | `redis.*`                 | Redis Stack deployment and persistence                                                                                                          |

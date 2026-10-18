@@ -38,6 +38,7 @@ schedule. Use by two people does not establish suitability for a public service.
 | Understand tool execution and exact answers       | [Tool contracts](docs/tool-correctness.md)                                                                                          |
 | Validate model or research changes                | [Evaluation guide](evaluation/tool-correctness/README.md), [Research and response validation](docs/research-response-validation.md) |
 | Review long-running workflows and recovery limits | [Workflow review](docs/long-running-workflows.md)                                                                                   |
+| Run isolated experiments with durable files       | [Sandbox exploration](docs/sandbox-exploration.md)                                                                                  |
 | Understand Rust ownership and rollback            | [Runtime migration](docs/rust-migration.md)                                                                                         |
 | Review the Harness2 design work                   | [Focused review](docs/harness-improvement-review.md), [Implementation and evidence](docs/harness-improvements.md)                   |
 | Understand skill maintenance or image signing     | [Skills review](docs/skills-review.md), [Content Credentials](docs/content-credentials.md)                                          |

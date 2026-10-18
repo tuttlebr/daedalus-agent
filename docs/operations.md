@@ -150,6 +150,13 @@ Exercise each newly configured capability with a small request of its own.
 
 ## Runtime configuration
 
+For offline experiments, provision the separate exploration service before
+enabling its workflow tool. The chart defaults `exploration.enabled` to true and
+expects the `exploration-grants` Secret in the backend namespace. Installations
+without that service should disable the chart setting and remove its workflow
+registration. See [sandbox exploration](sandbox-exploration.md) for setup,
+artifact publication, async recovery and built-image checks.
+
 `DAEDALUS_CONFIG_FILE` replaces `NAT_CONFIG_FILE` inside the backend container.
 Helm injects its mounted configuration path and `DAEDALUS_PORT`. Compose continues
 to select the host YAML using `BACKEND_CONFIG_FILE`. The supervisor reserves
