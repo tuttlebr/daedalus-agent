@@ -8,44 +8,6 @@ import {
 } from '@/types/intermediateSteps';
 
 /**
- * Search steps by text in name, type, or data
- */
-export function searchSteps(
-  steps: IntermediateStep[],
-  searchTerm: string,
-): IntermediateStep[] {
-  if (!searchTerm || !searchTerm.trim()) return steps;
-
-  const term = searchTerm.toLowerCase();
-
-  return steps.filter((step) => {
-    // Search in name
-    if (step.payload.name?.toLowerCase().includes(term)) return true;
-
-    // Search in event type
-    if (step.payload.event_type.toLowerCase().includes(term)) return true;
-
-    // Search in tags
-    if (step.payload.tags?.some((tag) => tag.toLowerCase().includes(term)))
-      return true;
-
-    // Search in function name
-    if (step.function_ancestry?.function_name?.toLowerCase().includes(term))
-      return true;
-
-    // Search in data (limited to avoid performance issues)
-    try {
-      const dataString = JSON.stringify(step.payload.data).toLowerCase();
-      if (dataString.includes(term)) return true;
-    } catch (error) {
-      // Ignore JSON stringify errors
-    }
-
-    return false;
-  });
-}
-
-/**
  * Format duration in human-readable format
  */
 export function formatDuration(ms: number): string {
@@ -465,7 +427,6 @@ function buildConsolidatedHierarchy(
   if (steps.length === 0) return [];
 
   const rootSteps: ConsolidatedStep[] = [];
-  const parentStack: ConsolidatedStep[] = [];
 
   steps.forEach((step) => {
     // Find the right parent based on parent_id
@@ -473,8 +434,6 @@ function buildConsolidatedHierarchy(
 
     if (parentId === 'root' || !parentId) {
       rootSteps.push(step);
-      parentStack.length = 0;
-      parentStack.push(step);
     } else {
       // Look for a matching parent in existing consolidated steps
       const parent = findParent(rootSteps, parentId);

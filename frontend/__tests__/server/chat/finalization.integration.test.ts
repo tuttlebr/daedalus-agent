@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const RUN_REAL_REDIS = process.env.RUN_REDIS_STREAM_INTEGRATION === '1';
 
@@ -317,5 +317,105 @@ describe.skipIf(!RUN_REAL_REDIS)(
       expect(memoryRequests).toHaveLength(successClaimed ? 1 : 0);
       if (successClaimed) expect(memoryRequests[0].request_id).toBe(jobId);
     });
+
+    it.each(['switch', 'delete'])(
+      'preserves a concurrent selection %s while applying a terminal conversation',
+      async (action) => {
+        const selectedKey = redis.sessionKey([
+          'user',
+          userId,
+          'selectedConversation',
+        ]);
+        const raceJob = `${jobId}-${action}`;
+        const statusKey = redis.sessionKey(['async-job-status', raceJob]);
+        const replacement = {
+          id: 'another-conversation',
+          name: 'Chosen elsewhere',
+          messages: [],
+        };
+        await redis.jsonSetWithExpiry(
+          selectedKey,
+          { id: conversationId, messages: [] },
+          120,
+        );
+        await redis.jsonSetWithExpiry(
+          statusKey,
+          { jobId: raceJob, status: 'streaming', createdAt: 1 },
+          120,
+        );
+        await state.claimTerminalJobStatus(
+          raceJob,
+          { status: 'error', finalizedAt: 2 },
+          {
+            version: 1,
+            state: 'pending',
+            jobId: raceJob,
+            finalizationId: raceJob,
+            outcome: 'error',
+            userId,
+            finalizedAt: 2,
+            conversation: {
+              id: conversationId,
+              name: 'Finished',
+              messages: [],
+              assistantMessageId: raceJob,
+              content: 'Partial response',
+              intermediateSteps: [],
+              isPartial: true,
+            },
+          },
+        );
+        let injected = false;
+        const changeSelection = async () => {
+          injected = true;
+          if (action === 'delete') await client.del(selectedKey);
+          else await redis.jsonSetWithExpiry(selectedKey, replacement, 120);
+        };
+        const call = client.call.bind(client);
+        const evaluate = client.eval.bind(client);
+        // Inject at the Redis read boundary, after returning its old snapshot.
+        // Cover the former JSON.GET and the atomic helper's snapshot read.
+        const callSpy = vi
+          .spyOn(client, 'call')
+          .mockImplementation(async (...args: any[]) => {
+            const result = await call(...args);
+            if (!injected && args[0] === 'JSON.GET' && args[1] === selectedKey)
+              await changeSelection();
+            return result;
+          });
+        const evalSpy = vi
+          .spyOn(client, 'eval')
+          .mockImplementation(async (...args: any[]) => {
+            const result = await evaluate(...args);
+            if (!injected && args[2] === selectedKey && Array.isArray(result))
+              await changeSelection();
+            return result;
+          });
+        try {
+          expect(await finalization.resumePendingFinalization(raceJob)).toBe(
+            'completed',
+          );
+          expect(injected).toBe(true);
+          expect(await redis.jsonGet(selectedKey)).toEqual(
+            action === 'delete' ? null : replacement,
+          );
+          expect(
+            (
+              await redis.jsonGet(
+                redis.sessionKey(['conversation', conversationId]),
+              )
+            ).messages[0].content,
+          ).toBe('Partial response');
+        } finally {
+          callSpy.mockRestore();
+          evalSpy.mockRestore();
+          await client.del(
+            statusKey,
+            state.finalizationJournalKey(raceJob),
+            state.finalizerLockKey(raceJob),
+          );
+        }
+      },
+    );
   },
 );

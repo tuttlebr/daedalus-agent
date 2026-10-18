@@ -162,7 +162,7 @@ if [[ "$DRY_RUN" == true ]]; then
   # Render a placeholder without creating credentials or reading private keys.
   CONTENT_CREDENTIALS_HELM_ARGS=(
     --set-string contentCredentials.mode=local
-    --set-string contentCredentials.existingSecret=daedalus-c2pa-dry-run
+    --set-string contentCredentials.existingSecret=daedalus-c2pa-dry-run # gitleaks:allow -- public Kubernetes resource name, not key material
     --set-string "contentCredentials.creatorName=Brandon Tuttle"
     --set-string contentCredentials.signingAlgorithm=es256
     --set-string contentCredentials.certificateKey=chain.pem
@@ -639,6 +639,7 @@ PY
     DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS ESPN_MCP_TOKEN HUE_MCP_TOKEN
     GOOGLE_MCP_CLIENT_ID GOOGLE_MCP_CLIENT_SECRET
     GOOGLE_MCP_REDIRECT_URI LLM_SANDBOX_BASE_URL LLM_SANDBOX_API_KEY
+    EXPLORATION_BASE_URL EXPLORATION_GRANT_KEY
     MILVUS_URI MILVUS_DATABASE MILVUS_METADATA_TIMEOUT_SECONDS MILVUS_SEARCH_TIMEOUT_SECONDS
     MINIO_ENDPOINT MINIO_BUCKET
     NV_INGEST_HOST NV_INGEST_PORT TOKENIZER

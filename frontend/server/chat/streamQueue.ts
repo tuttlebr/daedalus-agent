@@ -23,6 +23,11 @@ export interface StreamQueueEntry {
   reclaimed: boolean;
 }
 
+export interface StreamQueueClaim {
+  entries: StreamQueueEntry[];
+  nextCursor: string;
+}
+
 export const STREAM_QUEUE_KEY =
   process.env.STREAM_WORKER_QUEUE_KEY || sessionKey(['async-stream-queue']);
 export const STREAM_QUEUE_GROUP =
@@ -126,18 +131,22 @@ export async function claimStaleStreamJobs(
   consumer: string,
   minIdleMs: number,
   count: number,
-): Promise<StreamQueueEntry[]> {
+  cursor = '0-0',
+): Promise<StreamQueueClaim> {
   const result = (await (client as any).xautoclaim(
     STREAM_QUEUE_KEY,
     STREAM_QUEUE_GROUP,
     consumer,
     minIdleMs,
-    '0-0',
+    cursor,
     'COUNT',
     count,
   )) as unknown;
-  if (!Array.isArray(result)) return [];
-  return parseEntries(result[1], true);
+  if (!Array.isArray(result)) return { entries: [], nextCursor: '0-0' };
+  return {
+    entries: parseEntries(result[1], true),
+    nextCursor: String(result[0]),
+  };
 }
 
 export async function acquireStreamLease(

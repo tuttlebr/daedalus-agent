@@ -45,6 +45,7 @@ import type {
 } from './types';
 import { releaseUserJobGuard } from './userJobGuard';
 
+import { updateJsonAtomically } from '@/server/atomicJson';
 import {
   MAX_PUSH_SUBSCRIPTIONS,
   parsePushSubscription,
@@ -138,21 +139,19 @@ async function applyConversationState(
     journal.userId,
     'selectedConversation',
   ]);
-  const selectedConversation = (await jsonGet(
+  await updateJsonAtomically<Conversation>(
     selectedConversationKey,
-  )) as Conversation | null;
-  if (selectedConversation?.id === journal.conversation.id) {
-    await jsonSetWithExpiry(
-      selectedConversationKey,
-      sanitizeConversationAssistantReplays({
+    (selectedConversation) => {
+      if (selectedConversation?.id !== conversation.id) return null;
+      return sanitizeConversationAssistantReplays({
         ...selectedConversation,
         messages: conversation.messages,
-        name: journal.conversation.name,
+        name: conversation.name,
         updatedAt: journal.finalizedAt,
-      }),
-      CONVERSATION_EXPIRY_SECONDS,
-    );
-  }
+      });
+    },
+    CONVERSATION_EXPIRY_SECONDS,
+  );
   return true;
 }
 

@@ -1,5 +1,6 @@
 """Unit tests for agent_skills.skill_parser module."""
 
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -32,12 +33,6 @@ description: Another test skill
 ---
 """
 
-_VALID_SKILL_MD_NO_FRONTMATTER_BODY = """\
----
-name: plain-skill
-description: Plain skill with no body after frontmatter
----"""
-
 
 def _make_skill(parent: Path, dir_name: str, content: str) -> Path:
     skill_dir = parent / dir_name
@@ -62,7 +57,7 @@ class TestSkillMetadata:
 
     def test_frozen(self, tmp_path):
         meta = SkillMetadata(name="x", description="y", directory=tmp_path)
-        with pytest.raises(Exception):  # frozen dataclass
+        with pytest.raises(FrozenInstanceError):
             meta.name = "z"  # type: ignore[misc]
 
 
@@ -101,10 +96,7 @@ class TestDiscoverSkills:
         )
         parser = SkillParser(skills_directory=str(tmp_path))
         skills = parser.discover_skills()
-        assert len(skills) == 2
-        names = [s.name for s in skills]
-        assert "skill-a" in names
-        assert "skill-b" in names
+        assert [s.name for s in skills] == ["skill-a", "skill-b"]
 
     def test_skips_plain_files_in_root(self, tmp_path):
         (tmp_path / "SKILL.md").write_text(_VALID_SKILL_MD)
@@ -201,6 +193,7 @@ class TestGetSkillInstructions:
         parser = SkillParser(skills_directory=str(tmp_path))
         parser.discover_skills()
         body1 = parser.get_skill_instructions("my-skill")
+        (tmp_path / "my-skill" / "SKILL.md").write_text("Changed after caching")
         body2 = parser.get_skill_instructions("my-skill")
         assert body1 == body2
 

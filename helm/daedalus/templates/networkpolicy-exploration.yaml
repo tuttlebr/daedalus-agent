@@ -1,0 +1,23 @@
+{{- if and .Values.exploration.enabled .Values.backend.default.enabled .Values.backend.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-exploration
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: backend-default
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.exploration.namespace }}
+          podSelector:
+            matchLabels:
+              app: exploration-api
+      ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}

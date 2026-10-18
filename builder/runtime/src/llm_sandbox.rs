@@ -1616,7 +1616,7 @@ impl Tool {
         )
         .await
     }
-    async fn publish(
+    pub(crate) async fn publish(
         &self,
         scope: &(String, String),
         path: &str,

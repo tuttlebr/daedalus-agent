@@ -1,19 +1,20 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import type { ImageContext } from '@/types/imageBrief';
+
+import { updateJsonAtomically } from '@/server/atomicJson';
+import {
+  appendImageHistoryEntry,
+  IMAGE_HISTORY_TTL_SECONDS,
+  MAX_HISTORY_ENTRIES,
+} from '@/server/images/historyStore';
 import { imageHistoryKey } from '@/server/images/requestHelpers';
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
-import {
-  getRedis,
-  jsonDel,
-  jsonGet,
-  jsonSetWithExpiry,
-} from '@/server/session/redis';
+import { getRedis, jsonGet } from '@/server/session/redis';
 
-const IMAGE_HISTORY_TTL_SECONDS = 60 * 60 * 24 * 7;
-const MAX_HISTORY_ENTRIES = 50;
 const IMAGE_ID_PATTERN = /^[a-f0-9-]+$/i;
 
 type ImageMode = 'generate' | 'edit';
@@ -29,6 +30,7 @@ interface ImageRef {
 }
 
 interface ImageHistoryEntry {
+  imageContext?: ImageContext;
   id: string;
   mode: ImageMode;
   prompt: string;
@@ -40,6 +42,8 @@ interface ImageHistoryEntry {
   createdAt: number;
   usage?: Record<string, unknown>;
 }
+
+class ImageHistoryAccessError extends Error {}
 
 interface GeneratedImageRecord {
   data?: string;
@@ -196,10 +200,35 @@ async function ownedGeneratedImageIdsForDeletion(
   return { imageIds: ownedImageIds, error: null };
 }
 
-async function deleteGeneratedImageAssets(imageIds: string[]): Promise<void> {
-  if (imageIds.length === 0) return;
-  await getRedis().del(
-    ...imageIds.map((imageId) => `generated:image:${imageId}`),
+function isImageContext(value: unknown): value is ImageContext {
+  if (!isObject(value) || !isObject(value.brief)) return false;
+  const brief = value.brief;
+  return (
+    typeof value.originalPrompt === 'string' &&
+    typeof value.prompt === 'string' &&
+    ['assisted', 'exact', 'fallback'].includes(String(value.guidance)) &&
+    isObject(value.params) &&
+    Array.isArray(value.inputImages) &&
+    value.inputImages.every(
+      (image) => isObject(image) && typeof image.imageId === 'string',
+    ) &&
+    [
+      'scene',
+      'subject',
+      'medium',
+      'composition',
+      'lighting',
+      'intended_use',
+    ].every((field) => typeof brief[field] === 'string') &&
+    [
+      'details',
+      'exact_text',
+      'changes',
+      'preserve',
+      'exclusions',
+      'references',
+    ].every((field) => isStringArray(brief[field])) &&
+    isObject(brief.options)
   );
 }
 
@@ -222,6 +251,9 @@ function parseEntry(value: unknown): ImageHistoryEntry | null {
   if (value.outputImageIds.length === 0) return null;
 
   return {
+    ...(isImageContext(value.imageContext) && {
+      imageContext: value.imageContext,
+    }),
     id: value.id,
     mode: value.mode,
     prompt: value.prompt,
@@ -235,13 +267,16 @@ function parseEntry(value: unknown): ImageHistoryEntry | null {
   };
 }
 
-async function loadHistory(key: string): Promise<ImageHistoryEntry[]> {
-  const value = await jsonGet(key);
+function parseHistory(value: unknown): ImageHistoryEntry[] {
   if (!Array.isArray(value)) return [];
   return value
     .map(parseEntry)
     .filter(Boolean)
     .slice(0, MAX_HISTORY_ENTRIES) as ImageHistoryEntry[];
+}
+
+async function loadHistory(key: string): Promise<ImageHistoryEntry[]> {
+  return parseHistory(await jsonGet(key));
 }
 
 export default async function handler(
@@ -273,24 +308,22 @@ export default async function handler(
     }
 
     try {
-      const validationError = await validateOutputImageIds(
-        entry.outputImageIds,
-        userId,
-        sessionId,
-      );
-      if (validationError) {
-        return res.status(403).json({ error: validationError });
-      }
-
-      const existing = await loadHistory(key);
-      const nextHistory = [
+      const nextHistory = await appendImageHistoryEntry(
+        key,
         entry,
-        ...existing.filter((item) => item.id !== entry.id),
-      ].slice(0, MAX_HISTORY_ENTRIES);
-
-      await jsonSetWithExpiry(key, nextHistory, IMAGE_HISTORY_TTL_SECONDS);
+        async () => {
+          const error = await validateOutputImageIds(
+            entry.outputImageIds,
+            userId,
+            sessionId,
+          );
+          if (error) throw new ImageHistoryAccessError(error);
+        },
+      );
       return res.status(200).json({ history: nextHistory });
     } catch (error) {
+      if (error instanceof ImageHistoryAccessError)
+        return res.status(403).json({ error: error.message });
       console.error('images/history POST error:', error);
       return res.status(500).json({ error: 'Failed to save image history' });
     }
@@ -299,59 +332,44 @@ export default async function handler(
   if (req.method === 'DELETE') {
     const { id, all, deleteAssets } = req.query;
     const deleteOutputAssets = shouldDeleteAssets(deleteAssets);
+    const removeAll = all === '1' || all === 'true';
+    if (!removeAll && (typeof id !== 'string' || !id)) {
+      return res.status(400).json({ error: 'Missing id or all=1' });
+    }
     try {
-      if (all === '1' || all === 'true') {
-        let assetIdsToDelete: string[] = [];
-        if (deleteOutputAssets) {
-          const existing = await loadHistory(key);
-          const candidates = unreferencedOutputImageIds(existing, []);
-          const assetDeletion = await ownedGeneratedImageIdsForDeletion(
-            candidates,
-            userId,
-            sessionId,
-          );
-          if (assetDeletion.error) {
-            return res.status(403).json({ error: assetDeletion.error });
+      let next: ImageHistoryEntry[] = [];
+      let assetKeys: string[] = [];
+      await updateJsonAtomically<unknown>(
+        key,
+        async (current) => {
+          const existing = parseHistory(current);
+          const removed = removeAll
+            ? existing
+            : existing.filter((entry) => entry.id === id);
+          next = removeAll ? [] : existing.filter((entry) => entry.id !== id);
+          assetKeys = [];
+          if (!removed.length) return null;
+          if (deleteOutputAssets) {
+            const deletion = await ownedGeneratedImageIdsForDeletion(
+              unreferencedOutputImageIds(removed, next),
+              userId,
+              sessionId,
+            );
+            if (deletion.error)
+              throw new ImageHistoryAccessError(deletion.error);
+            assetKeys = deletion.imageIds.map(
+              (imageId) => `generated:image:${imageId}`,
+            );
           }
-          assetIdsToDelete = assetDeletion.imageIds;
-        }
-
-        await jsonDel(key);
-        await deleteGeneratedImageAssets(assetIdsToDelete);
-        return res.status(200).json({ history: [] });
-      }
-      if (typeof id !== 'string' || !id) {
-        return res.status(400).json({ error: 'Missing id or all=1' });
-      }
-      const existing = await loadHistory(key);
-      const removedEntries = existing.filter((entry) => entry.id === id);
-      const next = existing.filter((entry) => entry.id !== id);
-      if (next.length === existing.length) {
-        return res.status(200).json({ history: existing });
-      }
-
-      let assetIdsToDelete: string[] = [];
-      if (deleteOutputAssets) {
-        const candidates = unreferencedOutputImageIds(removedEntries, next);
-        const assetDeletion = await ownedGeneratedImageIdsForDeletion(
-          candidates,
-          userId,
-          sessionId,
-        );
-        if (assetDeletion.error) {
-          return res.status(403).json({ error: assetDeletion.error });
-        }
-        assetIdsToDelete = assetDeletion.imageIds;
-      }
-
-      if (next.length === 0) {
-        await jsonDel(key);
-      } else {
-        await jsonSetWithExpiry(key, next, IMAGE_HISTORY_TTL_SECONDS);
-      }
-      await deleteGeneratedImageAssets(assetIdsToDelete);
+          return next;
+        },
+        IMAGE_HISTORY_TTL_SECONDS,
+        { keysToDelete: () => assetKeys },
+      );
       return res.status(200).json({ history: next });
     } catch (error) {
+      if (error instanceof ImageHistoryAccessError)
+        return res.status(403).json({ error: error.message });
       console.error('images/history DELETE error:', error);
       return res.status(500).json({ error: 'Failed to delete image history' });
     }

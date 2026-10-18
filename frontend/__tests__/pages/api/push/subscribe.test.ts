@@ -24,6 +24,14 @@ vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: authMocks.requireAuthenticatedUser,
 }));
 
+vi.mock('@/server/atomicJson', () => ({
+  updateJsonAtomically: vi.fn(async (key, update, ttl) => {
+    const next = await update(await jsonGet(key));
+    if (next !== null) await jsonSetWithExpiry(key, next, ttl);
+    return next;
+  }),
+}));
+
 const validKey1 = createECDH('prime256v1').generateKeys().toString('base64url');
 const validKey2 = createECDH('prime256v1').generateKeys().toString('base64url');
 const validAuth = randomBytes(16).toString('base64url');
@@ -199,7 +207,7 @@ describe('push/subscribe API handler', () => {
       expect(res.json).toHaveBeenCalledWith({ success: true });
     });
 
-    it('deletes key when last subscription is removed', async () => {
+    it('persists an empty list when the last subscription is removed', async () => {
       const sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/sub1' };
       (jsonGet as any).mockResolvedValue([sub]);
 
@@ -210,10 +218,12 @@ describe('push/subscribe API handler', () => {
       await handler(req, res);
 
       // When no subscriptions remain, should delete the key entirely
-      expect(jsonDel).toHaveBeenCalledWith(
+      expect(jsonSetWithExpiry).toHaveBeenCalledWith(
         'daedalus:user:user-123:push-subscriptions',
+        [],
+        60 * 60 * 24 * 30,
       );
-      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
+      expect(jsonDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
     });
 

@@ -115,9 +115,45 @@ describe('durable stream queue', () => {
     ]);
     await expect(
       claimStaleStreamJobs(mocks.redis as any, 'consumer-1', 45000, 2),
-    ).resolves.toEqual([
-      { entryId: '1-0', jobId: 'job-stale', reclaimed: true },
+    ).resolves.toEqual({
+      entries: [{ entryId: '1-0', jobId: 'job-stale', reclaimed: true }],
+      nextCursor: '0-0',
+    });
+  });
+
+  it('returns and resumes an empty reclaim page without restarting its scan', async () => {
+    mocks.redis.xautoclaim.mockResolvedValueOnce(['11-0', [], []]);
+    const page = await claimStaleStreamJobs(
+      mocks.redis as any,
+      'worker',
+      45000,
+      1,
+    );
+    expect(page).toEqual({ entries: [], nextCursor: '11-0' });
+    mocks.redis.xautoclaim.mockResolvedValueOnce([
+      '0-0',
+      [['12-0', ['jobId', 'abandoned']]],
+      [],
     ]);
+    const next = await claimStaleStreamJobs(
+      mocks.redis as any,
+      'worker',
+      45000,
+      1,
+      page.nextCursor,
+    );
+    expect(next.entries).toEqual([
+      { entryId: '12-0', jobId: 'abandoned', reclaimed: true },
+    ]);
+    expect(mocks.redis.xautoclaim).toHaveBeenLastCalledWith(
+      STREAM_QUEUE_KEY,
+      STREAM_QUEUE_GROUP,
+      'worker',
+      45000,
+      '11-0',
+      'COUNT',
+      1,
+    );
   });
 
   it('uses owner-token-checked lease and start-marker scripts', async () => {

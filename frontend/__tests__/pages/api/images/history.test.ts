@@ -32,6 +32,20 @@ vi.mock('@/server/session/redis', () => ({
   ),
 }));
 
+// Exercise route transforms here; compare-and-swap and asset deletion races run
+// against Redis in server/images/history.integration.test.ts.
+vi.mock('@/server/atomicJson', () => ({
+  updateJsonAtomically: vi.fn(async (key, update, ttl, options) => {
+    const next = await update(await mocks.jsonGet(key));
+    if (next !== null) {
+      await mocks.jsonSetWithExpiry(key, next, ttl);
+      const keys = options?.keysToDelete?.() || [];
+      if (keys.length) await mocks.redisDel(...keys);
+    }
+    return next;
+  }),
+}));
+
 function createMockReqRes(
   method: string,
   body: unknown = {},
@@ -175,11 +189,11 @@ describe('/api/images/history', () => {
 
       await handler(req, res);
 
-      expect(mocks.jsonDel).toHaveBeenCalledTimes(1);
-      expect(mocks.jsonDel).toHaveBeenCalledWith(
+      expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(
         'user:testuser:imagePanelHistory',
+        [],
+        60 * 60 * 24 * 7,
       );
-      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(mocks.redisDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: [] });
@@ -213,17 +227,17 @@ describe('/api/images/history', () => {
       });
     });
 
-    it('uses jsonDel when removing the last remaining entry', async () => {
+    it('persists empty history when removing the last remaining entry', async () => {
       mocks.jsonGet.mockResolvedValue([entry('only')]);
       const { req, res } = createMockReqRes('DELETE', {}, { id: 'only' });
 
       await handler(req, res);
 
-      expect(mocks.jsonDel).toHaveBeenCalledTimes(1);
-      expect(mocks.jsonDel).toHaveBeenCalledWith(
+      expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(
         'user:testuser:imagePanelHistory',
+        [],
+        60 * 60 * 24 * 7,
       );
-      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
       expect(mocks.redisDel).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ history: [] });
@@ -303,8 +317,10 @@ describe('/api/images/history', () => {
 
       await handler(req, res);
 
-      expect(mocks.jsonDel).toHaveBeenCalledWith(
+      expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(
         'user:testuser:imagePanelHistory',
+        [],
+        60 * 60 * 24 * 7,
       );
       expect(mocks.redisDel).toHaveBeenCalledWith('generated:image:a0b-1');
       expect(res.status).toHaveBeenCalledWith(200);

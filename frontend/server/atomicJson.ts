@@ -17,6 +17,7 @@ else
   redis.call('SET', KEYS[1], ARGV[3], 'KEEPTTL')
 end
 if tonumber(ARGV[4]) > 0 then redis.call('EXPIRE', KEYS[1], ARGV[4]) end
+for i = 2, #KEYS do redis.call('DEL', KEYS[i]) end
 return 1
 `;
 
@@ -28,6 +29,11 @@ export async function updateJsonAtomically<T>(
   key: string,
   update: (current: T | null) => T | null | Promise<T | null>,
   ttlSeconds = 0,
+  options?: {
+    /** Recompute inside update on every retry. Deletions commit with the
+     * snapshot, so callers can preserve references added concurrently. */
+    keysToDelete?: () => string[];
+  },
 ): Promise<T | null> {
   const redis = getRedis();
   const deadline = performance.now() + 5000;
@@ -39,11 +45,15 @@ export async function updateJsonAtomically<T>(
     const current = kind === 'none' ? null : (JSON.parse(raw) as T);
     const next = await update(current);
     if (next === null) return null;
+    const keys = [key, ...new Set(options?.keysToDelete?.() || [])];
+    if (keys.slice(1).includes(key)) {
+      throw new Error('Cannot delete the JSON key being updated');
+    }
     if (
       (await redis.eval(
         REPLACE,
-        1,
-        key,
+        keys.length,
+        ...keys,
         kind,
         raw,
         JSON.stringify(next),

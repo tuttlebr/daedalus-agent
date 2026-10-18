@@ -325,13 +325,13 @@ def test_disabled_mode_neither_reads_nor_writes_hindsight(monkeypatch):
     async def _run():
         from nat_helpers import daedalus_memory_tools as tools
 
+        hindsight = configure_hindsight(monkeypatch)
         monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "disabled")
         monkeypatch.setattr(
             tools,
             "authenticated_user_id_from_context",
             lambda: "tuttlebr",
         )
-        hindsight = FakeHindsight()
         add_functions = []
         async for item in tools.daedalus_add_memory(
             tools.DaedalusAddMemoryConfig(),

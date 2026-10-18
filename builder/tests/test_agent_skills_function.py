@@ -336,6 +336,7 @@ def test_explicit_empty_operation_list_disables_all_operations(tmp_path):
         )
 
         _write_skill(tmp_path)
+        checked = []
         async for info in agent_skills_function(
             AgentSkillsConfig(
                 skills_directory=str(tmp_path),
@@ -349,6 +350,8 @@ def test_explicit_empty_operation_list_disables_all_operations(tmp_path):
                     operation=operation, skill_name="safe-skill", script="script.py"
                 )
                 assert "disabled" in result
+                checked.append(operation)
+        assert checked == ["list_skills", "load_skill", "run_skill_script"]
 
     run(scenario())
 

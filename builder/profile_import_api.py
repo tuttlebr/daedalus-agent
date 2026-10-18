@@ -63,7 +63,7 @@ class ProfileImportRequest(BaseModel):
     """Bulk profile import payload.
 
     Replace mode removes only trusted profile-seed memories for the
-    authenticated user before adding the supplied entries. It does not wipe
+    authenticated user after retaining the supplied entries. It does not wipe
     normal conversational memories.
     """
 

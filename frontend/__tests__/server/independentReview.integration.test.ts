@@ -3,7 +3,6 @@
 // This adapter translates names/coordinates; it never calculates expected state.
 import { REDIS_CLIENT_OPTIONS } from '@/server/session/redisShared';
 import { readFileSync } from 'node:fs';
-import { gunzipSync } from 'node:zlib';
 import {
   afterAll,
   afterEach,
@@ -15,14 +14,13 @@ import {
 } from 'vitest';
 
 const reference = JSON.parse(
-  gunzipSync(
-    readFileSync(
-      new URL(
-        '../../../test-fixtures/code-audit-independent-20260909.json.gz',
-        import.meta.url,
-      ),
+  readFileSync(
+    new URL(
+      '../../../test-fixtures/independent-contracts/reference.json',
+      import.meta.url,
     ),
-  ).toString(),
+    'utf8',
+  ),
 );
 const cookie = vi.hoisted(() => ({ sid: '' }));
 vi.mock('@/server/session/_utils', () => ({

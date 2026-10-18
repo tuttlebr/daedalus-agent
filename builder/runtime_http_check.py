@@ -1321,13 +1321,18 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert "Invalid or repeated tool call ID" in answer, answer  # nosec B101
                 assert peers.calls == ["next_read"], peers.calls  # nosec B101
                 peers.calls.clear()
-                for choice in (
-                    "required",
-                    {"type": "function", "function": {"name": "current_datetime_tool"}},
+                for index, choice in enumerate(
+                    (
+                        "required",
+                        {
+                            "type": "function",
+                            "function": {"name": "current_datetime_tool"},
+                        },
+                    )
                 ):
                     answer = chat(
                         "REQUIRED_MISSING",
-                        "required-missing-" + str(uuid.uuid4()),
+                        f"required-missing-{index}",
                         tool_choice=choice,
                     )
                     assert (
@@ -1656,6 +1661,15 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         ("MODEL_STEER", "model-run", peers.model_waiting),
                         ("TOOL_STEER", "tool-run", peers.tool_waiting),
                     ]:
+                        # Quota and earlier tool scenarios reuse these peers.
+                        # A stale signal could apply steering before this call
+                        # reached the provider, making the transport check vacuous.
+                        waiting.clear()
+                        if scenario == "MODEL_STEER":
+                            peers.release_model.clear()
+                            peers.model_disconnected.clear()
+                        else:
+                            peers.release_tool.clear()
                         future = pool.submit(chat, scenario, run)
                         assert waiting.wait(15), f"{scenario} did not reach its wait"  # nosec B101 - executable contract check
                         command = {

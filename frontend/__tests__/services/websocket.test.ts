@@ -237,15 +237,27 @@ describe('WebSocketManager', () => {
       expect(wsInstances).toHaveLength(1);
     });
 
-    it('resets reconnectAttempts on successful connect', () => {
+    it('resets the retry delay after a successful reconnect', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
       wsInstances[0].simulateOpen();
-
-      // If reconnectAttempts were > 0 they would be reset
-      // We verify indirectly: disconnect triggers reconnect scheduling,
-      // then a new connect resets the counter.
-      expect(mgr.isConnected).toBe(true);
+      wsInstances[0].simulateClose(1006);
+      vi.advanceTimersByTime(1000);
+      expect(wsInstances).toHaveLength(2);
+      // A failed connection doubles the following delay.
+      wsInstances[1].simulateClose(1006);
+      vi.advanceTimersByTime(1000);
+      expect(wsInstances).toHaveLength(2);
+      vi.advanceTimersByTime(1000);
+      expect(wsInstances).toHaveLength(3);
+      wsInstances[2].simulateOpen();
+      wsInstances[2].simulateClose(1006);
+      vi.advanceTimersByTime(999);
+      expect(wsInstances).toHaveLength(3);
+      vi.advanceTimersByTime(1);
+      expect(wsInstances).toHaveLength(4);
+      mgr.disconnect();
     });
 
     it('re-subscribes to tracked jobs on reconnect', () => {
@@ -753,13 +765,12 @@ describe('WebSocketManager', () => {
       wsInstances[0].simulateOpen();
 
       // Send raw invalid JSON string
-      if (wsInstances[0].onmessage) {
-        expect(() => {
-          wsInstances[0].onmessage!(
-            new MessageEvent('message', { data: 'not valid json{' }),
-          );
-        }).not.toThrow();
-      }
+      expect(wsInstances[0].onmessage).toBeTypeOf('function');
+      expect(() => {
+        wsInstances[0].onmessage!(
+          new MessageEvent('message', { data: 'not valid json{' }),
+        );
+      }).not.toThrow();
     });
 
     it('connected message is emitted with server data', () => {

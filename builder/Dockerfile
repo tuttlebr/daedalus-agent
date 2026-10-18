@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates
     rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
+COPY runtime/resources/exploration.json /workspace/daedalus_runtime/exploration.json
 COPY runtime/notices /workspace/runtime-notices
 COPY runtime/resources/public-ca.pem /workspace/runtime-public-ca.pem
 COPY --from=skills --chown=65532:65532 . /skills
@@ -149,6 +150,7 @@ RUN find /workspace -mindepth 3 -maxdepth 3 -type d -name '*.egg-info' \
     -exec rm -rf -- {} +
 
 COPY --from=rust_build /daedalus-runtime /workspace/daedalus-runtime
+COPY runtime/resources/exploration.json /workspace/daedalus_runtime/exploration.json
 COPY daedalus_runtime /workspace/daedalus_runtime
 COPY runtime/notices /workspace/runtime-notices
 COPY runtime/resources/public-ca.pem /workspace/runtime-public-ca.pem

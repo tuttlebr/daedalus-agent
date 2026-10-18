@@ -34,6 +34,7 @@ mod document_utf7;
 mod domain_retriever;
 mod embeddings;
 mod events;
+mod exploration;
 mod harness;
 mod hindsight;
 mod llm_sandbox;

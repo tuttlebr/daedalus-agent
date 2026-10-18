@@ -122,6 +122,15 @@ spec:
             - secretRef:
                 name: {{ .Values.backend.default.env.fromSecret | default (printf "%s-backend-env" (include "daedalus.fullname" .)) }}
           env:
+            {{- if .Values.exploration.enabled }}
+            - name: EXPLORATION_BASE_URL
+              value: {{ .Values.exploration.baseUrl | quote }}
+            - name: EXPLORATION_GRANT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.exploration.grantSecret }}
+                  key: key
+            {{- end }}
             {{- include "daedalus.contentCredentialsEnv" . | nindent 12 }}
             - name: DAEDALUS_INTERNAL_API_TOKEN
               valueFrom:

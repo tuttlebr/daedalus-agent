@@ -17,6 +17,11 @@ from unittest.mock import AsyncMock, patch
 # All native tools in the production workflow. The configuration check rejects
 # additions without a runtime fixture, so new tools cannot silently evade it.
 FACTORIES = {
+    "sandbox_exploration_tool": (
+        "daedalus_runtime.exploration",
+        "ExplorationConfig",
+        "exploration_function",
+    ),
     "agent_skills_tool": (
         "agent_skills.agent_skills_function",
         "AgentSkillsConfig",
@@ -101,6 +106,10 @@ FACTORIES = {
 }
 
 SAMPLES = {
+    "sandbox_exploration_tool": [
+        {"operation": "capabilities"},
+        {"operation": "publish_file", "runId": "fixture-run", "path": "report.txt"},
+    ],
     "agent_skills_tool": [
         {"operation": "list_skills"},
         {"operation": "load_skill", "skill_name": "daily-summary"},
@@ -297,6 +306,13 @@ def check_mcp_catalog(config, catalog, skills_directory=None):
     )
 
 
+@patch.dict(
+    "os.environ",
+    {
+        "EXPLORATION_BASE_URL": "http://exploration.invalid:8080",
+        "EXPLORATION_GRANT_KEY": "synthetic-offline-catalog-key-" * 4,
+    },
+)
 async def check_catalog(config=None, skills_directory=None):
     if config:
         check_configuration(config)

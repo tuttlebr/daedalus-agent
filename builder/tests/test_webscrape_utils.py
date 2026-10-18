@@ -354,8 +354,8 @@ class TestTruncateToTokenLimit:
             webscrape_mod.TIKTOKEN_AVAILABLE = False
             text = "word " * 1000  # large text
             result, truncated = _truncate_to_token_limit(text, 50, "---TRUNC---")
-            if truncated:
-                assert len(result) < len(text)
+            assert truncated
+            assert len(result) < len(text)
         finally:
             webscrape_mod.TIKTOKEN_AVAILABLE = original
 

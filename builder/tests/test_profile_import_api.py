@@ -1,9 +1,12 @@
 """Tests for the deterministic profile-memory import API."""
 
 import asyncio
+import importlib.util
 import sys
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -72,11 +75,34 @@ def test_router_exists():
     assert router is not None
 
 
-def test_import_failure_does_not_expose_internal_detail():
-    source = (_BUILDER_ROOT / "profile_import_api.py").read_text(encoding="utf-8")
+def test_import_failure_does_not_expose_internal_detail(monkeypatch):
+    import fastapi
 
-    assert 'detail="Profile import failed."' in source
-    assert "detail=str(exc)" not in source
+    route = SimpleNamespace(post=lambda *_args, **_kwargs: lambda fn: fn)
+    monkeypatch.setattr(fastapi, "APIRouter", lambda **_kwargs: route)
+    spec = importlib.util.spec_from_file_location(
+        "profile_import_error_contract", _BUILDER_ROOT / "profile_import_api.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+
+    class HTTPError(Exception):
+        def __init__(self, status_code, detail):
+            super().__init__(detail)
+            self.status_code = status_code
+            self.detail = detail
+
+    monkeypatch.setattr(module, "HTTPException", HTTPError)
+    monkeypatch.setattr(module, "_require_trusted_user", lambda *_: "fixture-user")
+    import_memories = AsyncMock(side_effect=RuntimeError("private upstream detail"))
+    monkeypatch.setattr(module, "import_profile_memories", import_memories)
+    request = profile_request()
+    with pytest.raises(HTTPError) as raised:
+        run(module.import_profile(request, SimpleNamespace(status_code=202)))
+    assert raised.value.status_code == 500
+    assert raised.value.detail == "Profile import failed."
+    import_memories.assert_awaited_once_with(request, "fixture-user")
 
 
 def test_profile_request_ignores_client_user_id():

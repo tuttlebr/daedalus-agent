@@ -414,6 +414,7 @@ export async function processStreamQueueEntry(
 
 interface ActiveStreamJob {
   jobId: string;
+  entryId: string;
   controller: AbortController;
   promise: Promise<void>;
 }
@@ -427,6 +428,7 @@ export class StreamWorkerRuntime {
   private readClient: Redis | null = null;
   private healthTimer: NodeJS.Timeout | null = null;
   private lastReclaimAt = 0;
+  private reclaimCursor = '0-0';
   private lastMemoryRetentionPollAt = 0;
   private memoryRetentionPollInFlight = false;
 
@@ -448,7 +450,12 @@ export class StreamWorkerRuntime {
   }
 
   private dispatch(entry: StreamQueueEntry): void {
-    if (this.active.has(entry.jobId)) {
+    const active = this.active.get(entry.jobId);
+    if (active) {
+      // Redis pending-entry idle time is independent of our execution lease.
+      // Reclaim can return this very entry while the backend is still running;
+      // it must remain pending so another worker can recover after a crash.
+      if (active.entryId === entry.entryId) return;
       void acknowledgeDuplicateStreamEntry(entry).catch((error) => {
         logger.warn(
           `Failed to acknowledge duplicate job ${entry.jobId}`,
@@ -461,6 +468,7 @@ export class StreamWorkerRuntime {
     const controller = new AbortController();
     const activeJob: ActiveStreamJob = {
       jobId: entry.jobId,
+      entryId: entry.entryId,
       controller,
       promise: Promise.resolve(),
     };
@@ -557,12 +565,18 @@ export class StreamWorkerRuntime {
         try {
           const now = Date.now();
           if (now - this.lastReclaimAt >= this.options.reclaimScanMs) {
-            entries = await claimStaleStreamJobs(
+            const claimed = await claimStaleStreamJobs(
               this.readClient,
               this.consumer,
               this.options.reclaimIdleMs,
               capacity,
+              this.reclaimCursor,
             );
+            // XAUTOCLAIM scans at most COUNT * 10 pending entries. Keep its
+            // cursor even on an empty page so busy entries cannot hide later
+            // abandoned jobs indefinitely.
+            entries = claimed.entries;
+            this.reclaimCursor = claimed.nextCursor;
             this.lastReclaimAt = now;
           }
           if (entries.length === 0) {
@@ -573,6 +587,10 @@ export class StreamWorkerRuntime {
               this.options.readBlockMs,
             );
           }
+          // Shutdown can begin while the blocking read is pending. Leave any
+          // newly delivered entries in Redis for the next worker; the drain
+          // promise only accounts for work that was active when it began.
+          if (this.draining) break;
           this.setReady(true);
         } catch (error) {
           this.setReady(false);

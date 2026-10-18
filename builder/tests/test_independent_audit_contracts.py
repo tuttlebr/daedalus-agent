@@ -1,6 +1,5 @@
 """Compare actual URL validation with a frozen, independently derived oracle."""
 
-import gzip
 import json
 import socket
 from pathlib import Path
@@ -9,13 +8,12 @@ import pytest
 from nat_helpers.url_guard import UnsafeURLError, resolve_public_addresses
 
 REFERENCE = json.loads(
-    gzip.decompress(
-        (
-            Path(__file__).resolve().parents[2]
-            / "test-fixtures"
-            / "code-audit-independent-20260909.json.gz"
-        ).read_bytes()
-    )
+    (
+        Path(__file__).resolve().parents[2]
+        / "test-fixtures"
+        / "independent-contracts"
+        / "reference.json"
+    ).read_text()
 )
 
 

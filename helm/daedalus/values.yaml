@@ -565,3 +565,10 @@ ingress:
     - secretName: daedalus-tls
       hosts:
         - your-domain.example.com
+
+# Secure exploration service; provision with daedalus-sandbox/deploy/exploration.py.
+exploration:
+  enabled: true
+  namespace: daedalus-exploration
+  baseUrl: http://exploration-api.daedalus-exploration.svc.cluster.local:8080
+  grantSecret: exploration-grants

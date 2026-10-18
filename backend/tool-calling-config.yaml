@@ -866,6 +866,9 @@ functions:
       and fetch times, and explicit coverage gaps. Request current
       observations only when needed; unavailable readings are not forecasts.
       Prefer this tool to scraping weather HTML for a daily briefing.
+  sandbox_exploration_tool:
+    _type: sandbox_exploration
+
   llm_sandbox_tool:
     _type: llm_sandbox
     description: >-
@@ -1134,6 +1137,7 @@ workflow:
     - hue_mcp_server
     - k8s_mcp_server
     - llm_sandbox_tool
+    - sandbox_exploration_tool
     - nvidia_docs_tool
     - nws_weather_tool
     - perplexity_search_tool

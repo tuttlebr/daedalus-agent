@@ -510,21 +510,33 @@ function newQueueRequest(
   };
 }
 
+async function enqueueRequests(
+  userId: string,
+  requests: QueueRequest[],
+): Promise<void> {
+  const admitted = await getRedis().eval(
+    `
+    -- ADMIT_AUTONOMY_REQUESTS
+    local count = #ARGV - 1
+    if redis.call('LLEN', KEYS[1]) + count > tonumber(ARGV[1]) then return 0 end
+    for i = 2, #ARGV do redis.call('LPUSH', KEYS[1], ARGV[i]) end
+    return 1
+  `,
+    1,
+    autonomyKey(userId, 'queue'),
+    MAX_QUEUE_DEPTH,
+    ...requests.map((request) => JSON.stringify(request)),
+  );
+  if (admitted !== 1) throw new QueueFullError(MAX_QUEUE_DEPTH);
+}
+
 export async function enqueueRun(
   userId: string,
   input: EnqueueRunInput,
 ): Promise<{ id: string; queuedAt: number }> {
-  const redis = getRedis();
-  const queueKey = autonomyKey(userId, 'queue');
-
-  const depth = await redis.llen(queueKey);
-  if (depth >= MAX_QUEUE_DEPTH) {
-    throw new QueueFullError(MAX_QUEUE_DEPTH);
-  }
-
   const queuedAt = nowMs();
   const request = newQueueRequest(input, queuedAt);
-  await redis.lpush(queueKey, JSON.stringify(request));
+  await enqueueRequests(userId, [request]);
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
     timestamp: queuedAt,
@@ -554,13 +566,6 @@ export async function enqueueAllActiveGoals(
     throw new NoActiveGoalsError();
   }
 
-  const redis = getRedis();
-  const queueKey = autonomyKey(userId, 'queue');
-  const depth = await redis.llen(queueKey);
-  if (depth + activeGoals.length > MAX_QUEUE_DEPTH) {
-    throw new QueueFullError(MAX_QUEUE_DEPTH);
-  }
-
   const queuedAt = nowMs();
   const prompt = clippedPrompt(input);
   const requests = activeGoals.map((goal) =>
@@ -575,10 +580,7 @@ export async function enqueueAllActiveGoals(
     ),
   );
 
-  await redis.lpush(
-    queueKey,
-    ...requests.map((request) => JSON.stringify(request)),
-  );
+  await enqueueRequests(userId, requests);
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
     timestamp: queuedAt,

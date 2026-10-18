@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
   'concurrent goals with real Redis',
@@ -20,13 +20,70 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
           await redis
             .getRedis()
             .del(
-              ...['goals', 'config', 'runs', 'cancel:run-a'].map((name) =>
-                redis.sessionKey(['autonomy', user, name]),
+              ...['goals', 'config', 'runs', 'cancel:run-a', 'queue'].map(
+                (name) => redis.sessionKey(['autonomy', user, name]),
               ),
             );
         redis.getRedis().disconnect();
       }
     });
+    it.each(['single', 'batch'])(
+      'enforces queue capacity for concurrent %s submissions',
+      async (mode) => {
+        const user = `queue-review-${mode}-${process.pid}-${Date.now()}`;
+        users.push(user);
+        const key = redis.sessionKey(['autonomy', user, 'queue']);
+        const count = mode === 'single' ? 99 : 97;
+        const initial = Array.from({ length: count }, (_, i) =>
+          JSON.stringify({ id: `existing-${i}` }),
+        );
+        await redis.getRedis().rpush(key, ...initial);
+        await store.importGoals(user, [
+          { title: 'First', priority: 1 },
+          { title: 'Second', priority: 2 },
+        ]);
+        const enqueue = () =>
+          mode === 'single'
+            ? store.enqueueRun(user, { prompt: 'review' })
+            : store.enqueueAllActiveGoals(user);
+        const client = redis.getRedis();
+        const llen = client.llen.bind(client);
+        let release!: () => void;
+        const bothRead = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let reads = 0;
+        const spy = vi
+          .spyOn(client, 'llen')
+          .mockImplementation(async (...args) => {
+            const depth = await llen(...args);
+            if (++reads === 2) release();
+            await bothRead;
+            return depth;
+          });
+        const outcomes = await Promise.allSettled([
+          enqueue(),
+          enqueue(),
+        ]).finally(() => spy.mockRestore());
+        expect(
+          outcomes.filter((value) => value.status === 'fulfilled'),
+        ).toHaveLength(1);
+        expect(
+          outcomes.find((value) => value.status === 'rejected'),
+        ).toMatchObject({ reason: expect.any(store.QueueFullError) });
+        const queued = await redis.getRedis().lrange(key, 0, -1);
+        expect(queued).toHaveLength(mode === 'single' ? 100 : 99);
+        expect(queued.slice(mode === 'single' ? 1 : 2)).toEqual(initial);
+        if (mode === 'batch') {
+          const goals = await store.listGoals(user);
+          // LPUSH keeps the highest-priority goal next for the worker's RPOP.
+          expect(
+            queued.slice(0, 2).map((value) => JSON.parse(value).goalId),
+          ).toEqual([goals[1].id, goals[0].id]);
+        }
+      },
+    );
+
     it('preserves concurrent config fields and unrelated run updates', async () => {
       const user = `implementation-config-${process.pid}-${Date.now()}`;
       users.push(user);

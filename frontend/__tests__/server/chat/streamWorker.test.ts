@@ -1,4 +1,6 @@
 import {
+  StreamWorkerRuntime,
+  streamWorkerOptionsFromEnv,
   processStreamQueueEntry,
   type StreamWorkerOptions,
 } from '@/server/chat/streamWorker';
@@ -8,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   store: new Map<string, any>(),
   acquireStreamLease: vi.fn(),
   acknowledgeStreamQueueEntry: vi.fn(),
+  acknowledgeDuplicateStreamEntry: vi.fn(),
+  claimStaleStreamJobs: vi.fn(),
+  readNewStreamJobs: vi.fn(),
+  readClient: { status: 'ready', disconnect: vi.fn() },
   hasBackendRequestStarted: vi.fn(),
   loadStreamQueuePayload: vi.fn(),
   markBackendRequestStarted: vi.fn(),
@@ -34,15 +40,15 @@ vi.mock('@/server/chat/conversationJobGuard', () => ({
 }));
 
 vi.mock('@/server/chat/streamQueue', () => ({
-  acknowledgeDuplicateStreamEntry: vi.fn(),
+  acknowledgeDuplicateStreamEntry: mocks.acknowledgeDuplicateStreamEntry,
   acknowledgeStreamQueueEntry: mocks.acknowledgeStreamQueueEntry,
   acquireStreamLease: mocks.acquireStreamLease,
-  claimStaleStreamJobs: vi.fn(),
+  claimStaleStreamJobs: mocks.claimStaleStreamJobs,
   ensureStreamConsumerGroup: vi.fn(),
   hasBackendRequestStarted: mocks.hasBackendRequestStarted,
   loadStreamQueuePayload: mocks.loadStreamQueuePayload,
   markBackendRequestStarted: mocks.markBackendRequestStarted,
-  readNewStreamJobs: vi.fn(),
+  readNewStreamJobs: mocks.readNewStreamJobs,
   releaseStreamLease: mocks.releaseStreamLease,
   renewStreamLease: mocks.renewStreamLease,
 }));
@@ -65,13 +71,29 @@ vi.mock('@/server/chat/finalization', () => ({
 }));
 
 vi.mock('@/server/session/redis', () => ({
-  getRedis: vi.fn(() => ({ duplicate: vi.fn() })),
+  getRedis: vi.fn(() => ({ duplicate: () => mocks.readClient })),
   jsonGet: vi.fn(async (key: string) => mocks.store.get(key) ?? null),
   jsonSetWithExpiry: vi.fn(async (key: string, value: any) => {
     mocks.store.set(key, value);
   }),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
 }));
+
+vi.mock('@/server/chat/memoryRetention', () => ({
+  processDueMemoryRetentions: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const stubbed = {
+    ...actual,
+    existsSync: vi.fn().mockReturnValue(false),
+    statSync: vi.fn(),
+    unlinkSync: vi.fn(),
+    writeFileSync: vi.fn(),
+  };
+  return { ...stubbed, default: stubbed };
+});
 
 vi.mock('@/utils/logger', () => ({
   Logger: class MockLogger {
@@ -126,6 +148,7 @@ describe('durable stream worker entry processing', () => {
     seedRunningJob();
     mocks.acquireStreamLease.mockResolvedValue(true);
     mocks.acknowledgeStreamQueueEntry.mockResolvedValue(undefined);
+    mocks.acknowledgeDuplicateStreamEntry.mockResolvedValue(undefined);
     mocks.hasBackendRequestStarted.mockResolvedValue(false);
     mocks.loadStreamQueuePayload.mockResolvedValue({
       messagesForNat: [{ role: 'user', content: 'trusted message' }],
@@ -166,7 +189,122 @@ describe('durable stream worker entry processing', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
+
+  it('keeps execution capacity and lease duration positive for sub-unit environment values', () => {
+    vi.stubEnv('STREAM_WORKER_CONCURRENCY', '0.5');
+    vi.stubEnv('STREAM_WORKER_LEASE_TTL_SECONDS', '0.5');
+    const configured = streamWorkerOptionsFromEnv();
+    expect(configured.concurrency).toBe(5);
+    expect(configured.leaseTtlMs).toBe(30000);
+  });
+
+  it('leaves entries pending when a blocked queue read returns after shutdown starts', async () => {
+    let reading!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      reading = resolve;
+    });
+    let deliver!: () => void;
+    const readFinished = new Promise<void>((resolve) => {
+      deliver = resolve;
+    });
+    mocks.claimStaleStreamJobs.mockResolvedValue({
+      entries: [],
+      nextCursor: '0-0',
+    });
+    mocks.readNewStreamJobs.mockImplementation(async () => {
+      reading();
+      await readFinished;
+      return [entry];
+    });
+    const runtime = new StreamWorkerRuntime(options);
+    const running = runtime.run();
+    await readStarted;
+    await runtime.beginDrain();
+    deliver();
+    await running;
+    expect(mocks.acquireStreamLease).not.toHaveBeenCalled();
+    expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+    expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
+  });
+
+  it.each(['1-0', '2-0'])(
+    'retains the active entry while handling reclaimed entry %s',
+    async (reclaimedId) => {
+      let started!: () => void;
+      const executionStarted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let finish!: () => void;
+      const executionFinished = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      let observed!: () => void;
+      const reclaimDispatched = new Promise<void>((resolve) => {
+        observed = resolve;
+      });
+      let stopReading!: () => void;
+      const readFinished = new Promise<void>((resolve) => {
+        stopReading = resolve;
+      });
+      mocks.startBackgroundStreamReader.mockImplementation(async () => {
+        started();
+        await executionFinished;
+        mocks.store.set('daedalus:async-job-status:job-1', {
+          status: 'completed',
+          finalizedAt: 2,
+        });
+      });
+      const reclaimed = { ...entry, entryId: reclaimedId, reclaimed: true };
+      mocks.claimStaleStreamJobs
+        .mockResolvedValueOnce({ entries: [], nextCursor: '1-0' })
+        .mockImplementationOnce(async () => {
+          await executionStarted;
+          return { entries: [reclaimed], nextCursor: '0-0' };
+        })
+        .mockResolvedValue({ entries: [], nextCursor: '0-0' });
+      mocks.readNewStreamJobs
+        .mockResolvedValueOnce([entry])
+        .mockImplementation(async () => {
+          observed();
+          await readFinished;
+          return [];
+        });
+      const runtime = new StreamWorkerRuntime({
+        ...options,
+        reclaimScanMs: 0,
+        drainTimeoutMs: 100,
+      });
+      const running = runtime.run();
+      try {
+        await reclaimDispatched;
+        expect(mocks.claimStaleStreamJobs).toHaveBeenNthCalledWith(
+          2,
+          mocks.readClient,
+          expect.any(String),
+          options.reclaimIdleMs,
+          1,
+          '1-0',
+        );
+        expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
+        if (reclaimedId === entry.entryId) {
+          expect(mocks.acknowledgeDuplicateStreamEntry).not.toHaveBeenCalled();
+        } else {
+          expect(mocks.acknowledgeDuplicateStreamEntry).toHaveBeenCalledWith(
+            reclaimed,
+          );
+        }
+      } finally {
+        finish();
+        const draining = runtime.beginDrain();
+        stopReading();
+        await Promise.all([running, draining]);
+      }
+      expect(mocks.startBackgroundStreamReader).toHaveBeenCalledTimes(1);
+      expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+    },
+  );
 
   it('marks backend execution under the owner lease and acknowledges one terminal result', async () => {
     await expect(

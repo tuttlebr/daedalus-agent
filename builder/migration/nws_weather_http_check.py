@@ -364,6 +364,8 @@ def main(args):
                                     }
                                 }
                             ],
+                            "answer": "",
+                            "activity_comments": 0,
                             "done": True,
                             "peak_tools": 0,
                         },

@@ -293,95 +293,115 @@ describe('ChatView OAuth banner', () => {
     act(() => root.unmount());
   });
 
-  it('keeps OAuth prompts through streaming, then shows success after click', async () => {
-    const { root } = renderChatView();
+  it.each([0, 3000])(
+    'keeps OAuth prompts through streaming and accepts a fresh challenge after %i ms',
+    async (delay) => {
+      const { root } = renderChatView();
 
-    await act(async () => {
-      mocks.asyncOptions.onProgress({
-        jobId: 'job-1',
-        status: 'oauth_required',
-        conversationId: 'conv-1',
-        authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
-        oauthState: 'gmail-state',
-        createdAt: 1,
-        updatedAt: 1,
+      await act(async () => {
+        mocks.asyncOptions.onProgress({
+          jobId: 'job-1',
+          status: 'oauth_required',
+          conversationId: 'conv-1',
+          authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
+          oauthState: 'gmail-state',
+          createdAt: 1,
+          updatedAt: 1,
+        });
       });
-    });
 
-    expect(document.body.textContent).toContain(
-      'Google authorization required',
-    );
-    expect(document.body.textContent).toContain('Connect Gmail');
+      expect(document.body.textContent).toContain(
+        'Google authorization required',
+      );
+      expect(document.body.textContent).toContain('Connect Gmail');
 
-    await act(async () => {
-      mocks.asyncOptions.onProgress({
-        jobId: 'job-1',
-        status: 'streaming',
-        conversationId: 'conv-1',
-        partialResponse: 'Still working.',
-        createdAt: 1,
-        updatedAt: 2,
+      await act(async () => {
+        mocks.asyncOptions.onProgress({
+          jobId: 'job-1',
+          status: 'streaming',
+          conversationId: 'conv-1',
+          partialResponse: 'Still working.',
+          createdAt: 1,
+          updatedAt: 2,
+        });
       });
-    });
 
-    expect(document.body.textContent).toContain('Connect Gmail');
+      expect(document.body.textContent).toContain('Connect Gmail');
 
-    const button = Array.from(document.querySelectorAll('button')).find(
-      (candidate) => candidate.textContent?.includes('Connect Gmail'),
-    );
-    expect(button).toBeDefined();
+      const button = Array.from(document.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.includes('Connect Gmail'),
+      );
+      expect(button).toBeDefined();
 
-    await act(async () => {
-      button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-
-    expect(window.open).toHaveBeenCalledWith(
-      'https://accounts.google.com/auth?scope=gmail.readonly',
-      '_blank',
-      'noopener,noreferrer',
-    );
-    expect(document.body.textContent).toContain('Reopen Gmail');
-
-    await act(async () => {
-      mocks.asyncOptions.onProgress({
-        jobId: 'job-1',
-        status: 'streaming',
-        conversationId: 'conv-1',
-        partialResponse: 'Still working.',
-        createdAt: 1,
-        updatedAt: 3,
+      await act(async () => {
+        button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       });
-    });
 
-    expect(document.body.textContent).toContain(
-      'Google authorization connected',
-    );
-    expect(document.body.textContent).toContain('Gmail connected');
+      expect(window.open).toHaveBeenCalledWith(
+        'https://accounts.google.com/auth?scope=gmail.readonly',
+        '_blank',
+        'noopener,noreferrer',
+      );
+      expect(document.body.textContent).toContain('Reopen Gmail');
 
-    await act(async () => {
-      vi.advanceTimersByTime(3000);
-    });
-
-    expect(document.body.textContent).not.toContain('Gmail connected');
-
-    await act(async () => {
-      mocks.asyncOptions.onProgress({
-        jobId: 'job-1',
-        status: 'oauth_required',
-        conversationId: 'conv-1',
-        authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
-        oauthState: 'gmail-state-2',
-        createdAt: 1,
-        updatedAt: 4,
+      await act(async () => {
+        mocks.asyncOptions.onProgress({
+          jobId: 'job-1',
+          status: 'streaming',
+          conversationId: 'conv-1',
+          partialResponse: 'Still working.',
+          createdAt: 1,
+          updatedAt: 3,
+        });
       });
-    });
 
-    expect(document.body.textContent).not.toContain('Connect Gmail');
+      expect(document.body.textContent).toContain(
+        'Google authorization connected',
+      );
+      expect(document.body.textContent).toContain('Gmail connected');
 
-    act(() => {
-      root.unmount();
-    });
-  });
+      await act(async () => {
+        vi.advanceTimersByTime(delay);
+      });
+
+      if (delay) {
+        expect(document.body.textContent).not.toContain('Gmail connected');
+      }
+
+      // A replay of the challenge already completed remains suppressed.
+      await act(async () => {
+        mocks.asyncOptions.onProgress({
+          jobId: 'job-1',
+          status: 'oauth_required',
+          conversationId: 'conv-1',
+          authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
+          oauthState: 'gmail-state',
+          createdAt: 1,
+          updatedAt: 4,
+        });
+      });
+      expect(document.body.textContent).not.toContain('Connect Gmail');
+
+      await act(async () => {
+        mocks.asyncOptions.onProgress({
+          jobId: 'job-1',
+          status: 'oauth_required',
+          conversationId: 'conv-1',
+          authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
+          oauthState: 'gmail-state-2',
+          createdAt: 1,
+          updatedAt: 4,
+        });
+      });
+
+      expect(document.body.textContent).toContain('Connect Gmail');
+      expect(document.body.textContent).not.toContain('Gmail connected');
+
+      act(() => {
+        root.unmount();
+      });
+    },
+  );
 
   it('coalesces token updates into one render batch per flush interval', async () => {
     const { root } = renderChatView();

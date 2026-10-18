@@ -971,6 +971,7 @@ impl Agent {
                 || preparation.user_tools.contains_key(name)
                 || preparation.skill_tools.contains_key(name)
                 || preparation.sandbox_tools.contains_key(name)
+                || preparation.exploration_tools.contains_key(name)
                 || preparation.weather_tools.contains_key(name)
                 || preparation.docs_tools.contains_key(name))
         {
@@ -982,6 +983,8 @@ impl Agent {
                         .map(|(text, loaded)| (crate::document_json::Text::from(text), loaded));
                 }
                 let result = if let Some(tool) = preparation.document_tools.get(name) {
+                    tool.call(arguments, &headers).await
+                } else if let Some(tool) = preparation.exploration_tools.get(name) {
                     tool.call(arguments, &headers).await
                 } else if let Some(tool) = preparation.sandbox_tools.get(name) {
                     tool.call(arguments, &headers).await

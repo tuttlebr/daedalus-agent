@@ -65,12 +65,9 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 80));
 
-    const [reclaimed] = await queue.claimStaleStreamJobs(
-      client,
-      'replacement-worker',
-      50,
-      1,
-    );
+    const {
+      entries: [reclaimed],
+    } = await queue.claimStaleStreamJobs(client, 'replacement-worker', 50, 1);
     expect(reclaimed).toEqual(
       expect.objectContaining({
         entryId: owned.entryId,
@@ -212,6 +209,64 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
       expect(await client.pttl(guardKey)).toBeLessThanOrEqual(500);
     } finally {
       await client.del(...keys, guardKey, queue.streamLeaseKey(activeJobId));
+    }
+  });
+
+  it('reaches an abandoned entry beyond a page of recently touched pending entries', async () => {
+    const ids: string[] = [];
+    try {
+      for (let index = 0; index < 12; index += 1) {
+        ids.push(
+          await client.xadd(
+            queue.STREAM_QUEUE_KEY,
+            '*',
+            'jobId',
+            `${jobId}-page-${index}`,
+          ),
+        );
+      }
+      const pending = await queue.readNewStreamJobs(
+        client,
+        'page-owner',
+        12,
+        100,
+      );
+      expect(pending).toHaveLength(12);
+      // Set deterministic PEL idle ages; no wall-clock sleep or lease expiry.
+      await client.xclaim(
+        queue.STREAM_QUEUE_KEY,
+        queue.STREAM_QUEUE_GROUP,
+        'page-owner',
+        0,
+        ids[11],
+        'IDLE',
+        10000,
+      );
+      const first = await queue.claimStaleStreamJobs(
+        client,
+        'page-recovery',
+        5000,
+        1,
+      );
+      expect(first.entries).toEqual([]);
+      expect(first.nextCursor).not.toBe('0-0');
+      const next = await queue.claimStaleStreamJobs(
+        client,
+        'page-recovery',
+        5000,
+        1,
+        first.nextCursor,
+      );
+      expect(next.entries).toEqual([{ ...pending[11], reclaimed: true }]);
+    } finally {
+      if (ids.length) {
+        await client.xack(
+          queue.STREAM_QUEUE_KEY,
+          queue.STREAM_QUEUE_GROUP,
+          ...ids,
+        );
+        await client.xdel(queue.STREAM_QUEUE_KEY, ...ids);
+      }
     }
   });
 });

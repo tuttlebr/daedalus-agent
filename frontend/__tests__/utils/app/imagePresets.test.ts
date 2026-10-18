@@ -8,14 +8,20 @@ import { describe, expect, it } from 'vitest';
 
 describe('image presets', () => {
   it('returns presets for the explicit mode', () => {
-    expect(
-      presetsForMode('generate').every((preset) =>
-        preset.modes.includes('generate'),
-      ),
-    ).toBe(true);
-    expect(
-      presetsForMode('edit').every((preset) => preset.modes.includes('edit')),
-    ).toBe(true);
+    expect(presetsForMode('generate').map((preset) => preset.id)).toEqual([
+      'studio-headshot',
+      'logo',
+      'infographic',
+      'product-shot',
+    ]);
+    expect(presetsForMode('edit').map((preset) => preset.id)).toEqual([
+      'studio-headshot',
+      'sketch-to-render',
+      'virtual-try-on',
+      'product-shot',
+      'object-swap',
+      'lighting-weather',
+    ]);
   });
 
   it('cleans every preset for GPT Image 2.5 Sunburst', () => {

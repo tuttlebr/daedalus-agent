@@ -23,8 +23,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getRedis: vi.fn(),
-  llen: vi.fn(),
-  lpush: vi.fn(),
   lrange: vi.fn(),
   lrem: vi.fn(),
   get: vi.fn(),
@@ -450,35 +448,38 @@ describe('autonomy run, event, and feed persistence', () => {
 describe('autonomy enqueueRun depth cap', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getRedis.mockReturnValue({ llen: mocks.llen, lpush: mocks.lpush });
-    mocks.lpush.mockResolvedValue(1);
+    mocks.getRedis.mockReturnValue({ eval: mocks.eval });
+    mocks.eval.mockResolvedValue(1);
     mocks.jsonGet.mockResolvedValue([]);
   });
 
   it('throws QueueFullError when at capacity and the cap is enforced (API path)', async () => {
-    mocks.llen.mockResolvedValue(100); // >= default AUTONOMY_MAX_QUEUE_DEPTH
+    mocks.eval.mockResolvedValue(0);
 
     await expect(enqueueRun('user-a', { prompt: 'go' })).rejects.toBeInstanceOf(
       QueueFullError,
     );
-    expect(mocks.lpush).not.toHaveBeenCalled();
+    expect(mocks.publishSyncEvent).not.toHaveBeenCalled();
   });
 
   it('enqueues normally when under capacity with the cap enforced', async () => {
-    mocks.llen.mockResolvedValue(5);
-
     await enqueueRun('user-a', { prompt: 'go' });
 
-    expect(mocks.lpush).toHaveBeenCalledTimes(1);
+    expect(mocks.eval).toHaveBeenCalledWith(
+      expect.stringContaining('ADMIT_AUTONOMY_REQUESTS'),
+      1,
+      'autonomy:user-a:queue',
+      100,
+      expect.any(String),
+    );
   });
 });
 
 describe('autonomy run-all-active-goals enqueue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getRedis.mockReturnValue({ llen: mocks.llen, lpush: mocks.lpush });
-    mocks.lpush.mockResolvedValue(1);
-    mocks.llen.mockResolvedValue(0);
+    mocks.getRedis.mockReturnValue({ eval: mocks.eval });
+    mocks.eval.mockResolvedValue(1);
   });
 
   it('recognizes narrow positive manual aliases unless negated', () => {
@@ -541,7 +542,7 @@ describe('autonomy run-all-active-goals enqueue', () => {
       prompt: 'operator note',
     });
 
-    const [, ...serialized] = mocks.lpush.mock.calls[0];
+    const [, , , , ...serialized] = mocks.eval.mock.calls[0];
     const payloads = serialized.map((raw) => JSON.parse(raw));
     expect(payloads.map((request) => request.goalId)).toEqual([
       'goal_high',
@@ -573,7 +574,7 @@ describe('autonomy run-all-active-goals enqueue', () => {
     await expect(enqueueAllActiveGoals('user-a')).rejects.toBeInstanceOf(
       NoActiveGoalsError,
     );
-    expect(mocks.lpush).not.toHaveBeenCalled();
+    expect(mocks.publishSyncEvent).not.toHaveBeenCalled();
   });
 
   it('checks queue capacity before enqueueing any batch request', async () => {
@@ -581,11 +582,11 @@ describe('autonomy run-all-active-goals enqueue', () => {
       { id: 'goal_a', title: 'A', status: 'active', priority: 1 },
       { id: 'goal_b', title: 'B', status: 'active', priority: 2 },
     ]);
-    mocks.llen.mockResolvedValue(99);
+    mocks.eval.mockResolvedValue(0);
 
     await expect(enqueueAllActiveGoals('user-a', {})).rejects.toBeInstanceOf(
       QueueFullError,
     );
-    expect(mocks.lpush).not.toHaveBeenCalled();
+    expect(mocks.publishSyncEvent).not.toHaveBeenCalled();
   });
 });

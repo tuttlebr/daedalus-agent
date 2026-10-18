@@ -94,4 +94,15 @@ describe('server/rateLimit', () => {
     expect(r).toEqual({ name: 'x', limit: 7, windowSeconds: 120 });
     vi.unstubAllEnvs();
   });
+
+  it('keeps a usable rate-limit window when an override would round down to zero', async () => {
+    vi.stubEnv('RATE_LIMIT_X_WINDOW_SECONDS', '0.5');
+    try {
+      mocks.increment.mockResolvedValue([1, 60]);
+      await checkRateLimit(ruleFromEnv('x', 'RATE_LIMIT_X', 40, 60), 'user-a');
+      expect(mocks.increment).toHaveBeenCalledWith(expect.any(String), 60);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

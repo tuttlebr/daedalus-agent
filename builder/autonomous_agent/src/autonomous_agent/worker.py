@@ -9,7 +9,6 @@ import signal
 import sys
 import threading
 import time
-import traceback
 from typing import Any
 
 from .backend_client import BackendClient, OAuthRequiredError, RunAbortedError
@@ -42,15 +41,10 @@ def log(message: str) -> None:
 def _request_summary(request: dict[str, Any] | None) -> str:
     if not request:
         return "none"
-    prompt = str(request.get("prompt") or "").replace("\n", " ").strip()
-    if len(prompt) > 120:
-        prompt = f"{prompt[:117]}..."
     return (
         f"id={request.get('id') or 'unknown'} "
         f"trigger={request.get('trigger') or 'manual'} "
-        f"requestedBy={request.get('requestedBy') or 'unknown'} "
-        f"createdAt={request.get('createdAt') or 'unknown'} "
-        f"prompt={prompt!r}"
+        f"createdAt={request.get('createdAt') or 'unknown'}"
     )
 
 
@@ -75,7 +69,7 @@ def start_queue_monitor(
                     log(f"queue status: depth={depth} next={next_summary}")
                     last_depth = depth
             except Exception as exc:
-                log(f"queue monitor error: {exc}")
+                log(f"queue monitor error: {type(exc).__name__}")
             time.sleep(interval_seconds)
 
     thread = threading.Thread(
@@ -430,7 +424,9 @@ def run_with_lease_heartbeat(
                     log("worker lease lost; aborting current run")
                     return
             except Exception as exc:
-                log(f"lease heartbeat failed; aborting current run: {exc}")
+                log(
+                    f"lease heartbeat failed; aborting current run: {type(exc).__name__}"
+                )
                 abort.set()
                 return
             # Cancellation used to be read only after the backend call
@@ -444,7 +440,7 @@ def run_with_lease_heartbeat(
                         log(f"cancellation requested; aborting run {run_id}")
                         return
                 except Exception as exc:
-                    log(f"cancellation check failed: {exc}")
+                    log(f"cancellation check failed: {type(exc).__name__}")
 
     if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
         raise RuntimeError("worker lease was lost before the run started")
@@ -479,19 +475,21 @@ def main() -> int:
     store.ping()
     backend = make_backend(user_id)
     start_queue_monitor(store, user_id)
-    log(f"worker starting for user={user_id}")
+    log("worker starting")
 
     # F-001: a transient Redis error must not kill the worker for every queued
-    # job. Errors are caught, logged with a full traceback, the lease is always
-    # released, and the loop continues with an exponential backoff so a sustained
-    # outage does not spin into a tight error loop.
+    # job. Log only the error class: exception messages can contain private
+    # requests or credentials. Release acquired leases and back off so a
+    # sustained outage does not spin into a tight error loop.
     consecutive_errors = 0
     max_backoff = max(poll_interval, 60)
     while not STOP:
-        if not store.acquire_lease(user_id, ttl_seconds=lease_ttl):
-            time.sleep(poll_interval)
-            continue
+        acquired = False
         try:
+            acquired = store.acquire_lease(user_id, ttl_seconds=lease_ttl)
+            if not acquired:
+                time.sleep(poll_interval)
+                continue
             # Reclaim only after acquiring the per-user lease. A replacement pod
             # cannot move a live owner's request during a rolling overlap.
             reclaimed = store.reclaim_processing(user_id)
@@ -519,8 +517,7 @@ def main() -> int:
                 log(
                     "run finished: "
                     f"id={run.get('id') or 'unknown'} "
-                    f"status={run.get('status') or 'unknown'} "
-                    f"error={str(run.get('error') or '')[:240]!r}"
+                    f"status={run.get('status') or 'unknown'}"
                 )
                 # F-013: the run has been recorded (incl. recorded failures), so
                 # remove it from the processing list. If the worker had crashed
@@ -533,20 +530,21 @@ def main() -> int:
                 if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
                     raise RuntimeError("worker lease was lost while idle")
             consecutive_errors = 0
-        except Exception:
+        except Exception as exc:
             consecutive_errors += 1
             log(
                 "worker loop error (continuing); "
-                f"consecutive_errors={consecutive_errors}\n"
-                f"{traceback.format_exc()}"
+                f"consecutive_errors={consecutive_errors} "
+                f"error_class={type(exc).__name__}"
             )
             backoff = min(max_backoff, poll_interval * (2 ** (consecutive_errors - 1)))
             time.sleep(backoff)
         finally:
             # Always release the lease so a failed iteration cannot strand it,
             # and never let a release error mask the original loop error.
-            with contextlib.suppress(Exception):
-                store.release_lease(user_id)
+            if acquired:
+                with contextlib.suppress(Exception):
+                    store.release_lease(user_id)
 
     log("worker stopped")
     return 0

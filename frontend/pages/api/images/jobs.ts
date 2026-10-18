@@ -18,6 +18,7 @@ import {
 import type { ImageContext } from '@/types/imageBrief';
 
 import { updateJsonAtomically } from '@/server/atomicJson';
+import { appendImageHistoryEntry } from '@/server/images/historyStore';
 import {
   cancelImageJob,
   createRecoverableImageJob,
@@ -43,12 +44,7 @@ import {
   getOrSetSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
-import {
-  jsonDel,
-  jsonGet,
-  jsonSetWithExpiry,
-  sessionKey,
-} from '@/server/session/redis';
+import { jsonDel, jsonGet, sessionKey } from '@/server/session/redis';
 import { randomUUID } from 'crypto';
 
 export const config = {
@@ -64,8 +60,6 @@ export const config = {
 };
 
 const IMAGE_JOB_TTL_SECONDS = 60 * 60;
-const IMAGE_HISTORY_TTL_SECONDS = 60 * 60 * 24 * 7;
-const MAX_HISTORY_ENTRIES = 50;
 const MAX_USER_JOBS = 20;
 const MAX_ACTIVE_JOBS_PER_USER = 2;
 const IMAGE_TIMEOUT_MS = 330_000;
@@ -276,16 +270,7 @@ async function saveHistoryEntry(
   entry: ImageHistoryEntry,
 ): Promise<void> {
   const key = imageHistoryKey(job.userId, job.sessionId);
-  const existing = await jsonGet(key);
-  const entries = Array.isArray(existing) ? existing : [];
-  await jsonSetWithExpiry(
-    key,
-    [entry, ...entries.filter((item: any) => item?.id !== entry.id)].slice(
-      0,
-      MAX_HISTORY_ENTRIES,
-    ),
-    IMAGE_HISTORY_TTL_SECONDS,
-  );
+  await appendImageHistoryEntry(key, entry);
 }
 
 async function imageErrorMessage(res: Response): Promise<string> {

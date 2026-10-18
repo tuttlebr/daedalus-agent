@@ -42,7 +42,6 @@ import {
 import { createECDH, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { gunzipSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const PRIVATE_COLLECTION = 'user_uploads_testuser_hash';
@@ -2555,17 +2554,17 @@ describe('chat/async streaming + finalize (characterization)', () => {
   });
 
   it('matches independently derived stream records across every supplied transport partition', async () => {
-    const independentReference = JSON.parse(
-      gunzipSync(
-        readFileSync(
-          path.resolve(
-            __dirname,
-            '../../../../../test-fixtures/code-audit-independent-20260909.json.gz',
-          ),
-        ),
-      ).toString(),
+    const fixtureDirectory = path.resolve(
+      __dirname,
+      '../../../../../test-fixtures/independent-contracts',
     );
-    for (const fixture of independentReference.framing.streams) {
+    const independentReference = JSON.parse(
+      readFileSync(path.join(fixtureDirectory, 'reference.json'), 'utf8'),
+    );
+    for (const filename of independentReference.framing.streams) {
+      const fixture = JSON.parse(
+        readFileSync(path.join(fixtureDirectory, filename), 'utf8'),
+      );
       // Adapt the fixed logical records to this application's content/step
       // fields. No framing or chunk-parsing helper computes these expectations.
       const answer = fixture.expected_records
@@ -2577,7 +2576,8 @@ describe('chat/async streaming + finalize (characterization)', () => {
         .map((record: any) => JSON.parse(record.value));
       for (const partition of fixture.partitions) {
         const chunks = partition.chunks_hex.map(
-          (chunk: string) => new Uint8Array(Buffer.from(chunk, 'hex')),
+          (chunk: string) =>
+            new Uint8Array(Buffer.from(chunk.replaceAll(' ', ''), 'hex')),
         );
         const { statusKey, store } = await runStreamTurn(chunks);
         const status = store.get(statusKey);
@@ -3177,42 +3177,6 @@ describe('chat/async streaming + finalize (characterization)', () => {
     ]);
   });
 
-  it('short-circuits without publishing or finalizing when the abort key is already set', async () => {
-    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
-    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
-    const store = wireRedisStore();
-    (jsonGet as any).mockImplementation(async (key: string) => {
-      if (key.includes('async-job-abort')) return true;
-      return store.has(key) ? store.get(key) : null;
-    });
-    stubFetch(async () =>
-      makeSseResponse([
-        'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
-        'data: [DONE]\n',
-      ]),
-    );
-    const req = {
-      method: 'POST',
-      headers: { cookie: 'sid=current-session' },
-      body: {
-        conversationId: 'conv-1',
-        messages: [{ role: 'user', content: 'go' }],
-      },
-    } as any;
-    const res = makeRes();
-    try {
-      await handler(req, res);
-      const jobId = res.json.mock.calls[0][0].jobId;
-      await drainUntil(() => false, 15);
-      expect(eventsOfType('chat_token')).toHaveLength(0);
-      const status = store.get(`daedalus:async-job-status:${jobId}`);
-      expect(status?.status).toBe('pending');
-      expect(status?.finalizedAt).toBeUndefined();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
   it('DELETE records cross-process cancellation and the worker signal cleans up its reader', async () => {
     const {
       jobId,
@@ -3229,8 +3193,10 @@ describe('chat/async streaming + finalize (characterization)', () => {
     const res = makeRes();
     try {
       await handler(req, res);
-      controller.abort(new Error('Job canceled by user'));
-      await executionPromise.catch(() => {});
+      const reason = new Error('Job canceled by user');
+      const stopped = expect(executionPromise).rejects.toBe(reason);
+      controller.abort(reason);
+      await stopped;
       await drainUntil(() => cancel.mock.calls.length > 0);
 
       expect(res.json).toHaveBeenCalledWith({

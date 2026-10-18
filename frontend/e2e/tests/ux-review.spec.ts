@@ -8,6 +8,8 @@ import {
 
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 test.use({ serviceWorkers: 'block' });
 
@@ -620,9 +622,15 @@ test('saved image history survives failed deletion and clearing', async ({
     params: {},
     inputImages: [],
     maskImage: null,
-    outputImageIds: [],
+    outputImageIds: ['abcdef01-1234-5678-9012-abcdef012345'],
     createdAt: Date.now(),
   };
+  await page.route('**/api/generated-image/**', (route) =>
+    route.fulfill({
+      contentType: 'image/png',
+      body: readFileSync(resolve(__dirname, '../../public/favicon.png')),
+    }),
+  );
   await page.route('**/api/images/history*', (route) => {
     if (route.request().method() === 'GET')
       return route.fulfill({ json: { history: exists ? [entry] : [] } });

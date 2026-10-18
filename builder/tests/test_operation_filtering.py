@@ -1,18 +1,18 @@
 """Registration tests for production operation filtering."""
 
 import asyncio
+import json
 from unittest.mock import MagicMock
+
+import pytest
+import source_verifier.source_verifier_function  # noqa: F401 - registers the factory
+from daedalus_runtime.tools import ToolRegistry
+from jsonschema import Draft202012Validator
+from pydantic import ValidationError
 
 
 def run(coro):
     return asyncio.run(coro)
-
-
-async def _names(async_gen):
-    items = []
-    async for item in async_gen:
-        items.append(item.fn.__name__)
-    return items
 
 
 def test_agent_skills_enabled_operations_filter_dispatch(tmp_path):
@@ -56,55 +56,49 @@ def test_agent_skills_enabled_operations_filter_dispatch(tmp_path):
     )
 
 
-def test_source_verifier_enabled_operations_filters_registration():
-    async def _run():
-        from source_verifier.source_verifier_function import (
-            SourceVerifierConfig,
-            source_verifier_function,
+@pytest.mark.parametrize(
+    "enabled", [["verify_claim"], ["audit_citations"], ["plan_sources"], []]
+)
+def test_source_verifier_filters_published_schema_and_actual_dispatch(enabled):
+    async def scenario():
+        registry = ToolRegistry(
+            {
+                "functions": {
+                    "verify": {
+                        "_type": "source_verifier",
+                        "enabled_operations": enabled,
+                    }
+                }
+            }
         )
+        try:
+            tool = await registry.get_function("verify")
+            schema = tool.schema("verify")["parameters"]
+            validator = Draft202012Validator(schema)
+            inputs = {
+                "verify_claim": {
+                    "claim": "A fact",
+                    "source_url": "https://sources.test/fact",
+                },
+                "plan_sources": {"research_question": "A topic"},
+                "audit_citations": {"answer_markdown": "An answer"},
+            }
+            for operation, arguments in inputs.items():
+                assert validator.is_valid({"operation": operation, **arguments}) == (
+                    operation in enabled
+                )
+                if operation in enabled:
+                    continue
+                with pytest.raises(ValidationError):
+                    await tool.ainvoke({"operation": operation, **arguments})
+                denied = json.loads(await tool.fn(operation=operation, **arguments))
+                assert denied["error"] == "operation_disabled"
+                assert denied["operation"] == operation
+                assert denied["enabled_operations"] == enabled
+        finally:
+            await registry.close()
 
-        return await _names(
-            source_verifier_function(
-                SourceVerifierConfig(enabled_operations=["verify_claim"]),
-                MagicMock(),
-            )
-        )
-
-    assert run(_run()) == ["source_verifier"]
-
-
-def test_source_verifier_audit_citations_operation_can_be_exposed_alone():
-    async def _run():
-        from source_verifier.source_verifier_function import (
-            SourceVerifierConfig,
-            source_verifier_function,
-        )
-
-        return await _names(
-            source_verifier_function(
-                SourceVerifierConfig(enabled_operations=["audit_citations"]),
-                MagicMock(),
-            )
-        )
-
-    assert run(_run()) == ["source_verifier"]
-
-
-def test_source_verifier_plan_sources_operation_can_be_exposed_alone():
-    async def _run():
-        from source_verifier.source_verifier_function import (
-            SourceVerifierConfig,
-            source_verifier_function,
-        )
-
-        return await _names(
-            source_verifier_function(
-                SourceVerifierConfig(enabled_operations=["plan_sources"]),
-                MagicMock(),
-            )
-        )
-
-    assert run(_run()) == ["source_verifier"]
+    run(scenario())
 
 
 def test_rss_registration_exposes_its_single_validated_search_tool():

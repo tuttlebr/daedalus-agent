@@ -23,6 +23,9 @@ class ReceiptPeers(DocumentPeers, LeafPeers):
 def normalized(result):
     result = copy.deepcopy(result)
     result.pop("latency_ms")
+    # Per-run wall-clock observations are reported by measure(), not part of
+    # the deterministic tool/SSE compatibility contract.
+    result.pop("first_answer_ms", None)
     for event in [*result["starts"], *result["ends"]]:
         event.pop("parent_id", None)
     return result

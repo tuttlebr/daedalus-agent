@@ -70,11 +70,15 @@ async function getPlainJson(client: Redis, key: string): Promise<any> {
     throw error;
   }
 
+  return parsePlainJson(result);
+}
+
+function parsePlainJson(result: string | null): any {
   if (!result) return null;
   try {
     return JSON.parse(result);
-  } catch (error) {
-    console.error('Error parsing JSON from Redis fallback jsonGet:', error);
+  } catch {
+    console.error('Invalid JSON in a plain Redis record');
     return null;
   }
 }
@@ -258,14 +262,7 @@ export async function jsonDel(
   }
 
   try {
-    if (path === '$') {
-      // Delete the entire key
-      return await client.del(key);
-    } else {
-      // Delete a specific path
-      const result = (await client.call('JSON.DEL', key, path)) as number;
-      return result;
-    }
+    return (await client.call('JSON.DEL', key, path)) as number;
   } catch (error) {
     console.error('Error in jsonDel:', error);
     return 0;
@@ -299,38 +296,41 @@ export async function jsonSetWithExpiry(
   }
 }
 
+// JSON.MGET silently returns null for plain-string keys, including new records
+// written by conversationStore. Read both formats in one round trip and keep
+// JSON opaque in Lua so empty arrays and large integers survive unchanged.
+const READ_JSON_BATCH_LUA = `
+-- READ_JSON_BATCH
+local values = {}
+for _, key in ipairs(KEYS) do
+  local kind = redis.call('TYPE', key).ok
+  local raw = false
+  if kind == 'string' then
+    raw = redis.call('GET', key)
+  elseif string.find(string.lower(kind), 'rejson', 1, true) then
+    raw = redis.call('JSON.GET', key, ARGV[1])
+  end
+  table.insert(values, {kind, raw})
+end
+return values
+`;
+
 export async function jsonMGet(
   keys: string[],
   path: string = '$',
 ): Promise<any[]> {
-  const client = getRedis();
-  const supportsJson = await ensureRedisJson(client);
-
-  // Fallback when RedisJSON is unavailable
-  if (!supportsJson) {
-    try {
-      return await Promise.all(keys.map((key) => getPlainJson(client, key)));
-    } catch (error) {
-      console.error('Error in jsonMGet fallback:', error);
-      return keys.map(() => null);
-    }
-  }
-
-  try {
-    // Use RedisJSON JSON.MGET command
-    const result = (await client.call('JSON.MGET', ...keys, path)) as (
-      | string
-      | null
-    )[];
-
-    return result.map((item) => parseRedisJsonResult(item, path));
-  } catch (error) {
-    if (isWrongTypeError(error)) {
-      return await Promise.all(keys.map((key) => jsonGet(key, path)));
-    }
-    console.error('Error in jsonMGet:', error);
-    return keys.map(() => null);
-  }
+  if (!keys.length) return [];
+  const values = (await getRedis().eval(
+    READ_JSON_BATCH_LUA,
+    keys.length,
+    ...keys,
+    path,
+  )) as [string, string | null][];
+  // A failed read must reach the caller's error handler, never look like an
+  // empty conversation list. Plain strings retain jsonGet's root semantics.
+  return values.map(([kind, raw]) =>
+    kind === 'string' ? parsePlainJson(raw) : parseRedisJsonResult(raw, path),
+  );
 }
 
 // Pub/Sub client management

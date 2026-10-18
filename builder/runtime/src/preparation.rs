@@ -20,6 +20,7 @@ pub struct Preparation {
     pub search_tools: HashMap<String, crate::perplexity_search::Settings>,
     pub user_tools: HashMap<String, crate::user_interaction::Tool>,
     pub skill_tools: HashMap<String, crate::agent_skills::Tool>,
+    pub exploration_tools: HashMap<String, crate::exploration::Tool>,
     pub sandbox_tools: HashMap<String, crate::llm_sandbox::Tool>,
     pub weather_tools: HashMap<String, crate::nws_weather::Tool>,
     pub memory: Memory,
@@ -307,6 +308,7 @@ impl Preparation {
         let mut search_tools = HashMap::new();
         let mut user_tools = HashMap::new();
         let mut skill_tools = HashMap::new();
+        let mut exploration_tools = HashMap::new();
         let mut sandbox_tools = HashMap::new();
         let mut weather_tools = HashMap::new();
         let embedders = Arc::new(crate::embeddings::Registry::new(&config.raw));
@@ -314,6 +316,12 @@ impl Preparation {
             for (name, raw) in functions {
                 if raw["_type"] == "nws_weather" {
                     weather_tools.insert(name.clone(), crate::nws_weather::Tool::new(raw)?);
+                }
+                if raw["_type"] == "sandbox_exploration" {
+                    exploration_tools.insert(
+                        name.clone(),
+                        crate::exploration::Tool::new(raw, &config.env)?,
+                    );
                 }
                 if raw["_type"] == "llm_sandbox" {
                     sandbox_tools.insert(
@@ -400,6 +408,7 @@ impl Preparation {
             user_tools,
             skill_tools,
             sandbox_tools,
+            exploration_tools,
             weather_tools,
             profile_import_max: integer(&json!(
                 config.variable("PROFILE_IMPORT_MAX_ENTRIES", "250")
@@ -493,6 +502,11 @@ impl Preparation {
                 );
             } else if raw["_type"] == "agent_skills" {
                 schemas.insert(name.clone(), vec![self.skill_tools[name].schema(name)?]);
+            } else if raw["_type"] == "sandbox_exploration" {
+                schemas.insert(
+                    name.clone(),
+                    vec![self.exploration_tools[name].schema(name)],
+                );
             } else if raw["_type"] == "llm_sandbox" {
                 schemas.insert(name.clone(), vec![self.sandbox_tools[name].schema(name)?]);
             } else if raw["_type"] == "nws_weather" {

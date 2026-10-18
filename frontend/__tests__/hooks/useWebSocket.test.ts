@@ -1,292 +1,223 @@
-/**
- * Tests for the useWebSocket hook.
- *
- * Since @testing-library/react is not installed we cannot call renderHook
- * directly. Instead we verify the exported types compile correctly and test
- * the hook's integration surface through the WebSocketManager singleton that
- * it delegates to. The WebSocketManager class itself is tested exhaustively
- * in __tests__/services/websocket.test.ts.
- *
- * We also exercise the module-level getWebSocketManager singleton and
- * verify that the mock wiring used by consumers of this hook is sound.
- */
-import React, { useEffect } from 'react';
+import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import {
   useWebSocket,
-  type StreamingStateInfo,
-  type UseWebSocketCallbacks,
   type UseWebSocketOptions,
+  type UseWebSocketReturn,
 } from '@/hooks/useWebSocket';
 
-import { getWebSocketManager } from '@/services/websocket';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-// Mock the websocket module before importing the hook module
-const mockManager = {
-  isConnected: false,
-  connect: vi.fn(),
-  disconnect: vi.fn(),
-  on: vi.fn(() => vi.fn()),
-  subscribeToJob: vi.fn(),
-  unsubscribeFromJob: vi.fn(),
-  subscribeToChat: vi.fn(),
-  unsubscribeFromChat: vi.fn(),
-};
-
+const mocks = vi.hoisted(() => {
+  const handlers = new Map<string, Set<(data?: any) => void>>();
+  const manager = {
+    isConnected: false,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    on: vi.fn((type: string, callback: (data?: any) => void) => {
+      const listeners = handlers.get(type) || new Set();
+      listeners.add(callback);
+      handlers.set(type, listeners);
+      return () => listeners.delete(callback);
+    }),
+    subscribeToJob: vi.fn(),
+    unsubscribeFromJob: vi.fn(),
+    subscribeToChat: vi.fn(),
+    unsubscribeFromChat: vi.fn(),
+  };
+  return { handlers, manager };
+});
 vi.mock('@/services/websocket', () => ({
-  getWebSocketManager: vi.fn(() => mockManager),
-  WebSocketManager: vi.fn(),
+  getWebSocketManager: () => mocks.manager,
 }));
-
 vi.mock('@/utils/logger', () => ({
-  Logger: class MockLogger {
+  Logger: class {
     info = vi.fn();
     warn = vi.fn();
-    error = vi.fn();
     debug = vi.fn();
   },
 }));
 
-function ConnectionProbe({
-  onState,
-}: {
-  onState: (connected: boolean) => void;
-}) {
-  const { isConnected } = useWebSocket({ enabled: true });
-
-  useEffect(() => {
-    onState(isConnected);
-  }, [isConnected, onState]);
-
-  return null;
+function emit(type: string, data?: any) {
+  act(() => mocks.handlers.get(type)?.forEach((listener) => listener(data)));
 }
 
-function renderWithRoot(element: React.ReactElement): {
-  root: Root;
-  container: HTMLDivElement;
-} {
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  root.render(element);
-  return { root, container };
-}
-
-describe('useWebSocket module', () => {
+describe('useWebSocket behavior through the mounted hook', () => {
+  let root: Root;
+  let host: HTMLDivElement;
+  let api: UseWebSocketReturn;
+  function Probe({ options = {} }: { options?: UseWebSocketOptions }) {
+    api = useWebSocket(options);
+    return null;
+  }
+  function render(options: UseWebSocketOptions = {}) {
+    act(() => root.render(React.createElement(Probe, { options })));
+  }
   beforeEach(() => {
     vi.clearAllMocks();
-    mockManager.isConnected = false;
-    mockManager.on.mockImplementation(() => vi.fn());
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    mocks.handlers.clear();
+    mocks.manager.isConnected = false;
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
   });
-
   afterEach(() => {
-    document.body.innerHTML = '';
+    act(() => root.unmount());
+    expect(
+      [...mocks.handlers.values()].every((listeners) => listeners.size === 0),
+    ).toBe(true);
+    host.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  describe('getWebSocketManager integration', () => {
-    it('returns the singleton mock manager', () => {
-      const manager = getWebSocketManager();
-      expect(manager).toBe(mockManager);
-    });
-
-    it('manager starts disconnected', () => {
-      const manager = getWebSocketManager();
-      expect(manager.isConnected).toBe(false);
-    });
-
-    it('connect() can be called on the manager', () => {
-      const manager = getWebSocketManager();
-      manager.connect();
-      expect(mockManager.connect).toHaveBeenCalledTimes(1);
-    });
-
-    it('disconnect() can be called on the manager', () => {
-      const manager = getWebSocketManager();
-      manager.disconnect();
-      expect(mockManager.disconnect).toHaveBeenCalledTimes(1);
-    });
+  it('acquires an existing connection and releases it on unmount', () => {
+    mocks.manager.isConnected = true;
+    render();
+    expect(api.isConnected).toBe(true);
+    expect(mocks.manager.connect).toHaveBeenCalledOnce();
+    act(() => root.render(null));
+    expect(mocks.manager.disconnect).toHaveBeenCalledOnce();
   });
 
-  describe('on() handler registration', () => {
-    it('registers a handler and returns an unsubscribe function', () => {
-      const unsub = vi.fn();
-      mockManager.on.mockReturnValueOnce(unsub);
-
-      const manager = getWebSocketManager();
-      const handler = vi.fn();
-      const result = manager.on('connected', handler);
-
-      expect(mockManager.on).toHaveBeenCalledWith('connected', handler);
-      expect(typeof result).toBe('function');
-    });
-
-    it('registers handlers for all expected event types', () => {
-      const manager = getWebSocketManager();
-      const eventTypes = [
-        'connected',
-        'disconnected',
-        'conversation_updated',
-        'conversation_deleted',
-        'conversation_list_changed',
-        'selected_conversation_changed',
-        'streaming_started',
-        'streaming_ended',
-        'battery_critical',
-      ];
-
-      eventTypes.forEach((type) => {
-        manager.on(type, vi.fn());
-      });
-
-      expect(mockManager.on).toHaveBeenCalledTimes(eventTypes.length);
-    });
+  it('keeps the shared connection until its last hook releases it', () => {
+    function Probes({ second }: { second: boolean }) {
+      return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(Probe, { key: 'first' }),
+        second && React.createElement(Probe, { key: 'second' }),
+      );
+    }
+    act(() => root.render(React.createElement(Probes, { second: true })));
+    act(() => root.render(React.createElement(Probes, { second: false })));
+    expect(mocks.manager.disconnect).not.toHaveBeenCalled();
+    act(() => root.render(null));
+    expect(mocks.manager.disconnect).toHaveBeenCalledOnce();
   });
 
-  describe('job subscription', () => {
-    it('subscribeToJob forwards to manager', () => {
-      const manager = getWebSocketManager();
-      manager.subscribeToJob('job-123');
-      expect(mockManager.subscribeToJob).toHaveBeenCalledWith('job-123');
-    });
-
-    it('unsubscribeFromJob forwards to manager', () => {
-      const manager = getWebSocketManager();
-      manager.unsubscribeFromJob('job-123');
-      expect(mockManager.unsubscribeFromJob).toHaveBeenCalledWith('job-123');
-    });
+  it('does not acquire a connection or handlers while disabled', () => {
+    render({ enabled: false });
+    expect(mocks.manager.connect).not.toHaveBeenCalled();
+    expect(mocks.manager.on).not.toHaveBeenCalled();
+    expect(api.isConnected).toBe(false);
+    render({ enabled: true });
+    expect(mocks.manager.connect).toHaveBeenCalledOnce();
+    render({ enabled: false });
+    expect(mocks.manager.disconnect).toHaveBeenCalledOnce();
+    expect(
+      [...mocks.handlers.values()].every((listeners) => listeners.size === 0),
+    ).toBe(true);
   });
 
-  describe('chat subscription', () => {
-    it('subscribeToChat forwards to manager', () => {
-      const manager = getWebSocketManager();
-      manager.subscribeToChat('conv-abc');
-      expect(mockManager.subscribeToChat).toHaveBeenCalledWith('conv-abc');
-    });
-
-    it('unsubscribeFromChat forwards to manager', () => {
-      const manager = getWebSocketManager();
-      manager.unsubscribeFromChat('conv-abc');
-      expect(mockManager.unsubscribeFromChat).toHaveBeenCalledWith('conv-abc');
-    });
+  it('forwards job and conversation subscriptions from its public API', () => {
+    render();
+    api.subscribeToJob('job-a');
+    api.unsubscribeFromJob('job-a');
+    api.subscribeToChat('chat-a');
+    api.unsubscribeFromChat('chat-a');
+    expect(mocks.manager.subscribeToJob).toHaveBeenCalledWith('job-a');
+    expect(mocks.manager.unsubscribeFromJob).toHaveBeenCalledWith('job-a');
+    expect(mocks.manager.subscribeToChat).toHaveBeenCalledWith('chat-a');
+    expect(mocks.manager.unsubscribeFromChat).toHaveBeenCalledWith('chat-a');
   });
 
-  describe('callback type shapes', () => {
-    it('UseWebSocketCallbacks accepts all optional callbacks', () => {
-      const callbacks: UseWebSocketCallbacks = {
-        onConversationUpdated: vi.fn(),
-        onConversationDeleted: vi.fn(),
-        onConversationListChanged: vi.fn(),
-        onSelectedConversationChanged: vi.fn(),
-        onStreamingStateChanged: vi.fn(),
-        onConnected: vi.fn(),
-        onDisconnected: vi.fn(),
-      };
+  it('tracks connection and streaming state from delivered events', () => {
+    const onConnected = vi.fn(),
+      onDisconnected = vi.fn(),
+      onStreamingStateChanged = vi.fn();
+    render({ onConnected, onDisconnected, onStreamingStateChanged });
+    const streamingStates = {
+      first: { conversationId: 'first', sessionId: 's' },
+    };
+    emit('connected', { streamingStates });
+    expect(api.isConnected).toBe(true);
+    expect(api.streamingStates).toEqual({ first: true });
+    expect(onConnected).toHaveBeenCalledWith(streamingStates);
+    emit('streaming_started', { conversationId: 'second' });
+    emit('streaming_ended', { conversationId: 'first' });
+    expect(api.streamingStates).toEqual({ second: true });
+    expect(onStreamingStateChanged.mock.calls).toEqual([
+      ['second', true],
+      ['first', false],
+    ]);
+    emit('disconnected');
+    expect(api.isConnected).toBe(false);
+    expect(onDisconnected).toHaveBeenCalledOnce();
+  });
 
-      // All keys should be functions
-      Object.values(callbacks).forEach((cb) => {
-        expect(typeof cb).toBe('function');
-      });
-    });
+  it('delivers sync and autonomy events to the latest callbacks without reconnecting', () => {
+    const old = vi.fn(),
+      current = vi.fn();
+    const options = {
+      onConversationUpdated: vi.fn(),
+      onConversationDeleted: vi.fn(),
+      onConversationListChanged: vi.fn(),
+      onSelectedConversationChanged: vi.fn(),
+      onAutonomyStatus: vi.fn(),
+      onAutonomyRunEvent: vi.fn(),
+      onAutonomyFeedUpdated: vi.fn(),
+    };
+    render({ ...options, onConversationUpdated: old });
+    const registrations = mocks.manager.on.mock.calls.length;
+    render({ ...options, onConversationUpdated: current });
+    const conversation = { id: 'chat' };
+    emit('conversation_updated', { conversation });
+    emit('conversation_deleted', { conversationId: 'chat' });
+    emit('conversation_list_changed');
+    emit('selected_conversation_changed', { conversationId: 'other' });
+    const event = { id: 'run' };
+    emit('autonomy_status', event);
+    emit('autonomy_run_event', event);
+    emit('autonomy_feed_updated', event);
+    expect(old).not.toHaveBeenCalled();
+    expect(current).toHaveBeenCalledWith(conversation);
+    expect(options.onConversationDeleted).toHaveBeenCalledWith('chat');
+    expect(options.onConversationListChanged).toHaveBeenCalledOnce();
+    expect(options.onSelectedConversationChanged).toHaveBeenCalledWith('other');
+    for (const callback of [
+      options.onAutonomyStatus,
+      options.onAutonomyRunEvent,
+      options.onAutonomyFeedUpdated,
+    ])
+      expect(callback).toHaveBeenCalledWith(event);
+    expect(mocks.manager.on).toHaveBeenCalledTimes(registrations);
+    expect(mocks.manager.connect).toHaveBeenCalledOnce();
+  });
 
-    it('StreamingStateInfo has the correct shape', () => {
-      const info: StreamingStateInfo = {
-        conversationId: 'conv-1',
-        sessionId: 'sess-1',
-        isStreaming: true,
-      };
-
-      expect(info.conversationId).toBe('conv-1');
-      expect(info.sessionId).toBe('sess-1');
-      expect(info.isStreaming).toBe(true);
-    });
-
-    it('UseWebSocketOptions extends callbacks with enabled flag', () => {
-      const opts: UseWebSocketOptions = {
+  it.each([false, true])(
+    'handles hidden-page connection policy (streaming=%s)',
+    (streaming) => {
+      let visibility = 'visible';
+      vi.spyOn(document, 'visibilityState', 'get').mockImplementation(
+        () => visibility as DocumentVisibilityState,
+      );
+      const postMessage = vi.fn();
+      vi.stubGlobal(
+        'navigator',
+        Object.create(navigator, {
+          serviceWorker: { value: { controller: { postMessage } } },
+        }),
+      );
+      render();
+      if (streaming) emit('streaming_started', { conversationId: 'active' });
+      visibility = 'hidden';
+      act(() => document.dispatchEvent(new Event('visibilitychange')));
+      expect(mocks.manager.disconnect).toHaveBeenCalledTimes(streaming ? 0 : 1);
+      expect(postMessage).toHaveBeenLastCalledWith({
+        type: 'SET_BACKGROUND_TASKS',
         enabled: false,
-        onConversationUpdated: vi.fn(),
-      };
-
-      expect(opts.enabled).toBe(false);
-    });
-  });
-
-  describe('visibility-aware behavior (conceptual)', () => {
-    it('document.visibilityState is accessible in jsdom', () => {
-      // In jsdom, visibilityState defaults to "visible"
-      expect(document.visibilityState).toBeDefined();
-    });
-
-    it('visibilitychange event can be dispatched', () => {
-      const handler = vi.fn();
-      document.addEventListener('visibilitychange', handler);
-
-      const event = new Event('visibilitychange');
-      document.dispatchEvent(event);
-
-      expect(handler).toHaveBeenCalledTimes(1);
-
-      document.removeEventListener('visibilitychange', handler);
-    });
-  });
-
-  describe('hook connection lifecycle', () => {
-    it('reports connected when the singleton was already connected before mount', async () => {
-      mockManager.isConnected = true;
-      const states: boolean[] = [];
-      let root: Root | null = null;
-
-      await act(async () => {
-        ({ root } = renderWithRoot(
-          React.createElement(ConnectionProbe, {
-            onState: (connected) => states.push(connected),
-          }),
-        ));
       });
-
-      expect(states[states.length - 1]).toBe(true);
-      expect(mockManager.connect).toHaveBeenCalledTimes(1);
-
-      await act(async () => {
-        root?.unmount();
+      visibility = 'visible';
+      act(() => document.dispatchEvent(new Event('visibilitychange')));
+      expect(mocks.manager.connect).toHaveBeenCalledTimes(2);
+      expect(postMessage).toHaveBeenLastCalledWith({
+        type: 'SET_BACKGROUND_TASKS',
+        enabled: true,
       });
-      expect(mockManager.disconnect).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not disconnect the singleton while another hook still uses it', async () => {
-      function Probes({ showSecond }: { showSecond: boolean }) {
-        const noop = () => {};
-        return React.createElement(
-          React.Fragment,
-          null,
-          React.createElement(ConnectionProbe, { onState: noop }),
-          showSecond
-            ? React.createElement(ConnectionProbe, { onState: noop })
-            : null,
-        );
-      }
-
-      let root: Root | null = null;
-      await act(async () => {
-        ({ root } = renderWithRoot(
-          React.createElement(Probes, { showSecond: true }),
-        ));
-      });
-      mockManager.disconnect.mockClear();
-
-      await act(async () => {
-        root?.render(React.createElement(Probes, { showSecond: false }));
-      });
-      expect(mockManager.disconnect).not.toHaveBeenCalled();
-
-      await act(async () => {
-        root?.unmount();
-      });
-      expect(mockManager.disconnect).toHaveBeenCalledTimes(1);
-    });
-  });
+    },
+  );
 });

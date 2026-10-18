@@ -134,14 +134,6 @@ function isSameOAuthServicePrompt(
   );
 }
 
-function oauthPromptServiceKey(prompt: OAuthPromptState): string {
-  return [
-    prompt.conversationId,
-    prompt.jobId || '',
-    prompt.service || 'Google',
-  ].join('\n');
-}
-
 export const ChatView = memo(() => {
   const { user } = useAuth();
   const userId = user?.username || 'anon';
@@ -244,7 +236,7 @@ export const ChatView = memo(() => {
     INITIAL_VISIBLE_MESSAGES,
   );
   const openedOAuthPromptKeysRef = useRef<Set<string>>(new Set());
-  const succeededOAuthServiceKeysRef = useRef<Set<string>>(new Set());
+  const succeededOAuthPromptKeysRef = useRef<Set<string>>(new Set());
   const oauthSuccessTimersRef = useRef<
     Record<string, ReturnType<typeof setTimeout>>
   >({});
@@ -372,9 +364,9 @@ export const ChatView = memo(() => {
           clearOAuthPromptTimer(key);
         }
       }
-      for (const key of Array.from(succeededOAuthServiceKeysRef.current)) {
+      for (const key of Array.from(succeededOAuthPromptKeysRef.current)) {
         if (key.startsWith(prefix)) {
-          succeededOAuthServiceKeysRef.current.delete(key);
+          succeededOAuthPromptKeysRef.current.delete(key);
         }
       }
     },
@@ -420,9 +412,7 @@ export const ChatView = memo(() => {
           if (prompt.conversationId !== conversationId) return [prompt];
           if (jobId && prompt.jobId && prompt.jobId !== jobId) return [prompt];
           if (succeeded && prompt.opened) {
-            succeededOAuthServiceKeysRef.current.add(
-              oauthPromptServiceKey(prompt),
-            );
+            succeededOAuthPromptKeysRef.current.add(oauthPromptKey(prompt));
             if (!prompt.succeeded) {
               scheduleOAuthPromptSuccessRemoval(oauthPromptKey(prompt));
               changed = true;
@@ -768,8 +758,8 @@ export const ChatView = memo(() => {
           ) {
             const prompts = oauthPromptsFromStatus(status, convId).filter(
               (prompt) =>
-                !succeededOAuthServiceKeysRef.current.has(
-                  oauthPromptServiceKey(prompt),
+                !succeededOAuthPromptKeysRef.current.has(
+                  oauthPromptKey(prompt),
                 ),
             );
             setStreaming(convId, true);
@@ -795,15 +785,10 @@ export const ChatView = memo(() => {
                   const existing = current.find(
                     (candidate) => oauthPromptKey(candidate) === key,
                   );
-                  const related = current.find((candidate) =>
-                    isSameOAuthServicePrompt(candidate, prompt),
-                  );
-                  if (related?.succeeded) return [related];
                   return {
                     ...prompt,
                     opened:
                       existing?.opened ||
-                      related?.opened ||
                       openedOAuthPromptKeysRef.current.has(key),
                     succeeded: false,
                   };

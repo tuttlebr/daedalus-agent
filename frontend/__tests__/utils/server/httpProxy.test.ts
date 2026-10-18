@@ -52,24 +52,37 @@ function mockResponse() {
 
 describe('proxyJsonToBackend', () => {
   it('pipes text/event-stream chunks without buffering', async () => {
+    let finish: (() => void) | undefined;
     const server = http.createServer((req, res) => {
       req.on('end', () => {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.write('event: partial\ndata: {"type":"partial"}\n\n');
-        res.end('data: [DONE]\n\n');
+        finish = () => res.end('data: [DONE]\n\n');
       });
       req.resume();
     });
     const port = await listen(server);
     const res = mockResponse();
 
-    await proxyJsonToBackend(
+    const pending = proxyJsonToBackend(
       `http://127.0.0.1:${port}/images`,
       '{}',
       { 'Content-Type': 'application/json' },
-      1000,
+      5000,
       res as any,
     );
+
+    try {
+      await vi.waitFor(() => {
+        expect(Buffer.concat(res.chunks).toString('utf-8')).toContain(
+          'event: partial',
+        );
+      });
+      expect(res.end).not.toHaveBeenCalled();
+    } finally {
+      finish?.();
+      await pending;
+    }
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.setHeader).toHaveBeenCalledWith(

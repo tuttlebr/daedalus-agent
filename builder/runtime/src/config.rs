@@ -185,6 +185,7 @@ impl Config {
                             | "user_interaction"
                             | "agent_skills"
                             | "llm_sandbox"
+                            | "sandbox_exploration"
                             | "nws_weather"
                     )
                 ) && !crate::memory_tools::owns(v["_type"].as_str().unwrap_or(""))
@@ -278,6 +279,9 @@ impl Config {
             }
             if function["_type"] == "agent_skills" {
                 crate::agent_skills::Settings::new(function)?;
+            }
+            if function["_type"] == "sandbox_exploration" {
+                crate::exploration::Tool::new(function, &self.env)?;
             }
             if function["_type"] == "llm_sandbox" {
                 crate::llm_sandbox::Settings::new(function, &self.env)?;

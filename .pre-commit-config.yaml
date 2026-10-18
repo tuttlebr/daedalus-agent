@@ -80,8 +80,8 @@ repos:
         files: \.(css|html|[cm]?js|jsx|json|md|ts|tsx|yaml|yml)$
         exclude: '(^helm/.*/templates/)|(^charts/.*/templates/)'
       - id: helm-lint-daedalus
-        name: Helm lint daedalus (if helm installed)
-        entry: "bash -c 'command -v helm >/dev/null 2>&1 || exit 0; helm lint helm/daedalus'"
+        name: Helm lint daedalus
+        entry: helm lint helm/daedalus
         language: system
         pass_filenames: false
         files: ^helm/daedalus/

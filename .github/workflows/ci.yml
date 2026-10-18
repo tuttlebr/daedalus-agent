@@ -27,6 +27,8 @@ jobs:
           pip install pre-commit==3.6.2
           cd frontend
           npm ci --legacy-peer-deps
+      - name: Set up Helm for chart hooks
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
       - name: Check all tracked files
         run: pre-commit run --all-files --show-diff-on-failure
 

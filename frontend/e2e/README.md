@@ -24,7 +24,7 @@ URL and current source. The default runner removes its Compose services and
 volumes afterward; `E2E_KEEP_SERVICES=1` retains them for local diagnosis. Tests
 never require production credentials or deployment access.
 
-`make candidate-browser` selects the built `rust-minimal` backend. It shares the
+`make candidate-browser` selects the full deployable backend image. It shares the
 frontend Redis and S3 fixtures for real document uploads; the separate image
 contract suite retains TLS/ACL Redis coverage. The runner requires `E2E_CANDIDATE_REDIS_IMAGE`
 and `E2E_MILVUS_PEER_IMAGE` (the retained SDK image for a scripted gRPC peer), verifies

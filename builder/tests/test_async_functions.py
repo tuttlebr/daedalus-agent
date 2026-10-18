@@ -104,6 +104,8 @@ class TestHtmlToMarkdown:
         mock_md = self._mock_md()
         with patch.object(wsmod, "MarkItDown", return_value=mock_md):
             result = _html_to_markdown("<html>test</html>", "https://example.com")
+        converted_path = mock_md.convert.call_args.args[0]
+        assert not os.path.exists(converted_path)
         assert isinstance(result, str)
 
 

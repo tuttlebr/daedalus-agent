@@ -265,5 +265,6 @@ def load_tool_factories():
         "webscrape.nws_weather_function",
         "webscrape.webscrape_function",
         "daedalus_runtime.datetime_tool",
+        "daedalus_runtime.exploration",
     ):
         importlib.import_module(module)

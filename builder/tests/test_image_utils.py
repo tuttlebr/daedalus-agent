@@ -3,6 +3,7 @@
 import asyncio
 import json
 
+import pytest
 import redis
 from nat_helpers.image_utils import (
     fetch_image_from_redis,
@@ -15,7 +16,10 @@ class _FakeRedisError(Exception):
     pass
 
 
-redis.RedisError = _FakeRedisError
+@pytest.fixture(autouse=True)
+def redis_error_class(monkeypatch):
+    monkeypatch.setattr(redis, "RedisError", _FakeRedisError)
+
 
 # ---------------------------------------------------------------------------
 # parse_ref
@@ -48,7 +52,7 @@ class TestParseRef:
 
 
 def _run(coro):
-    return asyncio.new_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 class _FakeRedis:
