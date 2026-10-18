@@ -99,17 +99,27 @@ export function sanitizeSandboxArtifactStep(step: any): SandboxArtifactRef[] {
   if (typeof output !== 'string') return [];
 
   const artifacts: SandboxArtifactRef[] = [];
+  let markerRemoved = false;
   const visibleOutput = output.replace(
     MARKER_LINE,
     (_match, encoded: string) => {
+      markerRemoved = true;
       const artifact = normalizeArtifact(decodeMarker(encoded));
       if (artifact) artifacts.push(artifact);
       return '';
     },
   );
-  step.payload.data.output = visibleOutput.replace(/\n{3,}/g, '\n\n').trim();
+  // Tidy only the blank lines left where private markers were removed;
+  // ordinary sandbox output (code, tables, logs) keeps its exact whitespace.
+  if (markerRemoved) {
+    step.payload.data.output = visibleOutput.replace(/\n{3,}/g, '\n\n').trim();
+  }
   const originalPayload = step.payload.metadata?.original_payload;
-  if (originalPayload && typeof originalPayload.payload === 'string') {
+  if (
+    originalPayload &&
+    typeof originalPayload.payload === 'string' &&
+    new RegExp(MARKER_LINE.source, 'm').test(originalPayload.payload)
+  ) {
     originalPayload.payload = originalPayload.payload
       .replace(MARKER_LINE, '')
       .replace(/\n{3,}/g, '\n\n')

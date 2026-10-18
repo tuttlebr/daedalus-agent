@@ -1,11 +1,10 @@
 import { sessionKey } from '@/server/session/redis';
 
 /**
- * Helpers shared by the image generate/edit/jobs routes.
+ * Helpers shared by the image job and history routes.
  *
- * These were byte-identical copies in three route files. Duplicating
- * `UNSAFE_BROWSER_KEYS` in particular is a credential-leak hazard: adding a key
- * name in one route and not the others silently forwards it to the backend.
+ * Keep one copy of `UNSAFE_BROWSER_KEYS`: a duplicated list is a credential-leak
+ * hazard, because a key added to one copy is silently forwarded by another.
  */
 const UNSAFE_BROWSER_KEYS = [
   'apiKey',

@@ -12,9 +12,35 @@ from typing import Any
 from .dedupe import dedupe_feed_items, stamp_feed_item, window_ms_for_days
 from .models import default_config, new_event, now_ms
 
+# Returned by an ``atomic_update`` mutation that leaves the stored value as-is.
+UNCHANGED = object()
+
+# Mirror the dashboard's sanitizer (frontend/server/autonomy/store.ts): the
+# worker must not turn a legacy, direct, or environment-seeded value into a
+# degenerate scheduling loop that the UI itself would never accept.
+DEFAULT_SCHEDULE_INTERVAL_SECONDS = 14_400
+MIN_SCHEDULE_INTERVAL_SECONDS = 300
+MAX_SCHEDULE_INTERVAL_SECONDS = 7 * 24 * 60 * 60
+
 
 def key(user_id: str, name: str) -> str:
     return f"autonomy:{user_id}:{name}"
+
+
+def schedule_interval_seconds(value: Any) -> int:
+    """Return the effective scheduled-run interval within the dashboard bounds."""
+
+    if isinstance(value, bool):
+        value = None
+    try:
+        interval = int(value)
+    except (TypeError, ValueError, OverflowError):
+        interval = DEFAULT_SCHEDULE_INTERVAL_SECONDS
+    if interval <= 0:
+        interval = DEFAULT_SCHEDULE_INTERVAL_SECONDS
+    return max(
+        MIN_SCHEDULE_INTERVAL_SECONDS, min(MAX_SCHEDULE_INTERVAL_SECONDS, interval)
+    )
 
 
 class RedisStore:
@@ -142,7 +168,15 @@ class RedisStore:
 
         return redis_type == "json" or "rejson" in redis_type
 
-    def atomic_update(self, redis_key: str, mutate: Any, *, retries: int = 5) -> Any:
+    def atomic_update(
+        self,
+        redis_key: str,
+        mutate: Any,
+        *,
+        retries: int = 5,
+        empty: Any = list,
+        also: Any = None,
+    ) -> Any:
         """Optimistically read-modify-write a JSON value under WATCH/MULTI.
 
         F-016: shared per-user state (runs/feed/goals) is read-modify-written
@@ -152,16 +186,24 @@ class RedisStore:
         WATCH and retries on a concurrent change so updates compose instead of
         racing. Both RedisJSON and plain-string JSON keys use commands matching
         their storage type inside the transaction. ``mutate`` receives the
-        current decoded value (already defaulted to ``[]``) and returns
-        ``(new_value, result)``; ``result`` is returned to the caller. Falls back
-        to a plain read-modify-write only when the Redis client does not expose
-        ``pipeline`` (keeps non-transactional test fakes working).
+        current decoded value (``empty()`` when missing or of another JSON type)
+        and returns ``(new_value, result)``; ``result`` is returned to the
+        caller. ``UNCHANGED`` as ``new_value`` writes nothing. ``also(client,
+        result)`` queues further commands that must commit atomically with the
+        write. Falls back to a plain read-modify-write only when the Redis client
+        does not expose ``pipeline`` (keeps non-transactional test fakes working).
         """
+        expected_type = type(empty())
         pipeline_factory = getattr(self.redis, "pipeline", None)
         if not callable(pipeline_factory):
-            current = self.json_get(redis_key, [])
-            new_value, result = mutate(current if isinstance(current, list) else [])
-            self.json_set(redis_key, new_value)
+            current = self.json_get(redis_key)
+            new_value, result = mutate(
+                current if isinstance(current, expected_type) else empty()
+            )
+            if new_value is not UNCHANGED:
+                self.json_set(redis_key, new_value)
+                if also is not None:
+                    also(self.redis, result)
             return result
 
         json_supported = self._supports_json(redis_key)
@@ -190,20 +232,25 @@ class RedisStore:
                     raw = pipe.get(redis_key)
                 else:
                     raw = None
-                current: Any = []
+                current: Any = empty()
                 if raw:
                     try:
                         decoded = json.loads(raw)
                     except (json.JSONDecodeError, TypeError):
-                        decoded = []
-                    current = decoded if isinstance(decoded, list) else []
+                        decoded = None
+                    if isinstance(decoded, expected_type):
+                        current = decoded
                 new_value, result = mutate(current)
+                if new_value is UNCHANGED:
+                    return result
                 pipe.multi()
                 serialized = json.dumps(new_value)
                 if write_as_json:
                     pipe.execute_command("JSON.SET", redis_key, ".", serialized)
                 else:
                     pipe.set(redis_key, serialized)
+                if also is not None:
+                    also(pipe, result)
                 pipe.execute()
                 return result
             except Exception as exc:
@@ -238,17 +285,20 @@ class RedisStore:
         config = self.json_get(key(user_id, "config"))
         if isinstance(config, dict):
             return {**default_config(user_id), **config}
-        config = default_config(user_id)
-        interval = os.getenv("AUTONOMY_INTERVAL_SECONDS")
-        if interval and interval.isdigit():
-            config["intervalSeconds"] = int(interval)
-        self.json_set(key(user_id, "config"), config)
-        return config
 
-    def save_config(self, user_id: str, config: dict[str, Any]) -> None:
-        config = {**config, "updatedAt": now_ms()}
-        self.json_set(key(user_id, "config"), config)
-        self.publish(user_id, "autonomy_status", {"config": config})
+        def create(stored: dict[str, Any]):
+            # The dashboard can create the same record concurrently. Commit the
+            # default only if the key is still absent, never over its write.
+            if stored:
+                return UNCHANGED, stored
+            created = default_config(user_id)
+            interval = os.getenv("AUTONOMY_INTERVAL_SECONDS")
+            if interval and interval.isdigit():
+                created["intervalSeconds"] = schedule_interval_seconds(interval)
+            return created, created
+
+        stored = self.atomic_update(key(user_id, "config"), create, empty=dict)
+        return {**default_config(user_id), **stored}
 
     def list_goals(self, user_id: str) -> list[dict[str, Any]]:
         goals = self.json_get(key(user_id, "goals"), [])
@@ -362,10 +412,6 @@ class RedisStore:
         if stored:
             self.publish(user_id, "autonomy_feed_updated", {"items": stored})
         return stored
-
-    def enqueue(self, user_id: str, request: dict[str, Any]) -> None:
-        self.redis.lpush(key(user_id, "queue"), json.dumps(request))
-        self.publish(user_id, "autonomy_status", {"queued": request})
 
     def queue_length(self, user_id: str) -> int:
         return int(self.redis.llen(key(user_id, "queue")) or 0)
@@ -554,13 +600,31 @@ class RedisStore:
         return bool(self.redis.get(key(user_id, f"cancel:{run_id}")))
 
     def maybe_enqueue_scheduled(self, user_id: str) -> dict[str, Any] | None:
-        config = self.get_config(user_id)
-        if not config.get("enabled", True):
-            return None
-        interval = int(config.get("intervalSeconds") or 14_400)
-        last = int(config.get("lastScheduledRunAt") or 0)
+        """Enqueue a due scheduled run and record it in one transaction.
+
+        The dashboard edits the same config record with compare-and-set. Merge
+        only ``lastScheduledRunAt``/``updatedAt`` into the latest stored record
+        instead of writing back a stale snapshot, and commit the queue entry
+        with that marker so a failed write cannot enqueue the same slot twice.
+        """
+
+        config_key = key(user_id, "config")
         current = now_ms()
-        if last and current - last < interval * 1000:
+
+        def due(config: dict[str, Any]) -> bool:
+            if not config.get("enabled", True):
+                return False
+            interval = schedule_interval_seconds(config.get("intervalSeconds"))
+            try:
+                last = int(config.get("lastScheduledRunAt") or 0)
+            except (TypeError, ValueError, OverflowError):
+                last = 0
+            return not last or current - last >= interval * 1000
+
+        # The idle loop polls this every few seconds: keep the common not-due
+        # case to one read (creating a missing default) and recheck in the
+        # transaction only when a slot is actually due.
+        if not due(self.get_config(user_id)):
             return None
         request = {
             "id": f"scheduled-{current}",
@@ -568,7 +632,24 @@ class RedisStore:
             "requestedBy": "worker",
             "createdAt": current,
         }
-        self.enqueue(user_id, request)
-        config["lastScheduledRunAt"] = current
-        self.save_config(user_id, config)
+
+        def mark_due(stored: dict[str, Any]):
+            config = {**default_config(user_id), **stored}
+            if not stored or not due(config):
+                return UNCHANGED, None
+            updated = {**stored, "lastScheduledRunAt": current, "updatedAt": current}
+            return updated, {**config, **updated}
+
+        def enqueue(client: Any, scheduled_config: dict[str, Any] | None) -> None:
+            if scheduled_config is not None:
+                client.lpush(key(user_id, "queue"), json.dumps(request))
+
+        scheduled_config = self.atomic_update(
+            config_key, mark_due, empty=dict, also=enqueue
+        )
+        if scheduled_config is None:
+            return None
+        # Notifications follow the durable commit; neither can duplicate work.
+        self.publish(user_id, "autonomy_status", {"queued": request})
+        self.publish(user_id, "autonomy_status", {"config": scheduled_config})
         return request

@@ -86,6 +86,33 @@ def test_all_skill_tool_references_resolve_to_exposed_capabilities():
         assert references <= available, (path, references - available)
 
 
+def test_skill_call_examples_use_arguments_the_registered_schema_accepts():
+    """A skill's ``tool(arg=...)`` example must survive the real argument contract.
+
+    The native clock takes no arguments in both preparation modes; an example
+    such as ``current_datetime_tool(unused="")`` is rejected as extra_forbidden.
+    """
+    from tool_catalog_contract_check import check_catalog
+
+    catalog = asyncio.run(
+        check_catalog(configuration(), skills_directory=ROOT / "skills")
+    )
+    call = re.compile(r"\b([a-z][a-z0-9_]*_tool)\(([^()]*)\)")
+    checked = []
+    for path in sorted((ROOT / "skills").rglob("*.md")):
+        for name, arguments in call.findall(path.read_text()):
+            if name not in catalog:
+                continue
+            schema = catalog[name]["schema"]
+            supplied = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*=", arguments))
+            accepted = set(schema.get("properties", {}))
+            assert supplied <= accepted, (path, name, supplied - accepted)
+            checked.append(name)
+    assert {"current_datetime_tool", "webscrape_tool", "agent_skills_tool"} <= set(
+        checked
+    )
+
+
 def test_qualified_skill_mcp_calls_resolve_to_allowlisted_leaves():
     groups = configuration()["function_groups"]
     for path in (ROOT / "skills").rglob("*.md"):

@@ -3,8 +3,7 @@ import handler from '@/pages/api/images/history';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  redisCall: vi.fn(),
-  redisGet: vi.fn(),
+  redisEval: vi.fn(),
   redisDel: vi.fn(),
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
@@ -20,8 +19,7 @@ vi.mock('@/server/session/_utils', () => ({
 
 vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
-    call: mocks.redisCall,
-    get: mocks.redisGet,
+    eval: mocks.redisEval,
     del: mocks.redisDel,
   })),
   jsonGet: mocks.jsonGet,
@@ -60,6 +58,19 @@ function createMockReqRes(
   return { req, res };
 }
 
+/** The asset ownership script's reply for a RedisJSON generated image. */
+function ownerReply(owner: { userId?: string; sessionId?: string }) {
+  return [
+    'json',
+    JSON.stringify({
+      '$.userId': owner.userId ? [owner.userId] : [],
+      '$.user': [],
+      '$.sessionId': owner.sessionId ? [owner.sessionId] : [],
+    }),
+    8,
+  ];
+}
+
 function entry(id = 'hist-1', outputImageIds = ['abc-123']) {
   return {
     id,
@@ -79,16 +90,9 @@ describe('/api/images/history', () => {
     vi.clearAllMocks();
     mocks.getOrSetSessionId.mockReturnValue('session-1');
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
-    mocks.redisCall.mockResolvedValue(
-      JSON.stringify([
-        {
-          data: 'aGVsbG8=',
-          userId: 'testuser',
-          sessionId: 'session-1',
-        },
-      ]),
+    mocks.redisEval.mockResolvedValue(
+      ownerReply({ userId: 'testuser', sessionId: 'session-1' }),
     );
-    mocks.redisGet.mockResolvedValue(null);
     mocks.redisDel.mockResolvedValue(0);
     mocks.jsonGet.mockResolvedValue([]);
     mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
@@ -140,14 +144,8 @@ describe('/api/images/history', () => {
   });
 
   it('rejects history entries that reference another user image', async () => {
-    mocks.redisCall.mockResolvedValueOnce(
-      JSON.stringify([
-        {
-          data: 'aGVsbG8=',
-          userId: 'other-user',
-          sessionId: 'other-session',
-        },
-      ]),
+    mocks.redisEval.mockResolvedValueOnce(
+      ownerReply({ userId: 'other-user', sessionId: 'other-session' }),
     );
     const { req, res } = createMockReqRes('POST', {
       entry: entry('new-entry'),
@@ -255,16 +253,8 @@ describe('/api/images/history', () => {
       };
       const removed = entry('hist-1', ['a0b-1', 'c0d-2', 'e0f-3']);
       mocks.jsonGet.mockResolvedValue([removed, retained]);
-      mocks.redisCall.mockImplementation((_command: string, _key: string) =>
-        Promise.resolve(
-          JSON.stringify([
-            {
-              data: 'aGVsbG8=',
-              userId: 'testuser',
-              sessionId: 'session-1',
-            },
-          ]),
-        ),
+      mocks.redisEval.mockResolvedValue(
+        ownerReply({ userId: 'testuser', sessionId: 'session-1' }),
       );
       const { req, res } = createMockReqRes(
         'DELETE',
@@ -282,20 +272,20 @@ describe('/api/images/history', () => {
         [retained],
         60 * 60 * 24 * 7,
       );
-      expect(mocks.redisCall).toHaveBeenCalledWith(
-        'JSON.GET',
+      expect(mocks.redisEval).toHaveBeenCalledWith(
+        expect.any(String),
+        1,
         'generated:image:a0b-1',
-        '$',
       );
-      expect(mocks.redisCall).not.toHaveBeenCalledWith(
-        'JSON.GET',
+      expect(mocks.redisEval).not.toHaveBeenCalledWith(
+        expect.any(String),
+        1,
         'generated:image:c0d-2',
-        '$',
       );
-      expect(mocks.redisCall).not.toHaveBeenCalledWith(
-        'JSON.GET',
+      expect(mocks.redisEval).not.toHaveBeenCalledWith(
+        expect.any(String),
+        1,
         'generated:image:e0f-3',
-        '$',
       );
       expect(mocks.redisDel).toHaveBeenCalledTimes(1);
       expect(mocks.redisDel).toHaveBeenCalledWith('generated:image:a0b-1');
@@ -330,14 +320,8 @@ describe('/api/images/history', () => {
     it('rejects asset cleanup when an output is not owned and preserves history', async () => {
       const stored = [entry('hist-1', ['f00-1'])];
       mocks.jsonGet.mockResolvedValue(stored);
-      mocks.redisCall.mockResolvedValueOnce(
-        JSON.stringify([
-          {
-            data: 'aGVsbG8=',
-            userId: 'other-user',
-            sessionId: 'session-1',
-          },
-        ]),
+      mocks.redisEval.mockResolvedValueOnce(
+        ownerReply({ userId: 'other-user', sessionId: 'session-1' }),
       );
       const { req, res } = createMockReqRes(
         'DELETE',

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -504,7 +505,10 @@ async def visual_media_function(
                 "image_url, videoRef, or video_url."
             )
 
-        url_error = _validate_analyze_url(video_url) or _validate_analyze_url(image_url)
+        # Hostname validation performs blocking DNS; keep it off the shared loop.
+        url_error = await asyncio.to_thread(
+            _validate_analyze_url, video_url
+        ) or await asyncio.to_thread(_validate_analyze_url, image_url)
         if url_error:
             return url_error
 

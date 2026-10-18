@@ -1,7 +1,6 @@
 global:
   nameOverride: ''
   fullnameOverride: ''
-  networkName: daedalus-network
   # Shared frontend-to-backend token. Leave empty to let Helm generate and
   # preserve one in <release>-daedalus-internal-api.
   internalApiToken: ''
@@ -170,8 +169,6 @@ backend:
         SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
         HOME: /tmp
         XDG_CACHE_HOME: /tmp/.cache
-        # Match Google MCP auth_flow_timeout in the deployed NAT workflow.
-        DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS: '600'
         # Trust nginx proxy headers so OAuth callbacks reconstruct the public
         # https://... redirect URI during token exchange.
         FORWARDED_ALLOW_IPS: '*'
@@ -276,8 +273,7 @@ frontend:
     # known value only if you need to share it across replicas or environments.
     sessionSecret: ''
     overrides:
-      # Backend API path - controls which NAT API endpoint to use
-      # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
+      # Streaming chat endpoint. The Rust runtime serves only this path.
       BACKEND_API_PATH: '/v1/chat/completions'
       # Keep the heap below the pod limit. Upload routes enforce much smaller
       # request limits and stream document bytes outside Redis.

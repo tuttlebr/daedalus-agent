@@ -11,6 +11,9 @@ pub struct Tool {
     key: String,
     description: String,
     publisher: crate::llm_sandbox::Tool,
+    // No cookie store: each request carries only its own short-lived grant,
+    // so pooled connections are safe to share across users.
+    http: reqwest::Client,
 }
 impl Tool {
     pub fn new(raw: &Value, env: &HashMap<String, String>) -> Result<Self> {
@@ -53,6 +56,10 @@ impl Tool {
             key,
             description,
             publisher: crate::llm_sandbox::Tool::new(&json!({}), env)?,
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(45))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()?,
         })
     }
     pub fn schema(&self, name: &str) -> Value {
@@ -125,11 +132,8 @@ impl Tool {
         if publish {
             args["operation"] = json!("artifact");
         }
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(45))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
-        let mut response = client
+        let mut response = self
+            .http
             .post(format!("{}/v2/tool", self.endpoint))
             .bearer_auth(token)
             .json(&args)
@@ -144,7 +148,17 @@ impl Tool {
             body.extend_from_slice(&chunk);
         }
         let value: Value = serde_json::from_slice(&body)?;
-        if !status.is_success() || !publish {
+        if !status.is_success() {
+            // Keep the service's explanation for the model, but never present
+            // a rejected request as a successful result.
+            return Ok(format!(
+                "Error: Exploration service returned HTTP {}: {}",
+                status.as_u16(),
+                serde_json::to_string(&value)?
+            )
+            .into());
+        }
+        if !publish {
             return Ok(serde_json::to_string(&value)?.into());
         }
         let (path, run) = Self::validate_artifact(&args, &value)?;
@@ -227,5 +241,77 @@ mod tests {
         mac.update(format!("{}.{}", parts[0], parts[1]).as_bytes());
         mac.verify_slice(&URL_SAFE_NO_PAD.decode(parts[2]).unwrap())
             .unwrap();
+    }
+
+    fn configured(base: &str) -> Tool {
+        Tool::new(
+            &json!({"_type":"sandbox_exploration"}),
+            &HashMap::from([
+                ("EXPLORATION_BASE_URL".into(), base.into()),
+                ("EXPLORATION_GRANT_KEY".into(), "a".repeat(64)),
+            ]),
+        )
+        .unwrap()
+    }
+
+    fn trusted_headers() -> http::HeaderMap {
+        let mut headers = http::HeaderMap::new();
+        headers.insert("x-user-id", "alice".parse().unwrap());
+        headers.insert("x-conversation-id", "chat".parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn grant_requires_conversation_and_binds_exact_claims() {
+        let tool = configured("http://localhost:8080");
+        assert!(tool.grant("alice", "", 1000).is_err());
+        let token = tool.grant("alice", "first", 1000).unwrap();
+        let claims: Value = serde_json::from_slice(
+            &URL_SAFE_NO_PAD
+                .decode(token.split('.').nth(1).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(claims["iss"], "daedalus-agent");
+        assert_eq!(claims["aud"], "daedalus-exploration");
+        assert_eq!(claims["iat"], 1000);
+        assert_eq!(claims["owner"], format!("{:x}", Sha256::digest(b"alice")));
+        assert_eq!(
+            claims["scope"],
+            format!("{:x}", Sha256::digest(b"alice\0first"))
+        );
+    }
+
+    #[tokio::test]
+    async fn rejected_requests_are_tool_errors() {
+        use axum::{Json, Router, http::StatusCode, routing::post};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let app = Router::new().route(
+            "/v2/tool",
+            post(|| async {
+                (
+                    StatusCode::CONFLICT,
+                    Json(json!({"detail":"idempotencyKey reused with different arguments"})),
+                )
+            }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let tool = configured(&base);
+        for args in [
+            json!({"operation":"submit","sessionId":"s","idempotencyKey":"k","argv":["python","x.py"]}),
+            json!({"operation":"publish_file","runId":"run","path":"report.txt"}),
+        ] {
+            let text = tool
+                .call(&args, &trusted_headers())
+                .await
+                .unwrap()
+                .into_utf8()
+                .unwrap();
+            // The agent loop marks native results failed by this prefix.
+            assert!(text.starts_with("Error:"), "reported as success: {text}");
+            assert!(text.contains("409") && text.contains("idempotencyKey reused"));
+        }
+        server.abort();
     }
 }

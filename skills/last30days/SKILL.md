@@ -46,8 +46,8 @@ See [provenance and capability mapping](references/upstream.md).
    Reuse supplied constraints. Ask only when an ambiguous entity or missing
    requirement materially changes the research; a target tool is optional
    unless needed for a requested prompt.
-2. Call `current_datetime_tool(unused="")`. Default to the trailing 30 days
-   ending now; honor a specified historical or alternate window. Record exact
+2. Call `current_datetime_tool()` with no arguments (`{}`). Default to the
+   trailing 30 days ending now; honor a specified historical or alternate window. Record exact
    start/end dates and the timezone. Use exact publication-date filters for
    bounded windows, and check each source's actual publication/event dates.
    Read [research guidance](references/research-guide.md) through

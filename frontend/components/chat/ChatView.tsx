@@ -15,6 +15,8 @@ import { useAsyncChat } from '@/hooks/useAsyncChat';
 
 import { getWebSocketManager } from '@/services/websocket';
 
+import { apiGet } from '@/utils/app/api';
+import { cleanConversationHistory } from '@/utils/app/clean';
 import { saveConversation } from '@/utils/app/conversation';
 import { sanitizeMessageContentFromPriorAssistant } from '@/utils/app/conversationReplay';
 import { buildMessageError } from '@/utils/app/errorCategory';
@@ -33,7 +35,7 @@ import {
   type BufferedStreamingUpdate,
 } from '@/utils/app/streamingBuffer';
 
-import { Message } from '@/types/chat';
+import { Conversation, Message } from '@/types/chat';
 import { IntermediateStep } from '@/types/intermediateSteps';
 
 import { useAuth } from '@/components/auth';
@@ -54,8 +56,14 @@ const AT_BOTTOM_THRESHOLD_PX = 32;
 // Each flush re-runs the whole remark/rehype pipeline over the entire answer
 // so far, which is O(n^2) across a turn. At 50ms that is up to 20 full parses
 // a second, and the cost grows with the response. 120ms reads identically for
-// streamed text and cuts the parse count by more than half.
+// streamed text and cuts the parse count by more than half. The throttle is
+// leading-edge: the first update after an idle interval (the first token, or
+// text after a tool call) renders on the next task instead of waiting.
 const STREAM_RENDER_INTERVAL_MS = 120;
+// A copy that lacks a live job's assistant message predates that turn (for
+// example another tab or device started it). Reload it from the server at
+// most this often while the job streams.
+const CONVERSATION_RESYNC_INTERVAL_MS = 5_000;
 
 type OAuthPromptState = OAuthPrompt & {
   opened?: boolean;
@@ -69,15 +77,21 @@ interface PendingStreamingBatch {
   intermediateSteps?: IntermediateStep[];
 }
 
+/**
+ * Find the assistant message a job writes to. A job that names its message
+ * never falls back to another one: a copy without that message predates the
+ * turn, and its latest assistant message is an earlier answer.
+ */
 function findAssistantMessage(
   messages: Message[],
   assistantMessageId?: string,
 ): Message | null {
   if (assistantMessageId) {
     const byId = messages.find((message) => message.id === assistantMessageId);
-    if (byId && byId.role !== 'user') return byId;
+    return byId && byId.role !== 'user' ? byId : null;
   }
 
+  // Legacy jobs carry no message ID; their turn is the latest one.
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     if (messages[i].role !== 'user') {
       return messages[i];
@@ -261,6 +275,7 @@ export const ChatView = memo(() => {
   const pendingStreamingUpdatesRef = useRef<Map<string, PendingStreamingBatch>>(
     new Map(),
   );
+  const lastStreamFlushAtRef = useRef(0);
   const streamFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -447,36 +462,84 @@ export const ChatView = memo(() => {
     [clearOAuthPromptTimer],
   );
 
+  const resyncAttemptsRef = useRef<Map<string, number>>(new Map());
+  const resyncingConversationsRef = useRef<Set<string>>(new Set());
+
+  /**
+   * Replace a copy that predates a job's turn with the server's record.
+   * `finished` jobs have already persisted their answer there.
+   */
+  const resyncConversation = useCallback(
+    (convId: string, assistantMessageId: string, finished = false) => {
+      const key = `${convId}\n${assistantMessageId}`;
+      const now = Date.now();
+      const lastAttempt = resyncAttemptsRef.current.get(key);
+      if (
+        resyncingConversationsRef.current.has(convId) ||
+        (!finished &&
+          lastAttempt !== undefined &&
+          now - lastAttempt < CONVERSATION_RESYNC_INTERVAL_MS)
+      ) {
+        return;
+      }
+      resyncAttemptsRef.current.set(key, now);
+      resyncingConversationsRef.current.add(convId);
+      void apiGet<Conversation>(
+        `/api/conversations/${encodeURIComponent(convId)}`,
+      )
+        .then((server) => {
+          if (!server || !Array.isArray(server.messages)) return;
+          const store = useConversationStore.getState();
+          const local = store.conversations.find((c) => c.id === convId);
+          if (!local) return;
+          if (local.messages.some((m) => m.id === assistantMessageId)) return;
+          const hasJobMessage = server.messages.some(
+            (message) => message.id === assistantMessageId,
+          );
+          // A running job's copy is only useful once it holds the job's
+          // message. After completion the server record is authoritative,
+          // unless this tab has meanwhile started another turn there.
+          if (
+            finished
+              ? store.streamingConversationIds.has(convId)
+              : !hasJobMessage
+          ) {
+            return;
+          }
+          const [conversation] = cleanConversationHistory([
+            { ...server, id: convId },
+          ]);
+          store.addConversation(conversation);
+        })
+        .catch((error) => {
+          console.warn('Failed to reload conversation', error);
+        })
+        .finally(() => {
+          resyncingConversationsRef.current.delete(convId);
+          if (finished) resyncAttemptsRef.current.delete(key);
+        });
+    },
+    [],
+  );
+
+  /** Returns whether the job's assistant message exists and was updated. */
   const updateAssistantMessage = useCallback(
     (
       convId: string,
       updates: Partial<Message>,
       assistantMessageId?: string,
-    ) => {
+    ): boolean => {
       const conv = useConversationStore
         .getState()
         .conversations.find((c) => c.id === convId);
-      if (!conv || conv.messages.length === 0) return;
+      if (!conv || conv.messages.length === 0) return false;
 
-      let targetIndex = assistantMessageId
-        ? conv.messages.findIndex(
-            (message) => message.id === assistantMessageId,
-          )
-        : -1;
-
-      if (targetIndex === -1) {
-        for (let i = conv.messages.length - 1; i >= 0; i -= 1) {
-          if (conv.messages[i].role !== 'user') {
-            targetIndex = i;
-            break;
-          }
-        }
+      const target = findAssistantMessage(conv.messages, assistantMessageId);
+      if (!target) {
+        if (assistantMessageId) resyncConversation(convId, assistantMessageId);
+        return false;
       }
-
-      if (targetIndex === -1) return;
-
-      const target = conv.messages[targetIndex];
-      if (target.role === 'user') return;
+      const targetIndex = conv.messages.indexOf(target);
 
       const nextUpdates = { ...updates };
       if (nextUpdates.errorMessages) {
@@ -506,11 +569,38 @@ export const ChatView = memo(() => {
 
       if (target.id) {
         updateMessage(convId, target.id, nextUpdates);
-      } else if (targetIndex === conv.messages.length - 1) {
+        return true;
+      }
+      if (targetIndex === conv.messages.length - 1) {
         updateLastMessage(convId, nextUpdates);
+        return true;
+      }
+      return false;
+    },
+    [updateMessage, updateLastMessage, resyncConversation],
+  );
+
+  /**
+   * Save a finished turn only from a copy that contains it. A copy without the
+   * job's message predates the turn; saving it would replace the record the
+   * worker has just finalized, so reload that record instead.
+   */
+  const persistFinishedTurn = useCallback(
+    (convId: string, updated: boolean, assistantMessageId?: string) => {
+      if (!updated) {
+        if (assistantMessageId) {
+          resyncConversation(convId, assistantMessageId, true);
+        }
+        return;
+      }
+      const conversation = useConversationStore
+        .getState()
+        .conversations.find((c) => c.id === convId);
+      if (conversation) {
+        saveConversation({ ...conversation, updatedAt: Date.now() });
       }
     },
-    [updateMessage, updateLastMessage],
+    [resyncConversation],
   );
 
   const updateStreamingSteps = useCallback(
@@ -612,6 +702,7 @@ export const ChatView = memo(() => {
       if (!conversationId || conversationId === selectedIdRef.current) {
         scrollToBottomSoon();
       }
+      lastStreamFlushAtRef.current = Date.now();
 
       if (pendingStreamingUpdatesRef.current.size > 0) {
         streamFlushTimerRef.current = setTimeout(
@@ -641,9 +732,15 @@ export const ChatView = memo(() => {
       pendingStreamingUpdatesRef.current.set(key, batch);
 
       if (!streamFlushTimerRef.current) {
+        // Updates queued in the same task still share one render.
         streamFlushTimerRef.current = setTimeout(
           () => flushPendingStreamingUpdates(),
-          STREAM_RENDER_INTERVAL_MS,
+          Math.max(
+            0,
+            lastStreamFlushAtRef.current +
+              STREAM_RENDER_INTERVAL_MS -
+              Date.now(),
+          ),
         );
       }
     },
@@ -706,6 +803,7 @@ export const ChatView = memo(() => {
           responseStart?: number;
           assistantMessageId?: string;
           intermediateSteps?: IntermediateStep[];
+          partialResponse?: string;
         }) => {
           const convId = event.conversationId || selectedIdRef.current;
           if (!convId || !event.content) return;
@@ -713,13 +811,18 @@ export const ChatView = memo(() => {
           const store = useConversationStore.getState();
           if (!store.streamingConversationIds.has(convId)) return;
 
+          // The hook reconciles live deltas with status reads and repaired
+          // gaps. Rendering its text keeps this copy in step even when this
+          // view missed an earlier update (for example before history loaded).
           queueStreamingUpdate(
             convId,
             event.assistantMessageId,
-            {
-              content: event.content,
-              responseStart: event.responseStart,
-            },
+            typeof event.partialResponse === 'string'
+              ? { content: event.partialResponse, replace: true }
+              : {
+                  content: event.content,
+                  responseStart: event.responseStart,
+                },
             event.intermediateSteps,
           );
           setActivityText(convId, 'Generating response');
@@ -811,32 +914,28 @@ export const ChatView = memo(() => {
             );
             if (store.streamingConversationIds.has(convId)) {
               // Final update with whatever content we have
-              const conv = store.conversations.find((c) => c.id === convId);
-              if (conv && conv.messages.length > 0) {
-                updateAssistantMessage(
-                  convId,
-                  {
-                    ...(status.fullResponse || status.partialResponse
-                      ? {
-                          content:
-                            status.fullResponse || status.partialResponse,
-                        }
-                      : {}),
-                    intermediateSteps: status.intermediateSteps,
-                    ...(status.generationDurationMs !== undefined
-                      ? { generationDurationMs: status.generationDurationMs }
-                      : {}),
-                    ...(status.status === 'error'
-                      ? {
-                          errorMessages: buildMessageError(
-                            status.error || 'Response interrupted',
-                          ),
-                        }
-                      : {}),
-                  },
-                  status.assistantMessageId,
-                );
-              }
+              const updated = updateAssistantMessage(
+                convId,
+                {
+                  ...(status.fullResponse || status.partialResponse
+                    ? {
+                        content: status.fullResponse || status.partialResponse,
+                      }
+                    : {}),
+                  intermediateSteps: status.intermediateSteps,
+                  ...(status.generationDurationMs !== undefined
+                    ? { generationDurationMs: status.generationDurationMs }
+                    : {}),
+                  ...(status.status === 'error'
+                    ? {
+                        errorMessages: buildMessageError(
+                          status.error || 'Response interrupted',
+                        ),
+                      }
+                    : {}),
+                },
+                status.assistantMessageId,
+              );
               setStreaming(convId, false);
               setActivityText(convId, '');
               setStreamAnnouncement(
@@ -845,13 +944,7 @@ export const ChatView = memo(() => {
                   ? 'Response complete'
                   : 'Response interrupted',
               );
-              // Persist
-              const updatedConv = useConversationStore
-                .getState()
-                .conversations.find((c) => c.id === convId);
-              if (updatedConv) {
-                saveConversation({ ...updatedConv, updatedAt: Date.now() });
-              }
+              persistFinishedTurn(convId, updated, status.assistantMessageId);
             }
             return;
           }
@@ -886,6 +979,7 @@ export const ChatView = memo(() => {
           scrollToBottomSoon,
           finishOAuthPromptsForJob,
           flushPendingStreamingUpdates,
+          persistFinishedTurn,
           queueStreamingUpdate,
           setActivityText,
           setStreamAnnouncement,
@@ -909,22 +1003,17 @@ export const ChatView = memo(() => {
           flushPendingStreamingUpdates(convId);
 
           // Update final message
-          const conv = useConversationStore
-            .getState()
-            .conversations.find((c) => c.id === convId);
-          if (conv && conv.messages.length > 0) {
-            updateAssistantMessage(
-              convId,
-              {
-                content: fullResponse,
-                intermediateSteps,
-                ...(meta?.generationDurationMs !== undefined
-                  ? { generationDurationMs: meta.generationDurationMs }
-                  : {}),
-              },
-              meta?.assistantMessageId,
-            );
-          }
+          const updated = updateAssistantMessage(
+            convId,
+            {
+              content: fullResponse,
+              intermediateSteps,
+              ...(meta?.generationDurationMs !== undefined
+                ? { generationDurationMs: meta.generationDurationMs }
+                : {}),
+            },
+            meta?.assistantMessageId,
+          );
 
           // Stop streaming
           setStreaming(convId, false);
@@ -932,19 +1021,14 @@ export const ChatView = memo(() => {
           setStreamAnnouncement(convId, 'Response complete');
           finishOAuthPromptsForJob(convId, meta?.jobId, true);
 
-          // Save to Redis
-          const updatedConv = useConversationStore
-            .getState()
-            .conversations.find((c) => c.id === convId);
-          if (updatedConv) {
-            saveConversation({ ...updatedConv, updatedAt: Date.now() });
-          }
+          persistFinishedTurn(convId, updated, meta?.assistantMessageId);
         },
         [
           setStreaming,
           updateAssistantMessage,
           finishOAuthPromptsForJob,
           flushPendingStreamingUpdates,
+          persistFinishedTurn,
           setActivityText,
           setStreamAnnouncement,
         ],
@@ -973,7 +1057,7 @@ export const ChatView = memo(() => {
             .getState()
             .conversations.find((c) => c.id === convId);
           if (conv && conv.messages.length > 0) {
-            updateAssistantMessage(
+            const updated = updateAssistantMessage(
               convId,
               {
                 // A transport error may carry no server snapshot. Keep the
@@ -986,7 +1070,10 @@ export const ChatView = memo(() => {
               },
               context?.assistantMessageId,
             );
-          } else {
+            if (!updated && context?.assistantMessageId) {
+              resyncConversation(convId, context.assistantMessageId, true);
+            }
+          } else if (conv) {
             addMessage(convId, {
               role: 'assistant',
               content: context?.partialResponse || '',
@@ -1009,11 +1096,15 @@ export const ChatView = memo(() => {
           addMessage,
           clearOpenedOAuthPromptsForConversation,
           flushPendingStreamingUpdates,
+          resyncConversation,
           setActivityText,
           setStreamAnnouncement,
         ],
       ),
     });
+
+  const jobStatusRef = useRef(jobStatusByConversationId);
+  jobStatusRef.current = jobStatusByConversationId;
 
   // Handle message send
   const handleSend = useCallback(
@@ -1158,6 +1249,8 @@ export const ChatView = memo(() => {
   const handleStop = useCallback(async () => {
     if (selectedConversationId) {
       flushPendingStreamingUpdates(selectedConversationId);
+      const stoppedMessageId =
+        jobStatusRef.current[selectedConversationId]?.assistantMessageId;
       try {
         await cancelJob(selectedConversationId);
       } catch (error) {
@@ -1177,18 +1270,15 @@ export const ChatView = memo(() => {
           .getState()
           .conversations.find((c) => c.id === selectedConversationId)
           ?.messages || [],
+        stoppedMessageId,
       );
       if (stoppedMessage) {
-        updateAssistantMessage(
+        const updated = updateAssistantMessage(
           selectedConversationId,
           { metadata: { ...stoppedMessage.metadata, stopped: true } },
           stoppedMessage.id,
         );
-        const stoppedConversation = useConversationStore
-          .getState()
-          .conversations.find((c) => c.id === selectedConversationId);
-        if (stoppedConversation)
-          saveConversation({ ...stoppedConversation, updatedAt: Date.now() });
+        persistFinishedTurn(selectedConversationId, updated, stoppedMessageId);
       }
       setStreamAnnouncement(selectedConversationId, 'Response stopped');
       clearOpenedOAuthPromptsForConversation(selectedConversationId);
@@ -1200,6 +1290,7 @@ export const ChatView = memo(() => {
     selectedConversationId,
     cancelJob,
     updateAssistantMessage,
+    persistFinishedTurn,
     setStreaming,
     flushPendingStreamingUpdates,
     clearOpenedOAuthPromptsForConversation,

@@ -107,6 +107,130 @@ def test_makefile_builder_mirrors_ci_pytest_flags():
     )
 
 
+def test_builder_ci_provisions_helm_before_rendered_chart_tests():
+    # Rendered-chart regressions fail instead of skipping when CI is set, so
+    # the job must install Helm rather than rely on the runner image.
+    steps = yaml.safe_load(_CI.read_text())["jobs"]["builder"]["steps"]
+    helm_steps = [
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("azure/setup-helm@")
+    ]
+    pytest_steps = [
+        index
+        for index, step in enumerate(steps)
+        if "pytest" in (step.get("run", "") or "")
+    ]
+    assert helm_steps and pytest_steps
+    assert max(helm_steps) < min(pytest_steps)
+    conftest = (_REPO_ROOT / "builder" / "conftest.py").read_text()
+    assert 'get_closest_marker("requires_helm")' in conftest
+    assert "pytest.fail(" in conftest
+    tools_line = next(
+        line
+        for line in _MAKEFILE.read_text().splitlines()
+        if "for t in uv helm" in line
+    )
+    assert " helm " in tools_line
+
+
+def test_python_coverage_measures_every_shipped_runtime_module():
+    # `source` limits what coverage measures. A shipped module missing here
+    # keeps its tests running but hides its coverage from the 65% floor.
+    builder = _REPO_ROOT / "builder"
+    shipped = set()
+    for line in (builder / "Dockerfile").read_text().splitlines():
+        parts = line.split()
+        if len(parts) != 3 or parts[0] != "COPY" or parts[1].startswith("--"):
+            continue
+        source, destination = parts[1], parts[2]
+        if "/" in source.rstrip("/") or destination != f"/workspace/{source}":
+            continue
+        path = builder / source
+        if path.suffix == ".py" and not path.stem.endswith("_check"):
+            shipped.add(path.stem)
+        elif path.is_dir() and (path / "src").is_dir():
+            shipped.add(f"{source}/src")
+        elif path.is_dir() and any(path.glob("*.py")):
+            shipped.add(source)
+    assert {"memory_api", "daedalus_runtime", "llm_sandbox/src"} <= shipped
+
+    sources, collecting = set(), False
+    for line in (builder / ".coveragerc").read_text().splitlines():
+        if line.strip() == "source =":
+            collecting = True
+        elif collecting and line.startswith((" ", "\t")) and line.strip():
+            sources.add(line.strip())
+        elif collecting and line.strip() and not line.strip().startswith("#"):
+            collecting = False
+    assert shipped - sources == set()
+
+
+def test_frontend_coverage_measures_every_server_runtime_module():
+    # Vitest only instruments coverage.include. Server modules outside it
+    # (job admission, atomic writers, workers) would look green when untested.
+    import re
+    from fnmatch import fnmatchcase
+
+    config = (_REPO_ROOT / "frontend" / "vitest.config.ts").read_text()
+    include_block = re.search(
+        r"include:\s*\[(.*?)\]", config.split("coverage:")[1], re.S
+    )
+    assert include_block
+    patterns = re.findall(r"'([^']+)'", include_block.group(1))
+
+    def included(relative: str) -> bool:
+        return any(
+            fnmatchcase(relative, pattern)
+            or fnmatchcase(relative, pattern.replace("**/", ""))
+            for pattern in patterns
+        )
+
+    frontend = _REPO_ROOT / "frontend"
+    modules = [
+        path.relative_to(frontend).as_posix()
+        for directory in ("server", "state")
+        for path in (frontend / directory).rglob("*.ts")
+        if not path.name.endswith((".d.ts", ".test.ts"))
+    ] + ["stream-worker.ts", "ws-server.ts"]
+    assert len(modules) > 10
+    assert [module for module in modules if not included(module)] == []
+
+
+def test_compose_redis_gate_targets_the_redis_image_in_ci_and_local_gate():
+    # The local recipe previously reused the last value of a scan loop.
+    gate = next(
+        line.strip()
+        for line in _MAKEFILE.read_text().splitlines()
+        if "scripts/test_compose_redis.py" in line
+    )
+    assert ".services.redis.image" in gate
+    assert '"$$image"' not in gate
+    steps = yaml.safe_load(_CI.read_text())["jobs"]["docker"]["steps"]
+    ci_gate = next(
+        step["run"]
+        for step in steps
+        if "scripts/test_compose_redis.py" in (step.get("run", "") or "")
+    )
+    assert ci_gate.endswith(":redis-0.1.0")
+
+
+def test_bandit_production_scan_fails_closed_in_ci_and_local_gate():
+    # GitHub's default `bash -e` has no pipefail: a missing filter executable
+    # or an empty list with `xargs -r` previously exited 0 without scanning.
+    steps = yaml.safe_load(_CI.read_text())["jobs"]["security"]["steps"]
+    ci = next(step for step in steps if step.get("name") == "Python security analysis")
+    makefile = _MAKEFILE.read_text()
+    recipe = makefile[makefile.index("\nsecurity:") : makefile.index("\ntools-check:")]
+    for command in (ci["run"], recipe):
+        assert "grep -Ev '(^|/)tests/'" in command
+        assert "xargs -r" not in command and "rg -v" not in command
+        assert "bandit==1.8.6" in command and "-ll -c pyproject.toml" in command
+    assert ci["shell"] == "bash"
+    assert 'test -n "$files"' in ci["run"]
+    assert "set -euo pipefail" in recipe and 'test -n "$$files"' in recipe
+
+
 def test_playwright_installs_webkit_for_ci_and_local_gate():
     ci = yaml.safe_load(_CI.read_text())
     browser_install = next(
@@ -127,6 +251,7 @@ def test_trivy_fails_ci_and_local_gate_on_high_or_critical_findings():
         step
         for step in security_steps
         if str(step.get("uses", "")).startswith("aquasecurity/trivy-action@")
+        and step["with"].get("scan-ref") == "."
     )
     upload_step = next(
         step
@@ -147,6 +272,23 @@ def test_trivy_fails_ci_and_local_gate_on_high_or_critical_findings():
         "frontend/package-lock.json" in makefile
     )
     assert 'endswith("package-lock.json")' in makefile
+    # CI carries the same lockfile-inventory guard before the clean scan.
+    inventory = next(
+        step
+        for step in security_steps
+        if str(step.get("uses", "")).startswith("aquasecurity/trivy-action@")
+        and step["with"].get("scan-ref") == "frontend/package-lock.json"
+    )
+    assert str(inventory["with"]["list-all-pkgs"]) == "true"
+    assert inventory["with"]["format"] == "json"
+    verify = next(
+        step
+        for step in security_steps
+        if step.get("name") == "Verify the lockfile inventory"
+    )
+    assert 'endswith("package-lock.json")' in verify["run"]
+    assert inventory["with"]["output"] in verify["run"]
+    assert security_steps.index(verify) < security_steps.index(trivy_step)
 
 
 def test_trivy_image_secret_exception_is_limited_to_oci_sdk_example_files():

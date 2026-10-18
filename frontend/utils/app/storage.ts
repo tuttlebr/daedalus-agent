@@ -91,6 +91,11 @@ function evictSessionStorage(preserveKey: string): void {
  * This should be called on logout
  */
 export function clearUserSessionData(): void {
+  // Data written before identity resolved lands in the anonymous scope (the
+  // app shell can load history before /api/auth/me returns). It belongs to
+  // whoever was signed in, so it never survives an identity change.
+  removeKeysWithPrefix('user:anon:');
+
   if (!currentUsername) {
     // If no user, clear common anonymous keys as fallback
     const keysToRemove = [
@@ -111,12 +116,15 @@ export function clearUserSessionData(): void {
   }
 
   // Remove all keys for the current user
-  const userPrefix = `user:${currentUsername}:`;
+  removeKeysWithPrefix(`user:${currentUsername}:`);
+}
+
+function removeKeysWithPrefix(prefix: string): void {
   const keysToRemove: string[] = [];
 
   for (let i = 0; i < sessionStorage.length; i++) {
     const key = sessionStorage.key(i);
-    if (key && key.startsWith(userPrefix)) {
+    if (key && key.startsWith(prefix)) {
       keysToRemove.push(key);
     }
   }

@@ -93,6 +93,53 @@ describe('/api/generated-image/[id]', () => {
     expect(res.send).toHaveBeenCalledWith(Buffer.from('full'));
   });
 
+  it('serves an owned thumbnail and falls back to the original on encode failure', async () => {
+    const handler = await loadHandler('false');
+    const thumb = createMockReqRes('abc-123', { thumbnail: 'true' });
+
+    await handler(thumb.req, thumb.res);
+
+    expect(thumb.res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'image/jpeg',
+    );
+    expect(thumb.res.setHeader).toHaveBeenCalledWith('ETag', '"abc-123-thumb"');
+    expect(thumb.res.send).toHaveBeenCalledWith(Buffer.from('thumb'));
+
+    const sharp = vi.mocked((await import('sharp')).default);
+    sharp.mockImplementationOnce(() => {
+      throw new Error('unsupported image');
+    });
+    const fallback = createMockReqRes('abc-123', { thumbnail: '1' });
+
+    await handler(fallback.req, fallback.res);
+
+    expect(fallback.res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'image/png',
+    );
+    expect(fallback.res.send).toHaveBeenCalledWith(Buffer.from('full'));
+  });
+
+  it('does not render a thumbnail for another user', async () => {
+    const handler = await loadHandler('false');
+    mocks.redisCall.mockResolvedValueOnce(
+      JSON.stringify([
+        {
+          data: Buffer.from('full').toString('base64'),
+          mimeType: 'image/png',
+          userId: 'another-user',
+        },
+      ]),
+    );
+    const { req, res } = createMockReqRes('abc-123', { thumbnail: 'true' });
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect((await import('sharp')).default).not.toHaveBeenCalled();
+  });
+
   it('returns the original image as an attachment when requested', async () => {
     const handler = await loadHandler('false');
     const { req, res } = createMockReqRes('abc-123', { download: '1' });

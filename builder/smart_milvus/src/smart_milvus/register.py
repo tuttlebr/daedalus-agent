@@ -11,7 +11,7 @@ from daedalus_runtime.tools import (
     ToolRegistry,
     register_tool,
 )
-from nat_helpers.milvus import owned_milvus_connection_args
+from nat_helpers.milvus import close_milvus_client, owned_milvus_connection_args
 from pydantic import Field, HttpUrl
 
 logger = logging.getLogger(__name__)
@@ -20,23 +20,6 @@ _MAX_DOMAIN_TOP_K = 50
 _MAX_DOMAIN_OUTPUT_RESULTS = 20
 _MAX_DOMAIN_CONTENT_CHARS = 12000
 DomainTopK = Annotated[int, Field(ge=1, le=_MAX_DOMAIN_TOP_K)]
-
-
-def _close_milvus_client(client) -> None:
-    """Best-effort close of a MilvusClient connection pool (F-013a).
-
-    Tolerates clients that predate the ``close`` method and never raises so it
-    is safe to call from generator-cleanup ``finally`` blocks.
-    """
-    if client is None:
-        return
-    close = getattr(client, "close", None)
-    if not callable(close):
-        return
-    try:
-        close()
-    except Exception as exc:  # pragma: no cover - defensive cleanup
-        logger.debug("Error closing MilvusClient: %s", exc)
 
 
 def _milvus_connection_args_from_env() -> dict[str, str]:
@@ -235,7 +218,7 @@ async def domain_retriever_function(
                 )
             except Exception:
                 _client_cache.pop("instance", None)
-                await asyncio.to_thread(_close_milvus_client, milvus_client)
+                await asyncio.to_thread(close_milvus_client, milvus_client)
                 raise
             _retriever_cache["instance"] = retriever
             return retriever
@@ -298,4 +281,4 @@ async def domain_retriever_function(
             await asyncio.to_thread(retriever.close)
         milvus_client = _client_cache.get("instance")
         if milvus_client is not None:
-            await asyncio.to_thread(_close_milvus_client, milvus_client)
+            await asyncio.to_thread(close_milvus_client, milvus_client)

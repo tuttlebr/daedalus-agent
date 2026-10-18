@@ -517,24 +517,27 @@ impl Preparation {
                 external.push(name.clone());
             }
         }
-        if !external.is_empty() {
-            let catalogue: HashMap<String, Vec<Value>> = http
-                .post(format!("{tools_url}/runtime/v1/catalog"))
+        // The executor catalogue and both MCP discovery sets are independent
+        // first-use I/O. Keep every future owned by this request so a failure
+        // or cancellation drops the rest.
+        let python = async {
+            if external.is_empty() {
+                return Ok(HashMap::new());
+            }
+            http.post(format!("{tools_url}/runtime/v1/catalog"))
                 .headers(headers.clone())
                 .json(&json!({"version":1,"names":external}))
                 .send()
                 .await?
                 .error_for_status()?
-                .json()
-                .await?;
-            for name in external {
-                let entries = catalogue
-                    .get(&name)
-                    .ok_or_else(|| anyhow!("Required tool catalogue missing"))?;
-                schemas.insert(name, entries.clone());
-            }
-        }
-        if let Some(mcp) = &self.mcp {
+                .json::<HashMap<String, Vec<Value>>>()
+                .await
+                .map_err(anyhow::Error::from)
+        };
+        let discovered = async {
+            let Some(mcp) = &self.mcp else {
+                return Ok(HashMap::new());
+            };
             // Explicit API tool selection must still work when its group is
             // deferred. Discovery reads schemas; execution retains its gate.
             let requirement = crate::tool_contracts::Requirement::parse(body)?;
@@ -542,15 +545,22 @@ impl Preparation {
                 matches!(&requirement, crate::tool_contracts::Requirement::Named(name)
                     if name.starts_with(&format!("{group}__")) && name != &format!("{group}__connect"))
             });
-            schemas.extend(
-                mcp.catalogue(&deferred, header(headers, "x-user-id"), true)
-                    .await,
+            let user = header(headers, "x-user-id");
+            let (mut deferred, eager) = tokio::join!(
+                mcp.catalogue(&deferred, user, true),
+                mcp.catalogue(&eager, user, false),
             );
-            schemas.extend(
-                mcp.catalogue(&eager, header(headers, "x-user-id"), false)
-                    .await,
-            );
+            deferred.extend(eager);
+            Ok::<_, anyhow::Error>(deferred)
+        };
+        let (catalogue, discovered) = tokio::try_join!(python, discovered)?;
+        for name in external {
+            let entries = catalogue
+                .get(&name)
+                .ok_or_else(|| anyhow!("Required tool catalogue missing"))?;
+            schemas.insert(name, entries.clone());
         }
+        schemas.extend(discovered);
         // Python orders all native tools before MCP tools; preserve this model-facing contract.
         let mut tools = Vec::new();
         for is_group in [false, true] {
@@ -727,5 +737,107 @@ mod tests {
         .expect("catalogue failure must cancel pending memory preparation");
         peer.abort();
         assert!(result.is_err());
+    }
+
+    /// Python catalogue plus one deferred group with initial tools and one
+    /// eager group. All three need independent first-use network work.
+    fn discovery(base: &str) -> Config {
+        let server = json!({"url":format!("{base}/mcp")});
+        Config::new(
+            json!({
+                "llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
+                "functions":{"feed":{"_type":"rss_feed"}},
+                "function_groups":{
+                    "lights":{"_type":"mcp_client","server":server,"defer_discovery":true,
+                        "discovery_description":"Synthetic lights","initial_tools":["read"]},
+                    "mail":{"_type":"per_user_mcp_client","server":server}
+                },
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main",
+                    "tools":["feed","lights","mail"]}
+            }),
+            [
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+                ("DAEDALUS_MEMORY_MODE".into(), "disabled".into()),
+            ]
+            .into(),
+        )
+        .unwrap()
+    }
+
+    async fn mcp(Json(request): Json<Value>) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        let Some(id) = request.get("id") else {
+            return axum::http::StatusCode::ACCEPTED.into_response();
+        };
+        let result = match request["method"].as_str().unwrap_or("") {
+            "initialize" => json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},
+                "serverInfo":{"name":"synthetic","version":"1"}}),
+            "tools/list" => {
+                let tools = ["read", "write"].map(|name| {
+                    json!({"name":name,"description":format!("Synthetic {name}"),
+                        "inputSchema":{"type":"object"}})
+                });
+                json!({ "tools": tools })
+            }
+            _ => json!({}),
+        };
+        Json(json!({"jsonrpc":"2.0","id":id,"result":result})).into_response()
+    }
+
+    #[tokio::test]
+    async fn catalogue_sources_are_discovered_together_in_selected_order() {
+        // A serial implementation cannot pass: the Python catalogue waits
+        // until both MCP groups have begun their first-use initialization.
+        let barrier = Arc::new(Barrier::new(3));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new()
+            .route(
+                "/runtime/v1/catalog",
+                post(|State(barrier): State<Arc<Barrier>>| async move {
+                    barrier.wait().await;
+                    Json(json!({"feed":[{"name":"feed","description":"Fixture feed",
+                        "parameters":{"type":"object","properties":{}}}]}))
+                }),
+            )
+            .route(
+                "/mcp",
+                post(
+                    |State(barrier): State<Arc<Barrier>>, Json(request): Json<Value>| async move {
+                        if request["method"] == "initialize" {
+                            barrier.wait().await;
+                        }
+                        mcp(Json(request)).await
+                    },
+                ),
+            )
+            .with_state(barrier);
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let http = reqwest::Client::new();
+        let preparation = Preparation::new(discovery(&base), http.clone()).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", "fixture-user".parse().unwrap());
+        let body = json!({"messages":[{"role":"user","content":"Check my lights"}]});
+        let run = tokio::time::timeout(
+            Duration::from_secs(5),
+            preparation.prepare(&http, &base, &headers, &body),
+        )
+        .await
+        .expect("independent catalogue sources must proceed together")
+        .unwrap();
+        peer.abort();
+        assert_eq!(
+            run.tools
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "feed",
+                "lights__read",
+                "lights__connect",
+                "mail__read",
+                "mail__write"
+            ]
+        );
     }
 }

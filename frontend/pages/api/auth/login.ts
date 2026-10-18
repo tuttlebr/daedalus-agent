@@ -4,8 +4,9 @@ import { createSession } from '@/utils/auth/session';
 import { verifyCredentials, initializeUsers } from '@/utils/auth/users';
 
 import {
-  incrementExpiringCounter,
-  readExpiringCounter,
+  confirmFailedAttempt,
+  releaseLimitedAttempt,
+  reserveLimitedAttempt,
 } from '@/server/redisCounter';
 import { getRedis, sessionKey } from '@/server/session/redis';
 import { createHash } from 'crypto';
@@ -74,38 +75,44 @@ function loginAttemptScopes(username: string, ip: string) {
   ];
 }
 
-async function getLockoutSeconds(
+// Reserve the attempt before bcrypt. Checking the counters and incrementing
+// them only after verification let concurrent guesses all pass the check.
+async function reserveLoginAttempt(
   username: string,
   ip: string,
 ): Promise<number> {
-  const counters = await Promise.all(
-    loginAttemptScopes(username, ip).map(async ({ key, limit }) => {
-      const [attempts, ttl] = await readExpiringCounter(
-        key,
-        LOGIN_LOCKOUT_SECONDS,
-      );
-      return attempts >= limit ? (ttl > 0 ? ttl : LOGIN_LOCKOUT_SECONDS) : 0;
-    }),
+  return reserveLimitedAttempt(
+    loginAttemptScopes(username, ip),
+    LOGIN_WINDOW_SECONDS,
+    LOGIN_LOCKOUT_SECONDS,
   );
-  return Math.max(...counters);
 }
 
 async function recordFailedLogin(username: string, ip: string): Promise<void> {
-  await Promise.all(
-    loginAttemptScopes(username, ip).map(({ key, limit }) =>
-      incrementExpiringCounter(
-        key,
-        LOGIN_WINDOW_SECONDS,
-        limit,
-        LOGIN_LOCKOUT_SECONDS,
-      ),
-    ),
+  await confirmFailedAttempt(
+    loginAttemptScopes(username, ip),
+    LOGIN_LOCKOUT_SECONDS,
   );
 }
 
-async function clearFailedLogins(username: string, ip: string): Promise<void> {
-  const normalizedUsername = username.trim().toLowerCase();
-  await getRedis().del(loginAttemptKey('pair', `${normalizedUsername}|${ip}`));
+// A successful login clears its username/IP failures. Account and IP history
+// is kept; only this request's reservation is returned.
+async function recordSuccessfulLogin(
+  username: string,
+  ip: string,
+): Promise<void> {
+  const [pair, ...shared] = loginAttemptScopes(username, ip);
+  await Promise.all([
+    getRedis().del(pair.key),
+    releaseLimitedAttempt(shared.map(({ key }) => key)),
+  ]);
+}
+
+// Infrastructure failures are not evidence of a guessed password.
+async function releaseLoginAttempt(username: string, ip: string) {
+  await releaseLimitedAttempt(
+    loginAttemptScopes(username, ip).map(({ key }) => key),
+  );
 }
 
 export default async function handler(
@@ -171,7 +178,7 @@ export default async function handler(
         .json({ error: 'Username and password are required' });
     }
 
-    const lockoutSeconds = await getLockoutSeconds(normalizedUsername, ip);
+    const lockoutSeconds = await reserveLoginAttempt(normalizedUsername, ip);
     if (lockoutSeconds > 0) {
       return res.status(429).json({
         error: 'Too many failed login attempts. Please try again later.',
@@ -180,10 +187,13 @@ export default async function handler(
     }
 
     // Verify credentials
-    const user = await verifyCredentials(
-      normalizedUsername,
-      normalizedPassword,
-    );
+    let user: Awaited<ReturnType<typeof verifyCredentials>>;
+    try {
+      user = await verifyCredentials(normalizedUsername, normalizedPassword);
+    } catch (error) {
+      await releaseLoginAttempt(normalizedUsername, ip).catch(() => {});
+      throw error;
+    }
 
     if (!user) {
       await recordFailedLogin(normalizedUsername, ip);
@@ -202,7 +212,7 @@ export default async function handler(
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
-    await clearFailedLogins(normalizedUsername, ip);
+    await recordSuccessfulLogin(normalizedUsername, ip);
 
     // Create session
     await createSession(req, res, user);

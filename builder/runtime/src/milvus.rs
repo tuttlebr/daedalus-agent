@@ -186,30 +186,33 @@ impl Client {
         let deadline = bounded.then(|| Instant::now() + duration);
         let mut endpoint =
             Endpoint::from_shared(settings.endpoint.clone())?.connect_timeout(duration);
-        if let Some(options) = &settings.domain_options {
-            let options = &options["grpc_options"];
-            let millis = |key: &str, default| {
-                options[key]
-                    .as_u64()
-                    .map(Duration::from_millis)
-                    .unwrap_or(default)
-            };
-            endpoint = endpoint
-                .http2_keep_alive_interval(millis(
-                    "grpc.keepalive_time_ms",
-                    Duration::from_secs(10),
-                ))
-                .keep_alive_timeout(millis("grpc.keepalive_timeout_ms", Duration::from_secs(5)))
-                .keep_alive_while_idle(
-                    options["grpc.keepalive_permit_without_calls"]
-                        .as_bool()
-                        .unwrap_or_else(|| {
-                            options["grpc.keepalive_permit_without_calls"]
-                                .as_i64()
-                                .is_none_or(|v| v != 0)
-                        }),
-                );
-        }
+        // The pinned SDK installs these keepalive defaults on every channel;
+        // only domain grpc_options can override them. Its handshake, tool reads
+        // and writes send no gRPC deadline, so keepalive alone bounds a silent
+        // or half-open transport.
+        let defaults = serde_json::Value::Null;
+        let options = settings
+            .domain_options
+            .as_ref()
+            .map_or(&defaults, |options| &options["grpc_options"]);
+        let millis = |key: &str, default| {
+            options[key]
+                .as_u64()
+                .map(Duration::from_millis)
+                .unwrap_or(default)
+        };
+        endpoint = endpoint
+            .http2_keep_alive_interval(millis("grpc.keepalive_time_ms", Duration::from_secs(10)))
+            .keep_alive_timeout(millis("grpc.keepalive_timeout_ms", Duration::from_secs(5)))
+            .keep_alive_while_idle(
+                options["grpc.keepalive_permit_without_calls"]
+                    .as_bool()
+                    .unwrap_or_else(|| {
+                        options["grpc.keepalive_permit_without_calls"]
+                            .as_i64()
+                            .is_none_or(|v| v != 0)
+                    }),
+            );
         if settings.endpoint.starts_with("https:") {
             let roots = config.variable("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", "");
             let roots = if settings.domain_options.as_ref().is_some_and(|args| {
@@ -690,6 +693,45 @@ mod tests {
             };
             subset(&actual, &case["input"]);
         }
+    }
+    #[tokio::test]
+    async fn unresponsive_transport_fails_without_a_grpc_deadline() {
+        use tokio::io::AsyncReadExt;
+        // Accept TCP and discard bytes without answering HTTP/2 frames or
+        // pings, as a black-holed or half-open Milvus connection does.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut buffer = [0; 4096];
+                    while socket.read(&mut buffer).await.is_ok_and(|n| n > 0) {}
+                });
+            }
+        });
+        let config = Config {
+            raw: json!({}),
+            policy_raw: json!({}),
+            python_tools: false,
+            env: Default::default(),
+        };
+        // The tool handshake, like the SDK's, sends Connect without a gRPC
+        // deadline. The SDK's keepalive is what bounds a silent transport.
+        let result = tokio::time::timeout(
+            Duration::from_secs(60),
+            Client::for_tool(&config, &json!({"uri":format!("http://{address}")})),
+        )
+        .await;
+        peer.abort();
+        let error = match result.expect("a silent Milvus transport must fail, not hang") {
+            Ok(_) => panic!("a silent Milvus transport cannot complete the handshake"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error.downcast_ref::<ReadFailure>(),
+            Some(ReadFailure::Exhausted)
+        ));
     }
     #[test]
     fn retained_connection_settings() {

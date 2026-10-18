@@ -46,10 +46,14 @@ def test_chat_reuses_identical_decoded_inputs(monkeypatch):
     monkeypatch.setattr(mod, "edit_images", edit)
     monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
     monkeypatch.setattr(mod.AsyncOpenAI.return_value, "close", AsyncMock())
+    # Hermetic: never depend on a developer/CI OPENAI_API_KEY. The synthetic
+    # configured key exercises the real client-construction path.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     async def run():
         generator = mod.visual_media_function(
-            mod.VisualMediaFunctionConfig(), MagicMock()
+            mod.VisualMediaFunctionConfig(edit_api_key="synthetic-test-key"),
+            MagicMock(),
         )
         info = await generator.__anext__()
         try:

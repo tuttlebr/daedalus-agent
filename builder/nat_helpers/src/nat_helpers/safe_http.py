@@ -1,12 +1,13 @@
-"""HTTP transports and redirect handling for caller-influenced public URLs.
+"""HTTP transport and redirect handling for caller-influenced public URLs.
 
 URL validation before a request is not sufficient for SSRF protection because
 the HTTP client normally performs a second DNS lookup when it opens the socket.
 An attacker can return a public address during validation and a private address
-during connection.  The transports in this module resolve once, reject the
-entire answer set if it contains a non-public address, and connect to one of the
+during connection.  The transport in this module resolves once, rejects the
+entire answer set if it contains a non-public address, and connects to one of the
 validated IP addresses.  TLS still receives the original hostname from
-``httpcore``, preserving SNI and certificate verification.
+``httpcore``, preserving SNI and certificate verification.  All callers are
+asynchronous tools; resolution runs in a worker thread, never on the loop.
 """
 
 from __future__ import annotations
@@ -40,24 +41,6 @@ def _check_response_size(response: httpx.Response, limit: int) -> None:
         raise ResponseSizeError(f"Public response exceeds {limit} byte limit.")
 
 
-class _BoundedSyncStream(httpx.SyncByteStream):
-    def __init__(self, stream, limit):
-        self.stream, self.limit = stream, limit
-
-    def __iter__(self):
-        total = 0
-        for chunk in self.stream:
-            total += len(chunk)
-            if total > self.limit:
-                raise ResponseSizeError(
-                    f"Public response exceeds {self.limit} byte limit."
-                )
-            yield chunk
-
-    def close(self):
-        self.stream.close()
-
-
 class _BoundedAsyncStream(httpx.AsyncByteStream):
     def __init__(self, stream, limit):
         self.stream, self.limit = stream, limit
@@ -74,34 +57,6 @@ class _BoundedAsyncStream(httpx.AsyncByteStream):
 
     async def aclose(self):
         await self.stream.aclose()
-
-
-class _PinnedPublicSyncBackend(httpcore.NetworkBackend):
-    def __init__(self, backend: httpcore.NetworkBackend | None = None) -> None:
-        self._backend = backend or httpcore.SyncBackend()
-
-    def connect_tcp(
-        self,
-        host: str,
-        port: int,
-        timeout: float | None = None,
-        local_address: str | None = None,
-        socket_options: Iterable[Any] | None = None,
-    ) -> httpcore.NetworkStream:
-        addresses = resolve_public_addresses(host)
-        return self._backend.connect_tcp(
-            addresses[0],
-            port,
-            timeout=timeout,
-            local_address=local_address,
-            socket_options=socket_options,
-        )
-
-    def connect_unix_socket(self, *args: Any, **kwargs: Any) -> httpcore.NetworkStream:
-        raise UnsafeURLError("Unix socket HTTP connections are not allowed.")
-
-    def sleep(self, seconds: float) -> None:
-        self._backend.sleep(seconds)
 
 
 class _PinnedPublicAsyncBackend(httpcore.AsyncNetworkBackend):
@@ -132,40 +87,6 @@ class _PinnedPublicAsyncBackend(httpcore.AsyncNetworkBackend):
 
     async def sleep(self, seconds: float) -> None:
         await self._backend.sleep(seconds)
-
-
-class PublicHTTPTransport(httpx.HTTPTransport):
-    """A direct HTTP transport that pins connections to validated public IPs."""
-
-    def __init__(
-        self,
-        *,
-        verify: bool = True,
-        limits: httpx.Limits = httpx.Limits(),
-        max_response_bytes: int = _DEFAULT_MAX_RESPONSE_BYTES,
-    ) -> None:
-        if max_response_bytes < 1:
-            raise ValueError("max_response_bytes must be positive")
-        self.max_response_bytes = max_response_bytes
-        super().__init__(verify=verify, trust_env=False, limits=limits)
-        self._pool = httpcore.ConnectionPool(
-            ssl_context=httpx.create_ssl_context(verify=verify, trust_env=False),
-            max_connections=limits.max_connections,
-            max_keepalive_connections=limits.max_keepalive_connections,
-            keepalive_expiry=limits.keepalive_expiry,
-            network_backend=_PinnedPublicSyncBackend(),
-        )
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        request.headers["accept-encoding"] = "identity"
-        response = super().handle_request(request)
-        try:
-            _check_response_size(response, self.max_response_bytes)
-        except ResponseSizeError:
-            response.close()
-            raise
-        response.stream = _BoundedSyncStream(response.stream, self.max_response_bytes)
-        return response
 
 
 class PublicAsyncHTTPTransport(httpx.AsyncHTTPTransport):
@@ -200,31 +121,6 @@ class PublicAsyncHTTPTransport(httpx.AsyncHTTPTransport):
             raise
         response.stream = _BoundedAsyncStream(response.stream, self.max_response_bytes)
         return response
-
-
-def get_public_response(
-    client: httpx.Client,
-    url: str,
-    *,
-    allowed_schemes: Iterable[str] = ("http", "https"),
-    max_redirects: int = _DEFAULT_MAX_REDIRECTS,
-) -> httpx.Response:
-    """Fetch a public URL and validate every redirect before following it."""
-    current_url = url
-    schemes = tuple(allowed_schemes)
-    for _ in range(max_redirects + 1):
-        validate_public_url(current_url, allowed_schemes=schemes, check_dns=True)
-        response = client.get(current_url)
-        if response.is_redirect is not True:
-            return response
-        location = response.headers.get("location")
-        if not location:
-            return response
-        current_url = urljoin(current_url, location)
-
-    raise UnsafeURLError(
-        f"Exceeded maximum of {max_redirects} redirects while fetching '{url}'."
-    )
 
 
 async def get_public_response_async(

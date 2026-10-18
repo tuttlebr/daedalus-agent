@@ -121,6 +121,56 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       },
     );
 
+    it('checks asset ownership across plain, missing and foreign records', async () => {
+      const plainId = randomUUID();
+      const missingId = randomUUID();
+      const foreignId = randomUUID();
+      const plainKey = `generated:image:${plainId}`;
+      const foreignKey = `generated:image:${foreignId}`;
+      try {
+        await client.set(
+          plainKey,
+          JSON.stringify({ data: 'aW1n', userId: identity.username }),
+        );
+        await redis.jsonSet(foreignKey, '$', {
+          data: 'aW1n',
+          userId: 'someone-else',
+        });
+        await client.call(
+          'JSON.SET',
+          historyKey,
+          '$',
+          JSON.stringify([
+            { ...entry('plain'), outputImageIds: [plainId, missingId] },
+            { ...entry('foreign'), outputImageIds: [foreignId] },
+          ]),
+        );
+        const forbidden = {
+          status: vi.fn().mockReturnThis(),
+          json: vi.fn(),
+          setHeader: vi.fn(),
+        };
+        await handler(
+          {
+            method: 'DELETE',
+            body: {},
+            query: { id: 'foreign', deleteAssets: '1' },
+          } as any,
+          forbidden as any,
+        );
+        expect(forbidden.status).toHaveBeenCalledWith(403);
+        expect(await client.exists(foreignKey)).toBe(1);
+
+        await request('DELETE', {}, { id: 'plain', deleteAssets: '1' });
+        expect(await client.exists(plainKey)).toBe(0);
+        expect(
+          (await request('GET')).history.map((value: any) => value.id),
+        ).toEqual(['foreign']);
+      } finally {
+        await client.del(plainKey, foreignKey);
+      }
+    });
+
     it('keeps legacy entries readable without exposing malformed guidance', async () => {
       await client.set(
         historyKey,
@@ -155,18 +205,20 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       const resume = new Promise<void>((resolve) => {
         release = resolve;
       });
-      const call = client.call.bind(client);
+      // Hold the deletion inside its asset ownership read (the only script
+      // whose first key is the asset), then commit a concurrent save.
+      const evaluate = client.eval.bind(client);
       let first = true;
-      const spy = vi.spyOn(client, 'call').mockImplementation((async (
+      const spy = vi.spyOn(client, 'eval').mockImplementation((async (
         ...args: any[]
       ) => {
-        if (first && args[0] === 'JSON.GET' && args[1] === imageKey) {
+        if (first && args[1] === 1 && args[2] === imageKey) {
           first = false;
           entered();
           await resume;
         }
-        return call(...(args as [string, ...any[]]));
-      }) as typeof client.call);
+        return evaluate(...(args as Parameters<typeof client.eval>));
+      }) as typeof client.eval);
       const deletion = request('DELETE', {}, { id: 'old', deleteAssets: '1' });
       try {
         await blocked;

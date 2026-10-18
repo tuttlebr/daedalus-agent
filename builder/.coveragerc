@@ -1,14 +1,19 @@
 [run]
+# Every Python module or package that builder/Dockerfile copies into the
+# runtime image. test_ci_makefile_parity enforces this list.
 source =
+    collection_metadata_api
     document_ingest_api
     entrypoint
     image_api
     daedalus_runtime
     mcp_approval_api
+    memory_api
     milvus_collection_migration
     profile_import_api
     agent_skills/src
     autonomous_agent/src
+    llm_sandbox/src
     nat_helpers/src
     nat_nv_ingest/src
     perplexity_search/src

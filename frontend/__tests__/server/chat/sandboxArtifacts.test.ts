@@ -49,6 +49,23 @@ describe('sandbox artifact chat handoff', () => {
     expect(sandboxArtifactsFromSteps([step, step])).toEqual([artifact]);
   });
 
+  it('leaves sandbox output without an artifact marker byte-for-byte intact', () => {
+    const output = '  table:\n\n\n\ncol  value\n\n\n\n';
+    const step = {
+      function_ancestry: { function_name: 'llm_sandbox_tool' },
+      payload: {
+        event_type: 'TOOL_END',
+        name: 'llm_sandbox_tool',
+        metadata: { original_payload: { payload: output } },
+        data: { output },
+      },
+    };
+
+    expect(sanitizeSandboxArtifactStep(step)).toEqual([]);
+    expect(step.payload.data.output).toBe(output);
+    expect(step.payload.metadata.original_payload.payload).toBe(output);
+  });
+
   it('ignores forged external download URLs', () => {
     const step = toolStep({
       ...artifact,

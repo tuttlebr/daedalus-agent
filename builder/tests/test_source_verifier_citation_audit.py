@@ -1,11 +1,30 @@
 import asyncio
 import json
+import socket
+import threading
+import time
 from functools import partial
 from unittest.mock import MagicMock
+
+import pytest
 
 
 def run(coro):
     return asyncio.run(coro)
+
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch):
+    """Resolve reference hosts deterministically; audits never need real DNS."""
+    lookups = []
+
+    def resolve(host, *_args, **_kwargs):
+        lookups.append(host)
+        address = "10.0.0.8" if host.endswith(".internal.test") else "93.184.216.34"
+        return [(socket.AF_INET, None, None, "", (address, 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    return lookups
 
 
 async def _audit_fn():
@@ -119,3 +138,90 @@ def test_malformed_json_ledger_never_certifies_embedded_urls():
         )
 
     run(scenario())
+
+
+def test_reference_resolving_to_private_address_is_rejected(public_dns):
+    async def scenario():
+        audit = await _audit_fn()
+        return json.loads(
+            await audit(
+                answer_markdown=(
+                    "Claim [1].\n\n## References\n"
+                    "- [1] Internal - https://wiki.internal.test/page"
+                )
+            )
+        )
+
+    result = run(scenario())
+    assert result["passed"] is False
+    assert result["invalid_citations"][0]["reason"].startswith("unsafe_url:")
+    assert "non-public" in result["invalid_citations"][0]["reason"]
+    assert public_dns == ["wiki.internal.test"]
+
+
+@pytest.mark.parametrize("with_references", [True, False])
+def test_reference_dns_does_not_stall_the_event_loop(monkeypatch, with_references):
+    """Each reference performs blocking DNS; other tool calls must keep running."""
+    delay = 0.2
+    hosts = [f"source{index}.example" for index in range(6)]
+    lock = threading.Lock()
+    lookups, active, peak = [], 0, 0
+
+    def slow_dns(host, *_args, **_kwargs):
+        nonlocal active, peak
+        with lock:
+            lookups.append(host)
+            active += 1
+            peak = max(peak, active)
+        try:
+            time.sleep(delay)
+            return [(socket.AF_INET, None, None, "", ("93.184.216.34", 0))]
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(socket, "getaddrinfo", slow_dns)
+    links = [f"https://{host}/article" for host in hosts]
+    body = " ".join(f"Claim [{index}]." for index in range(1, len(hosts) + 1))
+    if with_references:
+        # A repeated URL is checked once, then reported as a duplicate.
+        references = [f"- [{i}] Source - {url}" for i, url in enumerate(links, 1)]
+        references.append(f"- [{len(links) + 1}] Again - {links[0]}")
+        answer = f"{body}\n\n## References\n" + "\n".join(references)
+    else:
+        answer = f"{body} " + " ".join(links + links[:1])
+
+    async def scenario():
+        audit = await _audit_fn()
+        gaps, done = [], asyncio.Event()
+
+        async def heartbeat():
+            last = time.perf_counter()
+            while not done.is_set():
+                await asyncio.sleep(0.01)
+                now = time.perf_counter()
+                gaps.append(now - last)
+                last = now
+
+        beat = asyncio.create_task(heartbeat())
+        await asyncio.sleep(0)
+        started = time.perf_counter()
+        try:
+            result = json.loads(
+                await audit(answer_markdown=answer, require_references=False)
+            )
+        finally:
+            elapsed = time.perf_counter() - started
+            done.set()
+            await beat
+        return result, max(gaps), elapsed
+
+    result, max_gap, elapsed = run(scenario())
+    assert sorted(lookups) == sorted(hosts)
+    assert [item["reason"] for item in result["invalid_citations"]] == (
+        ["duplicate_of_citation_1"] if with_references else []
+    )
+    # Serial lookups on the loop would block it for len(hosts) * delay.
+    assert max_gap < 0.5, max_gap
+    assert elapsed < delay * len(hosts) * 0.75, elapsed
+    assert 1 < peak <= 8

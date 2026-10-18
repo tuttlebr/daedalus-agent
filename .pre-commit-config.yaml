@@ -58,7 +58,8 @@ repos:
       - id: check-executables-have-shebangs
       - id: forbid-submodules
 
-  # Lightweight Bash/Shell syntax validation (no external deps)
+  # Repository-local hooks use host tools: python3, bash, the frontend's
+  # installed Prettier, and Helm. A missing tool fails the hook.
   - repo: local
     hooks:
       - id: skill-links
@@ -66,7 +67,9 @@ repos:
         entry: python3 scripts/check_skill_links.py
         language: system
         pass_filenames: false
-        files: ^(skills/.*\.md|scripts/check_skill_links\.py)$
+        # Any skill file can be a link target, so renaming a resource must
+        # rescan the Markdown that references it.
+        files: ^(skills/|scripts/check_skill_links\.py$)
       - id: bash-syntax-check
         name: Bash syntax check
         entry: bash -c 'for path in "$@"; do bash -n "$path" || exit "$?"; done' --

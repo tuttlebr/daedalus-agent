@@ -557,3 +557,111 @@ def test_clone_uses_field_dimension_without_replaying_described_index_string():
     assert "dim" not in client.indexes[current]["embedding_idx"]["params"]
     assert client.descriptions[current]["fields"][1]["params"]["dim"] == 2
     assert _index_config(client.indexes[legacy]["embedding_idx"]) == fingerprint_input
+
+
+@pytest.fixture
+def operator_cli(tmp_path, monkeypatch):
+    """Exercise the operator entry point without a reachable Milvus."""
+
+    import json
+
+    import milvus_collection_migration as migration
+
+    for name in (
+        "MILVUS_URI",
+        "MILVUS_TOKEN",
+        "MILVUS_USERNAME",
+        "MILVUS_USER",
+        "MILVUS_PASSWORD",
+        "MILVUS_DATABASE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("MILVUS_MIGRATION_OPERATOR_TOKEN", _TOKEN)
+    token_file = tmp_path / "operator-token"
+    token_file.write_text(_TOKEN + "\n", encoding="utf-8")
+    token_file.chmod(0o600)
+    inventory = tmp_path / "subjects.json"
+    inventory.write_text(json.dumps(["alice", "bob"]), encoding="utf-8")
+    clients = []
+
+    def client_factory():
+        clients.append(FakeMilvusClient())
+        return clients[-1]
+
+    def run(*extra, command="migrate", token=token_file):
+        return migration.main(
+            [
+                command,
+                "--subject",
+                "alice",
+                "--subject-inventory",
+                str(inventory),
+                "--operator-id",
+                "operator@example.com",
+                "--operator-token-file",
+                str(token),
+                "--audit-log",
+                str(tmp_path / "audit" / "migration.jsonl"),
+                "--batch-size",
+                "1",
+                "--verification-timeout-seconds",
+                "0.02",
+                *extra,
+            ]
+        )
+
+    return migration, run, token_file, clients, client_factory
+
+
+@pytest.mark.parametrize("unsafe", ["group_readable", "symlink", "wrong_token"])
+def test_operator_cli_refuses_unsafe_credentials_before_milvus(
+    operator_cli, monkeypatch, capsys, unsafe
+):
+    migration, run, token_file, clients, client_factory = operator_cli
+    monkeypatch.setattr(migration, "_milvus_client_from_env", client_factory)
+    token = token_file
+    if unsafe == "group_readable":
+        token_file.chmod(0o640)
+    elif unsafe == "symlink":
+        token = token_file.with_name("operator-token-link")
+        token.symlink_to(token_file)
+    else:
+        token_file.write_text("x" * 64, encoding="utf-8")
+
+    assert run(token=token) == 2
+
+    assert "migration refused" in capsys.readouterr().err
+    assert clients == []
+
+
+def test_operator_cli_requires_authenticated_milvus_credentials(
+    operator_cli, monkeypatch, capsys
+):
+    _migration, run, _token, _clients, _factory = operator_cli
+    # MILVUS_URI without credentials must never fall back to an anonymous client.
+    monkeypatch.setenv("MILVUS_URI", "http://milvus.invalid:19530")
+
+    assert run() == 2
+    assert "authenticated Milvus credentials are required" in capsys.readouterr().err
+
+
+def test_operator_cli_migrates_then_records_a_reasoned_rollback(
+    operator_cli, monkeypatch, capsys
+):
+    import json
+
+    migration, run, _token, clients, client_factory = operator_cli
+    monkeypatch.setattr(migration, "_milvus_client_from_env", client_factory)
+
+    assert run() == 0
+    migrated = json.loads(capsys.readouterr().out)
+    assert migrated["state"] == "verified"
+    # Rollback requires an explicit, reviewable reason.
+    assert run(command="rollback") == 2
+    assert "rollback reason" in capsys.readouterr().err
+
+    monkeypatch.setattr(migration, "_milvus_client_from_env", lambda: clients[0])
+    assert run("--reason", "Smoke test failed after cutover", command="rollback") == 0
+    rolled_back = json.loads(capsys.readouterr().out)
+    assert rolled_back["state"] == "rolled_back"
+    assert rolled_back["migration_id"] == migrated["migration_id"]

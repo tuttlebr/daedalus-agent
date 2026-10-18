@@ -1,6 +1,9 @@
 # Codebase review and remediation, 18 October 2026
 
 Starting revision: `d29f239826040013ec7a23c57c626232287a5a49`, clean `main`.
+A [follow-up review](codebase-review-2026-10-18-followup.md) starts from the
+resulting revision. Its baseline found that one Python test passed here only
+because the environment supplied `OPENAI_API_KEY`; the test is now hermetic.
 The review covers bugs, dead code, conflicting contracts, latency, and test/hook
 correctness. Changes preserve stored data and the existing Python/Rust rollback
 profiles. The concurrent exploration adapter and deployment edits were included at the user’s request, then reviewed and extended with validation. No dependency or coverage-floor changes were needed; the new exploration tool uses a shared schema without changing the chat protocol.

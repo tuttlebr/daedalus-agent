@@ -20,6 +20,13 @@ from nat_helpers.image_utils import store_image_in_redis
 from PIL import Image
 
 
+def _redis_recording_transactions():
+    """Record transaction commands on the client mock that tests inspect."""
+    redis = MagicMock()
+    redis.pipeline.return_value = redis
+    return redis
+
+
 @pytest.fixture
 def credentials(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "scripts"))
@@ -173,7 +180,7 @@ def test_resigning_does_not_accumulate_source_history(credentials, fmt):
 
 
 def test_storage_signs_finals_but_leaves_partials_and_private_context_out(credentials):
-    redis = MagicMock()
+    redis = _redis_recording_transactions()
     original = base64.b64encode(image_bytes()).decode()
 
     async def run():
@@ -202,7 +209,7 @@ def test_storage_signs_finals_but_leaves_partials_and_private_context_out(creden
 
 
 def test_signing_failure_never_writes_final_to_redis(credentials):
-    redis = MagicMock()
+    redis = _redis_recording_transactions()
     with pytest.raises(ContentCredentialsError, match="not published"):
         asyncio.run(
             store_image_in_redis(redis, "invalid image", "image/png", "private prompt")
@@ -222,7 +229,7 @@ def test_publication_failure_never_publishes_model_output(credentials, monkeypat
         return sign(self, *args, **kwargs)
 
     monkeypatch.setattr(c2pa.Builder, "sign", fail_second_signature)
-    redis = MagicMock()
+    redis = _redis_recording_transactions()
     with pytest.raises(ContentCredentialsError, match="not published"):
         asyncio.run(
             store_image_in_redis(
@@ -299,7 +306,7 @@ def test_chat_generate_and_edit_deliver_signed_finals(
     from nat_helpers.openai_images import ImageResult
 
     original = base64.b64encode(image_bytes()).decode()
-    redis = MagicMock()
+    redis = _redis_recording_transactions()
     monkeypatch.setattr(visual.redis, "from_url", lambda *a, **kw: redis)
     monkeypatch.setattr(
         visual, "resolve_authenticated_user_id", lambda *_: "private account"
@@ -393,7 +400,7 @@ def test_create_routes_sign_finals_and_report_signing_failure(
     from nat_helpers.openai_images import ImageResult
 
     api = image_api
-    redis = MagicMock()
+    redis = _redis_recording_transactions()
     monkeypatch.setattr(api, "_get_redis", lambda: redis)
     original = base64.b64encode(image_bytes()).decode()
     monkeypatch.setattr(
@@ -438,7 +445,7 @@ def test_create_stream_only_publishes_signed_completed_images(
 
     api = image_api
     original = base64.b64encode(image_bytes()).decode()
-    redis = MagicMock()
+    redis = _redis_recording_transactions()
     monkeypatch.setattr(api, "_get_redis", lambda: redis)
 
     async def events():

@@ -17,7 +17,11 @@ from smart_milvus.smart_milvus_function import (
 )
 
 
-def test_reranker_uses_vllm_documents_and_relevance_scores_without_api_key():
+def test_reranker_uses_vllm_documents_and_relevance_scores_without_api_key(
+    monkeypatch,
+):
+    # An unset reranker key falls back to NVIDIA_API_KEY; keep it unset here.
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     retriever = MilvusRetriever(
         client=MagicMock(),
         embedder=MagicMock(),
@@ -652,29 +656,31 @@ class TestRetrieverClose:
 
 
 class TestCloseMilvusClient:
+    """Domain retrieval cleanup uses the shared, best-effort close helper."""
+
     def test_close_none_is_noop(self):
-        from smart_milvus.register import _close_milvus_client
+        from nat_helpers.milvus import close_milvus_client
 
         # Should not raise.
-        _close_milvus_client(None)
+        close_milvus_client(None)
 
     def test_close_calls_client_close(self):
-        from smart_milvus.register import _close_milvus_client
+        from nat_helpers.milvus import close_milvus_client
 
         client = MagicMock()
-        _close_milvus_client(client)
+        close_milvus_client(client)
         client.close.assert_called_once()
 
     def test_close_swallows_errors(self):
-        from smart_milvus.register import _close_milvus_client
+        from nat_helpers.milvus import close_milvus_client
 
         client = MagicMock()
         client.close.side_effect = RuntimeError("boom")
         # Must not propagate from cleanup.
-        _close_milvus_client(client)
+        close_milvus_client(client)
 
     def test_close_tolerates_client_without_close(self):
-        from smart_milvus.register import _close_milvus_client
+        from nat_helpers.milvus import close_milvus_client
 
         client = object()  # no close attribute
-        _close_milvus_client(client)
+        close_milvus_client(client)

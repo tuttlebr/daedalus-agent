@@ -2,14 +2,18 @@ import { getSession } from '@/utils/auth/session';
 
 import handler from '@/pages/api/conversations/[id]/traces';
 
-import { getStreamingStates, jsonGet } from '@/server/session/redis';
+import { jsonGet } from '@/server/session/redis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSismember = vi.fn().mockResolvedValue(1);
+const mockGet = vi.fn().mockResolvedValue(null);
+const mockLrange = vi.fn().mockResolvedValue([]);
 
 vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => ({
     sismember: mockSismember,
+    get: mockGet,
+    lrange: mockLrange,
     eval: async (script: string, _count: number, ...args: any[]) => {
       if (script.includes('READ_OWNED_CONVERSATION')) {
         const value = await jsonGet(args[0]);
@@ -21,7 +25,6 @@ vi.mock('@/server/session/redis', () => ({
       throw new Error('Unexpected Redis script in route fixture');
     },
   })),
-  getStreamingStates: vi.fn().mockResolvedValue({}),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
   jsonGet: vi.fn(),
 }));
@@ -46,7 +49,8 @@ describe('conversations/[id]/traces API handler', () => {
     vi.clearAllMocks();
     (getSession as any).mockResolvedValue({ username: 'testuser' });
     mockSismember.mockResolvedValue(1);
-    (getStreamingStates as any).mockResolvedValue({});
+    mockGet.mockResolvedValue(null);
+    mockLrange.mockResolvedValue([]);
   });
 
   it('returns 401 when no session exists', async () => {
@@ -176,36 +180,54 @@ describe('conversations/[id]/traces API handler', () => {
     expect(lines.map((line) => line.trace_index)).toEqual([0, 1]);
   });
 
-  it('includes live streaming steps without duplicating saved steps', async () => {
+  it('includes live worker steps for the guarded job without duplicating saved steps', async () => {
     const savedStep = {
       payload: { UUID: 'saved-step', event_type: 'TOOL_START' },
     };
     const liveStep = {
       payload: { UUID: 'saved-step', event_type: 'TOOL_END' },
     };
-    (jsonGet as any)
-      .mockResolvedValueOnce({
+    const values: Record<string, unknown> = {
+      'daedalus:conversation:conv-1': {
         id: 'conv-1',
         name: 'Streaming conversation',
         messages: [
           {
             id: 'assistant-1',
             role: 'assistant',
-            metadata: { turnId: 'turn-1', jobId: 'job-1' },
+            metadata: { turnId: 'turn-1', jobId: 'job-0' },
             intermediateSteps: [savedStep],
           },
         ],
-      })
-      .mockResolvedValueOnce([savedStep, liveStep])
-      .mockResolvedValueOnce({ turnId: 'turn-live' });
-    (getStreamingStates as any).mockResolvedValue({
-      'conv-1': {
-        conversationId: 'conv-1',
-        sessionId: 'job-1',
-        startedAt: 1710000000000,
-        userId: 'testuser',
       },
-    });
+      'daedalus:async-job-request:job-1': {
+        jobId: 'job-1',
+        userId: 'testuser',
+        conversationId: 'conv-1',
+      },
+      'daedalus:async-job-status:job-1': {
+        jobId: 'job-1',
+        status: 'streaming',
+        turnId: 'turn-live',
+      },
+    };
+    (jsonGet as any).mockImplementation(async (key: string) => values[key]);
+    mockGet.mockImplementation(async (key: string) =>
+      key === 'daedalus:async-conversation-job:testuser:conv-1'
+        ? JSON.stringify({
+            version: 1,
+            userId: 'testuser',
+            conversationId: 'conv-1',
+            jobId: 'job-1',
+            acquiredAt: 1,
+          })
+        : null,
+    );
+    mockLrange.mockImplementation(async (key: string) =>
+      key === 'daedalus:async-job-steps-v2:job-1'
+        ? [JSON.stringify(savedStep), JSON.stringify(liveStep)]
+        : [],
+    );
     const { req, res } = createMockReqRes('GET', { id: 'conv-1' });
 
     await handler(req, res);

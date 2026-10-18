@@ -3,7 +3,7 @@ import {
   getMemoryRetentionHealth,
   processDueMemoryRetentions,
 } from '@/server/chat/memoryRetention';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
   const values = new Map<string, any>();
@@ -66,6 +66,20 @@ vi.mock('@/server/session/redis', () => ({
   sessionKey: (parts: string[]) => parts.filter(Boolean).join(':'),
 }));
 
+function trackedResponse(body: string, status: number) {
+  const cancel = vi.fn();
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body));
+      },
+      cancel,
+    }),
+    { status },
+  );
+  return { response, cancel };
+}
+
 describe('durable memory retention polling', () => {
   beforeEach(() => {
     mocks.values.clear();
@@ -73,6 +87,52 @@ describe('durable memory retention polling', () => {
     mocks.fetchWithTimeout.mockReset();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-23T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('releases an unread error body and backs off before the next status poll', async () => {
+    await enqueueMemoryRetention({
+      jobId: 'job-unavailable',
+      userId: 'alice',
+      operationId: 'operation-unavailable',
+      acceptedAt: Date.now() - 3000,
+    });
+    const unavailable = trackedResponse('<html>gateway</html>', 503);
+    mocks.fetchWithTimeout.mockResolvedValueOnce(unavailable.response);
+
+    await processDueMemoryRetentions();
+
+    // fetchWithTimeout keeps its deadline and connection until the body is
+    // consumed or cancelled.
+    expect(unavailable.cancel).toHaveBeenCalled();
+    await processDueMemoryRetentions();
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it('backs off instead of re-polling every loop when a status body is not JSON', async () => {
+    await enqueueMemoryRetention({
+      jobId: 'job-invalid',
+      userId: 'alice',
+      operationId: 'operation-invalid',
+      acceptedAt: Date.now() - 3000,
+    });
+    mocks.fetchWithTimeout.mockResolvedValue(
+      new Response('not json', { status: 200 }),
+    );
+
+    await expect(processDueMemoryRetentions()).resolves.toBe(1);
+    vi.advanceTimersByTime(1000);
+    await processDueMemoryRetentions();
+
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
+    const health = await getMemoryRetentionHealth('alice');
+    expect(health.recent[0]).toMatchObject({
+      jobId: 'job-invalid',
+      pollIndex: 1,
+    });
   });
 
   it('classifies completed zero-fact extraction without retrying it', async () => {

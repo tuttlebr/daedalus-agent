@@ -113,16 +113,47 @@ function conversationFromJournal(
   });
 }
 
+/**
+ * The job owns the turn it appends, not conversation metadata. Its name was
+ * captured at submission; a record saved after that (for example a sidebar
+ * rename while a long run was active) carries the user's newer choice.
+ */
+function withNewerSavedName(
+  current: Record<string, any> | null,
+  conversation: Conversation,
+  submittedAt: number | undefined,
+): Conversation {
+  const savedName = current?.name;
+  if (
+    typeof savedName === 'string' &&
+    savedName &&
+    savedName !== conversation.name &&
+    typeof submittedAt === 'number' &&
+    Number(current?.updatedAt) > submittedAt
+  ) {
+    return { ...conversation, name: savedName };
+  }
+  return conversation;
+}
+
 async function applyConversationState(
   journal: JobFinalizationJournal,
   conversation: Conversation | null,
-): Promise<boolean> {
-  if (!journal.conversation || !conversation) return true;
+): Promise<Conversation | null | false> {
+  if (!journal.conversation || !conversation) return conversation;
+  let applied = conversation;
   try {
     await saveConversationForUser(
       journal.userId,
       journal.conversation.id,
-      () => conversation,
+      (current) => {
+        applied = withNewerSavedName(
+          current,
+          conversation,
+          journal.terminalStatus?.createdAt,
+        );
+        return applied;
+      },
     );
   } catch (error) {
     if (!(error instanceof ConversationWriteError)) throw error;
@@ -142,17 +173,17 @@ async function applyConversationState(
   await updateJsonAtomically<Conversation>(
     selectedConversationKey,
     (selectedConversation) => {
-      if (selectedConversation?.id !== conversation.id) return null;
+      if (selectedConversation?.id !== applied.id) return null;
       return sanitizeConversationAssistantReplays({
         ...selectedConversation,
-        messages: conversation.messages,
-        name: conversation.name,
+        messages: applied.messages,
+        name: applied.name,
         updatedAt: journal.finalizedAt,
       });
     },
     CONVERSATION_EXPIRY_SECONDS,
   );
-  return true;
+  return applied;
 }
 
 function buildFinalizationEvents(
@@ -304,6 +335,9 @@ async function retainSuccessfulUserTurn(
     MEMORY_RETAIN_TIMEOUT_MS,
   );
   if (!response.ok) {
+    // Release the connection and deadline timer instead of leaving an unread
+    // diagnostic body open until fetchWithTimeout aborts it.
+    await response.body?.cancel().catch(() => undefined);
     throw new Error(`memory retention returned HTTP ${response.status}`);
   }
   const body = (await response.json()) as { operation_id?: string };
@@ -338,9 +372,12 @@ export async function resumePendingFinalization(
       ? null
       : conversationFromJournal(journal);
     if (!journal.conversationAppliedAt) {
-      if (!(await applyConversationState(journal, conversation))) {
+      const applied = await applyConversationState(journal, conversation);
+      if (applied === false) {
         journal = await requirePhase(journal, 'conversationSuppressedAt');
         conversation = null;
+      } else {
+        conversation = applied;
       }
       journal = await requirePhase(journal, 'conversationAppliedAt');
     }

@@ -68,18 +68,51 @@ class _FakeRedis:
         return self.payload_for_key.get(key)
 
 
-class _FailingRedis:
+class _Transaction:
+    """Queue commands and apply them only on execute, like MULTI/EXEC."""
+
+    def __init__(self, target, fail=False):
+        self.target = target
+        self.fail = fail
+        self.queued: list[tuple] = []
+
     def execute_command(self, *args):
-        raise redis.RedisError("write failed")
+        self.queued.append(("command", args))
 
     def expire(self, *args):
-        return True
+        self.queued.append(("expire", args))
+
+    def execute(self):
+        if self.fail:
+            raise redis.RedisError("write failed")
+        self.target.transactions.append(list(self.queued))
+        for kind, args in self.queued:
+            getattr(
+                self.target, "commands" if kind == "command" else "expirations"
+            ).append(args)
+        return [True] * len(self.queued)
+
+
+class _FailingRedis:
+    def __init__(self):
+        self.commands: list[tuple] = []
+        self.expirations: list[tuple] = []
+        self.transactions: list[list] = []
+
+    def pipeline(self, transaction=True):
+        assert transaction is True
+        return _Transaction(self, fail=True)
 
 
 class _WritableRedis:
     def __init__(self):
         self.commands: list[tuple] = []
         self.expirations: list[tuple] = []
+        self.transactions: list[list] = []
+
+    def pipeline(self, transaction=True):
+        assert transaction is True
+        return _Transaction(self)
 
     def execute_command(self, *args):
         self.commands.append(args)
@@ -379,6 +412,28 @@ class TestStoreImageInRedis:
         payload = json.loads(command[3])
         assert payload["userId"] == "alice"
         assert payload["sessionId"] == "session-1"
+
+    def test_record_and_expiry_commit_in_one_transaction(self):
+        redis_client = _WritableRedis()
+
+        image_id = _run(
+            store_image_in_redis(redis_client, "aGVsbG8=", "image/png", "prompt")
+        )
+
+        key = f"generated:image:{image_id}"
+        [transaction] = redis_client.transactions
+        assert [kind for kind, _ in transaction] == ["command", "expire"]
+        assert transaction[0][1][:3] == ("JSON.SET", key, "$")
+        assert transaction[1][1] == (key, 604800)
+
+    def test_failed_transaction_leaves_no_record_without_expiry(self):
+        redis_client = _FailingRedis()
+        try:
+            _run(store_image_in_redis(redis_client, "aGVsbG8=", "image/png", "p"))
+        except redis.RedisError:
+            pass
+        assert redis_client.commands == []
+        assert redis_client.expirations == []
 
     def test_raises_when_redis_write_fails(self):
         try:

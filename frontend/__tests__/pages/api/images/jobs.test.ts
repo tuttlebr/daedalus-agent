@@ -536,6 +536,98 @@ describe('/api/images/jobs', () => {
     });
   });
 
+  it('does not count stopped jobs as in progress for admission or recovery', async () => {
+    // Each submission stays in flight until the user presses Stop.
+    mocks.fetch.mockImplementation(
+      (_url, options) =>
+        new Promise<Response>((_resolve, reject) => {
+          options.signal.addEventListener('abort', () =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          );
+        }),
+    );
+    for (let index = 0; index < 2; index++) {
+      const start = createMockReqRes('POST', { prompt: `fixture ${index}` });
+      await handler(start.req, start.res);
+      expect(start.res.status).toHaveBeenCalledWith(202);
+      const jobId = start.res.json.mock.calls[0][0].jobId;
+      await drainUntil(
+        () => mocks.store.get(`image-job:${jobId}`)?.status === 'running',
+      );
+      const stop = createMockReqRes('DELETE', {}, { jobId });
+      await handler(stop.req, stop.res);
+      expect(stop.res.json.mock.calls[0][0].cancelled).toBe(true);
+    }
+
+    const next = createMockReqRes('POST', { prompt: 'after two stops' });
+    await handler(next.req, next.res);
+    expect(next.res.json).toHaveBeenCalledWith({
+      jobId: expect.any(String),
+      status: 'queued',
+    });
+    expect(next.res.status).toHaveBeenCalledWith(202);
+
+    const active = createMockReqRes('GET', {}, { active: '1' });
+    await handler(active.req, active.res);
+    expect(
+      active.res.json.mock.calls[0][0].jobs.map((job: any) => job.jobId),
+    ).toEqual([next.res.json.mock.calls[0][0].jobId]);
+  });
+
+  it('never forwards browser-supplied credentials to the image backend', async () => {
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ imageIds: ['safe'] }), { status: 200 }),
+    );
+    const { req, res } = createMockReqRes('POST', {
+      prompt: 'fixture',
+      apiKey: 'browser-secret',
+      openaiApiKey: 'browser-secret',
+      openai_api_key: 'browser-secret',
+      OPENAI_API_KEY: 'browser-secret',
+      authorization: 'Bearer browser-secret',
+      Authorization: 'Bearer browser-secret',
+      user: 'mallory',
+      sessionId: 'forged-session',
+    });
+
+    await handler(req, res);
+    await drainUntil(() => mocks.fetch.mock.calls.length === 1);
+
+    const [, init] = mocks.fetch.mock.calls[0];
+    expect(init.body).not.toContain('browser-secret');
+    expect(JSON.parse(init.body)).toMatchObject({
+      user: 'alice',
+      sessionId: 'session-1',
+    });
+    expect(init.headers).toMatchObject({
+      'x-user-id': 'alice',
+      'x-session-id': 'session-1',
+    });
+  });
+
+  it.each([
+    [{ prompt: '   ' }, 'Prompt is required'],
+    [
+      { prompt: 'a product photo', size: '1000x1000' },
+      'Width and height must be multiples of 16.',
+    ],
+  ])(
+    'rejects invalid submissions before creating a job: %o',
+    async (body, error) => {
+      const { req, res } = createMockReqRes('POST', {
+        model: 'gpt-image-2.5-sunburst',
+        ...body,
+      });
+
+      await handler(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+      expect(mocks.store.size).toBe(0);
+    },
+  );
+
   it('limits a user to two in-progress image jobs', async () => {
     mocks.store.set('user:alice:imageJobs', ['one', 'two']);
     mocks.store.set('image-job:one', {

@@ -8,7 +8,15 @@ from pathlib import Path
 
 import yaml
 
-WORKLOAD_KINDS = {"DaemonSet", "Deployment", "Job", "StatefulSet"}
+WORKLOAD_KINDS = {"CronJob", "DaemonSet", "Deployment", "Job", "StatefulSet"}
+HOST_NAMESPACES = ("hostNetwork", "hostPID", "hostIPC")
+
+
+def _pod_spec(workload: dict) -> dict:
+    spec = workload.get("spec", {})
+    if workload.get("kind") == "CronJob":
+        spec = spec.get("jobTemplate", {}).get("spec", {})
+    return spec.get("template", {}).get("spec", {})
 
 
 def check_manifest(path: Path) -> list[str]:
@@ -26,22 +34,33 @@ def check_manifest(path: Path) -> list[str]:
 
     for workload in workloads:
         name = workload.get("metadata", {}).get("name", "<unnamed>")
-        pod_spec = workload.get("spec", {}).get("template", {}).get("spec", {})
+        pod_spec = _pod_spec(workload)
         prefix = f"{path}:{workload.get('kind')}/{name}"
         if pod_spec.get("automountServiceAccountToken") is not False:
             failures.append(f"{prefix}: automountServiceAccountToken must be false")
-        pod_security = pod_spec.get("securityContext", {})
+        for field in HOST_NAMESPACES:
+            if pod_spec.get(field) is True:
+                failures.append(f"{prefix}: {field} must not be enabled")
+        for volume in pod_spec.get("volumes") or []:
+            if "hostPath" in volume:
+                volume_name = volume.get("name", "<unnamed>")
+                failures.append(f"{prefix}: volume {volume_name} must not use hostPath")
+        pod_security = pod_spec.get("securityContext") or {}
         if pod_security.get("runAsNonRoot") is not True:
             failures.append(f"{prefix}: pod runAsNonRoot must be true")
+        if pod_security.get("runAsUser") == 0:
+            failures.append(f"{prefix}: pod runAsUser must not be 0")
         if pod_security.get("seccompProfile", {}).get("type") != "RuntimeDefault":
             failures.append(f"{prefix}: pod seccompProfile.type must be RuntimeDefault")
 
-        containers = pod_spec.get("initContainers", []) + pod_spec.get("containers", [])
+        containers = (pod_spec.get("initContainers") or []) + (
+            pod_spec.get("containers") or []
+        )
         if not containers:
             failures.append(f"{prefix}: no containers were rendered")
         for container in containers:
             container_name = container.get("name", "<unnamed>")
-            security = container.get("securityContext", {})
+            security = container.get("securityContext") or {}
             container_prefix = f"{prefix}:{container_name}"
             if security.get("allowPrivilegeEscalation") is not False:
                 failures.append(
@@ -51,10 +70,26 @@ def check_manifest(path: Path) -> list[str]:
                 failures.append(
                     f"{container_prefix}: readOnlyRootFilesystem must be true"
                 )
-            dropped = security.get("capabilities", {}).get("drop", [])
-            if "ALL" not in dropped:
+            capabilities = security.get("capabilities") or {}
+            if "ALL" not in (capabilities.get("drop") or []):
                 failures.append(
                     f"{container_prefix}: capabilities.drop must include ALL"
+                )
+            # Container settings override the pod baseline field by field.
+            if capabilities.get("add"):
+                failures.append(f"{container_prefix}: capabilities.add must be empty")
+            if security.get("privileged") is True:
+                failures.append(f"{container_prefix}: privileged must not be true")
+            if security.get("runAsNonRoot") is False:
+                failures.append(
+                    f"{container_prefix}: runAsNonRoot must not override the pod"
+                )
+            if security.get("runAsUser") == 0:
+                failures.append(f"{container_prefix}: runAsUser must not be 0")
+            seccomp = (security.get("seccompProfile") or {}).get("type")
+            if seccomp not in (None, "RuntimeDefault", "Localhost"):
+                failures.append(
+                    f"{container_prefix}: seccompProfile must not weaken RuntimeDefault"
                 )
 
     return failures

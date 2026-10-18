@@ -175,9 +175,15 @@ def test_workspace_hints_route_to_the_relevant_google_service(question, tool):
 # ---------------------------------------------------------------------------
 # F-002a: _fetch_source rejects redirects to internal/metadata addresses
 # ---------------------------------------------------------------------------
-def test_fetch_source_rejects_redirect_to_internal():
+def _public_dns(*_args, **_kwargs):
+    return [(socket.AF_INET, None, None, "", ("93.184.216.34", 0))]
+
+
+def test_fetch_source_rejects_redirect_to_internal(monkeypatch):
     import source_verifier.source_verifier_function as mod
 
+    # Deterministic public resolution; the test must not depend on real DNS.
+    monkeypatch.setattr(socket, "getaddrinfo", _public_dns)
     config = mod.SourceVerifierConfig(enabled_operations=["plan_sources"])
 
     responses = [
@@ -236,3 +242,47 @@ def test_fetch_source_rejects_hostname_resolving_private(monkeypatch):
     assert result.status == "invalid_url"
     assert "non-public" in result.error.lower()
     controlled_fetch.assert_not_called()
+
+
+def test_fetch_source_dns_validation_does_not_stall_the_event_loop(monkeypatch):
+    """Two verifier calls run concurrently with other tools on one loop."""
+    import time
+
+    import source_verifier.source_verifier_function as mod
+
+    delay = 0.6
+
+    def slow_public_dns(*args, **kwargs):
+        time.sleep(delay)
+        return _public_dns(*args, **kwargs)
+
+    async def fetched(url, **_kwargs):
+        return "# Source\n\n_Source: " + url + "_\n\n" + "Evidence. " * 20, "ok"
+
+    monkeypatch.setattr(socket, "getaddrinfo", slow_public_dns)
+    monkeypatch.setattr(mod, "_scrape_with_httpx_result", fetched)
+    config = mod.SourceVerifierConfig(enabled_operations=["verify_claim"])
+
+    async def scenario():
+        gaps, done = [], asyncio.Event()
+
+        async def heartbeat():
+            last = time.perf_counter()
+            while not done.is_set():
+                await asyncio.sleep(0.01)
+                now = time.perf_counter()
+                gaps.append(now - last)
+                last = now
+
+        beat = asyncio.create_task(heartbeat())
+        await asyncio.sleep(0)
+        try:
+            result = await mod._fetch_source("https://slow-dns.example/a", config)
+        finally:
+            done.set()
+            await beat
+        return result, max(gaps)
+
+    result, max_gap = run(scenario())
+    assert result.status == "ok"
+    assert max_gap < delay / 2, max_gap

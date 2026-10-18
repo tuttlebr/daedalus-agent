@@ -280,9 +280,9 @@ server {
         chunked_transfer_encoding on;
     }
 
-    # Image generation and editing can take up to the backend's 300s request
-    # limit. Keep the browser-to-frontend hop alive past that limit and retain
-    # streaming semantics for the legacy image endpoints.
+    # Image job submissions carry large uploads, and their provider calls can
+    # take up to the backend's 300s request limit. Keep the browser-to-frontend
+    # hop alive past that limit.
     location /api/images/ {
         limit_req zone=api_per_ip burst={{ .Values.nginx.config.resourceLimits.apiBurst }} nodelay;
         limit_conn executions_total {{ .Values.nginx.config.resourceLimits.executionsTotal }};

@@ -273,6 +273,8 @@ describe('useAsyncChat streaming callbacks', () => {
   });
 
   it('delivers same-length corrections and tool-only progress through polling', async () => {
+    // WebSocket delivery is unavailable, so HTTP status reads carry progress.
+    mocks.manager.isConnected = false;
     mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) =>
       response(
         url === '/api/chat/async'
@@ -291,7 +293,6 @@ describe('useAsyncChat streaming callbacks', () => {
     const onProgress = vi.fn();
     const { root, api } = renderProbe({
       userId: 'alice',
-      useWebSocket: false,
       pollingInterval: 3000,
       onProgress,
     });
@@ -389,8 +390,9 @@ describe('useAsyncChat streaming callbacks', () => {
   });
 
   it.each([true, false])(
-    'reports empty finalized responses consistently (WebSocket=%s)',
-    async (useWebSocket) => {
+    'reports empty finalized responses consistently (WebSocket connected=%s)',
+    async (connected) => {
+      mocks.manager.isConnected = connected;
       mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) =>
         response(
           url === '/api/chat/async'
@@ -409,7 +411,6 @@ describe('useAsyncChat streaming callbacks', () => {
       const onComplete = vi.fn();
       const { root, api } = renderProbe({
         userId: 'alice',
-        useWebSocket,
         onComplete,
       });
       await act(async () => {
@@ -532,6 +533,239 @@ describe('useAsyncChat streaming callbacks', () => {
     expect(mocks.manager.unsubscribeFromJob).toHaveBeenCalledWith('job-1');
     act(() => root.unmount());
   });
+
+  it('repairs a lost token range promptly while live delivery continues', async () => {
+    const onToken = vi.fn();
+    const onProgress = vi.fn();
+    const { root, api } = renderProbe({ userId: 'alice', onToken, onProgress });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    const statusRequests = () =>
+      mocks.fetchWithTimeoutMock.mock.calls.filter(
+        ([url]) => url === '/api/chat/async?jobId=job-1',
+      ).length;
+    expect(statusRequests()).toBe(1);
+
+    // Tokens 5..20 were published while this socket was resubscribing.
+    mocks.fetchWithTimeoutMock.mockImplementation(async () =>
+      response({
+        jobId: 'job-1',
+        status: 'streaming',
+        conversationId: 'conv-1',
+        partialResponse: 'Hello, missing words',
+        createdAt: 1,
+        updatedAt: 2,
+      }),
+    );
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'Hello',
+        responseStart: 0,
+      });
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: ' world',
+        responseStart: 20,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // A recent live event must not suppress repair of a known gap.
+    expect(statusRequests()).toBe(2);
+    expect(onProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'streaming',
+        partialResponse: 'Hello, missing words world',
+      }),
+    );
+
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: '!',
+        responseStart: 26,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(onToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        content: '!',
+        partialResponse: 'Hello, missing words world!',
+      }),
+    );
+    // Contiguous delivery after the repair needs no further requests.
+    expect(statusRequests()).toBe(2);
+    act(() => root.unmount());
+  });
+
+  it('retries a repair whose snapshot still lags the live tokens', async () => {
+    const onToken = vi.fn();
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      onToken,
+      pollingInterval: 3000,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    let snapshot = 'Hello';
+    mocks.fetchWithTimeoutMock.mockImplementation(async () =>
+      response({
+        jobId: 'job-1',
+        status: 'streaming',
+        conversationId: 'conv-1',
+        partialResponse: snapshot,
+        createdAt: 1,
+        updatedAt: 2,
+      }),
+    );
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: ' again',
+        responseStart: 11,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ partialResponse: '' }),
+    );
+    snapshot = 'Hello there';
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: '.',
+        responseStart: 17,
+      });
+    });
+    expect(onToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ partialResponse: 'Hello there again.' }),
+    );
+    act(() => root.unmount());
+  });
+
+  it('keeps accumulated text when a status push omits the response', async () => {
+    const onToken = vi.fn();
+    const { root, api } = renderProbe({ userId: 'alice', onToken });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    const requestsBefore = mocks.fetchWithTimeoutMock.mock.calls.length;
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'abc',
+        responseStart: 0,
+      });
+      emit('job_status', {
+        jobId: 'job-1',
+        status: 'oauth_required',
+        conversationId: 'conv-1',
+        authUrl: 'https://accounts.google.com/auth',
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'def',
+        responseStart: 3,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ partialResponse: 'abcdef' }),
+    );
+    expect(mocks.fetchWithTimeoutMock).toHaveBeenCalledTimes(requestsBefore);
+    act(() => root.unmount());
+  });
+
+  it.each([
+    [
+      'recovers the saved answer',
+      {
+        messages: [
+          {
+            id: 'assistant-old',
+            role: 'assistant',
+            content: 'Saved answer',
+            metadata: { jobId: 'job-old', turnId: 'turn-old' },
+          },
+        ],
+      },
+    ],
+    ['reports the unavailable status', { messages: [] }],
+  ])(
+    'reconciles a resumed job whose status expired and %s',
+    async (_label, conversation) => {
+      localStorage.setItem(
+        'asyncJobs_alice',
+        JSON.stringify([
+          {
+            jobId: 'job-old',
+            conversationId: 'conv-1',
+            userId: 'alice',
+            timestamp: Date.now(),
+            turnId: 'turn-old',
+            assistantMessageId: 'assistant-old',
+          },
+        ]),
+      );
+      mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) => {
+        if (url === '/api/chat/async?jobId=job-old')
+          return {
+            ...response({ error: 'Job not found' }, { ok: false, status: 404 }),
+            body: { cancel: vi.fn() },
+          };
+        if (url === '/api/conversations/conv-1') return response(conversation);
+        throw new Error(`Unexpected fetchWithTimeout URL: ${url}`);
+      });
+      const onComplete = vi.fn();
+      const onError = vi.fn();
+      const { root } = renderProbe({ userId: 'alice', onComplete, onError });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      if (conversation.messages.length) {
+        expect(onComplete).toHaveBeenCalledWith(
+          'Saved answer',
+          undefined,
+          expect.any(Number),
+          'conv-1',
+          expect.objectContaining({
+            jobId: 'job-old',
+            assistantMessageId: 'assistant-old',
+          }),
+        );
+        expect(onError).not.toHaveBeenCalled();
+      } else {
+        expect(onError).toHaveBeenCalledWith(
+          expect.stringContaining('no longer available'),
+          expect.objectContaining({
+            jobId: 'job-old',
+            conversationId: 'conv-1',
+            assistantMessageId: 'assistant-old',
+          }),
+        );
+        expect(onComplete).not.toHaveBeenCalled();
+      }
+      expect(localStorage.getItem('asyncJobs_alice')).toBe('[]');
+      expect(mocks.manager.unsubscribeFromJob).toHaveBeenCalledWith('job-old');
+      act(() => root.unmount());
+    },
+  );
 
   it('subscribes to chat token streaming and forwards live events', async () => {
     const onToken = vi.fn();

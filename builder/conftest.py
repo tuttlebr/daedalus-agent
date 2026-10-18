@@ -5,6 +5,7 @@ Sets up sys.path for all package src/ directories and mocks heavy external depen
 """
 
 import os
+import shutil
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -156,3 +157,19 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip_integration)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """Run rendered-chart tests wherever Helm exists; never skip them in CI.
+
+    A developer without Helm may still run the rest of the suite locally. CI
+    (and `make ci`, through tools-check) provisions Helm, so a missing binary
+    there is an environment defect rather than a reason to skip coverage.
+    """
+    if item.get_closest_marker("requires_helm") is None or shutil.which("helm"):
+        return
+    message = "helm is required for rendered-chart tests"
+    if (os.environ.get("CI") or "").strip().lower() in ("1", "true", "yes"):
+        pytest.fail(f"{message}; CI is set, so install Helm instead of skipping")
+    pytest.skip(f"{message}; install Helm to run them")

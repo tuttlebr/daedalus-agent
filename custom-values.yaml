@@ -4,7 +4,6 @@
 global:
   nameOverride: ''
   fullnameOverride: ''
-  networkName: daedalus-network
   # Restrict pod scheduling to these nodes; leave empty to allow any node
   nodePlacement:
     allowedNodes:
@@ -211,8 +210,6 @@ frontend:
     createSecret: false
     data: {}
     overrides:
-      # Backend API path - controls which NAT API endpoint to use
-      # Supported values: /chat, /chat/stream, /generate, /generate/stream, /v1/chat/completions
       NODE_OPTIONS: '--max-old-space-size=4096'
   service:
     type: ClusterIP

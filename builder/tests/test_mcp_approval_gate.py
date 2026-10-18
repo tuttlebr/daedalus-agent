@@ -795,6 +795,69 @@ def test_per_user_mcp_endpoint_identity_is_loaded_from_config():
     ) == (True, "read-only")
 
 
+def test_reconfiguration_replaces_endpoint_identity_bindings(tmp_path):
+    """A reloaded policy must not keep an endpoint's previous group identity."""
+
+    endpoint = "streamable-http:https://inventory.example.test/mcp"
+
+    def group(url, policy):
+        return {
+            "_type": "mcp_client",
+            "approval_policy": policy,
+            "server": {"transport": "streamable-http", "url": url},
+        }
+
+    first = tmp_path / "first.yaml"
+    first.write_text(
+        yaml.safe_dump(
+            {
+                "function_groups": {
+                    "alpha_mcp_server": group(
+                        "https://inventory.example.test/mcp", "auto_approve"
+                    )
+                }
+            }
+        )
+    )
+    # The endpoint now belongs to two groups, so it no longer identifies one
+    # policy; alpha keeps its operator approval at a different endpoint.
+    second = tmp_path / "second.yaml"
+    second.write_text(
+        yaml.safe_dump(
+            {
+                "function_groups": {
+                    "alpha_mcp_server": group(
+                        "https://alpha.example.test/mcp", "auto_approve"
+                    ),
+                    "beta_mcp_server": group(
+                        "https://inventory.example.test/mcp", "approval_required"
+                    ),
+                    "gamma_mcp_server": group(
+                        "https://inventory.example.test/mcp", "approval_required"
+                    ),
+                }
+            }
+        )
+    )
+    try:
+        mcp_patches.configure_mcp_approval_policy(first)
+        assert mcp_patches._validate_mcp_approval(
+            "new_tool", {}, server_name=endpoint
+        ) == (True, "auto-approved")
+
+        mcp_patches.configure_mcp_approval_policy(second)
+        ok, reason = mcp_patches._validate_mcp_approval(
+            "new_tool", {}, server_name=endpoint
+        )
+        assert not ok
+        assert "execution credential" in reason
+        assert endpoint not in mcp_patches._mcp_server_group_names
+    finally:
+        mcp_patches.configure_mcp_approval_policy(CONFIG_PATH)
+    # Restoring the deployed policy leaves no fixture endpoint behind.
+    assert endpoint not in mcp_patches._mcp_server_group_names
+
+
 def test_per_user_oauth_registry_is_derived_from_config():
     assert mcp_patches._PER_USER_MCP_OAUTH_SERVERS == frozenset(
         {

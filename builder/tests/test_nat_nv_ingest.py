@@ -57,16 +57,23 @@ from nat_nv_ingest.nat_nv_ingest import (
 
 
 class TestNvIngestFunctionConfig:
-    def test_defaults(self, monkeypatch):
-        monkeypatch.delenv("MILVUS_USERNAME", raising=False)
-        monkeypatch.delenv("MILVUS_USER", raising=False)
-        monkeypatch.delenv("MILVUS_PASSWORD", raising=False)
-        monkeypatch.delenv("MILVUS_TOKEN", raising=False)
-        monkeypatch.delenv("MINIO_ENDPOINT", raising=False)
-        monkeypatch.delenv("MINIO_ACCESS_KEY", raising=False)
-        monkeypatch.delenv("MINIO_SECRET_KEY", raising=False)
-        monkeypatch.delenv("MINIO_BUCKET", raising=False)
+    @pytest.fixture(autouse=True)
+    def _without_ambient_storage_credentials(self, monkeypatch):
+        # Config fields default from the environment; these tests assert the
+        # documented defaults and explicit values, not a developer's shell.
+        for name in (
+            "MILVUS_USERNAME",
+            "MILVUS_USER",
+            "MILVUS_PASSWORD",
+            "MILVUS_TOKEN",
+            "MINIO_ENDPOINT",
+            "MINIO_ACCESS_KEY",
+            "MINIO_SECRET_KEY",
+            "MINIO_BUCKET",
+        ):
+            monkeypatch.delenv(name, raising=False)
 
+    def test_defaults(self):
         config = NvIngestFunctionConfig()
         assert config.nv_ingest_host == "localhost"
         assert config.nv_ingest_port == 7670

@@ -83,23 +83,31 @@ fn resource(value: &str, label: &str) -> ApiResult<String> {
     }
     Ok(value.into())
 }
-fn decode(value: &str) -> ApiResult<String> {
+/// urllib.parse.unquote: only `%` followed by two ASCII hex digits is decoded,
+/// and invalid UTF-8 becomes U+FFFD. Paths may carry raw UTF-8, so never slice
+/// the string at byte offsets; the resource pattern rejects non-ASCII IDs later.
+fn decode(value: &str) -> String {
+    fn hex(byte: u8) -> Option<u8> {
+        (byte as char).to_digit(16).map(|digit| digit as u8)
+    }
     let bytes = value.as_bytes();
-    let mut decoded = Vec::new();
+    let mut decoded = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let Ok(n) = u8::from_str_radix(&value[i + 1..i + 3], 16)
+            && let (Some(high), Some(low)) = (
+                bytes.get(i + 1).copied().and_then(hex),
+                bytes.get(i + 2).copied().and_then(hex),
+            )
         {
-            decoded.push(n);
+            decoded.push(high << 4 | low);
             i += 3;
         } else {
             decoded.push(bytes[i]);
             i += 1;
         }
     }
-    String::from_utf8(decoded).map_err(|_| detail(400, "invalid resource ID"))
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 pub(crate) fn validation_error(
     kind: &str,
@@ -517,11 +525,7 @@ async fn dispatch(app: &App, request: Request) -> ApiResult<Value> {
     let segments: Vec<_> = path.split('/').collect();
     let method = &parts.method;
     let collection = segments.get(2).copied().unwrap_or("");
-    let resource_raw = segments
-        .get(3)
-        .map(|s| decode(s))
-        .transpose()?
-        .unwrap_or_default();
+    let resource_raw = segments.get(3).map(|s| decode(s)).unwrap_or_default();
     let allowed = match (
         collection,
         segments.len(),
@@ -631,7 +635,7 @@ async fn dispatch(app: &App, request: Request) -> ApiResult<Value> {
         );
     }
     if collection == "memory" {
-        let id = resource(&decode(segments[4])?, "operation ID")?;
+        let id = resource(&decode(segments[4]), "operation ID")?;
         let suffix = format!(
             "operations/{}{}",
             hindsight::quote(&id),
@@ -655,42 +659,9 @@ async fn dispatch(app: &App, request: Request) -> ApiResult<Value> {
         if data["confirmation"] != "DELETE ALL MY MEMORIES" {
             return Err(detail(400, "confirmation phrase does not match"));
         }
-        let cleared: ApiResult<Value> = async {
-            let tree = call(
-                Method::GET,
-                "knowledge-base/tree".into(),
-                None,
-                vec![],
-                None,
-            )
-            .await?;
-            valid_tree(&tree)?;
-            let result = call(Method::DELETE, "memories".into(), None, vec![], Some(60.)).await?;
-            for node in tree["roots"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|v| v.is_object())
-            {
-                if crate::config::truthy(&node["id"]) && !trim(&py_string(&node["id"])).is_empty() {
-                    call(
-                        Method::DELETE,
-                        format!(
-                            "knowledge-base/nodes/{}",
-                            hindsight::quote(&py_string(&node["id"]))
-                        ),
-                        None,
-                        vec![],
-                        None,
-                    )
-                    .await?;
-                }
-            }
-            memory.clear_caches(&user).await.map_err(upstream)?;
-            Ok(result)
-        }
-        .await;
-        let result = cleared.map_err(|_| {
+        // The approved deletion tool and this API share one lifecycle, as the
+        // retained Python memory_lifecycle.clear_user_memory does.
+        let result = client.clear_user_memory(&user, memory).await.map_err(|_| {
             detail(
                 503,
                 "memory deletion did not finish; cleanup must be retried",
@@ -809,7 +780,7 @@ async fn dispatch(app: &App, request: Request) -> ApiResult<Value> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     fn expand(value: Value) -> Value {
         match value {
@@ -828,6 +799,310 @@ mod tests {
             other => other,
         }
     }
+    pub(crate) mod peers {
+        //! Local Hindsight and RESP peers for route-level tests.
+        use axum::{Json, Router, body::Bytes, http::Uri};
+        use serde_json::{Value, json};
+        use std::sync::Arc;
+        use tokio::{
+            io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt},
+            sync::Mutex,
+        };
+
+        pub type Calls = Arc<Mutex<Vec<Value>>>;
+        /// Records each call as {method, path, query, body};
+        /// `reply(call, call_index)` shapes the JSON reply.
+        pub async fn hindsight(
+            reply: fn(&Value, usize) -> Value,
+        ) -> (String, Calls, tokio::task::JoinHandle<()>) {
+            let calls = Calls::default();
+            let seen = calls.clone();
+            let router = Router::new().fallback(
+                move |method: axum::http::Method, uri: Uri, body: Bytes| {
+                    let seen = seen.clone();
+                    async move {
+                        let mut calls = seen.lock().await;
+                        let call = json!({"method":method.as_str(),"path":uri.path(),"query":uri.query(),
+                            "body":serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null)});
+                        let reply = reply(&call, calls.len());
+                        calls.push(call);
+                        Json(reply)
+                    }
+                },
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+            (base, calls, task)
+        }
+        /// Minimal RESP2 peer: GET misses, SCAN is empty, DEL deletes nothing
+        /// and every other command (handshake, SET, EVAL) succeeds.
+        pub async fn redis() -> (
+            String,
+            Arc<Mutex<Vec<Vec<String>>>>,
+            tokio::task::JoinHandle<()>,
+        ) {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("redis://{}", listener.local_addr().unwrap());
+            let commands = Arc::new(Mutex::new(Vec::new()));
+            let seen = commands.clone();
+            let task = tokio::spawn(async move {
+                loop {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    let seen = seen.clone();
+                    tokio::spawn(async move {
+                        let (read, mut write) = stream.into_split();
+                        let mut read = tokio::io::BufReader::new(read);
+                        let mut line = String::new();
+                        loop {
+                            line.clear();
+                            if read.read_line(&mut line).await.unwrap_or(0) == 0 {
+                                return;
+                            }
+                            let count: usize = line.trim_end()[1..].parse().unwrap();
+                            let mut args = Vec::new();
+                            for _ in 0..count {
+                                line.clear();
+                                read.read_line(&mut line).await.unwrap();
+                                let length: usize = line.trim_end()[1..].parse().unwrap();
+                                let mut data = vec![0; length + 2];
+                                read.read_exact(&mut data).await.unwrap();
+                                data.truncate(length);
+                                args.push(String::from_utf8(data).unwrap());
+                            }
+                            let reply: &[u8] = match args[0].to_ascii_uppercase().as_str() {
+                                "GET" => b"$-1\r\n",
+                                "SCAN" => b"*2\r\n$1\r\n0\r\n*0\r\n",
+                                "DEL" => b":0\r\n",
+                                _ => b"+OK\r\n",
+                            };
+                            seen.lock().await.push(args);
+                            write.write_all(reply).await.unwrap();
+                        }
+                    });
+                }
+            });
+            (url, commands, task)
+        }
+        pub fn app(hindsight: &str, redis: &str) -> Router {
+            let config = crate::config::Config::new(
+                json!({"llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
+                    "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+                [
+                    ("HINDSIGHT_API_URL".into(), hindsight.into()),
+                    ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
+                    ("REDIS_URL".into(), redis.into()),
+                ]
+                .into(),
+            )
+            .unwrap();
+            let http = reqwest::Client::new();
+            crate::router(crate::App {
+                preparation: Some(
+                    crate::preparation::Preparation::new(config, http.clone()).unwrap(),
+                ),
+                http,
+                tools_url: "http://127.0.0.1:1".into(),
+                internal_token: Arc::new("synthetic-internal".into()),
+                insecure: false,
+                runs: Arc::default(),
+                executions: Arc::default(),
+            })
+        }
+        pub async fn send(
+            app: &Router,
+            method: &str,
+            path: &str,
+            body: Option<Value>,
+        ) -> (u16, Value) {
+            use tower::ServiceExt;
+            let request = axum::http::Request::builder()
+                .method(method)
+                .uri(path)
+                .header("x-daedalus-internal-token", "synthetic-internal")
+                .header("x-user-id", "synthetic-alice")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    body.map(|b| b.to_string()).unwrap_or_default(),
+                ))
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            let status = response.status().as_u16();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            (
+                status,
+                serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+            )
+        }
+    }
+
+    #[tokio::test]
+    async fn resource_ids_are_unquoted_without_slicing_raw_utf8() {
+        let (base, calls, peer) = peers::hindsight(|_, _| json!({"id":"source-1"})).await;
+        let app = peers::app(&base, "redis://127.0.0.1:1");
+        // Raw UTF-8 after an incomplete escape previously panicked the handler
+        // by slicing inside a multibyte character.
+        assert_eq!(
+            peers::send(
+                &app,
+                "PATCH",
+                "/v1/memories/%a\u{e9}",
+                Some(json!({"text":"x"}))
+            )
+            .await,
+            (400, json!({"detail":"invalid memory ID"}))
+        );
+        // urllib.parse.unquote replaces undecodable bytes; the route's own ID
+        // label and method checks apply, as in the retained Python API.
+        assert_eq!(
+            peers::send(&app, "GET", "/v1/memory-pages/%ff", None).await,
+            (400, json!({"detail":"invalid page ID"}))
+        );
+        assert_eq!(
+            peers::send(&app, "POST", "/v1/memory-pages/%ff", None).await,
+            (405, json!({"detail":"Method Not Allowed"}))
+        );
+        // A signed pseudo-escape is not an escape; it must not decode to a
+        // trimmed tab and silently address another operation.
+        assert_eq!(
+            peers::send(&app, "GET", "/v1/memory/operations/%+9abc", None).await,
+            (400, json!({"detail":"invalid operation ID"}))
+        );
+        assert_eq!(
+            peers::send(&app, "GET", "/v1/memory-sources/source%2D1", None).await,
+            (200, json!({"id":"source-1"}))
+        );
+        let calls = calls.lock().await;
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert_eq!(calls[0]["method"], "GET");
+        assert!(
+            calls[0]["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("/documents/source-1"),
+            "{calls:?}"
+        );
+        peer.abort();
+    }
+
+    #[tokio::test]
+    async fn memory_clear_uses_the_shared_deletion_lifecycle() {
+        fn reply(call: &Value, index: usize) -> Value {
+            let (method, path) = (&call["method"], call["path"].as_str().unwrap());
+            if index == 0 && path.ends_with("/knowledge-base/tree") {
+                json!({"roots":[{"id":"root-1"},{"id":["a"]},{"id":""},{"id":0},{"id":" \u{1c}"},"x"]})
+            } else if method == "DELETE" && path.ends_with("/memories") {
+                json!({"deleted":3})
+            } else {
+                json!({})
+            }
+        }
+        let (base, calls, peer) = peers::hindsight(reply).await;
+        let (redis, commands, redis_peer) = peers::redis().await;
+        let app = peers::app(&base, &redis);
+        assert_eq!(
+            peers::send(
+                &app,
+                "POST",
+                "/v1/memories/clear",
+                Some(json!({"confirmation":"delete all my memories"}))
+            )
+            .await,
+            (400, json!({"detail":"confirmation phrase does not match"}))
+        );
+        assert!(calls.lock().await.is_empty());
+        assert_eq!(
+            peers::send(
+                &app,
+                "POST",
+                "/v1/memories/clear",
+                Some(json!({"confirmation":"DELETE ALL MY MEMORIES"}))
+            )
+            .await,
+            (200, json!({"status":"cleared","result":{"deleted":3}}))
+        );
+        let calls = calls.lock().await.clone();
+        let bank = format!(
+            "/v1/default/banks/{}/",
+            crate::memory::bank_id("synthetic-alice")
+        );
+        let deletion: Vec<_> = calls[..4]
+            .iter()
+            .map(|call| {
+                format!(
+                    "{} {}",
+                    call["method"].as_str().unwrap(),
+                    call["path"].as_str().unwrap().strip_prefix(&bank).unwrap()
+                )
+            })
+            .collect();
+        // Python's str() names a non-string root; blank and falsy IDs are
+        // skipped. Bank defaults are restored only after deletion completes.
+        assert_eq!(
+            deletion,
+            [
+                "GET knowledge-base/tree",
+                "DELETE memories",
+                "DELETE knowledge-base/nodes/root-1",
+                "DELETE knowledge-base/nodes/%5B%27a%27%5D",
+            ]
+        );
+        assert_eq!(calls[4]["path"], format!("{bank}config"));
+        let commands = commands.lock().await;
+        let user = crate::memory::digest(&[&crate::memory::bank_id("synthetic-alice")]);
+        for kind in ["session", "session-lock"] {
+            assert!(
+                commands.iter().any(|c| c[0] == "SCAN"
+                    && c.contains(&format!("daedalus:memory:{kind}:v1:{user}:*"))),
+                "{commands:?}"
+            );
+        }
+        assert!(
+            commands
+                .iter()
+                .any(|c| c[0] == "DEL" && c[1].starts_with("daedalus:memory:bootstrap:"))
+        );
+        drop(commands);
+        peer.abort();
+
+        // An invalid knowledge tree, or an unavailable cache store, is never
+        // acknowledged as a completed deletion.
+        let (base, calls, peer) = peers::hindsight(|call, _| {
+            if call["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("/knowledge-base/tree")
+            {
+                json!({"roots":null})
+            } else {
+                json!({})
+            }
+        })
+        .await;
+        let failed = (
+            503,
+            json!({"detail":"memory deletion did not finish; cleanup must be retried"}),
+        );
+        let body = Some(json!({"confirmation":"DELETE ALL MY MEMORIES"}));
+        let app = peers::app(&base, &redis);
+        assert_eq!(
+            peers::send(&app, "POST", "/v1/memories/clear", body.clone()).await,
+            failed
+        );
+        assert_eq!(calls.lock().await.len(), 1);
+        peer.abort();
+        let (base, _, peer) = peers::hindsight(|_, _| json!({})).await;
+        let app = peers::app(&base, "redis://127.0.0.1:1");
+        assert_eq!(
+            peers::send(&app, "POST", "/v1/memories/clear", body).await,
+            failed
+        );
+        peer.abort();
+        redis_peer.abort();
+    }
+
     #[test]
     fn frozen_public_memory_contracts() {
         let fixture = expand(

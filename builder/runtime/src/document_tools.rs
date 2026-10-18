@@ -560,48 +560,34 @@ fn extracted_with_surrogates(
     )
 }
 #[cfg(test)]
-pub fn search(results: &[Value], collection: &str) -> String {
-    if results.is_empty() {
-        return format!("No matching uploaded-document passages found in {collection}.");
-    }
-    let mut parts = vec![
-        format!("Collection: {collection}"),
-        format!("Passages: {}", results.len()),
-    ];
-    for (index, document) in results.iter().enumerate() {
-        let metadata = &document["metadata"];
-        let content = if truthy(&document["page_content"]) {
-            identifier(&document["page_content"])
-        } else {
-            let repr = |value: &Value| {
-                let array = identifier(&json!([value]));
-                array[1..array.len() - 1].to_owned()
-            };
-            format!(
-                "page_content={} metadata={}",
-                repr(&document["page_content"]),
-                repr(metadata)
-            )
-        };
-        let mut heading = vec![format!("{}.", index + 1)];
-        if let Some(source) = ["filename", "source", "document_id", "title"]
-            .into_iter()
-            .map(|key| &metadata[key])
-            .find(|value| truthy(value))
-        {
-            heading.push(identifier(source));
-        }
-        if !metadata["distance"].is_null() {
-            heading.push(format!("distance={}", identifier(&metadata["distance"])));
-        }
-        parts.push(format!("\n{}\n{content}", heading.join(" ")));
-    }
-    parts.join("\n")
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
+    /// Run the frozen retriever-result formatting cases through the production
+    /// formatter. Metadata stays opaque JSON, as in the retained Document model.
+    fn search(results: &[Value], collection: &str) -> String {
+        let documents = results
+            .iter()
+            .map(|result| crate::document_search::Document {
+                content: match &result["page_content"] {
+                    Value::Null => None,
+                    Value::String(text) => Some(text.clone()),
+                    other => panic!("Unsupported fixture page_content: {other}"),
+                },
+                metadata: result["metadata"]
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .map(|(key, value)| {
+                        (
+                            key.clone(),
+                            crate::milvus_search::Field::Json(value.clone()),
+                        )
+                    })
+                    .collect(),
+            })
+            .collect::<Vec<_>>();
+        crate::document_search::format(&documents, collection)
+    }
     enum SearchAdapter {
         Documents(Box<Adapter>),
         Domain(Box<crate::domain_retriever::Adapter>),

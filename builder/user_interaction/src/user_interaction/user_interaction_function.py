@@ -4,6 +4,7 @@ Ordinary questions and research plans belong in chat. MCP approvals belong to
 its execution gate. This tool owns only the memory-deletion workflow.
 """
 
+import asyncio
 import logging
 from typing import Literal
 
@@ -93,7 +94,10 @@ async def user_interaction_function(config, _builder):
         nonlocal redis_client
         if redis_client is None:
             redis_client = make_redis_client(config.redis_url)
-        ok, reason = validate_approval_token(
+        # The approval store is a synchronous Redis client. Keep its round trip
+        # (or a slow connect) off the event loop shared by every tool call.
+        ok, reason = await asyncio.to_thread(
+            validate_approval_token,
             redis_client,
             user_id=user,
             token=approval_token,

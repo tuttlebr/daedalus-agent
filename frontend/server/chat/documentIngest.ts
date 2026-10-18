@@ -51,6 +51,53 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+const ERROR_DETAIL_MAX_BYTES = 4096;
+const ERROR_DETAIL_TIMEOUT_MS = 5_000;
+
+/**
+ * Backend rejections carry a short application-owned `detail`. Read only a
+ * bounded prefix for a bounded time: the ingestion deadline is an hour, and a
+ * stalled diagnostic body must not hold a worker slot for that long.
+ */
+async function readRejectionDetail(
+  response: Response,
+  controller: AbortController,
+): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const deadline = setTimeout(
+    () => controller.abort(new Error('Error body deadline exceeded')),
+    ERROR_DETAIL_TIMEOUT_MS,
+  );
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const detailFrom = (): string | null => {
+    try {
+      const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      return typeof parsed?.detail === 'string' ? parsed.detail.trim() : '';
+    } catch {
+      return null;
+    }
+  };
+  try {
+    while (size < ERROR_DETAIL_MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.byteLength;
+      // A complete document needs no transport EOF.
+      const detail = detailFrom();
+      if (detail !== null) return detail;
+    }
+    return detailFrom() ?? '';
+  } catch {
+    return detailFrom() ?? '';
+  } finally {
+    clearTimeout(deadline);
+    await reader.cancel().catch(() => {});
+  }
+}
+
 async function streamDocumentIngestJob(
   jobRequest: AsyncJobRequest,
   verifiedUsername: string,
@@ -129,16 +176,19 @@ async function streamDocumentIngestJob(
   }
 
   if (!response.ok) {
-    let errBody = '';
+    let detail = '';
     try {
-      errBody = await response.text();
+      detail = await readRejectionDetail(response, controller);
     } finally {
       clearTimeout(timeoutId);
       control.signal?.removeEventListener('abort', handleExternalAbort);
     }
+    if (control.signal?.aborted && control.signal.reason instanceof Error) {
+      throw control.signal.reason;
+    }
     throw new Error(
-      `Document ingest failed (${response.status}): ${
-        errBody || response.statusText
+      `Document ingest failed (${response.status})${
+        detail ? `: ${detail}` : ''
       }`,
     );
   }
@@ -155,11 +205,15 @@ async function streamDocumentIngestJob(
   let finalOutput: string | null = null;
   let errorDetail: string | null = null;
   let completed = false;
+  let reachedEnd = false;
 
   try {
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break;
+      if (done) {
+        reachedEnd = true;
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
 
       let separator: RegExpExecArray | null;
@@ -219,6 +273,10 @@ async function streamDocumentIngestJob(
   } finally {
     clearTimeout(timeoutId);
     control.signal?.removeEventListener('abort', handleExternalAbort);
+    // A local failure (for example a progress write) ends this job. Close the
+    // response so the backend stops queued work instead of ingesting into an
+    // orphaned connection that no one reads.
+    if (!reachedEnd) await reader.cancel().catch(() => {});
     try {
       reader.releaseLock();
     } catch {

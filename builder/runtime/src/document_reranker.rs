@@ -428,31 +428,9 @@ fn response_text(body: &[u8], content_type: Option<&str>) -> Option<String> {
 // requests uses Python's JSON decoder, which accepts nonfinite number tokens.
 // Choose markers after inspecting decoded strings so a server-supplied string
 // can never become a numeric score. Markers stay inside this parsing boundary.
-pub(crate) fn python_json(body: &[u8]) -> Option<(Value, String)> {
-    python_json_with_surrogates(body).map(|(value, marker, _)| (value, marker))
-}
-
-pub(crate) fn python_json_with_surrogates(
-    body: &[u8],
-) -> Option<(Value, String, crate::document_json::Surrogates)> {
-    python_json_checked(body).ok()
-}
-
-pub(crate) fn python_json_checked(
-    body: &[u8],
-) -> std::result::Result<(Value, String, crate::document_json::Surrogates), &'static str> {
-    let integer_error = std::cell::Cell::new(false);
-    python_json_inner(body, &integer_error).ok_or(if integer_error.get() {
-        "ValueError"
-    } else {
-        "JSONDecodeError"
-    })
-}
-
-fn python_json_inner(
-    body: &[u8],
-    integer_error: &std::cell::Cell<bool>,
-) -> Option<(Value, String, crate::document_json::Surrogates)> {
+// Every decoding failure, including an integer above Python's 4300-digit
+// conversion limit, falls back to the vector order.
+fn python_json(body: &[u8]) -> Option<(Value, String)> {
     fn rewrite(text: &str, marker: &str) -> Option<String> {
         let bytes = text.as_bytes();
         let mut output = String::with_capacity(text.len());
@@ -505,7 +483,6 @@ fn python_json_inner(
                     let token = number.to_string();
                     let digits = token.trim_start_matches('-');
                     if digits.len() > 4300 && digits.bytes().all(|b| b.is_ascii_digit()) {
-                        integer_error.set(true);
                         return None;
                     }
                 }
@@ -534,8 +511,8 @@ fn python_json_inner(
         marker.push('-');
     }
     let rewritten = rewrite(&text, &marker)?;
-    let (value, surrogates) = decode(rewritten.as_bytes())?;
-    Some((value, marker, surrogates))
+    let (value, _) = decode(rewritten.as_bytes())?;
+    Some((value, marker))
 }
 
 fn parse(body: &[u8], count: usize) -> Option<Vec<(usize, f64)>> {
@@ -575,4 +552,170 @@ fn parse(body: &[u8], count: usize) -> Option<Vec<(usize, f64)>> {
             Some((index, float))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{Router, extract::State, routing::post};
+    use std::sync::Arc;
+    use tokio::sync::Mutex as AsyncMutex;
+
+    type Replies = Arc<AsyncMutex<(Vec<(u16, &'static str)>, Vec<(Option<String>, Value)>)>>;
+
+    fn document(content: &str) -> Document {
+        Document {
+            content: Some(content.into()),
+            metadata: vec![("distance".into(), Field::Float(0.5))],
+        }
+    }
+    fn observed(documents: &[Document]) -> Vec<Value> {
+        documents
+            .iter()
+            .map(|document| {
+                let field = |name: &str| {
+                    document
+                        .metadata
+                        .iter()
+                        .find(|(key, _)| key == name)
+                        .map(|(_, value)| match value {
+                            Field::Float(score) if score.is_nan() => json!("nan"),
+                            Field::Float(score) if score.is_infinite() => json!(score.to_string()),
+                            Field::Float(score) => json!(score),
+                            Field::Json(value) => value.clone(),
+                            _ => unreachable!(),
+                        })
+                        .unwrap_or(Value::Null)
+                };
+                json!([
+                    document.content,
+                    field("rerank_score"),
+                    field("rerank_position")
+                ])
+            })
+            .collect()
+    }
+
+    /// Expected orders, positions and fallbacks were produced by the retained
+    /// Python contract: nat_helpers.vllm_reranker.parse_vllm_rerank_response
+    /// followed by MilvusRetriever._rerank's top_n slice and min_score filter.
+    #[tokio::test]
+    async fn retained_vllm_rerank_order_filters_and_fallbacks() {
+        let replies: Replies = Arc::default();
+        let server = Router::new()
+            .route(
+                "/rerank",
+                post(
+                    |State(replies): State<Replies>, headers: http::HeaderMap, body: String| async move {
+                        let mut state = replies.lock().await;
+                        state.1.push((
+                            headers
+                                .get("authorization")
+                                .map(|value| value.to_str().unwrap().to_owned()),
+                            serde_json::from_str(&body).unwrap(),
+                        ));
+                        let (status, body) = state.0.remove(0);
+                        (
+                            http::StatusCode::from_u16(status).unwrap(),
+                            [("content-type", "application/json")],
+                            body,
+                        )
+                    },
+                ),
+            )
+            .with_state(replies.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/rerank", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, server).await.unwrap() });
+        let config = Config {
+            raw: json!({}),
+            policy_raw: json!({}),
+            python_tools: false,
+            env: [("NVIDIA_API_KEY".into(), "synthetic-rerank-key".into())].into(),
+        };
+        let documents = || {
+            ["alpha", "beta", "gamma", "delta", "epsilon"]
+                .into_iter()
+                .map(document)
+                .collect::<Vec<_>>()
+        };
+        let original = observed(&documents());
+        let limited = Client::new(
+            &config,
+            &json!({"use_reranker":true,"reranker_endpoint":endpoint,"reranker_model":"synthetic-reranker",
+                "reranker_top_n":3,"reranker_min_score":0.2}),
+        );
+        let unlimited = Client::new(
+            &config,
+            &json!({"use_reranker":true,"reranker_endpoint":endpoint,"reranker_model":"synthetic-reranker"}),
+        );
+        let nan = r#"{"results":[{"index":0,"relevance_score":0.1},{"index":1,"relevance_score":0.9},{"index":2,"relevance_score":NaN},{"index":3,"relevance_score":0.5},{"index":4,"relevance_score":0.5}]}"#;
+        let ties = r#"{"results":[{"index":0,"relevance_score":0.3},{"index":4,"relevance_score":0.7},{"index":1,"relevance_score":0.3}]}"#;
+        let infinite = r#"{"results":[{"index":2,"relevance_score":-Infinity},{"index":1,"relevance_score":Infinity}]}"#;
+        let cases: Vec<(&Client, (u16, &'static str), Value)> = vec![
+            (
+                &limited,
+                (200, nan),
+                json!([["beta", 0.9, 1], ["gamma", "nan", 3]]),
+            ),
+            (
+                &unlimited,
+                (200, nan),
+                json!([
+                    ["beta", 0.9, 1],
+                    ["alpha", 0.1, 2],
+                    ["gamma", "nan", 3],
+                    ["delta", 0.5, 4],
+                    ["epsilon", 0.5, 5]
+                ]),
+            ),
+            (
+                &limited,
+                (200, ties),
+                json!([["epsilon", 0.7, 1], ["alpha", 0.3, 2], ["beta", 0.3, 3]]),
+            ),
+            (&limited, (200, infinite), json!([["beta", "inf", 1]])),
+            (
+                &unlimited,
+                (200, infinite),
+                json!([["beta", "inf", 1], ["gamma", "-inf", 2]]),
+            ),
+        ];
+        for (index, (client, reply, expected)) in cases.into_iter().enumerate() {
+            replies.lock().await.0.push(reply);
+            let actual = client.apply("synthetic query", documents()).await;
+            assert_eq!(json!(observed(&actual)), expected, "rerank case {index}");
+        }
+        // Invalid rankings and failed requests retain the vector order unchanged.
+        for reply in [
+            (
+                200,
+                r#"{"results":[{"index":0,"relevance_score":0.3},{"index":0,"relevance_score":0.7}]}"#,
+            ),
+            (200, r#"{"results":[{"index":5,"relevance_score":0.3}]}"#),
+            (200, r#"{"results":[{"index":true,"relevance_score":0.3}]}"#),
+            (200, r#"{"results":[{"index":1,"relevance_score":true}]}"#),
+            (200, r#"{"results":[{"index":1.0,"relevance_score":0.2}]}"#),
+            (200, r#"{"results":{}}"#),
+            (500, r#"{"results":[{"index":1,"relevance_score":0.9}]}"#),
+        ] {
+            replies.lock().await.0.push(reply);
+            let actual = limited.apply("synthetic query", documents()).await;
+            assert_eq!(observed(&actual), original, "fallback {}", reply.1);
+        }
+        let state = replies.lock().await;
+        assert!(state.0.is_empty());
+        assert_eq!(state.1.len(), 12);
+        assert!(state.1.iter().all(|(authorization, _)| {
+            authorization.as_deref() == Some("Bearer synthetic-rerank-key")
+        }));
+        assert_eq!(
+            state.1[0].1,
+            json!({"model":"synthetic-reranker","query":"synthetic query",
+                "documents":["alpha","beta","gamma","delta","epsilon"],"top_n":3})
+        );
+        assert_eq!(state.1[1].1["top_n"], json!(5));
+        drop(state);
+        task.abort();
+    }
 }

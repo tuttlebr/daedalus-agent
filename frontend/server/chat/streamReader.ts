@@ -3,7 +3,6 @@ import {
   parseIntermediateDataLine,
 } from '@/utils/app/asyncStepParser';
 import { buildBackendUrlFromBase } from '@/utils/app/backendApi';
-import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
 import {
   googleWorkspaceAuthRecoveryMessage,
   inferGoogleWorkspaceService,
@@ -65,6 +64,21 @@ class StreamIdleTimeoutError extends Error {
     );
     this.name = 'StreamIdleTimeoutError';
   }
+}
+
+/**
+ * Saved chat error for a rejected backend request. The backend's per-process
+ * admission can still refuse a job the shared Redis admission accepted; say
+ * what to do instead of exposing a bare status. Bodies are never read here.
+ */
+export function backendRejectionMessage(status: number): string {
+  if (status === 409) {
+    return 'Another response is already active for this conversation. Wait for it to finish or stop it, then try again.';
+  }
+  if (status === 429) {
+    return 'Too many responses are running right now. Wait for one to finish or stop a response, then try again.';
+  }
+  return `Backend stream returned ${status}`;
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -358,7 +372,7 @@ export async function startBackgroundStreamReader(
       await finalizeError(
         jobId,
         jobRequest,
-        `Backend stream returned ${response.status}`,
+        backendRejectionMessage(response.status),
       );
       return;
     }
@@ -468,29 +482,10 @@ export async function startBackgroundStreamReader(
         if (field === 'intermediate_data') {
           const step = parseIntermediateDataLine(fieldValue);
           if (step) {
-            // Defense-in-depth: sanitize completion-event outputs against any
-            // prior assistant content. TOOL_END is intentionally excluded —
-            // tool outputs (search snippets, retrieved chunks) may legitimately
-            // resemble prior assistant text and we don't want to corrupt them
-            // here. TOOL_END sanitization runs only when lastToolOutput is
-            // promoted to partialResponse below.
+            // Step outputs are recorded verbatim; only private sandbox
+            // artifact markers are removed before persistence/publication.
             const eventType = step?.payload?.event_type;
             sanitizeSandboxArtifactStep(step);
-            if (
-              (eventType === 'LLM_END' ||
-                eventType === 'WORKFLOW_END' ||
-                eventType === 'TASK_END') &&
-              typeof step?.payload?.data?.output === 'string'
-            ) {
-              const original = step.payload.data.output as string;
-              const sanitized = stripReplayedAssistantPrefix(
-                original,
-                jobRequest.messages || [],
-              );
-              if (sanitized !== original) {
-                step.payload.data.output = sanitized;
-              }
-            }
 
             const raw = step.payload?.data?.output;
             const exactApprovalMarker =
@@ -766,6 +761,12 @@ export async function startBackgroundStreamReader(
       }
 
       if (streamDone) break;
+      // Tool calls and hidden reasoning can leave the stream quiet for minutes
+      // apart from activity comments. Persist anything the throttle buffered
+      // so recovery polling, traces and reclaim see it during that gap. The
+      // same 750 ms throttle bounds writes; an empty buffer writes nothing.
+      await flushSteps();
+      await flushStreamingStatus();
     }
 
     // Transport EOF alone cannot establish that the agent finished. A pod or
@@ -788,15 +789,9 @@ export async function startBackgroundStreamReader(
     }
 
     // A cleanly completed tool-only workflow may intentionally return its final
-    // tool output without content tokens. Sanitize at the moment of promotion so
-    // the user-facing answer is protected even if the raw tool output happens to
-    // contain prior assistant text. Raw entries in the normalized step list are
-    // left untouched so the steps panel still shows the true tool data.
+    // tool output without content tokens; promote that output as the answer.
     if (!partialResponse.trim() && lastToolOutput) {
-      partialResponse = stripReplayedAssistantPrefix(
-        lastToolOutput,
-        jobRequest.messages || [],
-      );
+      partialResponse = lastToolOutput;
       pendingResponseDelta += partialResponse;
     }
 

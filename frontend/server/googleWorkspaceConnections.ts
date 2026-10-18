@@ -4,6 +4,7 @@ import {
   type GoogleWorkspaceConnection,
   type GoogleWorkspaceServiceId,
 } from '@/utils/app/googleWorkspace';
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 
 import {
   buildNatRequestHeaders,
@@ -17,6 +18,8 @@ import { v5 as uuidv5 } from 'uuid';
 // before passing it to ObjectStoreTokenStorage. Keep this namespace derivation
 // aligned with nat.data_models.user_info.UserInfo.
 const NAT_USER_ID_NAMESPACE = uuidv5('nemo-agent-toolkit', uuidv5.DNS);
+
+const RESET_TIMEOUT_MS = 30_000;
 
 const TOKEN_BUCKETS: Record<GoogleWorkspaceServiceId, string> = {
   gmail: 'gmail-mcp-oauth-ro',
@@ -76,7 +79,9 @@ export async function resetGoogleWorkspaceConnection(
   serviceId: GoogleWorkspaceServiceId,
   username: string,
 ): Promise<GoogleWorkspaceResetResult> {
-  const response = await fetch(
+  // The deadline covers the response body as well as its headers, so a
+  // stalled backend cannot hold the browser's Reset request open.
+  const response = await fetchWithTimeout(
     buildBackendUrl({
       backendHost: getBackendHost(),
       pathOverride: `/v1/google-workspace/connections/${serviceId}`,
@@ -89,6 +94,7 @@ export async function resetGoogleWorkspaceConnection(
         buildNatSessionId(username),
       ),
     },
+    RESET_TIMEOUT_MS,
   );
   const payload = await response.json().catch(() => null);
   if (!response.ok) {

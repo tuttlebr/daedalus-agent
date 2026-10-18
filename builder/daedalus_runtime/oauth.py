@@ -199,7 +199,15 @@ class GoogleOAuth:
                 )
                 if not response.is_success:
                     raise RuntimeError("Google authorization could not be completed")
-                return await self._save_token(key, response.json())
+                token = response.json()
+                # Grant writes share the refresh lock with refresh and
+                # invalidation, which read-modify-write this key. Without it,
+                # a concurrent invalidation can restore the superseded grant
+                # over the one the person just authorized.
+                async with self.redis.lock(
+                    key + "/refresh-lock", timeout=40, blocking_timeout=35
+                ):
+                    return await self._save_token(key, token)
             finally:
                 self.pending.pop(state, None)
 

@@ -390,17 +390,18 @@ impl Processor {
             let source = filename.clone();
             let job = tokio::task::spawn_blocking(move || {
                 let kind = nv_ingest::document_type(&source)?;
-                let content = if ["text", "html"].contains(&kind.as_str()) {
-                    document_encoding::read_text(&bytes)
-                        .map_err(|_| anyhow!("Failed to extract content from buffer {source}"))?
+                if ["text", "html"].contains(&kind.as_str()) {
+                    let content = document_encoding::read_text(&bytes)
+                        .map_err(|_| anyhow!("Failed to extract content from buffer {source}"))?;
+                    nv_ingest::job(&source, "", &options)
+                        .map(|job| nv_ingest::payload(&job, &content))
                 } else {
-                    base64::engine::general_purpose::STANDARD
-                        .encode(bytes)
-                        .chars()
-                        .map(u32::from)
-                        .collect()
-                };
-                nv_ingest::job(&source, "", &options).map(|job| nv_ingest::payload(&job, &content))
+                    // Base64 is ASCII. As four-byte code points it would need
+                    // about 1 GiB of transient memory for a 200 MB upload.
+                    let content = base64::engine::general_purpose::STANDARD.encode(bytes);
+                    nv_ingest::job(&source, "", &options)
+                        .map(|job| nv_ingest::payload(&job, content.bytes().map(u32::from)))
+                }
             })
             .await
             .map_err(|_| anyhow!(FAILED))??;

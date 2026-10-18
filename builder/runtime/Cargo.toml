@@ -14,7 +14,7 @@ base64 = "0.22"
 futures = "0.3"
 http = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "form", "stream", "rustls", "query", "cookies"] }
-rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-streamable-http-client-reqwest", "reqwest", "auth"] }
+rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
 jsonschema = { version = "=0.58.6", default-features = false, features = ["arbitrary-precision"] }
 rig-core = { version = "=0.43.0", default-features = false, features = ["reqwest", "rustls"] }
 serde = { version = "1", features = ["derive"] }

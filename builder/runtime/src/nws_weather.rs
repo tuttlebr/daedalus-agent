@@ -550,28 +550,22 @@ mod tests {
             };
             assert_eq!(actual, case["expected"], "configuration: {}", case["input"]);
         }
+        // The fixture's offline transport fails every NWS request. Run the
+        // production tool so validation, coordinate formatting, component
+        // composition and status aggregation are all compared with Python.
+        // Live service behavior is verified separately before activation.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let tool = service::Tool::offline();
         for case in fixture["inputs"].as_array().unwrap() {
-            let actual = match arguments(&case["input"]) {
+            let actual = match runtime.block_on(tool.call(&case["input"])) {
                 Err(error) => {
                     let failure = error.downcast_ref::<Failure>().unwrap();
                     json!({"error":failure.class,"validation":failure.validation})
                 }
-                Ok(input) => {
-                    // Mirror only the synthetic offline transport failure. Live
-                    // service behavior is verified separately before activation.
-                    let coordinates = format!(
-                        "{:.4},{:.4}",
-                        input["latitude"].as_f64().unwrap(),
-                        input["longitude"].as_f64().unwrap()
-                    );
-                    let point = json!({"status":"unavailable","reason":"RuntimeError","source_url":format!("https://api.weather.gov/points/{coordinates}")});
-                    let mut result = json!({"latitude":input["latitude"],"longitude":input["longitude"],"alerts":{"status":"unavailable","reason":"RuntimeError","source_url":format!("https://api.weather.gov/alerts/active?point={coordinates}")},"forecast":point});
-                    if input["include_observations"] == true {
-                        result["observations"] = point;
-                    }
-                    result["status"] = json!("unavailable");
-                    json!({"ok":crate::memory_tools::json_text(&result,false,false,true)})
-                }
+                Ok(text) => json!({"ok":text.into_utf8().unwrap()}),
             };
             assert_eq!(actual, case["expected"], "input: {}", case["input"]);
         }

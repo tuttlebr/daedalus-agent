@@ -115,7 +115,14 @@ async def exploration_function(config, builder):
                         raise ValueError("Exploration response exceeds limit")
                     content.extend(chunk)
                 value = json.loads(content)
-                if not response.is_success or not publish:
+                if not response.is_success:
+                    # Keep the service's explanation, but never present a
+                    # rejected request as a successful tool result.
+                    return (
+                        "Error: Exploration service returned HTTP "
+                        f"{response.status_code}: {json.dumps(value)}"
+                    )
+                if not publish:
                     return json.dumps(value)
         data = base64.b64decode(value["contentBase64"], validate=True)
         if (

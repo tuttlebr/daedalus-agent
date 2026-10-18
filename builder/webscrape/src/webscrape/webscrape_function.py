@@ -19,14 +19,10 @@ from daedalus_runtime.tools import (
 )
 from markitdown import MarkItDown
 from nat_helpers.phase_timing import phase_timing
-from nat_helpers.public_content import AnonymousPublicClient
+from nat_helpers.public_content import AnonymousPublicClient, _convert_html_article
 from nat_helpers.public_content import is_challenge_page as _is_challenge_page
 from nat_helpers.public_content import public_content_session
-from nat_helpers.safe_http import (
-    PublicAsyncHTTPTransport,
-    PublicHTTPTransport,
-    get_public_response,
-)
+from nat_helpers.safe_http import PublicAsyncHTTPTransport
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field, StrictInt
 
@@ -77,7 +73,6 @@ _HTTPX_RETRY_BACKOFF_SECONDS = 0.35
 _HTTPX_RETRY_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 _HTTPX_BLOCKED_STATUS_CODES = {401, 403, 407, 451}
 _HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
-_SAFE_FETCH_TIMEOUT = 20.0
 _RETRYABLE_HTTPX_EXCEPTIONS = tuple(
     exc_type
     for exc_type in (
@@ -225,40 +220,6 @@ def _is_valid_content(markdown: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _html_to_markdown(
-    html: str,
-    url: str,
-    title: str | None = None,
-    token_limit: int | None = None,
-    truncation_msg: str = "",
-) -> str:
-    """Convert an HTML string to formatted markdown via a temp file + MarkItDown."""
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            suffix=".html", mode="w", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(html)
-            tmp_path = f.name
-
-        result = MarkItDown(enable_plugins=True).convert(tmp_path)
-        title_text = title or result.title or url
-        header = f"# {title_text}\n\n_Source: {url}_\n\n"
-        full_content = header + (result.text_content or "")
-
-        if token_limit is not None:
-            full_content, was_truncated = _truncate_to_token_limit(
-                full_content, token_limit, truncation_msg
-            )
-            if was_truncated:
-                logger.info("Content from %s truncated to %d tokens", url, token_limit)
-
-        return full_content
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-
 def _resource_suffix(url: str, content_type: str) -> str:
     """Choose a bounded file suffix so MarkItDown can select a local converter."""
     media_type = content_type.split(";", 1)[0].strip().lower()
@@ -302,6 +263,40 @@ def _bytes_to_markdown(
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+def _convert_fetched_resource(
+    content: bytes,
+    url: str,
+    content_type: str,
+    *,
+    html: bool,
+    token_limit: int | None = None,
+    truncation_msg: str = "",
+) -> str:
+    """Convert already-fetched bytes locally; converters never receive a URL.
+
+    HTML uses the shared article converter, as webscrape_tool does, so its
+    charset comes from the original bytes and HTML declarations. Decoding to
+    text first would replace legacy-encoded characters before conversion.
+    """
+    markdown = _convert_html_article(content, url) if html else None
+    if markdown is None:
+        return _bytes_to_markdown(
+            content,
+            url,
+            # Sniffed HTML may lack a media type; keep an HTML local suffix.
+            content_type="text/html" if html else content_type,
+            token_limit=token_limit,
+            truncation_msg=truncation_msg,
+        )
+    if token_limit is not None:
+        markdown, was_truncated = _truncate_to_token_limit(
+            markdown, token_limit, truncation_msg
+        )
+        if was_truncated:
+            logger.info("Content from %s truncated to %d tokens", url, token_limit)
+    return markdown
 
 
 # ---------------------------------------------------------------------------
@@ -378,45 +373,8 @@ async def _get_following_safe_redirects(
 
 
 # ---------------------------------------------------------------------------
-# Scraping strategies (ordered from fastest to most capable)
+# Controlled fetch used by source verification
 # ---------------------------------------------------------------------------
-
-
-def _scrape_with_markitdown(
-    url: str,
-    token_limit: int | None = None,
-    truncation_msg: str = "",
-    *,
-    fetched_content: bytes | None = None,
-    content_type: str = "",
-    timeout: float = _SAFE_FETCH_TIMEOUT,
-) -> str:
-    """Safely fetch a resource, then give MarkItDown only a local file.
-
-    ``fetched_content`` lets the controlled async HTTP strategy reuse bytes it
-    already downloaded. MarkItDown never receives a URL.
-    """
-    if fetched_content is None:
-        transport = PublicHTTPTransport()
-        with httpx.Client(
-            headers={**_BROWSER_HEADERS, "User-Agent": _BROWSER_USER_AGENT},
-            follow_redirects=False,
-            timeout=timeout,
-            transport=transport,
-            trust_env=False,
-        ) as client:
-            response = get_public_response(client, url)
-            response.raise_for_status()
-        fetched_content = response.content
-        content_type = response.headers.get("content-type", "")
-
-    return _bytes_to_markdown(
-        fetched_content,
-        url,
-        content_type=content_type,
-        token_limit=token_limit,
-        truncation_msg=truncation_msg,
-    )
 
 
 def _httpx_timeout_from_seconds(timeout_seconds: float):
@@ -486,28 +444,18 @@ async def _scrape_with_httpx_result(
         logger.info("httpx returned status %d for %s", response.status_code, url)
         return None, "http_error"
 
-    if not _response_looks_like_html(response):
-        markdown = await asyncio.to_thread(
-            _scrape_with_markitdown,
-            url,
-            token_limit=token_limit,
-            truncation_msg=truncation_msg,
-            fetched_content=response.content,
-            content_type=response.headers.get("content-type", ""),
-        )
-        return (
-            (markdown, "ok") if _is_valid_content(markdown) else (markdown, "invalid")
-        )
-
-    html = response.text
-    if _is_challenge_page(html):
+    html = _response_looks_like_html(response)
+    # Challenge signatures are ASCII, so lossy decoding cannot hide them.
+    if html and _is_challenge_page(response.text):
         logger.info("httpx response for %s is a challenge page", url)
         return None, "blocked"
 
     markdown = await asyncio.to_thread(
-        _html_to_markdown,
-        html,
+        _convert_fetched_resource,
+        response.content,
         url,
+        response.headers.get("content-type", ""),
+        html=html,
         token_limit=token_limit,
         truncation_msg=truncation_msg,
     )
@@ -711,9 +659,16 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                             },
                             ensure_ascii=False,
                         )
-                    return _truncate_to_token_limit(
-                        content, config.max_output_tokens, config.truncation_message
-                    )[0]
+                    # Token-limit search repeatedly tokenizes up to the whole
+                    # article (and tiktoken may load its encoding on first
+                    # use); keep that CPU work off the shared event loop.
+                    truncated, _ = await asyncio.to_thread(
+                        _truncate_to_token_limit,
+                        content,
+                        config.max_output_tokens,
+                        config.truncation_message,
+                    )
+                    return truncated
                 except UnsafeURLError as exc:
                     return _format_error(str(exc))
                 except Exception as exc:

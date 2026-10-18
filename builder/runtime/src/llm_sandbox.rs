@@ -1937,4 +1937,30 @@ mod tests {
             assert_eq!(actual, case["expected"], "arguments: {}", case["input"]);
         }
     }
+    #[test]
+    fn accepted_arguments_receive_contract_defaults() {
+        // The retained fixture was captured without an API key, so every
+        // accepted input renders the same error. Dispatch relies on these
+        // defaults (for example, `command` is unwrapped as a string).
+        let input = arguments(&json!({"operation":"execute","argv":["printf"]})).unwrap();
+        for (field, expected) in [
+            ("command", json!("")),
+            ("argv", json!(["printf"])),
+            ("timeout_seconds", json!(0)),
+            ("env_json", json!("")),
+            ("working_directory", json!(".")),
+            ("file_path", json!("")),
+            ("file_content", json!("")),
+            ("append", json!(false)),
+        ] {
+            assert_eq!(input[field], expected, "{field}");
+        }
+        let input = arguments(
+            &json!({"operation":"write_file","file_path":"a","file_content":"","append":true}),
+        )
+        .unwrap();
+        assert_eq!(input["append"], true);
+        assert!(input["argv"].is_null());
+        assert_eq!(input["working_directory"], ".");
+    }
 }

@@ -716,6 +716,27 @@ def test_compose_frontend_forces_local_service_discovery():
     assert "DEPLOYMENT_MODE=local" in environment
 
 
+def test_compose_services_reach_the_backend_on_its_fixed_container_port():
+    # BACKEND_PORT in .env selects only the host loopback port. The listener,
+    # health check, nginx upstream and in-network clients all use 8000.
+    compose = yaml.safe_load(DOCKER_COMPOSE.read_text(encoding="utf-8"))
+    services = compose["services"]
+    backend = services["backend"]
+    assert "DAEDALUS_PORT=8000" in backend["environment"]
+    assert backend["ports"] == ["127.0.0.1:${BACKEND_PORT:-8000}:8000"]
+    assert "127.0.0.1:8000/health/ready" in " ".join(backend["healthcheck"]["test"])
+    for name in ("frontend", "stream-worker"):
+        environment = services[name]["environment"]
+        assert "BACKEND_PORT=8000" in environment, name
+    nginx = (DOCKER_COMPOSE.parent / "nginx" / "conf.d" / "frontend.conf").read_text()
+    assert "backend:8000" in nginx
+    # Service network keys must name a declared network; interpolated keys
+    # made any non-default value an invalid project.
+    declared = set(compose["networks"])
+    for name, service in services.items():
+        assert set(service.get("networks", [])) <= declared, name
+
+
 def test_production_skill_scripts_are_disabled():
     functions = _config()["functions"]
     assert functions["agent_skills_tool"]["allow_script_execution"] is False
@@ -1346,13 +1367,11 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
     for active_name in (
         "DAEDALUS_PREPARATION",
         "DAEDALUS_AUTHORIZATION",
-        "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS",
         "X_MCP_BEARER_TOKEN",
         "HUE_MCP_TOKEN",
+        # Referenced as ${ESPN_MCP_TOKEN} by the shipped workflow.
+        "ESPN_MCP_TOKEN",
         "GITHUB_PAT",
-        "VERIFIER_API_KEY",
-        "VERIFIER_BASE_URL",
-        "VERIFIER_MODEL",
         "HINDSIGHT_API_KEY",
         "HINDSIGHT_API_TIMEOUT_SECONDS",
         "TOOL_CALLING_LLM_MODEL_API_KEY",
@@ -1361,6 +1380,15 @@ def test_backend_secret_allowlist_tracks_active_model_credentials():
         "AUTONOMOUS_LLM_MODEL_MODEL",
     ):
         assert allowlist.fullmatch(active_name), active_name
+    # Every credential the shipped workflow interpolates must be storable in a
+    # chart-managed backend Secret, not only in the deploy-created one.
+    credentials = {
+        name
+        for name in _env_placeholders(CONFIG.read_text(encoding="utf-8"))
+        if re.search(r"(TOKEN|_KEY|_PAT|SECRET)$", name)
+    }
+    assert "ESPN_MCP_TOKEN" in credentials
+    assert {name for name in credentials if not allowlist.fullmatch(name)} == set()
 
     for stale_name in (
         "REASONING_LLM_MODEL_API_KEY",
@@ -1407,12 +1435,15 @@ def test_hindsight_is_the_only_durable_memory_backend():
 
 
 def test_google_mcp_oauth_deadlines_are_ordered_across_workloads():
+    # The Rust authorization wait is the effective backend deadline. Neither
+    # DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS nor YAML auth_flow_timeout is read by
+    # the runtime, so they cannot establish this ordering.
+    oauth = (DOCKERFILE.parent / "runtime" / "src" / "oauth.rs").read_text()
+    wait = re.findall(r"timeout\(Duration::from_secs\((\d+)\), receiver\)", oauth)
+    expiry = re.findall(r"elapsed\(\) > Duration::from_secs\((\d+)\)", oauth)
+    assert wait and expiry
+    backend_seconds = max(int(value) for value in wait + expiry)
     values = yaml.safe_load(HELM_VALUES.read_text(encoding="utf-8"))
-    backend_seconds = int(
-        values["backend"]["default"]["env"]["overrides"][
-            "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS"
-        ]
-    )
     worker_milliseconds = int(
         values["frontend"]["streamWorker"]["env"]["overrides"][
             "MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS"
@@ -1422,6 +1453,10 @@ def test_google_mcp_oauth_deadlines_are_ordered_across_workloads():
     assert backend_seconds == 600
     assert worker_milliseconds == 660_000
     assert worker_milliseconds > backend_seconds * 1000
+    assert (
+        "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS"
+        not in (values["backend"]["default"]["env"]["overrides"])
+    )
 
     for path in (
         FRONTEND_STREAM_WORKER_TEMPLATE,
@@ -1435,14 +1470,16 @@ def test_google_mcp_oauth_deadlines_are_ordered_across_workloads():
         )
 
     deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
-    assert "DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS" in deploy_script
     assert "MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS" in deploy_script
 
     compose = yaml.safe_load(DOCKER_COMPOSE.read_text(encoding="utf-8"))
     worker_env = compose["services"]["stream-worker"]["environment"]
-    assert any(
-        str(item).startswith("MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS=") for item in worker_env
+    compose_default = next(
+        str(item).rsplit(":-", 1)[1].rstrip("}")
+        for item in worker_env
+        if str(item).startswith("MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS=")
     )
+    assert int(compose_default) > backend_seconds * 1000
 
 
 def test_rate_limit_env_is_scoped_to_the_frontend_workload():

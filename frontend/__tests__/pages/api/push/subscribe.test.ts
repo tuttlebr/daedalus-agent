@@ -62,10 +62,13 @@ describe('push/subscribe API handler', () => {
   // ----- Authentication -----
 
   describe('authentication', () => {
-    it('returns 401 when no user ID', async () => {
+    it('stores nothing when the session is not authenticated', async () => {
+      // A valid registration would be written if the handler ignored auth.
       const { req, res } = createMockReqRes('POST', {
         endpoint: 'https://fcm.googleapis.com/fcm/send/sub1',
+        keys: { p256dh: validKey1, auth: validAuth },
       });
+      (jsonGet as any).mockResolvedValue([]);
       (requireAuthenticatedUser as any).mockImplementationOnce(async () => {
         res.status(401).json({ error: 'Not authenticated' });
         return null;
@@ -73,8 +76,10 @@ describe('push/subscribe API handler', () => {
 
       await handler(req, res);
 
+      expect(res.status).toHaveBeenCalledTimes(1);
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Not authenticated' });
+      expect(jsonGet).not.toHaveBeenCalled();
+      expect(jsonSetWithExpiry).not.toHaveBeenCalled();
     });
   });
 

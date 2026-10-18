@@ -97,6 +97,112 @@ def test_refresh_preserves_grants_through_transient_failure():
     asyncio.run(run())
 
 
+class _HTTPError(Exception):
+    """Real exception type; conftest replaces FastAPI with a MagicMock."""
+
+    def __init__(self, status_code, detail):
+        super().__init__(detail)
+        self.status_code = status_code
+
+
+def test_callback_states_are_unknown_single_use_bounded_and_declinable(monkeypatch):
+    from daedalus_runtime import oauth as oauth_module
+
+    monkeypatch.setattr(oauth_module, "HTTPException", _HTTPError)
+
+    async def run():
+        store = Redis()
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200, json={"access_token": "granted", "expires_in": 3600}
+                )
+            )
+        ) as http:
+            oauth = GoogleOAuth(store, http)
+            emitted = asyncio.Queue()
+
+            async def emit(event, data):
+                await emitted.put(data)
+
+            with pytest.raises(_HTTPError) as unknown:
+                oauth.callback("never-issued", "code")
+            assert unknown.value.status_code == 400
+
+            declined = asyncio.create_task(oauth.access_token("alice", CONFIG, emit))
+            state = (await emitted.get())["oauth_state"]
+            oauth.callback(state, None, "access_denied")
+            with pytest.raises(RuntimeError, match="declined"):
+                await declined
+            with pytest.raises(_HTTPError):
+                oauth.callback(state, "late-code")
+
+            granted = asyncio.create_task(oauth.access_token("bob", CONFIG, emit))
+            state = (await emitted.get())["oauth_state"]
+            oauth.callback(state, "bob-code")
+            with pytest.raises(_HTTPError):
+                oauth.callback(state, "replayed-code")
+            assert await granted == "granted"
+
+            expired = asyncio.create_task(oauth.access_token("carol", CONFIG, emit))
+            state = (await emitted.get())["oauth_state"]
+            oauth.pending[state].created -= 601
+            with pytest.raises(_HTTPError):
+                oauth.callback(state, "too-late")
+            expired.cancel()
+            await asyncio.gather(expired, return_exceptions=True)
+            assert not oauth.pending
+
+    asyncio.run(run())
+
+
+def test_interactive_grant_waits_for_a_concurrent_invalidation():
+    async def run():
+        store = Redis()
+        key = token_key("docs", "alice")
+        await store.set(
+            key,
+            json.dumps({"version": 2, "access_token": "superseded", "expires_at": 0}),
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json={
+                        "access_token": "fresh",
+                        "refresh_token": "fresh-refresh",
+                        "expires_in": 3600,
+                    },
+                )
+            )
+        ) as http:
+            oauth = GoogleOAuth(store, http)
+            emitted = asyncio.Queue()
+
+            async def emit(event, data):
+                await emitted.put(data)
+
+            authorizing = asyncio.create_task(oauth.access_token("alice", CONFIG, emit))
+            state = (await emitted.get())["oauth_state"]
+            # An invalidation of the superseded token has read the stored grant
+            # under the shared refresh lock and has not written it back yet.
+            refresh_lock = store.lock(key + "/refresh-lock")
+            await refresh_lock.acquire()
+            stale = decode_grant(await store.get(key))
+            oauth.callback(state, "alice-code")
+            await asyncio.sleep(0.05)  # let the code exchange finish
+            stale["expires_at"] = 0
+            await store.set(key, json.dumps(stale))
+            refresh_lock.release()
+
+            assert await authorizing == "fresh"
+            saved = decode_grant(await store.get(key))
+            assert saved["access_token"] == "fresh"
+            assert saved["refresh_token"] == "fresh-refresh"
+
+    asyncio.run(run())
+
+
 def test_browser_authorizations_have_independent_one_use_states_and_pkce():
     async def run():
         store = Redis()

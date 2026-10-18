@@ -76,7 +76,7 @@ not a collection of installed CLI plugins. Keep all skills compatible with
 ## Validation
 
 Discover the complete catalog dynamically through the real parser/dispatcher;
-the current catalog contains 17 entries. Load every bundled
+the current catalog contains 14 entries. Load every bundled
 text resource, and check local links and cross-skill targets. Run the focused
 builder tests for any changed scripts/contracts and pre-commit on changed files.
 Do not use syntax checks as proof of model behavior, a deployment, or benchmark

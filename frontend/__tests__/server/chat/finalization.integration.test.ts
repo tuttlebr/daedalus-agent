@@ -18,6 +18,8 @@ describe.skipIf(!RUN_REAL_REDIS)(
     let userId: string;
     let memoryServer: Server;
     const memoryRequests: any[] = [];
+    let memoryUnavailable = false;
+    let memoryResponseClosed: (() => void) | undefined;
     const previousBackend = {
       host: process.env.BACKEND_HOST,
       port: process.env.BACKEND_PORT,
@@ -38,6 +40,13 @@ describe.skipIf(!RUN_REAL_REDIS)(
         let body = '';
         for await (const chunk of req) body += chunk;
         memoryRequests.push(JSON.parse(body));
+        if (memoryUnavailable) {
+          // A failing gateway that never finishes its diagnostic body.
+          res.on('close', () => memoryResponseClosed?.());
+          res.writeHead(503, { 'Content-Type': 'text/html' });
+          res.write('<html>unavailable');
+          return;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ operation_id: `memory-${jobId}` }));
       });
@@ -316,6 +325,233 @@ describe.skipIf(!RUN_REAL_REDIS)(
       ).toBe(eventsPublishedAt);
       expect(memoryRequests).toHaveLength(successClaimed ? 1 : 0);
       if (successClaimed) expect(memoryRequests[0].request_id).toBe(jobId);
+    });
+
+    it('keeps a rename saved while the response was running', async () => {
+      const { saveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      const renameJob = `${jobId}-rename`;
+      const renamedConversation = `${conversationId}-rename`;
+      const statusKey = redis.sessionKey(['async-job-status', renameJob]);
+      const conversationKey = redis.sessionKey([
+        'conversation',
+        renamedConversation,
+      ]);
+      const selectedKey = redis.sessionKey([
+        'user',
+        userId,
+        'selectedConversation',
+      ]);
+      const submittedAt = Date.now() - 1_000;
+      const userMessage = { id: 'rename-user', role: 'user', content: 'Plan' };
+      // Submission saves the client's auto-generated name and reserves it.
+      await saveConversationForUser(
+        userId,
+        renamedConversation,
+        () => ({
+          id: renamedConversation,
+          name: 'Plan',
+          messages: [userMessage],
+          updatedAt: submittedAt - 1,
+        }),
+        true,
+      );
+      await redis.jsonSetWithExpiry(
+        statusKey,
+        {
+          jobId: renameJob,
+          status: 'streaming',
+          createdAt: submittedAt,
+          updatedAt: submittedAt,
+          conversationId: renamedConversation,
+        },
+        120,
+      );
+      await redis.jsonSetWithExpiry(
+        selectedKey,
+        { id: renamedConversation, name: 'Plan', messages: [userMessage] },
+        120,
+      );
+      // The sidebar rename route writes a server timestamp after submission.
+      await saveConversationForUser(userId, renamedConversation, (current) => ({
+        ...current,
+        name: 'Trip plan for March',
+        updatedAt: Date.now(),
+      }));
+      await redis.jsonSetWithExpiry(
+        selectedKey,
+        {
+          id: renamedConversation,
+          name: 'Trip plan for March',
+          messages: [userMessage],
+        },
+        120,
+      );
+
+      try {
+        await expect(
+          finalization.finalizeSuccess(
+            renameJob,
+            {
+              jobId: renameJob,
+              natBaseUrl: 'http://127.0.0.1:1',
+              executionMode: 'stream',
+              messages: [userMessage],
+              userId,
+              conversationId: renamedConversation,
+              conversationName: 'Plan',
+              assistantMessageId: 'rename-assistant',
+            },
+            'Here is the plan.',
+          ),
+        ).resolves.toBe(true);
+
+        const saved = await redis.jsonGet(conversationKey);
+        expect(saved.name).toBe('Trip plan for March');
+        expect(saved.messages.map((message: any) => message.id)).toEqual([
+          'rename-user',
+          'rename-assistant',
+        ]);
+        expect((await redis.jsonGet(selectedKey)).name).toBe(
+          'Trip plan for March',
+        );
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        const updates = observedMessages.filter(
+          ({ payload }) =>
+            payload.type === 'conversation_updated' &&
+            payload.data?.conversationId === renamedConversation,
+        );
+        expect(updates.at(-1)?.payload.data.conversation.name).toBe(
+          'Trip plan for March',
+        );
+      } finally {
+        await client.del(
+          statusKey,
+          conversationKey,
+          state.finalizationJournalKey(renameJob),
+          state.finalizerLockKey(renameJob),
+          state.abortKey(renameJob),
+          redis.sessionKey(['memory-retention', 'record', 'v1', renameJob]),
+        );
+        await client.zrem(
+          redis.sessionKey(['memory-retention', 'queue', 'v1']),
+          renameJob,
+        );
+      }
+    });
+
+    it('completes when memory retention fails and releases its unread response', async () => {
+      const retainJob = `${jobId}-retain-failure`;
+      const retainConversation = `${conversationId}-retain-failure`;
+      const statusKey = redis.sessionKey(['async-job-status', retainJob]);
+      const conversationKey = redis.sessionKey([
+        'conversation',
+        retainConversation,
+      ]);
+      const { reserveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      await reserveConversationForUser(userId, retainConversation);
+      await redis.jsonSetWithExpiry(
+        statusKey,
+        { jobId: retainJob, status: 'streaming', createdAt: Date.now() },
+        120,
+      );
+      const closed = new Promise<string>((resolve) => {
+        memoryResponseClosed = () => resolve('closed');
+      });
+      memoryUnavailable = true;
+      try {
+        await expect(
+          finalization.finalizeSuccess(
+            retainJob,
+            {
+              jobId: retainJob,
+              natBaseUrl: 'http://127.0.0.1:1',
+              executionMode: 'stream',
+              messages: [{ id: 'retain-user', role: 'user', content: 'Hi' }],
+              userId,
+              conversationId: retainConversation,
+            },
+            'Hello.',
+          ),
+        ).resolves.toBe(true);
+        expect(await state.getFinalizationJournal(retainJob)).toMatchObject({
+          state: 'completed',
+          memoryRetentionAttemptedAt: expect.any(Number),
+        });
+        await expect(
+          Promise.race([
+            closed,
+            new Promise((resolve) => setTimeout(() => resolve('open'), 1_000)),
+          ]),
+        ).resolves.toBe('closed');
+      } finally {
+        memoryUnavailable = false;
+        memoryResponseClosed = undefined;
+        await client.del(
+          statusKey,
+          conversationKey,
+          state.finalizationJournalKey(retainJob),
+          state.finalizerLockKey(retainJob),
+          state.abortKey(retainJob),
+        );
+      }
+    });
+
+    it('applies the submitted name when no newer rename was saved', async () => {
+      const { saveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      const nameJob = `${jobId}-name`;
+      const namedConversation = `${conversationId}-name`;
+      const statusKey = redis.sessionKey(['async-job-status', nameJob]);
+      const conversationKey = redis.sessionKey([
+        'conversation',
+        namedConversation,
+      ]);
+      await saveConversationForUser(
+        userId,
+        namedConversation,
+        () => ({
+          id: namedConversation,
+          name: 'New conversation',
+          updatedAt: 0,
+        }),
+        true,
+      );
+      await redis.jsonSetWithExpiry(
+        statusKey,
+        { jobId: nameJob, status: 'streaming', createdAt: Date.now() },
+        120,
+      );
+      try {
+        await finalization.finalizeError(
+          nameJob,
+          {
+            jobId: nameJob,
+            natBaseUrl: 'http://127.0.0.1:1',
+            executionMode: 'stream',
+            messages: [],
+            userId,
+            conversationId: namedConversation,
+            conversationName: 'Weather in Oslo',
+          },
+          'Backend stream returned 503',
+        );
+        expect((await redis.jsonGet(conversationKey)).name).toBe(
+          'Weather in Oslo',
+        );
+      } finally {
+        await client.del(
+          statusKey,
+          conversationKey,
+          state.finalizationJournalKey(nameJob),
+          state.finalizerLockKey(nameJob),
+          state.abortKey(nameJob),
+        );
+      }
     });
 
     it.each(['switch', 'delete'])(

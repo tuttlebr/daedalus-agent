@@ -66,11 +66,13 @@ elif tool == "kubectl":
 """
 
 
+pytestmark = pytest.mark.requires_helm
+
+
 @pytest.fixture
 def deploy_fixture(tmp_path):
     helm = shutil.which("helm")
-    if not helm:
-        pytest.skip("helm not installed")
+    assert helm, "the requires_helm gate must run before this fixture"
     commands = tmp_path / "bin"
     commands.mkdir()
     for tool in ("uv", "docker", "helm", "kubectl", "trivy"):

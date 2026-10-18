@@ -163,6 +163,47 @@ fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"_-.:".contains(&b))
 }
 
+const RUNS_PER_USER: usize = 5;
+const MAX_RUNS: usize = 64;
+
+/// Admission for a new run. Interactive chats and background autonomy runs
+/// use separate per-user pools: the frontend admits five chats per user
+/// without counting the autonomy worker, so a long scheduled run must not
+/// turn an admitted fifth chat into a backend rejection (or the reverse).
+fn admission_rejection(
+    runs: &HashMap<String, Arc<RunHandle>>,
+    run_id: &str,
+    handle: &RunHandle,
+) -> Option<Response> {
+    if runs.contains_key(run_id)
+        || runs.values().any(|run| {
+            !handle.conversation.is_empty()
+                && run.user == handle.user
+                && run.conversation == handle.conversation
+        })
+    {
+        return Some(error(409, "A run is already active for this conversation"));
+    }
+    let same_pool = runs
+        .values()
+        .filter(|run| run.user == handle.user && run.autonomy == handle.autonomy)
+        .count();
+    if same_pool >= RUNS_PER_USER {
+        return Some(error(
+            429,
+            if handle.autonomy {
+                "Too many autonomous runs are active for this user."
+            } else {
+                "You already have five chats running. Wait for one to finish or stop a response before starting another."
+            },
+        ));
+    }
+    if runs.len() >= MAX_RUNS {
+        return Some(error(429, "Agent capacity reached"));
+    }
+    None
+}
+
 async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<Value>) -> Response {
     let user = match authenticate(&app, &headers) {
         Ok(user) => user,
@@ -201,12 +242,17 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     // caller's proxy connection.
     headers.remove(header::HOST);
     headers.remove(header::CONTENT_LENGTH);
+    let autonomy = headers
+        .get("x-daedalus-execution-scope")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|scope| scope.eq_ignore_ascii_case("autonomy"));
     let (commands, inbox) = mpsc::channel(32);
     let (sender, receiver) = mpsc::channel(128);
     let handle = Arc::new(RunHandle {
         telemetry: Mutex::new(None),
         user,
         conversation,
+        autonomy,
         sender: commands,
         commands: Mutex::new(HashMap::new()),
         finished: std::sync::atomic::AtomicBool::new(false),
@@ -215,23 +261,8 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     });
     {
         let mut runs = app.runs.lock().await;
-        if runs.contains_key(&run_id)
-            || runs.values().any(|run| {
-                !handle.conversation.is_empty()
-                    && run.user == handle.user
-                    && run.conversation == handle.conversation
-            })
-        {
-            return error(409, "A run is already active for this conversation");
-        }
-        if runs.values().filter(|run| run.user == handle.user).count() >= 5 {
-            return error(
-                429,
-                "You already have five chats running. Wait for one to finish or stop a response before starting another.",
-            );
-        }
-        if runs.len() >= 64 {
-            return error(429, "Agent capacity reached");
+        if let Some(rejection) = admission_rejection(&runs, &run_id, &handle) {
+            return rejection;
         }
         runs.insert(run_id.clone(), handle.clone());
     }
@@ -424,9 +455,35 @@ async fn control(
     }
 }
 
+/// The Python ASGI server percent-decodes a path once before routing, so
+/// `/%72untime/...` reaches `/runtime/...`. Block the decoded form as well.
+fn internal_path(path: &str) -> bool {
+    let raw = path.as_bytes();
+    let hex = |index: usize| raw.get(index).and_then(|byte| (*byte as char).to_digit(16));
+    let mut decoded = Vec::with_capacity(raw.len());
+    let mut index = 0;
+    while index < raw.len() {
+        if raw[index] == b'%'
+            && let (Some(high), Some(low)) = (hex(index + 1), hex(index + 2))
+        {
+            decoded.push((high * 16 + low) as u8);
+            index += 3;
+        } else {
+            decoded.push(raw[index]);
+            index += 1;
+        }
+    }
+    decoded == b"/runtime" || decoded.starts_with(b"/runtime/")
+}
+
 async fn proxy(State(app): State<App>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
-    if parts.uri.path().starts_with("/runtime/") {
+    // Check the path that is actually sent: URL parsing removes dot segments
+    // (also percent-encoded ones), so `/./runtime/...` would pass a raw check.
+    let Ok(upstream) = reqwest::Url::parse(&format!("{}{}", app.tools_url, parts.uri)) else {
+        return error(400, "Invalid request path");
+    };
+    if internal_path(parts.uri.path()) || internal_path(upstream.path()) {
         return error(404, "Not found");
     }
     if app
@@ -457,7 +514,7 @@ async fn proxy(State(app): State<App>, request: Request) -> Response {
     };
     let response = app
         .http
-        .request(parts.method, format!("{}{}", app.tools_url, parts.uri))
+        .request(parts.method, upstream)
         .headers(headers)
         .body(bytes)
         .send()
@@ -711,4 +768,140 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower::ServiceExt;
+
+    fn run(user: &str, conversation: &str, autonomy: bool) -> Arc<RunHandle> {
+        Arc::new(RunHandle {
+            telemetry: Mutex::new(None),
+            user: user.into(),
+            conversation: conversation.into(),
+            autonomy,
+            sender: mpsc::channel(1).0,
+            commands: Mutex::new(HashMap::new()),
+            finished: std::sync::atomic::AtomicBool::new(false),
+            cancellation: tokio::sync::watch::channel(false).0,
+            metrics: control::Metrics::default(),
+        })
+    }
+
+    #[test]
+    fn autonomy_and_interactive_chats_use_separate_per_user_pools() {
+        let status = |runs: &HashMap<String, Arc<RunHandle>>, handle: &RunHandle| {
+            admission_rejection(runs, "new-run", handle).map(|r| r.status())
+        };
+        let mut runs = HashMap::new();
+        runs.insert("auto".to_string(), run("alice", "", true));
+        for index in 0..4 {
+            runs.insert(
+                format!("chat-{index}"),
+                run("alice", &format!("c{index}"), false),
+            );
+        }
+        // A scheduled run does not consume one of the five interactive chats.
+        assert_eq!(status(&runs, &run("alice", "c4", false)), None);
+        runs.insert("chat-4".to_string(), run("alice", "c4", false));
+        assert_eq!(
+            status(&runs, &run("alice", "c5", false)),
+            Some(StatusCode::TOO_MANY_REQUESTS)
+        );
+        // Five open chats do not block the user's scheduled autonomy run.
+        assert_eq!(status(&runs, &run("alice", "", true)), None);
+        for index in 1..5 {
+            runs.insert(format!("auto-{index}"), run("alice", "", true));
+        }
+        assert_eq!(
+            status(&runs, &run("alice", "", true)),
+            Some(StatusCode::TOO_MANY_REQUESTS)
+        );
+        // Other users and per-conversation exclusivity are unchanged.
+        assert_eq!(status(&runs, &run("bob", "c0", false)), None);
+        assert_eq!(
+            status(&runs, &run("alice", "c0", true)),
+            Some(StatusCode::CONFLICT)
+        );
+        for index in 0..(MAX_RUNS - runs.len()) {
+            runs.insert(
+                format!("other-{index}"),
+                run(&format!("u{index}"), "", false),
+            );
+        }
+        assert_eq!(
+            status(&runs, &run("carol", "", false)),
+            Some(StatusCode::TOO_MANY_REQUESTS)
+        );
+    }
+
+    #[tokio::test]
+    async fn encoded_internal_paths_never_reach_the_tool_service() {
+        let forwarded = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let recorder = forwarded.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let tools_url = format!("http://{}", listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move {
+            let service = Router::new().fallback(move |request: Request| {
+                let recorder = recorder.clone();
+                async move {
+                    recorder
+                        .lock()
+                        .unwrap()
+                        .push(request.uri().path().to_owned());
+                    "forwarded"
+                }
+            });
+            axum::serve(listener, service).await.unwrap()
+        });
+        let app = router(App {
+            http: reqwest::Client::new(),
+            tools_url,
+            internal_token: Arc::new("synthetic-internal".into()),
+            insecure: false,
+            runs: Arc::default(),
+            preparation: None,
+            executions: Arc::default(),
+        });
+        for path in [
+            "/runtime/v1/tools/call",
+            "/%72untime/v1/tools/call",
+            "/%72%75ntime/tools/call",
+            "/runtime%2Fv1/tools/call",
+            "/runtime%2fprepare",
+            "/runtime",
+            // The upstream URL parser removes dot segments, including encoded
+            // ones, after this check would otherwise have run.
+            "/./runtime/v1/tools/call",
+            "/v1/../runtime/v1/tools/call",
+            "/%2e/runtime/v1/tools/call",
+            "/v1/%2E%2E/runtime/prepare",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post(path)
+                        .header("x-daedalus-internal-token", "synthetic-internal")
+                        .header("x-user-id", "synthetic-user")
+                        .body(Body::from("{}"))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        }
+        assert!(forwarded.lock().unwrap().is_empty());
+        // Public adapters, including encoded non-internal paths, still proxy.
+        for path in ["/v1/images/generations", "/v1/runtime%2Fname", "/runtimes"] {
+            let response = app
+                .clone()
+                .oneshot(Request::post(path).body(Body::from("{}")).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+        }
+        assert_eq!(forwarded.lock().unwrap().len(), 3);
+        peer.abort();
+    }
 }

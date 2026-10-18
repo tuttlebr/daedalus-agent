@@ -28,150 +28,109 @@ def run(coro):
 # ---------------------------------------------------------------------------
 
 
-class TestHtmlToMarkdown:
+class TestConvertFetchedResource:
+    """Fetched bytes are converted locally; converters never receive a URL."""
+
     def _mock_md(self, title="Page Title", text_content="Article body"):
         mock_result = MagicMock()
         mock_result.title = title
         mock_result.text_content = text_content
         mock_md_instance = MagicMock()
-        mock_md_instance.convert.return_value = mock_result
+
+        def convert(path):
+            with open(path, "rb") as file_obj:
+                mock_md_instance.converted_bytes = file_obj.read()
+            return mock_result
+
+        mock_md_instance.convert.side_effect = convert
         return mock_md_instance
 
-    def test_basic_conversion(self):
+    def _convert(self, mock_md, content, **kwargs):
         import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _html_to_markdown
 
-        mock_md = self._mock_md()
-        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _html_to_markdown("<html>test</html>", "https://example.com")
-        assert "Page Title" in result
-        assert "Article body" in result
-        assert "_Source: https://example.com_" in result
-
-    def test_no_title_falls_back_to_url(self):
-        import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _html_to_markdown
-
-        mock_md = self._mock_md(title=None)
-        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _html_to_markdown("<html>test</html>", "https://no-title.com")
-        assert "https://no-title.com" in result
-
-    def test_custom_title_overrides_result_title(self):
-        import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _html_to_markdown
-
-        mock_md = self._mock_md(title="Wrong Title")
-        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _html_to_markdown(
-                "<html>test</html>", "https://example.com", title="Custom Title"
+        kwargs.setdefault("content_type", "text/html")
+        kwargs.setdefault("html", True)
+        with (
+            patch.object(wsmod, "_convert_html_article", return_value=None),
+            patch.object(wsmod, "MarkItDown", return_value=mock_md),
+        ):
+            return wsmod._convert_fetched_resource(
+                content, "https://example.com", kwargs.pop("content_type"), **kwargs
             )
-        assert "Custom Title" in result
 
-    def test_token_limit_truncation(self):
-        import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _html_to_markdown
-
-        mock_md = self._mock_md(text_content="word " * 5000)
-        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            original_available = wsmod.TIKTOKEN_AVAILABLE
-            try:
-                wsmod.TIKTOKEN_AVAILABLE = False  # use char-based
-                result = _html_to_markdown(
-                    "<html>test</html>",
-                    "https://example.com",
-                    token_limit=50,
-                    truncation_msg="TRUNCATED",
-                )
-            finally:
-                wsmod.TIKTOKEN_AVAILABLE = original_available
-        assert "TRUNCATED" in result
-
-    def test_none_text_content(self):
-        import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _html_to_markdown
-
-        mock_md = self._mock_md(text_content=None)
-        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _html_to_markdown("<html></html>", "https://example.com")
-        assert "Page Title" in result
-
-    def test_temp_file_cleaned_up(self):
-        """Temp file should be deleted after conversion."""
-        import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _html_to_markdown
-
+    def test_html_fallback_converts_a_removed_local_html_file(self):
         mock_md = self._mock_md()
-        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _html_to_markdown("<html>test</html>", "https://example.com")
-        converted_path = mock_md.convert.call_args.args[0]
-        assert not os.path.exists(converted_path)
-        assert isinstance(result, str)
-
-
-class TestScrapeWithMarkitdown:
-    def test_basic_scrape(self):
-        import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _scrape_with_markitdown
-
-        mock_result = MagicMock()
-        mock_result.title = "Test Page"
-        mock_result.text_content = "Content here"
-        mock_md = MagicMock()
-        mock_md.convert.return_value = mock_result
-
-        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _scrape_with_markitdown(
-                "https://example.com",
-                fetched_content=b"<html>content</html>",
-                content_type="text/html",
-            )
+        result = self._convert(mock_md, b"<html>content</html>", content_type="")
         converted_path = mock_md.convert.call_args.args[0]
         assert converted_path != "https://example.com"
+        assert converted_path.endswith(".html")
         assert not os.path.exists(converted_path)
-        assert "Test Page" in result
-        assert "Content here" in result
+        assert result == "# Page Title\n\n_Source: https://example.com_\n\nArticle body"
 
-    def test_no_title(self):
+    def test_legacy_encoded_html_reaches_the_converter_unchanged(self):
+        # Decoding cp1252 bytes as UTF-8 first would replace these characters.
+        legacy = (
+            '<html><head><meta charset="windows-1252"></head>'
+            "<body><p>Müller: Résumé — £42</p></body></html>"
+        ).encode("cp1252")
+        mock_md = self._mock_md()
+        self._convert(mock_md, legacy, content_type="text/html")
+        assert mock_md.converted_bytes == legacy
+
+    def test_shared_html_converter_output_is_truncated(self):
         import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _scrape_with_markitdown
 
-        mock_result = MagicMock()
-        mock_result.title = None
-        mock_result.text_content = "Some content"
-        mock_md = MagicMock()
-        mock_md.convert.return_value = mock_result
-
-        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-            result = _scrape_with_markitdown(
-                "https://example.com",
-                fetched_content=b"<html>content</html>",
-                content_type="text/html",
-            )
-        assert "https://example.com" in result
-
-    def test_with_token_limit(self):
-        import webscrape.webscrape_function as wsmod
-        from webscrape.webscrape_function import _scrape_with_markitdown
-
-        mock_result = MagicMock()
-        mock_result.title = "Title"
-        mock_result.text_content = "word " * 5000
-
-        mock_md = MagicMock()
-        mock_md.convert.return_value = mock_result
-
+        markdown = "# Title\n\n_Source: https://example.com_\n\n" + "word " * 5000
         original = wsmod.TIKTOKEN_AVAILABLE
         try:
             wsmod.TIKTOKEN_AVAILABLE = False
-            with patch.object(wsmod, "MarkItDown", return_value=mock_md):
-                result = _scrape_with_markitdown(
+            with patch.object(wsmod, "_convert_html_article", return_value=markdown):
+                result = wsmod._convert_fetched_resource(
+                    b"<html></html>",
                     "https://example.com",
+                    "text/html",
+                    html=True,
                     token_limit=20,
                     truncation_msg="TRUNC",
-                    fetched_content=b"<html>content</html>",
-                    content_type="text/html",
                 )
+        finally:
+            wsmod.TIKTOKEN_AVAILABLE = original
+        assert result.startswith("# Title") and result.endswith("TRUNC")
+
+    def test_documents_keep_their_media_type_and_generic_converter(self):
+        import webscrape.webscrape_function as wsmod
+
+        mock_md = self._mock_md(title=None, text_content="PDF body")
+        with (
+            patch.object(
+                wsmod,
+                "_convert_html_article",
+                side_effect=AssertionError("documents must not use the HTML path"),
+            ),
+            patch.object(wsmod, "MarkItDown", return_value=mock_md),
+        ):
+            result = wsmod._convert_fetched_resource(
+                b"%PDF-1.7", "https://example.com", "application/pdf", html=False
+            )
+        assert mock_md.convert.call_args.args[0].endswith(".pdf")
+        assert (
+            result
+            == "# https://example.com\n\n_Source: https://example.com_\n\nPDF body"
+        )
+
+    def test_with_token_limit(self):
+        import webscrape.webscrape_function as wsmod
+
+        mock_md = self._mock_md(title="Title", text_content="word " * 5000)
+        original = wsmod.TIKTOKEN_AVAILABLE
+        try:
+            wsmod.TIKTOKEN_AVAILABLE = False
+            result = self._convert(
+                mock_md,
+                b"<html>content</html>",
+                token_limit=20,
+                truncation_msg="TRUNC",
+            )
         finally:
             wsmod.TIKTOKEN_AVAILABLE = original
         assert "TRUNC" in result

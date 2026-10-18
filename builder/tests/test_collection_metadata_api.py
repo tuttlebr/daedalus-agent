@@ -120,6 +120,10 @@ def test_async_list_collections_passes_same_timeout_to_worker(monkeypatch):
 
 
 def test_metadata_returns_hashed_private_target_and_read_only_shared(monkeypatch):
+    # The configured private collection prefix must not come from the ambient
+    # developer environment; this test asserts the default target.
+    monkeypatch.delenv("DOCUMENT_INGEST_DEFAULT_COLLECTION", raising=False)
+    monkeypatch.delenv("MILVUS_DATABASE", raising=False)
     monkeypatch.setattr(api, "require_trusted_user", lambda user, token: user)
     private = api.user_upload_collection_name("Alice", "user_uploads")
 

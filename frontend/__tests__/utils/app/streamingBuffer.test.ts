@@ -1,4 +1,5 @@
 import {
+  drainOffsetDeltas,
   isStaleCumulativeSnapshot,
   reduceStreamingUpdates,
 } from '@/utils/app/streamingBuffer';
@@ -60,6 +61,32 @@ describe('streaming update buffering', () => {
         { content: 'ld', responseStart: 9 },
       ]),
     ).toBe('Hello world');
+  });
+
+  describe('drainOffsetDeltas', () => {
+    it('applies held deltas the repaired text now reaches, in offset order', () => {
+      expect(
+        drainOffsetDeltas('Hello, missing', [
+          { content: '!', responseStart: 20 },
+          { content: ' words', responseStart: 14 },
+        ]),
+      ).toEqual({ text: 'Hello, missing words!', pending: [] });
+    });
+
+    it('keeps deltas that are still beyond the repaired text', () => {
+      const ahead = { content: ' later', responseStart: 30 };
+      expect(
+        drainOffsetDeltas('Hello', [ahead, { content: '!', responseStart: 5 }]),
+      ).toEqual({ text: 'Hello!', pending: [ahead] });
+    });
+
+    it('drops deltas already covered by the snapshot', () => {
+      expect(
+        drainOffsetDeltas('Hello world', [
+          { content: 'world', responseStart: 6 },
+        ]),
+      ).toEqual({ text: 'Hello world', pending: [] });
+    });
   });
 
   describe('isStaleCumulativeSnapshot', () => {

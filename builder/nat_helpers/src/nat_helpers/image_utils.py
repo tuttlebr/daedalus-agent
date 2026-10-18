@@ -270,15 +270,18 @@ async def store_image_in_redis(
     if image_context is not None:
         image_record["imageContext"] = image_context
 
-    try:
-        await asyncio.to_thread(
-            redis_client.execute_command,
-            "JSON.SET",
-            redis_key,
-            "$",
-            json.dumps(image_record),
+    def write() -> None:
+        # One MULTI/EXEC: an interruption between the record and its expiry
+        # must not leave image data stored without a TTL.
+        transaction = redis_client.pipeline(transaction=True)
+        transaction.execute_command(
+            "JSON.SET", redis_key, "$", json.dumps(image_record)
         )
-        await asyncio.to_thread(redis_client.expire, redis_key, 604800)
+        transaction.expire(redis_key, 604800)
+        transaction.execute()
+
+    try:
+        await asyncio.to_thread(write)
     except redis_lib.RedisError as e:
         logger.error("Failed to store image in Redis: %s", e)
         raise

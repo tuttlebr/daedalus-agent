@@ -76,6 +76,8 @@ export async function getMilvusMetadata(
       signal: controller.signal,
     });
     if (!response.ok) {
+      // Release the unread diagnostic body so it cannot pin a pooled socket.
+      await response.body?.cancel().catch(() => undefined);
       throw new Error(
         `Backend collection metadata returned ${response.status}`,
       );

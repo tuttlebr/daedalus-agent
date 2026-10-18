@@ -185,22 +185,28 @@ async function processRecord(jobId: string): Promise<void> {
       await persistRecord(record, now + nextDelay(record));
       return;
     }
-    if (!response.ok) {
+    let body: {
+      status?: MemoryRetentionStatus;
+      unit_ids_count?: number;
+      extraction_errors_count?: number;
+      retry_count?: number;
+    } | null = null;
+    if (response.ok) {
+      body = await response.json().catch(() => null);
+    } else {
+      // fetchWithTimeout holds its deadline and connection until the body is
+      // consumed or cancelled; the status code is the whole result here.
+      await response.body?.cancel().catch(() => undefined);
+    }
+    if (!body || typeof body !== 'object') {
       logger.warn(
-        `Retention status returned HTTP ${response.status} for ${jobId}`,
+        `Retention status returned an unusable HTTP ${response.status} response for ${jobId}`,
       );
       record.updatedAt = now;
       record.pollIndex += 1;
       await persistRecord(record, now + nextDelay(record));
       return;
     }
-
-    const body = (await response.json()) as {
-      status?: MemoryRetentionStatus;
-      unit_ids_count?: number;
-      extraction_errors_count?: number;
-      retry_count?: number;
-    };
     const status = body.status || 'not_found';
     record.status = status;
     record.updatedAt = now;
@@ -222,6 +228,7 @@ async function processRecord(jobId: string): Promise<void> {
         const retry = await backendRequest(record, 'POST', '/retry').catch(
           () => null,
         );
+        await retry?.body?.cancel().catch(() => undefined);
         if (retry?.ok) {
           record.status = 'pending';
           record.retrySubmitted = true;

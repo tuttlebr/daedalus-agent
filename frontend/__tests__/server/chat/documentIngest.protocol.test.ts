@@ -4,13 +4,17 @@ import type { AsyncJobRequest } from '@/server/chat/types';
 import { createServer, type Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  updateJobStatus: vi.fn(),
+}));
 vi.mock('@/server/chat/finalization', () => ({
   finalizeSuccess: mocks.success,
   finalizeError: mocks.error,
 }));
 vi.mock('@/server/chat/jobState', () => ({
-  updateJobStatus: vi.fn(),
+  updateJobStatus: mocks.updateJobStatus,
   clearOAuthStatusFields: () => ({}),
 }));
 vi.mock('@/server/chat/natMessages', () => ({
@@ -86,6 +90,80 @@ describe('real HTTP ingestion terminal protocol', () => {
       'Mixed framing',
     );
   });
+  it('closes the backend stream when local progress persistence fails', async () => {
+    let closed!: () => void;
+    const connectionClosed = new Promise<void>((resolve) => {
+      closed = resolve;
+    });
+    server = createServer((req, res) => {
+      res.on('close', () => closed());
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('event: progress\ndata: {"completed":0,"total":1}\n\n');
+    });
+    await new Promise<void>((resolve) =>
+      server!.listen(0, '127.0.0.1', resolve),
+    );
+    mocks.updateJobStatus
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('Redis unavailable'));
+    const request = {
+      userId: 'test-user',
+      natBaseUrl: `http://127.0.0.1:${(server.address() as any).port}`,
+      documentIngest: {
+        documentRefs: [{ documentId: 'fixture' }],
+        username: 'test-user',
+        collectionName: 'private-test',
+        collectionScope: 'private',
+      },
+    } as unknown as AsyncJobRequest;
+
+    await startBackgroundDocumentIngest('protocol-test', request, 'test-user');
+
+    expect(mocks.error).toHaveBeenCalledWith(
+      'protocol-test',
+      expect.anything(),
+      'Redis unavailable',
+    );
+    // The failed job must not leave the backend ingesting on an orphaned
+    // connection until the one-hour ingestion deadline.
+    await expect(
+      Promise.race([
+        connectionClosed.then(() => 'closed'),
+        new Promise((resolve) => setTimeout(() => resolve('open'), 1_000)),
+      ]),
+    ).resolves.toBe('closed');
+  });
+
+  it('reports a backend rejection without waiting for a stalled error body', async () => {
+    server = createServer((_req, res) => {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.write('{"detail":"documentRef or documentRefs required"}');
+    });
+    await new Promise<void>((resolve) =>
+      server!.listen(0, '127.0.0.1', resolve),
+    );
+    const request = {
+      userId: 'test-user',
+      natBaseUrl: `http://127.0.0.1:${(server.address() as any).port}`,
+      documentIngest: {
+        documentRefs: [],
+        username: 'test-user',
+        collectionName: 'private-test',
+        collectionScope: 'private',
+      },
+    } as unknown as AsyncJobRequest;
+
+    const started = Date.now();
+    await startBackgroundDocumentIngest('protocol-test', request, 'test-user');
+
+    expect(Date.now() - started).toBeLessThan(8_000);
+    expect(mocks.error).toHaveBeenCalledWith(
+      'protocol-test',
+      expect.anything(),
+      'Document ingest failed (400): documentRef or documentRefs required',
+    );
+  }, 15_000);
+
   it('propagates cancellation without success finalization', async () => {
     const controller = new AbortController();
     const pending = ingest(

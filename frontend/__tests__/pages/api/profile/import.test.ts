@@ -18,7 +18,8 @@ vi.mock('@/utils/app/backendApi', () => ({
   ),
 }));
 
-vi.mock('@/utils/fetchWithTimeout', () => ({
+vi.mock('@/utils/fetchWithTimeout', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/fetchWithTimeout')>()),
   fetchWithTimeout: vi.fn(),
 }));
 
@@ -124,7 +125,26 @@ describe('profile import API handler', () => {
 
     expect(res.status).toHaveBeenCalledWith(502);
     expect(res.json).toHaveBeenCalledWith({
-      error: 'Profile import backend request failed: connection refused',
+      error: 'Profile import backend request failed.',
+    });
+  });
+
+  it('reports a timeout without exposing the internal backend address', async () => {
+    const { FetchTimeoutError } = await vi.importActual<
+      typeof import('@/utils/fetchWithTimeout')
+    >('@/utils/fetchWithTimeout');
+    vi.mocked(fetchWithTimeout).mockRejectedValue(
+      new FetchTimeoutError('http://backend:8000/v1/profile/import', 150000),
+    );
+    const { req, res } = createMockReqRes('POST', { entries: [] });
+
+    await handler(req, res);
+
+    expect(JSON.stringify(res.json.mock.calls)).not.toContain('backend:8000');
+    expect(res.status).toHaveBeenCalledWith(504);
+    expect(res.json).toHaveBeenCalledWith({
+      error:
+        'Profile import is still running or timed out. Check Memory before retrying.',
     });
   });
 });

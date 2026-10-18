@@ -1,6 +1,5 @@
 """Render both policy modes; push grants must remain opt-in and scoped."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -8,7 +7,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="Helm is required")
+pytestmark = pytest.mark.requires_helm
 
 
 def render(*values, succeeds=True):

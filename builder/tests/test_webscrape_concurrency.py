@@ -3,6 +3,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import webscrape.webscrape_function as scrape
@@ -128,6 +129,67 @@ def test_research_mode_preserves_source_before_full_mode_token_limit(monkeypatch
 
     monkeypatch.setattr(PublicContentSession, "article", article)
     asyncio.run(exercise())
+
+
+def test_full_mode_token_limit_runs_outside_the_event_loop(monkeypatch):
+    """Token-limit search tokenizes large articles; other scrapes keep running."""
+    import time
+
+    delay = 0.6
+
+    def slow_truncate(text, limit, message):
+        time.sleep(delay)
+        return text[:20] + message, True
+
+    async def article(self, url, **kwargs):
+        return SimpleNamespace(
+            url=url,
+            markdown=f"# Fixture\n\n_Source: {url}_\n\n" + "Evidence. " * 200,
+            fetched_at="2026-10-18T00:00:00Z",
+        ), "hit"
+
+    monkeypatch.setattr(scrape, "_truncate_to_token_limit", slow_truncate)
+    monkeypatch.setattr(PublicContentSession, "article", article)
+
+    async def exercise():
+        registry = ToolRegistry(
+            {"functions": {"scrape": {"_type": "webscrape", "max_concurrency": 4}}}
+        )
+        gaps, done = [], asyncio.Event()
+
+        async def heartbeat():
+            last = time.perf_counter()
+            while not done.is_set():
+                await asyncio.sleep(0.01)
+                now = time.perf_counter()
+                gaps.append(now - last)
+                last = now
+
+        try:
+            tool = await registry.get_function("scrape")
+            monkeypatch.setattr(scrape, "_check_robots", AsyncMock())
+            beat = asyncio.create_task(heartbeat())
+            await asyncio.sleep(0)
+            try:
+                results = await asyncio.gather(
+                    *(
+                        tool.ainvoke({"url": f"https://sources.test/{index}"})
+                        for index in range(2)
+                    )
+                )
+            finally:
+                done.set()
+                await beat
+        finally:
+            await registry.close()
+        return results, max(gaps)
+
+    results, max_gap = asyncio.run(exercise())
+    assert all(
+        result.endswith(scrape.WebscrapeFunctionConfig().truncation_message)
+        for result in results
+    )
+    assert max_gap < delay / 2, max_gap
 
 
 def test_research_mode_requires_operator_opt_in():

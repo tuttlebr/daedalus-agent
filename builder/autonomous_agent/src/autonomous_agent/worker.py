@@ -32,6 +32,9 @@ _CADENCE_TAG_RE = re.compile(r"^cadence:(\d+)([hd])$", re.IGNORECASE)
 # to reason about it. Configuration above this fails at worker startup rather
 # than wedging the single replica for hours.
 MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS = 6900
+# Upper bound on the delay between a dashboard cancellation and the abort of
+# the open backend request.
+CANCEL_POLL_SECONDS = 1.0
 
 
 def log(message: str) -> None:
@@ -390,6 +393,34 @@ def _request_timeout_seconds() -> int:
     return request_timeout
 
 
+def _worker_timing_seconds() -> tuple[int, int]:
+    """Validate queue polling against the lease it must not outlive.
+
+    ``dequeue`` blocks for the poll interval without a heartbeat, and Redis
+    treats a zero BRPOPLPUSH timeout as "block forever", which would also stop
+    scheduled runs. Fail at startup instead of losing the lease on every poll.
+    """
+
+    values = []
+    for name, default in (
+        ("AUTONOMY_WORKER_POLL_INTERVAL", "10"),
+        ("AUTONOMY_WORKER_LEASE_TTL", "60"),
+    ):
+        try:
+            values.append(int(os.getenv(name, default)))
+        except ValueError as exc:
+            raise ValueError(f"{name} must be an integer number of seconds") from exc
+    poll_interval, lease_ttl = values
+    if poll_interval <= 0:
+        raise ValueError("AUTONOMY_WORKER_POLL_INTERVAL must be greater than zero")
+    if lease_ttl <= poll_interval:
+        raise ValueError(
+            "AUTONOMY_WORKER_LEASE_TTL must be greater than "
+            "AUTONOMY_WORKER_POLL_INTERVAL so an idle poll keeps the lease"
+        )
+    return poll_interval, lease_ttl
+
+
 def make_backend(user_id: str) -> BackendClient:
     return BackendClient(
         base_url=os.getenv("BACKEND_BASE_URL", "http://daedalus-backend-default:8000"),
@@ -415,20 +446,28 @@ def run_with_lease_heartbeat(
     # run_once mints the run id, so the heartbeat learns it through this holder.
     run_id_holder: dict[str, str] = {}
     heartbeat_interval = max(1, min(20, lease_ttl // 3 or 1))
+    # A dashboard Stop must reach the open backend stream promptly: tools keep
+    # running until it closes. One flag read per poll is far cheaper than the
+    # lease refresh, which keeps its own interval.
+    poll_interval = min(heartbeat_interval, CANCEL_POLL_SECONDS)
 
     def heartbeat() -> None:
-        while not stop.wait(heartbeat_interval):
-            try:
-                if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
+        next_refresh = time.monotonic() + heartbeat_interval
+        while not stop.wait(poll_interval):
+            if time.monotonic() >= next_refresh:
+                next_refresh = time.monotonic() + heartbeat_interval
+                try:
+                    if not store.refresh_lease(user_id, ttl_seconds=lease_ttl):
+                        abort.set()
+                        log("worker lease lost; aborting current run")
+                        return
+                except Exception as exc:
+                    log(
+                        "lease heartbeat failed; aborting current run: "
+                        f"{type(exc).__name__}"
+                    )
                     abort.set()
-                    log("worker lease lost; aborting current run")
                     return
-            except Exception as exc:
-                log(
-                    f"lease heartbeat failed; aborting current run: {type(exc).__name__}"
-                )
-                abort.set()
-                return
             # Cancellation used to be read only after the backend call
             # returned, so cancelling a long run did nothing until it finished
             # on its own. Poll here so the abort reaches the open stream.
@@ -467,8 +506,7 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
 
     user_id = os.getenv("AUTONOMOUS_USER_ID", "default-user")
-    poll_interval = int(os.getenv("AUTONOMY_WORKER_POLL_INTERVAL", "10"))
-    lease_ttl = int(os.getenv("AUTONOMY_WORKER_LEASE_TTL", "60"))
+    poll_interval, lease_ttl = _worker_timing_seconds()
     run_once_only = os.getenv("AUTONOMY_RUN_ONCE", "false").lower() == "true"
 
     store = RedisStore()

@@ -95,8 +95,9 @@ with a generic failure. Exact-action credentials and mutation non-replay remain
 required.
 
 In daily briefings, exhausted renderer argument corrections get one text-only
-synthesis attempt from completed evidence, capped at 75 seconds. All tools are
-disabled for that attempt; invalid batches and their sibling calls never run.
+synthesis attempt from completed evidence, capped by
+`workflow.daily_summary_synthesis_retry_timeout_seconds` (75 seconds as shipped)
+in Rust preparation. All tools are disabled for that attempt; invalid batches and their sibling calls never run.
 The fallback discloses that HTML validation failed. Other schema failures and
 explicit required-tool contracts retain their failure behavior.
 

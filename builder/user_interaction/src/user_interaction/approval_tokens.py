@@ -26,30 +26,6 @@ DEFAULT_PENDING_APPROVAL_TTL_SECONDS = 7 * 24 * 60 * 60
 # proof long enough for that request plus retry/recovery margin.
 DEFAULT_MCP_RECEIPT_TTL_SECONDS = 2 * 60 * 60
 
-_SENSITIVE_ARGUMENT_KEY = re.compile(
-    r"(?:authorization|cookie|credential|password|secret|token|api[_-]?key)",
-    re.IGNORECASE,
-)
-_SENSITIVE_STRING_VALUE = re.compile(
-    r"(?:"
-    r"\bauthorization\s*[:=]|"
-    r"\b(?:bearer|basic)\s+\S+|"
-    # Shell/env-style assignments commonly hide credentials in otherwise
-    # unstructured list values (for example API_TOKEN=...). Match sensitive
-    # identifier *segments* so underscores do not defeat the word boundary,
-    # while avoiding unrelated identifiers such as monkey=.
-    r"\b(?:(?:[a-z0-9]+[_-])*(?:token|secret|password|credential|key)"
-    r"(?:[_-][a-z0-9]+)*|api[_-]?key)\s*[:=]\s*\S+|"
-    r"https?://[^\s/:@]+:[^\s/@]+@"
-    r")",
-    re.IGNORECASE,
-)
-_FREE_TEXT_ARGUMENT_KEY = re.compile(
-    r"(?:^|[_-])(?:body|content|html|markdown|message|prompt|text)(?:$|[_-])",
-    re.IGNORECASE,
-)
-_MAX_APPROVAL_PREVIEW_STRING_LENGTH = 256
-
 
 @dataclass(frozen=True)
 class ApprovalRequest:
@@ -189,44 +165,6 @@ def canonicalize_mcp_arguments(arguments_json: str) -> tuple[str, str]:
     )
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return canonical, digest
-
-
-def _redacted_text_label(label: str, value: str) -> str:
-    return f"[REDACTED {label}: {len(value)} chars]"
-
-
-def _redact_argument_value(value: Any, *, key: str = "") -> Any:
-    if isinstance(value, dict):
-        return {
-            str(key): (
-                "[REDACTED]"
-                if _SENSITIVE_ARGUMENT_KEY.search(str(key))
-                else _redact_argument_value(item, key=str(key))
-            )
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_argument_value(item, key=key) for item in value]
-    if isinstance(value, str):
-        if _SENSITIVE_STRING_VALUE.search(value):
-            return "[REDACTED]"
-        if _FREE_TEXT_ARGUMENT_KEY.search(key):
-            return _redacted_text_label("CONTENT", value)
-        if len(value) > _MAX_APPROVAL_PREVIEW_STRING_LENGTH:
-            return _redacted_text_label("TEXT", value)
-    return value
-
-
-def redacted_mcp_arguments(canonical_arguments: str) -> str:
-    """Render canonical MCP arguments for human review with secrets removed."""
-
-    arguments = json.loads(canonical_arguments)
-    return json.dumps(
-        _redact_argument_value(arguments),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
 
 
 def create_pending_mcp_approval(

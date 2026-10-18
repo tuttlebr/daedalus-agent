@@ -89,6 +89,11 @@ jobs:
         working-directory: builder
         run: uv pip install --system -e ".[test]"
 
+      # Chart, deploy and network-policy regressions render the real chart.
+      # Their Helm gate fails instead of skipping when CI is set.
+      - name: Set up Helm for rendered-chart tests
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+
       - name: Run tests with coverage
         working-directory: builder
         run: pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=65
@@ -408,10 +413,15 @@ jobs:
       - name: Secret scan
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
 
+      # Fail closed: an empty file list or a missing filter tool must not let
+      # the step pass without running Bandit.
       - name: Python security analysis
+        shell: bash
         run: |
           pip install bandit==1.8.6
-          git ls-files 'builder/*.py' 'builder/**/*.py' | rg -v '(^|/)tests/' | xargs -r bandit -ll -c pyproject.toml
+          files=$(git ls-files 'builder/*.py' 'builder/**/*.py' | grep -Ev '(^|/)tests/')
+          test -n "$files"
+          printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 bandit -ll -c pyproject.toml
 
       - name: Set up Node for dependency audit
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -423,6 +433,24 @@ jobs:
       - name: Audit production JavaScript dependencies
         working-directory: frontend
         run: npm run audit:production
+
+      # Same guard as `make security`: a clean result is meaningful only if
+      # Trivy actually inventoried the production JavaScript lockfile.
+      - name: Inventory the frontend lockfile
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: frontend/package-lock.json
+          scanners: vuln
+          list-all-pkgs: 'true'
+          format: json
+          output: trivy-inventory.json
+          exit-code: '0'
+
+      - name: Verify the lockfile inventory
+        run: >-
+          jq -e '[.Results[]? | select(.Target | endswith("package-lock.json"))]
+          | length > 0' trivy-inventory.json >/dev/null
 
       - name: Dependency vulnerability scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

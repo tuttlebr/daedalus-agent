@@ -265,6 +265,24 @@ describe('/api/session/documentStorage', () => {
     expect(mocks.deleteDocumentObject).toHaveBeenCalledOnce();
   });
 
+  it('removes a possibly committed object when the PUT response is lost', async () => {
+    mocks.putDocumentObject.mockImplementationOnce(async ({ source }) => {
+      for await (const _chunk of source) {
+        // Every byte reached the store before the connection reset.
+      }
+      throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+    });
+    const res = response();
+
+    await handler(multipartRequest(Buffer.from('%PDF-test')), res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(mocks.deleteDocumentObject).toHaveBeenCalledWith(
+      mocks.putDocumentObject.mock.calls[0][0].objectKey,
+    );
+    expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+  });
+
   it('surfaces rejected object-store credentials as an actionable 503', async () => {
     mocks.putDocumentObject.mockRejectedValueOnce(
       new mocks.DocumentObjectStoreError(

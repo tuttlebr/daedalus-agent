@@ -180,6 +180,11 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
         .call("fixture__inspect", &json!({"value":3}), "alice", "", &emit)
         .await;
     assert!(!result.is_error, "{}", result.content);
+    assert_eq!(
+        count(&peer, "initialize"),
+        1,
+        "Locally rejected calls never reached the server and keep its session"
+    );
     let result: Value = serde_json::from_str(&result.content).unwrap();
     assert_eq!(result["content"][0]["text"], "雪🌲");
     assert_eq!(result["content"][0]["extension"], 7);

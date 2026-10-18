@@ -309,11 +309,19 @@ export async function createGoal(
   input: Pick<AutonomyGoal, 'title' | 'description'> & Partial<AutonomyGoal>,
 ): Promise<AutonomyGoal> {
   const timestamp = nowMs();
+  // Request bodies are untrusted JSON: apply the same field rules as edits and
+  // imports so the worker and dashboard never see an unknown goal status.
   const goal: AutonomyGoal = {
     id: `goal_${uuidv4().replace(/-/g, '')}`,
-    title: input.title?.trim() || 'Untitled goal',
-    description: input.description?.trim() || '',
-    status: input.status || 'active',
+    title:
+      (typeof input.title === 'string' && input.title.trim()) ||
+      'Untitled goal',
+    description:
+      typeof input.description === 'string' ? input.description.trim() : '',
+    status:
+      typeof input.status === 'string' && VALID_GOAL_STATUSES.has(input.status)
+        ? input.status
+        : 'active',
     priority: Number.isFinite(input.priority) ? Number(input.priority) : 3,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -457,8 +465,12 @@ type QueueRequest = {
   createdAt: number;
 };
 
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined;
+}
+
 function clippedPrompt(input: Pick<EnqueueRunInput, 'prompt'>): string {
-  return (input.prompt || '').slice(0, MAX_PROMPT_CHARS);
+  return (stringField(input.prompt) || '').slice(0, MAX_PROMPT_CHARS);
 }
 
 function priorityValue(goal: AutonomyGoal): number {
@@ -500,12 +512,13 @@ function newQueueRequest(
   input: EnqueueRunInput,
   queuedAt: number,
 ): QueueRequest {
+  const goalId = stringField(input.goalId) || null;
   return {
     id: `request_${uuidv4().replace(/-/g, '')}`,
-    trigger: input.trigger || (input.goalId ? 'goal' : 'manual'),
-    goalId: input.goalId || null,
+    trigger: stringField(input.trigger) || (goalId ? 'goal' : 'manual'),
+    goalId,
     prompt: clippedPrompt(input),
-    requestedBy: input.requestedBy || 'ui',
+    requestedBy: stringField(input.requestedBy) || 'ui',
     createdAt: queuedAt,
   };
 }

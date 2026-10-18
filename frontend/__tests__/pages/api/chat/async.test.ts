@@ -399,6 +399,30 @@ describe('chat/async backend pinning helpers', () => {
     ]);
   });
 
+  it('keeps saved turns unchanged in the persisted history', () => {
+    const saved = {
+      id: 'a1',
+      role: 'assistant',
+      content: '![chart](data:image/png;base64,AAAA)',
+      intermediateSteps: [{ id: 'step-1' }],
+    };
+    expect(
+      mergeSubmittedMessagesWithStoredHistory(
+        [{ id: 'u1', role: 'user', content: 'first' }, saved],
+        [
+          { id: 'a1', role: 'assistant', content: '[image omitted]' },
+          { id: 'u2', role: 'user', content: 'follow up' },
+          { id: 'u2', role: 'user', content: 'follow up (edited)' },
+        ],
+        { preferStored: true },
+      ),
+    ).toEqual([
+      { id: 'u1', role: 'user', content: 'first' },
+      saved,
+      { id: 'u2', role: 'user', content: 'follow up (edited)' },
+    ]);
+  });
+
   it('preserves prior assistant content so follow-ups have real context', () => {
     const prior =
       'A detailed prior assistant response the user wants to reuse.';
@@ -912,16 +936,22 @@ describe('chat/async backend pinning helpers', () => {
         userId: 'testuser',
         conversationId: 'conv-active',
         jobId: 'job-active',
-        acquiredAt: Date.now(),
+        // Past the initialization grace: only the live status keeps the lock.
+        acquiredAt: Date.now() - 10 * 60 * 1000,
       }),
     );
-    (jsonGet as any).mockResolvedValueOnce({
-      jobId: 'job-active',
-      status: 'streaming',
-      createdAt: Date.now() - 100,
-      updatedAt: Date.now(),
-      conversationId: 'conv-active',
-    });
+    // Key-aware: the conversation read must not consume the job status.
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      key === 'daedalus:async-job-status:job-active'
+        ? {
+            jobId: 'job-active',
+            status: 'streaming',
+            createdAt: Date.now() - 100,
+            updatedAt: Date.now(),
+            conversationId: 'conv-active',
+          }
+        : null,
+    );
 
     const req = {
       method: 'POST',
@@ -1278,6 +1308,88 @@ describe('chat/async backend pinning helpers', () => {
       { id: 'u1', role: 'user', content: 'Hello' },
       { id: 'a1', role: 'assistant', content: 'Hi there' },
       { id: 'u2', role: 'user', content: 'What was my last message?' },
+    ]);
+  });
+
+  it('sends model copies of earlier turns but persists their saved form', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const fetchSpy = vi.fn(() => new Promise(() => {}) as any);
+    vi.stubGlobal('fetch', fetchSpy);
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      value: fetchSpy,
+    });
+    const savedAnswer = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'Here it is: ![chart](data:image/png;base64,AAAA)',
+      intermediateSteps: [{ id: 'step-1' }],
+    };
+    const redisStore = new Map<string, any>([
+      [
+        'daedalus:conversation:conv-1',
+        {
+          id: 'conv-1',
+          messages: [
+            { id: 'u1', role: 'user', content: 'Draw it' },
+            savedAnswer,
+          ],
+        },
+      ],
+    ]);
+    (jsonSetWithExpiry as any).mockImplementation(
+      async (key: string, value: any) => {
+        redisStore.set(key, value);
+      },
+    );
+    (jsonGet as any).mockImplementation(async (key: string) =>
+      redisStore.has(key) ? redisStore.get(key) : null,
+    );
+
+    const req = {
+      method: 'POST',
+      headers: { cookie: 'sid=current-session' },
+      body: {
+        conversationId: 'conv-1',
+        messages: [
+          { id: 'u1', role: 'user', content: 'Draw it' },
+          { id: 'a1', role: 'assistant', content: 'Here it is: [image]' },
+          { id: 'u2', role: 'user', content: 'Make it blue' },
+        ],
+      },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(req, res);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const queuedPayload = Array.from(redisStore.entries()).find(([key]) =>
+      key.includes('async-stream-payload'),
+    )?.[1];
+    expect(
+      queuedPayload.messagesForNat.map((message: any) => message.content),
+    ).toEqual([
+      expect.stringContaining('[IDENTITY]'),
+      'Draw it',
+      'Here it is: [image]',
+      'Make it blue',
+    ]);
+    const storedJobRequest = (jsonSetWithExpiry as any).mock.calls.find(
+      ([key]: [string]) => key.includes('async-job-request'),
+    )?.[1];
+    expect(storedJobRequest.messages).toEqual([
+      { id: 'u1', role: 'user', content: 'Draw it' },
+      savedAnswer,
+      { id: 'u2', role: 'user', content: 'Make it blue' },
     ]);
   });
 
@@ -3384,6 +3496,22 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.error).toContain('Backend stream returned 502');
     expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBe(true);
   });
+
+  it.each([
+    [409, 'Another response is already active for this conversation.'],
+    [429, 'Too many responses are running right now.'],
+  ])(
+    'explains a backend admission rejection (%i) instead of a bare status',
+    async (code, message) => {
+      const { statusKey, store } = await runStreamTurn([], {
+        responseInit: { ok: false, status: code },
+      });
+      const status = store.get(statusKey);
+      expect(status?.status).toBe('error');
+      expect(status?.error).toContain(message);
+      expect(status?.error).not.toContain('Backend stream returned');
+    },
+  );
 
   it('finalizes HTTP errors without waiting for a stalled diagnostic body', async () => {
     const read = vi.fn(() => new Promise<never>(() => {}));

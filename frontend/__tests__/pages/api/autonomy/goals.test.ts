@@ -99,6 +99,39 @@ describe('autonomy goals API handler', () => {
     expect(res.status).toHaveBeenCalledWith(204);
   });
 
+  it('edits only whitelisted, valid goal fields', async () => {
+    const existing = goal('goal_edit', 'Original');
+    const other = goal('goal_other', 'Untouched');
+    vi.mocked(listGoals).mockResolvedValue([existing, other]);
+    const { req, res } = createMockReqRes(
+      'PATCH',
+      {},
+      {
+        id: existing.id,
+        title: '  Renamed  ',
+        status: 'running',
+        priority: 1,
+        createdAt: 0,
+        lastRunAt: 999,
+        userId: 'mallory',
+        tags: ['injected'],
+      },
+    );
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      ...existing,
+      title: 'Renamed',
+      priority: 1,
+      updatedAt: 12345,
+    });
+    expect(
+      vi.mocked(mutateGoals).mock.calls[0][1]([existing, other])[1],
+    ).toEqual(other);
+  });
+
   it('returns 400 when deleting without a goal id', async () => {
     const { req, res } = createMockReqRes('DELETE');
 

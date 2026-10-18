@@ -314,6 +314,65 @@ describe('autonomy goal persistence', () => {
   });
 });
 
+describe('autonomy goal creation validation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.publishSyncEvent.mockResolvedValue(undefined);
+    mocks.jsonGet.mockResolvedValue([]);
+  });
+
+  it('applies the same status and field rules as goal edits and imports', async () => {
+    const invalidStatus = await createGoal('user-a', {
+      title: 'Watch releases',
+      description: 'Primary sources',
+      status: 'running' as any,
+      priority: 2,
+    });
+    expect(invalidStatus.status).toBe('active');
+
+    const malformed = await createGoal('user-a', {
+      title: 42 as any,
+      description: { text: 'not a string' } as any,
+      priority: '1' as any,
+    });
+    expect(malformed).toMatchObject({
+      title: 'Untitled goal',
+      description: '',
+      status: 'active',
+      priority: 3,
+    });
+  });
+});
+
+describe('autonomy queued request validation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getRedis.mockReturnValue({ eval: mocks.eval });
+    mocks.eval.mockResolvedValue(1);
+  });
+
+  it('stores only string request fields for the Python worker', async () => {
+    await enqueueRun('user-a', {
+      prompt: ['not', 'text'] as any,
+      trigger: { forged: true } as any,
+      goalId: 7 as any,
+      requestedBy: ['ui'] as any,
+    });
+    await enqueueRun('user-a', { prompt: 12 as any });
+
+    const [first, second] = mocks.eval.mock.calls.map((call) =>
+      JSON.parse(call[4]),
+    );
+    expect(first).toMatchObject({
+      prompt: '',
+      trigger: 'manual',
+      goalId: null,
+      requestedBy: 'ui',
+    });
+    expect(second.prompt).toBe('');
+  });
+});
+
 describe('autonomy queue reads and cancellation', () => {
   beforeEach(() => {
     vi.clearAllMocks();

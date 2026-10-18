@@ -20,7 +20,6 @@ from image_api import (  # noqa: E402
     _mask_validation_error,
     _normalize_edit_source,
     _require_trusted_user,
-    router,
 )
 from PIL import Image  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
@@ -44,11 +43,258 @@ def _raises_status(monkeypatch, *args):
     return exc_info.value.status_code
 
 
-class TestRouter:
-    def test_router_exists(self):
-        # FastAPI is mocked in conftest, so we can't introspect routes here —
-        # just confirm the module imported and exposed a router object.
-        assert router is not None
+class _ProviderError(Exception):
+    """Real exception standing in for openai.OpenAIError (mocked by conftest)."""
+
+
+@pytest.fixture
+def routes(monkeypatch):
+    """Load image_api with a recording FastAPI stub to call the real handlers.
+
+    conftest replaces FastAPI with a MagicMock, so ``image_api.generate`` and
+    ``image_api.edit`` are decorator mocks there. A private module instance
+    keeps the shared import untouched.
+    """
+    import importlib.util
+    import types
+
+    fastapi = types.ModuleType("fastapi")
+    responses = types.ModuleType("fastapi.responses")
+
+    class APIRouter:
+        def __init__(self, **_kwargs):
+            self.handlers = {}
+
+        def post(self, path, **_kwargs):
+            def register(handler):
+                self.handlers[path] = handler
+                return handler
+
+            return register
+
+    class StreamingResponse:
+        def __init__(self, content, media_type=None, headers=None):
+            self.body_iterator = content
+            self.media_type = media_type
+            self.headers = headers
+
+    fastapi.APIRouter = APIRouter
+    fastapi.Header = lambda *args, **kwargs: None
+    fastapi.HTTPException = _FakeHTTPException
+    responses.StreamingResponse = StreamingResponse
+    monkeypatch.setitem(sys.modules, "fastapi", fastapi)
+    monkeypatch.setitem(sys.modules, "fastapi.responses", responses)
+    spec = importlib.util.spec_from_file_location(
+        "image_api_route_under_test", _BUILDER_ROOT / "image_api.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    # Pydantic resolves postponed annotations through sys.modules.
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(module, "OpenAIError", _ProviderError)
+    monkeypatch.setattr(module, "_require_trusted_user", lambda user, token: "alice")
+    monkeypatch.setattr(module, "_get_client", lambda key, url: ("client", key, url))
+    monkeypatch.setattr(module, "_get_redis", lambda: "redis")
+    monkeypatch.setenv("IMAGE_GENERATION_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_AUGMENTATION_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_GENERATION_API_KEY", "synthetic-generation-key")
+    monkeypatch.setenv("IMAGE_AUGMENTATION_API_KEY", "synthetic-edit-key")
+    return module
+
+
+def _png_bytes(size, color):
+    output = BytesIO()
+    Image.new("RGB", size, color).save(output, format="PNG")
+    return output.getvalue()
+
+
+class TestRouteHandlers:
+    def test_edit_decodes_each_unique_reference_once_and_keeps_user_order(
+        self, routes, monkeypatch
+    ):
+        import asyncio
+        import base64
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        images = {
+            "a": base64.b64encode(_png_bytes((4, 3), "red")).decode(),
+            "b": base64.b64encode(_png_bytes((2, 2), "blue")).decode(),
+        }
+        fetch = AsyncMock(
+            side_effect=lambda _redis, ref, **_kwargs: (images[ref["imageId"]], "x")
+        )
+        provider = AsyncMock(
+            return_value=[SimpleNamespace(b64_json="eA==", mime_type="image/png")]
+        )
+        store = AsyncMock(return_value="stored-image")
+        monkeypatch.setattr(routes, "fetch_image_from_redis", fetch)
+        monkeypatch.setattr(routes, "fetch_image_context", AsyncMock(return_value=None))
+        monkeypatch.setattr(routes, "edit_images", provider)
+        monkeypatch.setattr(routes, "store_image_in_redis", store)
+        request = routes.EditRequest(
+            prompt="combine",
+            guidance="exact",
+            imageRefs=[
+                {"imageId": "a", "userId": "mallory"},
+                {"imageId": "b"},
+                {"imageId": "a", "userId": "mallory"},
+            ],
+        )
+
+        response = asyncio.run(
+            routes.router.handlers["/edit"](request, "alice-header", None, "token")
+        )
+
+        assert response.imageIds == ["stored-image"]
+        assert fetch.await_count == 2
+        # Ownership comes from authenticated identity, never the request body.
+        assert {call.kwargs["expected_user_id"] for call in fetch.await_args_list} == {
+            "alice"
+        }
+        parts = provider.await_args.kwargs["image"]
+        assert [name for name, _data, _mime in parts] == [
+            "image_0.png",
+            "image_1.png",
+            "image_2.png",
+        ]
+        assert parts[0][1] is parts[2][1]
+        assert parts[0][1] != parts[1][1]
+        assert provider.await_args.args == (("client", "synthetic-edit-key", None),)
+        assert store.await_args.kwargs["user_id"] == "alice"
+
+    def test_edit_rejects_invalid_mask_before_calling_the_provider(
+        self, routes, monkeypatch
+    ):
+        import asyncio
+        import base64
+        from unittest.mock import AsyncMock
+
+        source = base64.b64encode(_png(1024, 768, color_type=2)).decode()
+        mask = base64.b64encode(_png(1024, 767, color_type=6)).decode()
+        monkeypatch.setattr(
+            routes,
+            "fetch_image_from_redis",
+            AsyncMock(side_effect=[(source, "image/png"), (mask, "image/png")]),
+        )
+        monkeypatch.setattr(
+            routes,
+            "_normalize_edit_source",
+            lambda data: (data, "image/png", "png"),
+        )
+        provider = AsyncMock()
+        monkeypatch.setattr(routes, "edit_images", provider)
+        request = routes.EditRequest(
+            prompt="inpaint",
+            guidance="exact",
+            imageRefs=[{"imageId": "source"}],
+            maskRef={"imageId": "mask"},
+        )
+
+        with pytest.raises(_FakeHTTPException) as raised:
+            asyncio.run(routes.router.handlers["/edit"](request, "alice", None, "t"))
+
+        assert raised.value.status_code == 400
+        assert "same dimensions" in raised.value.detail
+        provider.assert_not_awaited()
+
+    def test_generate_hides_provider_error_details(self, routes, monkeypatch):
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            routes,
+            "generate_images",
+            AsyncMock(side_effect=_ProviderError("https://private.example key=x")),
+        )
+        store = AsyncMock()
+        monkeypatch.setattr(routes, "store_image_in_redis", store)
+
+        with pytest.raises(_FakeHTTPException) as raised:
+            asyncio.run(
+                routes.router.handlers["/generate"](
+                    routes.GenerateRequest(prompt="a cat", guidance="exact"),
+                    "alice",
+                    None,
+                    "t",
+                )
+            )
+
+        assert raised.value.status_code == 502
+        assert raised.value.detail == "Upstream image service error"
+        store.assert_not_awaited()
+
+    def test_stream_stores_partials_completes_and_closes_provider_stream(
+        self, routes, monkeypatch
+    ):
+        import asyncio
+        import json
+        from types import SimpleNamespace
+
+        closed = []
+
+        class Events:
+            def __init__(self, fail):
+                self.items = [
+                    SimpleNamespace(
+                        image=SimpleNamespace(b64_json="eA==", mime_type="image/png"),
+                        partial=True,
+                        partial_index=0,
+                    ),
+                    SimpleNamespace(
+                        image=SimpleNamespace(b64_json="eQ==", mime_type="image/png"),
+                        partial=False,
+                        partial_index=None,
+                    ),
+                ]
+                self.fail = fail
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self.fail and len(self.items) == 1:
+                    raise _ProviderError("private upstream detail")
+                if not self.items:
+                    raise StopAsyncIteration
+                return self.items.pop(0)
+
+            async def aclose(self):
+                closed.append(True)
+
+        stored = []
+
+        async def store(_redis, _b64, _mime, _prompt, **kwargs):
+            stored.append(kwargs["is_partial"])
+            return f"image-{len(stored)}"
+
+        monkeypatch.setattr(routes, "store_image_in_redis", store)
+
+        async def collect(fail):
+            return [
+                frame
+                async for frame in routes._stream_stored_images(
+                    Events(fail),
+                    prompt="p",
+                    source="image_panel_generate",
+                    user_id="alice",
+                    session_id=None,
+                    model="gpt-image-1",
+                )
+            ]
+
+        frames = asyncio.run(collect(False))
+        assert frames[0].startswith("event: partial\n")
+        completed = json.loads(frames[1].split("data: ", 1)[1])
+        assert completed["imageIds"] == ["image-2"]
+        assert frames[-1] == "data: [DONE]\n\n"
+        assert stored == [True, False]
+
+        failed = asyncio.run(collect(True))
+        assert failed[-1].startswith("event: error\n")
+        assert "private upstream detail" not in failed[-1]
+        assert closed == [True, True]
 
 
 class TestInternalAuth:

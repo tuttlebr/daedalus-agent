@@ -284,7 +284,9 @@ async function handlePost(
 ) {
   if (!(await enforceRateLimit(res, DOC_UPLOAD_RATE_LIMIT, userId))) return;
   let slotAcquired = false;
-  let uploadedObjectKey: string | undefined;
+  // Set once bytes may have reached object storage. A PUT can be committed
+  // even when its response is lost, so any later failure removes the object.
+  let pendingObjectKey: string | undefined;
   let metadataStored = false;
   try {
     slotAcquired = await acquireUploadSlot(userId);
@@ -306,6 +308,7 @@ async function handlePost(
     );
     const createdAt = Date.now();
     const expiresAt = createdAt + DOCUMENT_EXPIRY_SECONDS * 1000;
+    pendingObjectKey = objectKey;
     const uploaded = await putDocumentObject(
       {
         objectKey,
@@ -319,7 +322,6 @@ async function handlePost(
       },
       objectConfig,
     );
-    uploadedObjectKey = objectKey;
 
     const document: StoredDocument = {
       id: documentId,
@@ -345,9 +347,9 @@ async function handlePost(
       mimeType: parsed.mimeType,
     });
   } catch (error) {
-    if (uploadedObjectKey && !metadataStored) {
+    if (pendingObjectKey && !metadataStored) {
       try {
-        await deleteDocumentObject(uploadedObjectKey);
+        await deleteDocumentObject(pendingObjectKey);
       } catch (cleanupError) {
         console.error(
           'Failed to clean up unreferenced document object:',

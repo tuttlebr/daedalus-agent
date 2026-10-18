@@ -18,9 +18,6 @@ logger = logging.getLogger("daedalus.mcp_approval")
 _mcp_server_group_names: dict[str, str] = {}
 
 
-_ambiguous_mcp_servers: set[str] = set()
-
-
 _approval_policy_configured = False
 
 
@@ -321,8 +318,11 @@ def configure_mcp_approval_policy(config_path: str | os.PathLike[str]) -> None:
     _LOCAL_AUTO_APPROVED_MCP_TOOLS = auto_approved_registry
     _MCP_GROUP_APPROVAL_POLICIES = group_policies
     _PER_USER_MCP_OAUTH_SERVERS = frozenset(per_user_oauth_servers)
+    # Replace, like every other registry: an endpoint binding retained from an
+    # earlier load could resolve a now-ambiguous endpoint to another group's
+    # policy. Mutate in place so existing references observe the new policy.
+    _mcp_server_group_names.clear()
     _mcp_server_group_names.update(configured_endpoints)
-    _ambiguous_mcp_servers.update(ambiguous_endpoints)
     _approval_policy_configured = True
     logger.info(
         "Loaded MCP approval policy: config=%s restricted_groups=%d "
