@@ -855,18 +855,28 @@ test('populated activity stays readable and supports keyboard search and details
     route.fulfill({ json: conversation }),
   );
   await page.reload();
-  const activity = page.getByRole('button', { name: /Agent Activity/ });
+  const activity = page.getByRole('button', {
+    name: /View agent activity/,
+    includeHidden: true,
+  });
   await activity.click();
   await expect(activity).toHaveAttribute('aria-expanded', 'true');
-  const expand = page.getByRole('button', { name: 'Show Design Review steps' });
+  const activityPanel = page.getByRole('dialog', {
+    name: 'Agent activity',
+    exact: true,
+  });
+  await expect(activityPanel).toBeVisible();
+  const expand = activityPanel.getByRole('button', {
+    name: 'Show Design Review steps',
+  });
   await expand.focus();
   await expand.press('Space');
   await expect(
     page.getByRole('button', { name: 'Hide Design Review steps' }),
   ).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  const detailTrigger = page.getByRole('button', {
-    name: 'View Searching the web details',
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  const detailTrigger = activityPanel.getByRole('button', {
+    name: 'View Reading a website details',
   });
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
@@ -885,15 +895,15 @@ test('populated activity stays readable and supports keyboard search and details
     await detailTrigger.focus();
     await detailTrigger.press('Enter');
     const detail = page.getByRole('dialog', {
-      name: 'Searching the web details',
+      name: 'Reading a website details',
     });
     await expect(detail).toBeVisible();
     await expect(
-      detail.getByText('Readable text and keyboard controls.'),
+      detail.getByText('Readable text and keyboard controls.', { exact: true }),
     ).toBeVisible();
-    await detail.getByRole('button', { name: 'Advanced Details' }).click();
+    await detail.getByRole('button', { name: 'Technical details' }).click();
     await expect(
-      detail.getByRole('button', { name: 'Advanced Details' }),
+      detail.getByRole('button', { name: 'Technical details' }),
     ).toHaveAttribute('aria-expanded', 'true');
     await page.evaluate(
       () => (document.documentElement.style.fontSize = '200%'),
@@ -912,7 +922,9 @@ test('populated activity stays readable and supports keyboard search and details
     await expect(detailTrigger).toBeFocused();
     await page.evaluate(() => (document.documentElement.style.fontSize = ''));
   }
-  const search = page.getByRole('textbox', { name: 'Search activity' });
+  const search = activityPanel.getByRole('textbox', {
+    name: 'Search activity',
+  });
   await search.fill('no matching activity');
   await expect(
     page.getByText('No activity matches your search.'),
@@ -921,6 +933,12 @@ test('populated activity stays readable and supports keyboard search and details
   await expect(search).toBeFocused();
   await expect(detailTrigger).toBeVisible();
   await search.blur();
+  await activityPanel
+    .getByRole('button', { name: 'Close agent activity' })
+    .click();
+  await expect(activityPanel).toBeHidden();
+  await expect(activity).toHaveAttribute('aria-expanded', 'false');
+  await expect(activity).toBeFocused();
   await openSidebar(page);
   const history = page.getByRole('navigation', {
     name: 'Conversation history',

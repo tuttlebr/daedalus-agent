@@ -306,6 +306,7 @@ export const useAsyncChat = (
     Record<string, ReturnType<typeof setInterval> | null>
   >({}); // WS safety-net polling
   const lastWsEventByJobRef = useRef<Record<string, number>>({}); // Last WS message timestamp per job
+  const fallbackRequestsRef = useRef(new Set<string>());
   // Lets the fallback poller restart itself at a faster cadence without a
   // forward reference to a callback declared later in this hook.
   const startWsFallbackPollingRef = useRef<
@@ -538,8 +539,6 @@ export const useAsyncChat = (
       const conversationId =
         status.conversationId || activeJobsRef.current[jobId]?.conversationId;
 
-      lastWsEventByJobRef.current[jobId] = Date.now();
-
       // Skip if already completed
       if (completedJobsRef.current.has(jobId)) return;
 
@@ -593,9 +592,9 @@ export const useAsyncChat = (
         shouldFinalizeFallback
       ) {
         completedJobsRef.current.add(jobId);
-        if (onComplete && status.fullResponse) {
+        if (onComplete) {
           onComplete(
-            status.fullResponse,
+            status.fullResponse ?? status.partialResponse ?? '',
             status.intermediateSteps,
             status.finalizedAt,
             conversationId,
@@ -641,12 +640,9 @@ export const useAsyncChat = (
       if (!useWS) return false;
 
       const wsManager = getWebSocketManager();
-      if (!wsManager.isConnected) {
-        logger.debug('WebSocket not connected, falling back to polling');
-        return false;
-      }
 
-      // Subscribe to job status via WebSocket
+      // Queue subscriptions even while disconnected. The manager sends them
+      // on reconnect so a turn does not remain on HTTP polling indefinitely.
       wsManager.subscribeToJob(jobId);
       if (conversationId) {
         wsManager.subscribeToChat(conversationId);
@@ -658,7 +654,16 @@ export const useAsyncChat = (
       unsubs.push(
         wsManager.on('job_status', (data: AsyncJobStatus) => {
           if (data.jobId === jobId) {
+            lastWsEventByJobRef.current[jobId] = Date.now();
             handleWsJobStatus(data);
+          }
+        }),
+      );
+
+      unsubs.push(
+        wsManager.on('disconnected', () => {
+          if (activeJobsRef.current[jobId]) {
+            startWsFallbackPollingRef.current?.(jobId, pollingInterval);
           }
         }),
       );
@@ -699,6 +704,7 @@ export const useAsyncChat = (
     },
     [
       useWS,
+      pollingInterval,
       handleWsJobStatus,
       handleWsChatToken,
       handleWsChatIntermediateStep,
@@ -709,7 +715,12 @@ export const useAsyncChat = (
   // Start a safety-net HTTP poll alongside WebSocket to catch silent disconnects.
   // Skips the poll when WS has recently delivered an event for the job.
   const startWsFallbackPolling = useCallback(
-    (jobId: string, intervalMs: number = WS_FALLBACK_POLL_INTERVAL) => {
+    (
+      jobId: string,
+      intervalMs: number = getWebSocketManager().isConnected
+        ? WS_FALLBACK_POLL_INTERVAL
+        : pollingInterval,
+    ) => {
       if (wsFallbackTimersRef.current[jobId]) {
         clearInterval(wsFallbackTimersRef.current[jobId]!);
       }
@@ -734,22 +745,9 @@ export const useAsyncChat = (
         if (wsIsHealthy) {
           return;
         }
-        // The push channel decided at submit time is gone. Nothing re-routed
-        // the job, so it would otherwise advance in 15s jumps for the rest of
-        // the turn with no indication anything was wrong. Drop to the ordinary
-        // polling cadence instead. Unsubscribe explicitly: removeActiveJob
-        // only unsubscribes jobs still in wsActiveJobsRef, so deleting the
-        // entry without unsubscribing would leave the manager re-sending this
-        // subscription on every reconnect and holding the server-side channel
-        // refcount for the life of the socket.
-        if (intervalMs > pollingInterval) {
-          wsManager.unsubscribeFromJob(jobId);
-          const trackedConversationId =
-            activeJobsRef.current[jobId]?.conversationId;
-          if (trackedConversationId) {
-            wsManager.unsubscribeFromChat(trackedConversationId);
-          }
-          wsActiveJobsRef.current.delete(jobId);
+        // Use the ordinary polling cadence during disconnection, retaining
+        // subscriptions so live delivery can recover when the socket returns.
+        if (!wsManager.isConnected && intervalMs > pollingInterval) {
           logger.info(
             `Job ${jobId}: WebSocket delivery lost, falling back to ${pollingInterval}ms polling`,
           );
@@ -758,6 +756,11 @@ export const useAsyncChat = (
           startWsFallbackPollingRef.current?.(jobId, pollingInterval);
           return;
         }
+        // A slow request must not overlap the next interval, which can return
+        // an older snapshot after a newer request and rewind the visible state.
+        if (fallbackRequestsRef.current.has(jobId)) return;
+        fallbackRequestsRef.current.add(jobId);
+        const statusAtRequestStart = jobStatusByJobIdRef.current[jobId];
         try {
           const response = await fetchWithTimeout(
             `/api/chat/async?jobId=${jobId}`,
@@ -766,16 +769,29 @@ export const useAsyncChat = (
           );
           if (response.ok) {
             const status: AsyncJobStatus = await response.json();
+            // Live events can resume while the HTTP response is in flight.
+            // Preserve their newer tool state as well as their response text.
+            if (
+              status.status !== 'completed' &&
+              status.status !== 'error' &&
+              jobStatusByJobIdRef.current[jobId] !== statusAtRequestStart
+            )
+              return;
             handleWsJobStatus(status);
           } else if (response.status === 404) {
+            await response.body?.cancel();
             const conversationId = activeJobsRef.current[jobId]?.conversationId;
             clearInterval(timer);
             delete wsFallbackTimersRef.current[jobId];
             delete lastWsEventByJobRef.current[jobId];
             removeActiveJob(jobId, conversationId);
+          } else {
+            await response.body?.cancel();
           }
         } catch {
           // Network/timeout error — will retry on next interval
+        } finally {
+          fallbackRequestsRef.current.delete(jobId);
         }
       }, intervalMs);
       wsFallbackTimersRef.current[jobId] = timer;
@@ -881,8 +897,11 @@ export const useAsyncChat = (
 
         const statusHash = [
           status.status,
-          status.partialResponse?.length || 0,
-          status.fullResponse?.length || 0,
+          status.partialResponse ?? '',
+          status.fullResponse ?? '',
+          JSON.stringify(status.intermediateSteps || []),
+          status.error || '',
+          status.generationDurationMs || 0,
           status.progress || 0,
           status.ingestProgress
             ? [
@@ -973,9 +992,9 @@ export const useAsyncChat = (
           completedJobsRef.current.add(jobId);
           // Only consider job truly complete when finalizedAt is set
           pollCountByJobRef.current[jobId] = 0;
-          if (onComplete && status.fullResponse) {
+          if (onComplete) {
             onComplete(
-              status.fullResponse,
+              status.fullResponse ?? status.partialResponse ?? '',
               status.intermediateSteps,
               status.finalizedAt,
               conversationId,

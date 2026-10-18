@@ -20,10 +20,6 @@ vi.mock('@/utils/logger', () => ({
   },
 }));
 
-vi.mock('@/utils/app/visibilityAwareTimer', () => ({
-  shouldRunExpensiveOperation: vi.fn(() => Promise.resolve(true)),
-}));
-
 // ---- Mock WebSocket ----
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -590,7 +586,7 @@ describe('WebSocketManager', () => {
       expect(mgr.isConnected).toBe(true);
     });
 
-    it.skip('missing pong triggers a close after 60 seconds', () => {
+    it('missing pong triggers a close after 60 seconds', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
       wsInstances[0].simulateOpen();
@@ -609,6 +605,62 @@ describe('WebSocketManager', () => {
   // ---------- Automatic reconnection ----------
 
   describe('automatic reconnection', () => {
+    it('ignores delayed events from a socket replaced after disconnect', () => {
+      const mgr = new WebSocketManager('/ws');
+      const onDisconnected = vi.fn();
+      const onToken = vi.fn();
+      mgr.on('disconnected', onDisconnected);
+      mgr.on('chat_token', onToken);
+      mgr.connect();
+      const oldSocket = wsInstances[0];
+      oldSocket.simulateOpen();
+      // Browser close events arrive asynchronously, after disconnect returns.
+      oldSocket.close.mockImplementation(() => {
+        oldSocket.readyState = MockWebSocket.CLOSING;
+      });
+      mgr.disconnect();
+      expect(onDisconnected).toHaveBeenCalledTimes(1);
+      mgr.connect();
+      wsInstances[1].simulateOpen();
+
+      oldSocket.simulateClose();
+      oldSocket.simulateMessage({ type: 'chat_token', content: 'obsolete' });
+      vi.advanceTimersByTime(1_500);
+
+      expect(mgr.isConnected).toBe(true);
+      expect(wsInstances).toHaveLength(2);
+      expect(onDisconnected).toHaveBeenCalledTimes(1);
+      expect(onToken).not.toHaveBeenCalled();
+    });
+
+    it('cancels reconnect while battery lookup is pending', async () => {
+      let resolveBattery!: (battery: any) => void;
+      Object.defineProperty(navigator, 'getBattery', {
+        configurable: true,
+        value: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              resolveBattery = resolve;
+            }),
+        ),
+      });
+      try {
+        const mgr = new WebSocketManager('/ws');
+        mgr.connect();
+        wsInstances[0].simulateOpen();
+        wsInstances[0].simulateClose(1006, 'abnormal');
+        mgr.disconnect();
+
+        resolveBattery({ level: 1, charging: true });
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(wsInstances).toHaveLength(1);
+        expect(mgr.isConnected).toBe(false);
+      } finally {
+        delete (navigator as any).getBattery;
+      }
+    });
+
     it('schedules reconnect when connection closes unexpectedly', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();

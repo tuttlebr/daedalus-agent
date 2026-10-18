@@ -16,6 +16,7 @@ export default defineConfig({
     ? { testMatch: /rust-candidate\.spec\.ts/ }
     : { testIgnore: /rust-candidate\.spec\.ts/ }),
   fullyParallel: false,
+  forbidOnly: !!process.env.CI,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   timeout: 45_000,

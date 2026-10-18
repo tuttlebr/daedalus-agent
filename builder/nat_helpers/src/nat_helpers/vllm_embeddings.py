@@ -143,7 +143,15 @@ class DaedalusVLLMEmbeddings:
             async with semaphore:
                 return await self._aembed_one(text, "document")
 
-        return list(await asyncio.gather(*(embed(text) for text in texts)))
+        tasks = [asyncio.create_task(embed(text)) for text in texts]
+        try:
+            return list(await asyncio.gather(*tasks))
+        finally:
+            # gather propagates the first failure without stopping its siblings.
+            # Settle every request before the caller can close/reuse this client.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def aclose(self) -> None:
         self._sync_client.close()

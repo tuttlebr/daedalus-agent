@@ -50,5 +50,5 @@ def redis_url_from_env(default: str = DEFAULT_REDIS_URL) -> str:
     port = os.getenv("REDIS_PORT", "").strip()
     parsed = urlparse(raw)
     if port and parsed.scheme and parsed.hostname and parsed.port is None:
-        return f"{raw.rstrip('/')}:{port}"
+        return parsed._replace(netloc=f"{parsed.netloc}:{port}").geturl()
     return raw

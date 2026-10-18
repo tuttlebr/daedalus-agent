@@ -278,22 +278,8 @@ fn redis_url(explicit: Option<&str>, env: &HashMap<String, String>) -> Result<St
     }
     let configured = setting("REDIS_URL");
     if !configured.is_empty() {
-        let port = setting("REDIS_PORT");
-        if !port.is_empty() {
-            let parsed = reqwest::Url::parse(configured).map_err(|_| Failure::new("ValueError"))?;
-            if parsed.host_str().is_some()
-                && parsed.port().is_none()
-                && let Some((scheme, authority)) = configured.split_once("://")
-            {
-                let at = authority.find(['/', '?', '#']).unwrap_or(authority.len());
-                return Ok(format!(
-                    "{scheme}://{}:{port}{}",
-                    &authority[..at],
-                    &authority[at..]
-                ));
-            }
-        }
-        return Ok(configured.into());
+        return crate::storage::redis_url_with_port(configured, setting("REDIS_PORT"))
+            .map_err(|_| Failure::new("ValueError").into());
     }
     let fallback = |key: &str, default: &str| {
         let value = setting(key);

@@ -2,14 +2,6 @@ import { apiGet, apiPut, apiPost, ConflictError } from '@/utils/app/api';
 
 import { Conversation } from '@/types/chat';
 
-import {
-  paginateConversation,
-  loadConversationMessages,
-  enforceConversationSizeLimit,
-  cleanupOldConversations as cleanupOldConversationChunks,
-  MESSAGES_IN_MEMORY,
-  MAX_CONVERSATION_MESSAGES,
-} from './conversationPagination';
 import { sanitizeConversationAssistantReplays } from './conversationReplay';
 import {
   restoreMessageImages,
@@ -17,6 +9,23 @@ import {
   stripBase64Content,
 } from './imageHandler';
 import { setUserSessionItem } from './storage';
+
+const CACHED_MESSAGE_LIMIT = 50;
+
+function cacheSelectedConversation(conversation: Conversation): void {
+  try {
+    setUserSessionItem(
+      'selectedConversation',
+      JSON.stringify({
+        ...conversation,
+        messages: conversation.messages.slice(-CACHED_MESSAGE_LIMIT),
+      }),
+    );
+  } catch (error) {
+    // Browser storage may be disabled. Redis remains the authoritative history.
+    console.warn('Failed to cache selected conversation', error);
+  }
+}
 
 /**
  * Fire-and-forget notification to other devices/sessions via Redis pub/sub.
@@ -36,25 +45,15 @@ function notifySync(
 
 export const saveConversation = async (conversation: Conversation) => {
   try {
-    // Enforce conversation size limit
-    await enforceConversationSizeLimit(conversation.id);
-
-    // Clean the complete conversation for the server. Local cache pagination
-    // must not become the authoritative chat history sent to the backend.
-    let cleanedConversation = sanitizeConversationAssistantReplays(
+    // Persist complete history; only the browser's selection cache is bounded.
+    const cleanedConversation = sanitizeConversationAssistantReplays(
       stripBase64Content({
         ...conversation,
         messages: cleanMessagesForStorage(conversation.messages),
       }),
     );
 
-    const cachedConversation = await paginateConversation(cleanedConversation);
-
-    // Cache in sessionStorage (best-effort — data is persisted server-side)
-    setUserSessionItem(
-      'selectedConversation',
-      JSON.stringify(cachedConversation),
-    );
+    cacheSelectedConversation(cleanedConversation);
 
     let persistedConversation = cleanedConversation;
 
@@ -77,7 +76,7 @@ export const saveConversation = async (conversation: Conversation) => {
         };
         await apiPut(`/api/conversations/${conversation.id}`, merged);
         persistedConversation = merged;
-        setUserSessionItem('selectedConversation', JSON.stringify(merged));
+        cacheSelectedConversation(merged);
       } else {
         throw error;
       }
@@ -94,11 +93,9 @@ export const saveConversation = async (conversation: Conversation) => {
   }
 };
 
-export const loadConversation = async (
-  loadAllMessages: boolean = false,
-): Promise<Conversation | null> => {
+export const loadConversation = async (): Promise<Conversation | null> => {
   try {
-    let conversation = await apiGet<Conversation | null>(
+    const conversation = await apiGet<Conversation | null>(
       '/api/session/selectedConversation',
     );
     if (conversation) {
@@ -112,29 +109,6 @@ export const loadConversation = async (
         cleanedConversation.messages = restoreMessageImages(
           cleanedConversation.messages,
         );
-
-        // If requested, load all messages from IndexedDB
-        if (
-          loadAllMessages &&
-          cleanedConversation.messages.length === MESSAGES_IN_MEMORY
-        ) {
-          try {
-            const allMessages = await loadConversationMessages(
-              cleanedConversation.id,
-              0,
-              MAX_CONVERSATION_MESSAGES,
-            );
-            if (allMessages.length > 0) {
-              // Combine stored messages with recent messages
-              cleanedConversation.messages = [
-                ...allMessages,
-                ...cleanedConversation.messages,
-              ];
-            }
-          } catch (error) {
-            console.error('Failed to load paginated messages:', error);
-          }
-        }
       }
 
       return cleanedConversation;
@@ -144,34 +118,3 @@ export const loadConversation = async (
     return null;
   }
 };
-
-// Add periodic cleanup of old conversations
-// Uses visibility-aware timer to avoid waking CPU when app is backgrounded
-if (typeof window !== 'undefined') {
-  // Import dynamically to avoid circular dependencies
-  import('./visibilityAwareTimer').then(({ createVisibilityAwareInterval }) => {
-    // Run cleanup on page load
-    cleanupOldConversationChunks().then((deletedCount) => {
-      if (deletedCount > 0) {
-        console.log(`Cleaned up ${deletedCount} old conversation chunks`);
-      }
-    });
-
-    // Run cleanup every 12 hours, pauses when app is hidden
-    createVisibilityAwareInterval(
-      async () => {
-        const deletedCount = await cleanupOldConversationChunks();
-        if (deletedCount > 0) {
-          console.log(
-            `Periodic cleanup: removed ${deletedCount} old conversation chunks`,
-          );
-        }
-      },
-      {
-        interval: 12 * 60 * 60 * 1000, // 12 hours
-        pauseWhenHidden: true,
-        runImmediatelyOnVisible: false,
-      },
-    );
-  });
-}

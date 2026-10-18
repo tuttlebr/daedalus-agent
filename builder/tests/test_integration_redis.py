@@ -6,7 +6,8 @@ real client is exercised, closing the gap where unit tests only ever talk to
 ``MagicMock``/``_FakeRedis`` and never validate real serialization/encoding.
 
 Requires a reachable Redis; the CI ``builder-integration`` job starts one as a
-service container. If Redis is unreachable the test skips rather than fails.
+service container. Once explicitly enabled, missing dependencies, configuration,
+or an unreachable Redis must fail the integration gate.
 """
 
 import asyncio
@@ -17,6 +18,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+import redis
 from autonomous_agent.store import RedisStore
 from autonomous_agent.store import key as autonomy_key
 
@@ -24,7 +26,6 @@ pytestmark = pytest.mark.integration
 
 
 def test_approval_expiry_identity_and_single_consumer_in_real_redis():
-    redis = pytest.importorskip("redis")
     from user_interaction.approval_tokens import (
         ApprovalRequest,
         approval_token_key,
@@ -82,18 +83,9 @@ def test_approval_expiry_identity_and_single_consumer_in_real_redis():
 
 
 def test_redis_json_round_trip():
-    # Real module in integration mode (conftest leaves `redis` unmocked when
-    # PYTEST_USE_REAL_REDIS is set); importorskip guards the rare misconfig.
-    redis = pytest.importorskip("redis")
-
-    url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    url = os.environ["REDIS_URL"]
     client = redis.from_url(url, decode_responses=True)
-    try:
-        client.ping()
-    except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"Redis not reachable at {url}: {exc}")
-
-    key = "daedalus:itest:roundtrip"
+    key = f"daedalus:itest:roundtrip:{uuid.uuid4().hex}"
     payload = {"user": "alice", "n": 3, "nested": {"ok": True}, "unicode": "café"}
     try:
         client.set(key, json.dumps(payload), ex=60)
@@ -101,18 +93,16 @@ def test_redis_json_round_trip():
         assert raw is not None
         assert json.loads(raw) == payload
     finally:
-        client.delete(key)
+        try:
+            client.delete(key)
+        finally:
+            client.close()
 
 
 def test_autonomous_lease_fences_live_reclaim_and_recovers_after_expiry():
-    pytest.importorskip("redis")
-    url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    url = os.environ["REDIS_URL"]
     worker_a = RedisStore(url)
     worker_b = RedisStore(url)
-    try:
-        worker_a.ping()
-    except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"Redis not reachable at {url}: {exc}")
 
     user_id = f"lease-itest-{uuid.uuid4().hex}"
     queue_key = autonomy_key(user_id, "queue")
@@ -141,12 +131,15 @@ def test_autonomous_lease_fences_live_reclaim_and_recovers_after_expiry():
         assert worker_b.complete(user_id) is True
         assert worker_b.redis.llen(processing_key) == 0
     finally:
-        for redis_key in worker_a.redis.scan_iter(match=f"autonomy:{user_id}:*"):
-            worker_a.redis.delete(redis_key)
+        try:
+            for redis_key in worker_a.redis.scan_iter(match=f"autonomy:{user_id}:*"):
+                worker_a.redis.delete(redis_key)
+        finally:
+            worker_a.redis.close()
+            worker_b.redis.close()
 
 
 def test_autonomous_scoped_acl_reads_json_and_preserves_workspace():
-    redis = pytest.importorskip("redis")
     from autonomous_agent.prompt import load_workspace, workspace_key
 
     url = os.environ["REDIS_URL"]
@@ -199,15 +192,10 @@ def test_autonomous_scoped_acl_reads_json_and_preserves_workspace():
 
 
 def test_autonomous_local_write_idempotency_is_atomic_in_real_redis(monkeypatch):
-    redis = pytest.importorskip("redis")
     from nat_helpers.idempotency import complete_operation, reserve_operation
 
-    url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    url = os.environ["REDIS_URL"]
     client = redis.from_url(url, decode_responses=True)
-    try:
-        client.ping()
-    except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"Redis not reachable at {url}: {exc}")
     monkeypatch.setenv("REDIS_URL", url)
     execution_id = f"idempotency-itest-{uuid.uuid4().hex}"
 
@@ -241,5 +229,8 @@ def test_autonomous_local_write_idempotency_is_atomic_in_real_redis(monkeypatch)
         assert replay.stored_result == "applied"
         return owners[0].key
 
-    key = asyncio.run(scenario())
-    client.delete(key)
+    try:
+        key = asyncio.run(scenario())
+        client.delete(key)
+    finally:
+        client.close()

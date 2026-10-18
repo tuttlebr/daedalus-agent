@@ -58,6 +58,21 @@ def test_makefile_and_ci_exist():
     assert _CI.is_file(), _CI
 
 
+def test_pre_commit_hooks_run_in_ci_and_local_gate():
+    ci = yaml.safe_load(_CI.read_text())
+    steps = ci["jobs"]["hooks"]["steps"]
+    commands = "\n".join(step.get("run", "") for step in steps)
+    command = "pre-commit run --all-files --show-diff-on-failure"
+    assert command in commands
+    assert "npm ci --legacy-peer-deps" in commands
+    assert "pre-commit==3.6.2" in commands
+    makefile = _MAKEFILE.read_text()
+    assert command in makefile
+    assert "uvx --from pre-commit==3.6.2" in makefile
+    ci_target = next(line for line in makefile.splitlines() if line.startswith("ci:"))
+    assert "hooks" in ci_target.split()
+
+
 def test_rust_migration_gates_have_ci_and_local_parity():
     ci = yaml.safe_load(_CI.read_text())
     commands = "\n".join(

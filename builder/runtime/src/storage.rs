@@ -5,6 +5,27 @@ use redis::aio::MultiplexedConnection;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 
+/// Insert a fallback port into the authority, preserving credentials, database
+/// paths and TLS query parameters. An explicit URL port always takes precedence.
+pub fn redis_url_with_port(url: &str, port: &str) -> Result<String> {
+    if port.is_empty() {
+        return Ok(url.to_owned());
+    }
+    let parsed = reqwest::Url::parse(url).map_err(|_| anyhow!("Invalid Redis configuration"))?;
+    if parsed.host_str().is_some()
+        && parsed.port().is_none()
+        && let Some((scheme, authority)) = url.split_once("://")
+    {
+        let end = authority.find(['/', '?', '#']).unwrap_or(authority.len());
+        return Ok(format!(
+            "{scheme}://{}:{port}{}",
+            &authority[..end],
+            &authority[end..]
+        ));
+    }
+    Ok(url.to_owned())
+}
+
 #[derive(Clone)]
 pub struct Store {
     client: redis::Client,
@@ -12,21 +33,12 @@ pub struct Store {
 }
 impl Store {
     pub fn new(config: &Config) -> Result<Self> {
-        let mut url = config
-            .variable(
-                "REDIS_URL",
-                "redis://daedalus-redis.daedalus.svc.cluster.local",
-            )
-            .trim()
-            .to_owned();
+        let url = config.variable(
+            "REDIS_URL",
+            "redis://daedalus-redis.daedalus.svc.cluster.local",
+        );
         let port = config.variable("REDIS_PORT", "");
-        if !port.trim().is_empty()
-            && reqwest::Url::parse(&url)
-                .ok()
-                .is_some_and(|u| u.port().is_none())
-        {
-            url = format!("{}:{}", url.trim_end_matches('/'), port.trim());
-        }
+        let url = redis_url_with_port(url.trim(), port.trim())?;
         Self::from_url(&url, &config.variable("REDIS_TLS_CA_FILE", ""))
     }
     /// Named tools pass their configured URL directly to redis.from_url. Keep
@@ -292,5 +304,55 @@ impl Drop for Lease {
                 let _ = store.delete(&key).await;
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn fallback_port_preserves_database_credentials_and_tls_options() {
+        for (url, port, expected) in [
+            ("redis://cache", "6380", "redis://cache:6380"),
+            ("redis://cache/", "6380", "redis://cache:6380/"),
+            (
+                "redis://user:p%40ss@cache/2",
+                "6380",
+                "redis://user:p%40ss@cache:6380/2",
+            ),
+            (
+                "rediss://cache/2?ssl_ca_certs=%2Ftmp%2Fca.pem",
+                "6380",
+                "rediss://cache:6380/2?ssl_ca_certs=%2Ftmp%2Fca.pem",
+            ),
+            ("redis://[::1]/2", "6380", "redis://[::1]:6380/2"),
+            ("redis://cache:6379/2", "6380", "redis://cache:6379/2"),
+            ("redis://cache/2", "", "redis://cache/2"),
+        ] {
+            assert_eq!(redis_url_with_port(url, port).unwrap(), expected);
+        }
+        assert!(redis_url_with_port("invalid", "6380").is_err());
+    }
+
+    #[test]
+    fn configured_store_connects_to_the_selected_port_and_database() {
+        let config = Config::new(
+            json!({"llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},"workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+            [
+                ("REDIS_URL".into(), " redis://user:p%40ss@cache/2 ".into()),
+                ("REDIS_PORT".into(), " 6380 ".into()),
+            ].into(),
+        ).unwrap();
+        let store = Store::new(&config).unwrap();
+        let info = store.client.get_connection_info();
+        assert_eq!(
+            info.addr(),
+            &redis::ConnectionAddr::Tcp("cache".into(), 6380)
+        );
+        assert_eq!(info.redis_settings().db(), 2);
+        assert_eq!(info.redis_settings().username(), Some("user"));
+        assert_eq!(info.redis_settings().password(), Some("p@ss"));
     }
 }

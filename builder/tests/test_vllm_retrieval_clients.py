@@ -117,6 +117,51 @@ def test_embedding_adapter_async_documents_preserve_input_order():
     assert asyncio.run(run_test()) == [[4.0], [1.0]]
 
 
+@pytest.mark.parametrize("cancel", [False, True])
+def test_embedding_batch_settles_siblings_before_returning_failure(cancel):
+    async def check():
+        started = asyncio.Event()
+        closed = asyncio.Event()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            text = payload["messages"][0]["content"][0]["text"]
+            if text == "failure":
+                await started.wait()
+                return httpx.Response(503, text="unavailable")
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                # Transport cleanup yields while releasing sockets/pool slots.
+                await asyncio.sleep(0)
+                closed.set()
+
+        transport = httpx.MockTransport(handler)
+        adapter = DaedalusVLLMEmbeddings(
+            base_url="http://embedder:8000/v1",
+            model="nvidia/embedder",
+            sync_client=httpx.Client(transport=transport),
+            async_client=httpx.AsyncClient(transport=transport),
+        )
+        batch = asyncio.create_task(
+            adapter.aembed_documents(["waiting"] if cancel else ["waiting", "failure"])
+        )
+        try:
+            await asyncio.wait_for(started.wait(), 1)
+            if cancel:
+                batch.cancel()
+            with pytest.raises(asyncio.CancelledError if cancel else RuntimeError):
+                await asyncio.wait_for(batch, 1)
+            assert closed.is_set(), "A failed batch left embedding requests running"
+        finally:
+            batch.cancel()
+            await asyncio.gather(batch, return_exceptions=True)
+            await adapter.aclose()
+
+    asyncio.run(check())
+
+
 def test_embedding_adapter_surfaces_bounded_http_error():
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(400, text="invalid role")

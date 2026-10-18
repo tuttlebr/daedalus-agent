@@ -1,3 +1,5 @@
+import { waitForHttp } from './wait-for-http.mjs';
+
 import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
@@ -14,12 +16,13 @@ function amzTimestamp(date) {
   return date.toISOString().replace(/[:-]|\.\d{3}/g, '');
 }
 
-function request(options) {
+function request(options, timeoutMs = 30_000) {
   return new Promise((resolve, reject) => {
     const client = options.protocol === 'https:' ? https : http;
     const req = client.request(options, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
+      response.once('error', reject);
       response.on('end', () =>
         resolve({
           status: response.statusCode || 500,
@@ -27,35 +30,22 @@ function request(options) {
         }),
       );
     });
+    const timeout = setTimeout(
+      () => req.destroy(new Error('S3 fixture request timed out')),
+      timeoutMs,
+    );
+    req.once('close', () => clearTimeout(timeout));
     req.once('error', reject);
     req.end();
   });
 }
 
-export async function waitForS3(
+export function waitForS3(
   endpoint = 'http://127.0.0.1:18333',
   timeoutMs = 60_000,
 ) {
-  const deadline = Date.now() + timeoutMs;
   const healthUrl = new URL('/', endpoint);
-  while (Date.now() < deadline) {
-    try {
-      const result = await request({
-        protocol: healthUrl.protocol,
-        hostname: healthUrl.hostname,
-        port: healthUrl.port,
-        method: 'GET',
-        path: healthUrl.pathname,
-      });
-      if (result.status < 500) return;
-    } catch {
-      // The service is still starting.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  throw new Error(
-    `S3-compatible object storage did not become ready at ${endpoint}`,
-  );
+  return waitForHttp(healthUrl, timeoutMs);
 }
 
 export async function ensureS3Bucket({
@@ -64,6 +54,7 @@ export async function ensureS3Bucket({
   secretKey = 'e2e-s3-secret-key',
   bucket = 'daedalus-e2e-documents',
   region = 'us-east-1',
+  timeoutMs = 30_000,
 } = {}) {
   const target = new URL(endpoint);
   const now = new Date();
@@ -105,14 +96,17 @@ export async function ensureS3Bucket({
     `AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, ` +
     `SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-  const result = await request({
-    protocol: target.protocol,
-    hostname: target.hostname,
-    port: target.port,
-    method: 'PUT',
-    path,
-    headers,
-  });
+  const result = await request(
+    {
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port,
+      method: 'PUT',
+      path,
+      headers,
+    },
+    timeoutMs,
+  );
   if (result.status >= 200 && result.status < 300) return;
   if (
     result.status === 409 &&

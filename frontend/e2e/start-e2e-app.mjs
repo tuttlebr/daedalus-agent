@@ -1,5 +1,6 @@
 import { ensureS3Bucket, waitForS3 } from './ensure-s3-bucket.mjs';
 import { startHttpsProxy } from './https-proxy.mjs';
+import { waitForHttp } from './wait-for-http.mjs';
 
 import Redis from 'ioredis';
 import { spawn } from 'node:child_process';
@@ -117,27 +118,6 @@ function startWebsocket() {
   ]);
 }
 
-function waitForHttp(url, timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs;
-  return new Promise((resolve, reject) => {
-    const attempt = () => {
-      const req = http.get(url, (res) => {
-        res.resume();
-        if ((res.statusCode || 500) < 500) return resolve();
-        setTimeout(attempt, 250);
-      });
-      req.once('error', () => {
-        if (Date.now() >= deadline) {
-          reject(new Error(`Service did not become ready at ${url}`));
-          return;
-        }
-        setTimeout(attempt, 250);
-      });
-    };
-    attempt();
-  });
-}
-
 function waitForFile(file, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
@@ -244,19 +224,27 @@ async function main() {
     startChild('candidate-backend', [
       process.env.E2E_PYTHON || 'python3',
       '../builder/migration/serve_candidate.py',
-      '--image', process.env.E2E_CANDIDATE_IMAGE,
-      '--redis-image', process.env.E2E_CANDIDATE_REDIS_IMAGE,
-      '--milvus-image', process.env.E2E_MILVUS_PEER_IMAGE,
-      '--port', backendPort,
+      '--image',
+      process.env.E2E_CANDIDATE_IMAGE,
+      '--redis-image',
+      process.env.E2E_CANDIDATE_REDIS_IMAGE,
+      '--milvus-image',
+      process.env.E2E_MILVUS_PEER_IMAGE,
+      '--port',
+      backendPort,
     ]);
   } else {
     startChild('backend', [process.execPath, 'e2e/mock-backend.mjs']);
   }
   await waitForHttp(`http://127.0.0.1:${backendPort}/health`);
   if (process.env.E2E_CANDIDATE_IMAGE) {
-    const readiness = await fetch(`http://127.0.0.1:${backendPort}/health/ready`);
+    const readiness = await fetch(
+      `http://127.0.0.1:${backendPort}/health/ready`,
+    );
     if (!readiness.ok || (await readiness.json()).runtime !== 'rust') {
-      throw new Error('Candidate mode requires the Rust image readiness contract');
+      throw new Error(
+        'Candidate mode requires the Rust image readiness contract',
+      );
     }
   }
 

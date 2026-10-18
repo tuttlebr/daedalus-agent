@@ -226,7 +226,9 @@ class BackendClient:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        full = ""
+        parts: list[str] = []
+        response_chars = 0
+        completed = False
         current_sse_event: str | None = None
         async with httpx.AsyncClient(timeout=self.request_timeout) as client:
             async with client.stream(
@@ -241,18 +243,25 @@ class BackendClient:
                     if not line:
                         current_sse_event = None
                         continue
-                    if line.startswith("event: "):
-                        current_sse_event = line[len("event: ") :].strip()
+                    if line.startswith("event:"):
+                        current_sse_event = line[len("event:") :].strip()
                         continue
-                    if not line.startswith("data: "):
+                    if not line.startswith("data:"):
                         continue
-                    data = line[6:]
+                    data = line[len("data:") :].removeprefix(" ")
                     if data.strip() == "[DONE]":
+                        completed = True
                         break
                     try:
                         chunk = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
+                    except json.JSONDecodeError as exc:
+                        raise RunAbortedError(
+                            "backend sent an invalid stream event"
+                        ) from exc
+                    if not isinstance(chunk, dict):
+                        raise RunAbortedError("backend sent an invalid stream event")
+                    if current_sse_event == "error" or chunk.get("error"):
+                        raise RunAbortedError("backend stream reported an error")
                     oauth_payload = extract_oauth_required_payload(
                         current_sse_event,
                         chunk,
@@ -263,12 +272,47 @@ class BackendClient:
                             auth_url=oauth_payload.get("auth_url", ""),
                             oauth_state=oauth_payload.get("oauth_state", ""),
                         )
-                    for choice in chunk.get("choices", []):
-                        content = choice.get("delta", {}).get("content", "")
+                    choices = chunk.get("choices", [])
+                    if not isinstance(choices, list):
+                        raise RunAbortedError("backend sent an invalid stream event")
+                    for choice in choices:
+                        if not isinstance(choice, dict):
+                            raise RunAbortedError(
+                                "backend sent an invalid stream event"
+                            )
+                        finish_reason = choice.get("finish_reason")
+                        terminal = choice.get("daedalus_terminal", False)
+                        delta = choice.get("delta", {})
+                        if (
+                            (
+                                finish_reason is not None
+                                and not isinstance(finish_reason, str)
+                            )
+                            or not isinstance(terminal, bool)
+                            or not isinstance(delta, dict)
+                        ):
+                            raise RunAbortedError(
+                                "backend sent an invalid stream event"
+                            )
+                        if finish_reason == "error":
+                            raise RunAbortedError("backend stream reported an error")
+                        content = delta.get("content")
+                        if content is not None and not isinstance(content, str):
+                            raise RunAbortedError(
+                                "backend sent an invalid stream event"
+                            )
                         if content:
-                            full += content
-                    if len(full) > MAX_RESPONSE_CHARS:
+                            parts.append(content)
+                            response_chars += len(content)
+                        completed = completed or terminal or bool(finish_reason)
+                    if response_chars > MAX_RESPONSE_CHARS:
                         raise RunAbortedError(
                             f"backend response exceeded {MAX_RESPONSE_CHARS} characters"
                         )
-        return full
+                    # The explicit terminal confirms the result before provider
+                    # teardown; do not wait for [DONE] or transport EOF afterward.
+                    if completed:
+                        break
+        if not completed:
+            raise RunAbortedError("backend stream ended before completion")
+        return "".join(parts)

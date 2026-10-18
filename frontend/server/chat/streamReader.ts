@@ -346,22 +346,23 @@ export async function startBackgroundStreamReader(
       clearTimeout(connectTimer);
     }
 
-    if (!response.ok || !response.body) {
-      const errorText = await response.text().catch(() => '');
+    reader = response.body?.getReader() ?? null;
+    if (!response.ok || !reader) {
+      // Status is enough to report a failed HTTP request. Reading an error
+      // body here bypasses the stream's idle deadline and can hold a worker
+      // forever; it can also expose backend diagnostics in saved chat errors.
+      // The finally block aborts/cancels this body without consuming it.
       logger.error(
         `Job ${jobId}: Stream reader got ${response.status}, aborting`,
       );
       await finalizeError(
         jobId,
         jobRequest,
-        `Backend stream returned ${response.status}${
-          errorText ? ` - ${errorText}` : ''
-        }`,
+        `Backend stream returned ${response.status}`,
       );
       return;
     }
 
-    reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let skipLeadingLineFeed = false;

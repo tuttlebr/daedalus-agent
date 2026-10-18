@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: './e2e/tests',
   testMatch: /daily-summary-layout\.spec\.ts/,
   fullyParallel: false,
+  forbidOnly: !!process.env.CI,
   workers: 1,
   retries: 0,
   timeout: 45_000,

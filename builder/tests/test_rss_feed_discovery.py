@@ -1,7 +1,6 @@
 """RSS discovery concurrency, freshness, and failure contracts."""
 
 import asyncio
-import importlib.util
 import json
 import socket
 import subprocess
@@ -16,23 +15,8 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 import rss_feed.rss_feed_function as rss
+from cachetools import TTLCache
 from pydantic import ValidationError
-
-# conftest replaces cachetools for unrelated tests; use the installed implementation
-# here so expiry and coalescing assertions cover the real feed cache.
-_cache_spec = importlib.util.spec_from_file_location(
-    "rss_test_cachetools",
-    distribution("cachetools").locate_file("cachetools/__init__.py"),
-)
-_cache_module = importlib.util.module_from_spec(_cache_spec)
-sys.modules[_cache_spec.name] = _cache_module
-_cache_spec.loader.exec_module(_cache_module)
-TTLCache = _cache_module.TTLCache
-
-
-@pytest.fixture(autouse=True)
-def real_feed_cache(monkeypatch):
-    monkeypatch.setattr(rss, "TTLCache", TTLCache)
 
 
 class FeedHarness:

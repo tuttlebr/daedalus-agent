@@ -435,10 +435,39 @@ impl Preparation {
                 "tools"
             },
         ))?;
+        // Neither operation depends on the other. Keep both futures owned by
+        // this request so cancellation or a catalogue failure drops all work.
+        let (tools, context) = tokio::try_join!(
+            self.prepare_tools(http, tools_url, headers, body, &selected),
+            self.prepare_memory(headers, &query, autonomy),
+        )?;
+        prepared.tools = tools;
+        if let Some(context) = context
+            && let Some(index) = prepared.messages.iter().rposition(|m| m.role == "user")
+        {
+            prepared.messages.insert(
+                index,
+                ChatMessage {
+                    role: "user".into(),
+                    content: context,
+                },
+            );
+        }
+        Ok(prepared)
+    }
+
+    async fn prepare_tools(
+        &self,
+        http: &reqwest::Client,
+        tools_url: &str,
+        headers: &HeaderMap,
+        body: &Value,
+        selected: &[String],
+    ) -> Result<Vec<rig_core::completion::ToolDefinition>> {
         let mut schemas = HashMap::new();
         let mut external = Vec::new();
         let mut groups = Vec::new();
-        for name in &selected {
+        for name in selected {
             let raw = &self.config.raw["functions"][name];
             if raw["_type"] == "current_datetime" {
                 schemas.insert(name.clone(), vec![clock_schema(name, raw)]);
@@ -509,16 +538,26 @@ impl Preparation {
             );
         }
         // Python orders all native tools before MCP tools; preserve this model-facing contract.
+        let mut tools = Vec::new();
         for is_group in [false, true] {
-            for name in &selected {
+            for name in selected {
                 if self.config.raw["function_groups"].get(name).is_some() != is_group {
                     continue;
                 }
                 for schema in schemas.remove(name).unwrap_or_default() {
-                    prepared.tools.push(serde_json::from_value(schema)?);
+                    tools.push(serde_json::from_value(schema)?);
                 }
             }
         }
+        Ok(tools)
+    }
+
+    async fn prepare_memory(
+        &self,
+        headers: &HeaderMap,
+        query: &str,
+        autonomy: bool,
+    ) -> Result<Option<String>> {
         if !autonomy {
             let budget = self
                 .config
@@ -530,26 +569,18 @@ impl Preparation {
             let conversation = header(headers, "x-conversation-id");
             match tokio::time::timeout(
                 Duration::from_secs_f64(budget.min(3600.)),
-                self.memory.context(user, conversation, &query),
+                self.memory.context(user, conversation, query),
             )
             .await
             {
                 Ok(Ok(context)) if !context.is_empty() => {
-                    if let Some(index) = prepared.messages.iter().rposition(|m| m.role == "user") {
-                        prepared.messages.insert(
-                            index,
-                            ChatMessage {
-                                role: "user".into(),
-                                content: context,
-                            },
-                        );
-                    }
+                    return Ok(Some(context));
                 }
                 Ok(Ok(_)) => {}
                 _ => tracing::warn!(event = "memory_context_unavailable"),
             }
         }
-        Ok(prepared)
+        Ok(None)
     }
 }
 
@@ -559,4 +590,128 @@ pub fn header<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .trim()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{Json, Router, extract::State, http::Uri, routing::post};
+    use tokio::sync::Barrier;
+
+    fn configuration(base: &str) -> Config {
+        Config::new(
+            json!({
+                "llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
+                "functions":{"feed":{"_type":"rss_feed"},"clock":{"_type":"current_datetime"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["feed","clock"]}
+            }),
+            [
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+                ("HINDSIGHT_API_URL".into(), base.into()),
+                ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
+                ("DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS".into(), "30".into()),
+            ].into(),
+        ).unwrap()
+    }
+
+    #[tokio::test]
+    async fn memory_and_catalogue_overlap_and_preserve_message_and_tool_order() {
+        async fn catalogue(State(barrier): State<Arc<Barrier>>) -> Json<Value> {
+            // A sequential implementation cannot pass this rendezvous: memory
+            // must reach its HTTP peer while the catalogue is still pending.
+            barrier.wait().await;
+            Json(
+                json!({"feed":[{"name":"feed","description":"Fixture feed","parameters":{"type":"object","properties":{}}}]}),
+            )
+        }
+        async fn memory(
+            State(barrier): State<Arc<Barrier>>,
+            method: axum::http::Method,
+            uri: Uri,
+        ) -> Json<Value> {
+            if uri.path().ends_with("/config") && method == axum::http::Method::GET {
+                barrier.wait().await;
+            }
+            Json(if uri.path().ends_with("/knowledge-base/search") {
+                json!({"results":[{"id":"fixture-page"}]})
+            } else if uri.path().ends_with("/knowledge-base/pages/fixture-page") {
+                json!({"name":"Fixture page","body":"Remembered project preference"})
+            } else {
+                json!({})
+            })
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new()
+            .route("/runtime/v1/catalog", post(catalogue))
+            .fallback(memory)
+            .with_state(Arc::new(Barrier::new(2)));
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let http = reqwest::Client::new();
+        let preparation = Preparation::new(configuration(&base), http.clone()).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", "fixture-user".parse().unwrap());
+        let body = json!({"messages":[
+            {"role":"user","content":"Earlier question"},
+            {"role":"assistant","content":"Earlier answer"},
+            {"role":"user","content":"Review my project preferences"}
+        ]});
+        let run = tokio::time::timeout(
+            Duration::from_secs(5),
+            preparation.prepare(&http, &base, &headers, &body),
+        )
+        .await
+        .expect("memory and catalogue must proceed together")
+        .unwrap();
+        peer.abort();
+        assert_eq!(
+            run.tools
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>(),
+            ["feed", "clock"]
+        );
+        assert_eq!(run.messages.len(), 4);
+        assert_eq!(run.messages[0].content, "Earlier question");
+        assert_eq!(run.messages[1].content, "Earlier answer");
+        assert!(
+            run.messages[2]
+                .content
+                .contains("Remembered project preference")
+        );
+        assert_eq!(run.messages[3].content, "Review my project preferences");
+    }
+
+    #[tokio::test]
+    async fn catalogue_failure_does_not_wait_for_optional_memory_deadline() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new()
+            .route(
+                "/runtime/v1/catalog",
+                post(|State(barrier): State<Arc<Barrier>>| async move {
+                    barrier.wait().await;
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE
+                }),
+            )
+            .fallback(|State(barrier): State<Arc<Barrier>>| async move {
+                barrier.wait().await;
+                std::future::pending::<Json<Value>>().await
+            })
+            .with_state(Arc::new(Barrier::new(2)));
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let http = reqwest::Client::new();
+        let preparation = Preparation::new(configuration(&base), http.clone()).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", "fixture-user".parse().unwrap());
+        let body = json!({"messages":[{"role":"user","content":"Review my project preferences"}]});
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            preparation.prepare(&http, &base, &headers, &body),
+        )
+        .await
+        .expect("catalogue failure must cancel pending memory preparation");
+        peer.abort();
+        assert!(result.is_err());
+    }
 }

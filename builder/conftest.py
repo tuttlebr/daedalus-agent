@@ -47,7 +47,6 @@ _pymilvus_abstract_mod.Hit = _FakeHit
 _EXTERNAL_MOCKS = [
     "markitdown",
     "fastfeedparser",
-    "cachetools",
     "openai",
     "pymilvus",
     "pymilvus.client",

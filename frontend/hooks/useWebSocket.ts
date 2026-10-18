@@ -64,7 +64,6 @@ export const useWebSocket = (
     Record<string, boolean>
   >({});
   const managerRef = useRef<WebSocketManager | null>(null);
-  const cleanupRef = useRef<Array<() => void>>([]);
   const connectionActiveRef = useRef(false);
   const isPageVisibleRef = useRef(true);
 
@@ -261,8 +260,6 @@ export const useWebSocket = (
       }),
     );
 
-    cleanupRef.current = unsubs;
-
     // If the singleton was already connected before this hook mounted, this
     // subscriber missed the original `connected` event.
     setIsConnected(manager.isConnected);
@@ -270,7 +267,6 @@ export const useWebSocket = (
 
     return () => {
       unsubs.forEach((unsub) => unsub());
-      cleanupRef.current = [];
       disconnect();
     };
   }, [enabled, connect, disconnect]);

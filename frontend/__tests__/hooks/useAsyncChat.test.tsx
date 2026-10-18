@@ -202,6 +202,225 @@ describe('useAsyncChat streaming callbacks', () => {
     document.body.innerHTML = '';
   });
 
+  it('queues live subscriptions during disconnection and resumes token delivery', async () => {
+    mocks.manager.isConnected = false;
+    const onToken = vi.fn();
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      onToken,
+      pollingInterval: 3000,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(mocks.manager.subscribeToJob).toHaveBeenCalledWith('job-1');
+    expect(mocks.manager.subscribeToChat).toHaveBeenCalledWith('conv-1');
+    expect(mocks.fetchWithTimeoutMock).toHaveBeenCalledTimes(3);
+    mocks.manager.isConnected = true;
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'Live',
+        responseStart: 0,
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(onToken).toHaveBeenCalledOnce();
+    expect(mocks.fetchWithTimeoutMock).toHaveBeenCalledTimes(3);
+    expect(mocks.manager.unsubscribeFromJob).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it('switches promptly to polling on disconnect without overlapping slow requests', async () => {
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      pollingInterval: 3000,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    let resolveStatus!: (value: any) => void;
+    mocks.fetchWithTimeoutMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    mocks.manager.isConnected = false;
+    await act(async () => {
+      emit('disconnected', undefined);
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(mocks.fetchWithTimeoutMock).toHaveBeenCalledTimes(3);
+    expect(mocks.manager.unsubscribeFromJob).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveStatus(
+        response({
+          jobId: 'job-1',
+          status: 'streaming',
+          conversationId: 'conv-1',
+          partialResponse: 'current',
+          createdAt: 1,
+          updatedAt: 2,
+        }),
+      );
+    });
+    act(() => root.unmount());
+  });
+
+  it('delivers same-length corrections and tool-only progress through polling', async () => {
+    mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) =>
+      response(
+        url === '/api/chat/async'
+          ? { jobId: 'job-1', status: 'pending' }
+          : {
+              jobId: 'job-1',
+              status: 'streaming',
+              partialResponse: 'abc',
+              intermediateSteps: [],
+              conversationId: 'conv-1',
+              createdAt: 1,
+              updatedAt: 1,
+            },
+      ),
+    );
+    const onProgress = vi.fn();
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      useWebSocket: false,
+      pollingInterval: 3000,
+      onProgress,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    mocks.fetchWithTimeoutMock.mockResolvedValue(
+      response({
+        jobId: 'job-1',
+        status: 'streaming',
+        partialResponse: 'xyz',
+        intermediateSteps: [],
+        conversationId: 'conv-1',
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(onProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ partialResponse: 'xyz' }),
+    );
+
+    const steps = [{ payload: { event_type: 'TOOL_START', name: 'search' } }];
+    mocks.fetchWithTimeoutMock.mockResolvedValue(
+      response({
+        jobId: 'job-1',
+        status: 'streaming',
+        partialResponse: 'xyz',
+        intermediateSteps: steps,
+        conversationId: 'conv-1',
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(onProgress).toHaveBeenCalledTimes(3);
+    expect(onProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ intermediateSteps: steps }),
+    );
+    act(() => root.unmount());
+  });
+
+  it('keeps newer live progress when an older fallback response arrives', async () => {
+    mocks.manager.isConnected = false;
+    const onProgress = vi.fn();
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      pollingInterval: 3000,
+      onProgress,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    let resolveStatus!: (value: any) => void;
+    mocks.fetchWithTimeoutMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    mocks.manager.isConnected = true;
+    const step = { payload: { event_type: 'TOOL_START', name: 'search' } };
+    await act(async () => {
+      emit('chat_intermediate_step', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        step,
+      });
+      resolveStatus(
+        response({
+          jobId: 'job-1',
+          status: 'pending',
+          conversationId: 'conv-1',
+          intermediateSteps: [],
+          createdAt: 1,
+          updatedAt: 1,
+        }),
+      );
+    });
+    expect(onProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'streaming',
+        intermediateSteps: [step],
+      }),
+    );
+    expect(onProgress).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+  });
+
+  it.each([true, false])(
+    'reports empty finalized responses consistently (WebSocket=%s)',
+    async (useWebSocket) => {
+      mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) =>
+        response(
+          url === '/api/chat/async'
+            ? { jobId: 'job-1', status: 'pending' }
+            : {
+                jobId: 'job-1',
+                status: 'completed',
+                fullResponse: '',
+                finalizedAt: 2,
+                conversationId: 'conv-1',
+                createdAt: 1,
+                updatedAt: 2,
+              },
+        ),
+      );
+      const onComplete = vi.fn();
+      const { root, api } = renderProbe({
+        userId: 'alice',
+        useWebSocket,
+        onComplete,
+      });
+      await act(async () => {
+        await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+      });
+      expect(onComplete).toHaveBeenCalledOnce();
+      expect(onComplete.mock.calls[0][0]).toBe('');
+      act(() => root.unmount());
+    },
+  );
+
   it('stops during submission and ignores the late job ID', async () => {
     let resolvePost!: (value: any) => void;
     mocks.fetchWithTimeoutMock.mockImplementation(

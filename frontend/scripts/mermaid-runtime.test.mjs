@@ -1,5 +1,4 @@
 import mermaid from 'mermaid/dist/mermaid.esm.min.mjs';
-
 import { describe, expect, it } from 'vitest';
 
 describe('pinned Mermaid runtime', () => {

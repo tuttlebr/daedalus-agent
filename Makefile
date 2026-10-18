@@ -38,7 +38,11 @@ DEPLOY_IMAGE_ARGS ?= --allow-unsigned-images
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deploy ci rust-check rust-coverage migration-baseline migration migration-benchmark candidate-browser runtime builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
+.PHONY: help deploy ci hooks rust-check rust-coverage migration-baseline migration migration-benchmark candidate-browser runtime builder test-integration frontend frontend-e2e helm redis-upgrade docker security tools-check clean
+
+# CI targets share frontend build output and disposable Compose services.
+# Preserve the promised sequential gate even when invoked with make -j.
+.NOTPARALLEL: ci
 
 help: ## show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -46,7 +50,11 @@ help: ## show available targets
 deploy: ## build, verify, and deploy through the canonical development path
 	./deploy.sh $(DEPLOY_IMAGE_ARGS) $(DEPLOY_ARGS)
 
-ci: tools-check builder test-integration frontend frontend-e2e rust-check rust-coverage migration candidate-browser helm redis-upgrade docker security ## run every CI job sequentially
+ci: tools-check hooks builder test-integration frontend frontend-e2e rust-check rust-coverage migration candidate-browser helm redis-upgrade docker security ## run every CI job sequentially
+
+hooks: ## run every pre-commit hook  (CI job: hooks)
+	cd frontend && npm ci --legacy-peer-deps
+	uvx --from pre-commit==3.6.2 pre-commit run --all-files --show-diff-on-failure
 
 rust-check: ## Rust formatting, lint, unit and frozen contract tests
 	cargo fmt --manifest-path builder/runtime/Cargo.toml --check
@@ -129,7 +137,7 @@ migration-benchmark: ## frozen synthetic performance gates; run on an idle host 
 
 builder: ## Python builder pytest with coverage  (CI job: builder)
 	cd builder && uv pip install -e ".[test]"
-	cd builder && uv run python -m pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=65
+	cd builder && uv run --no-project --active python -m pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=65
 
 test-integration: ## Python + frontend persistence tests vs real Redis  (CI job: builder-integration)
 	@set -eu; \
@@ -140,7 +148,7 @@ test-integration: ## Python + frontend persistence tests vs real Redis  (CI job:
 		uv pip install -e ".[test]" redis; \
 		PYTEST_USE_REAL_REDIS=1 \
 		REDIS_URL=redis://default:e2e-redis-password@localhost:16379 \
-		uv run python -m pytest -m integration -v; \
+		uv run --no-project --active python -m pytest -m integration -v; \
 		cd ../frontend; \
 		npm ci --legacy-peer-deps; \
 		REDIS_URL=redis://default:e2e-redis-password@localhost:16379 \
@@ -199,7 +207,7 @@ security: ## secret, production dependency, and filesystem vulnerability scans  
 
 tools-check: ## verify required binaries are present
 	@missing=0; \
-	for t in uv helm kind kubectl openssl docker gitleaks trivy jq node npm python3.12; do \
+	for t in uv helm kind kubectl openssl docker gitleaks trivy jq node npm python3.12 cargo rustup rg; do \
 		if ! command -v $$t >/dev/null 2>&1; then \
 			echo "  missing: $$t"; \
 			missing=$$((missing+1)); \

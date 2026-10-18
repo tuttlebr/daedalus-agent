@@ -77,7 +77,7 @@ repos:
         name: Prettier
         entry: bash -c 'cd frontend && node node_modules/prettier/bin-prettier.js --config prettier.config.js --write "${@/#/../}"' --
         language: system
-        files: \.(css|html|js|jsx|json|md|ts|tsx|yaml|yml)$
+        files: \.(css|html|[cm]?js|jsx|json|md|ts|tsx|yaml|yml)$
         exclude: '(^helm/.*/templates/)|(^charts/.*/templates/)'
       - id: helm-lint-daedalus
         name: Helm lint daedalus (if helm installed)

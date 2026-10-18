@@ -3419,6 +3419,35 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBe(true);
   });
 
+  it('finalizes HTTP errors without waiting for a stalled diagnostic body', async () => {
+    const read = vi.fn(() => new Promise<never>(() => {}));
+    const text = vi.fn(() => new Promise<string>(() => {}));
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const releaseLock = vi.fn();
+    let signal: AbortSignal | undefined;
+    const { statusKey, store } = await runStreamTurn([], {
+      fetchImpl: async (_url: string, options: RequestInit) => {
+        signal = options.signal ?? undefined;
+        return {
+          ok: false,
+          status: 502,
+          text,
+          body: { getReader: () => ({ read, cancel, releaseLock }) },
+        };
+      },
+    });
+    expect(store.get(statusKey)).toMatchObject({
+      status: 'error',
+      error: 'Backend stream returned 502',
+      finalizedAt: expect.any(Number),
+    });
+    expect(text).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(signal?.aborted).toBe(true);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
   it('finalizes error and preserves accumulated steps when the reader throws mid-stream', async () => {
     let n = 0;
     const { statusKey, store } = await runStreamTurn([], {

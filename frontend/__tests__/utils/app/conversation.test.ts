@@ -29,15 +29,6 @@ vi.mock('@/utils/app/storage', () => ({
   setUserSessionItem,
 }));
 
-vi.mock('@/utils/app/conversationPagination', () => ({
-  paginateConversation: vi.fn(async (conversation) => conversation),
-  loadConversationMessages: vi.fn(),
-  enforceConversationSizeLimit: vi.fn(),
-  cleanupOldConversations: vi.fn(async () => 0),
-  MESSAGES_IN_MEMORY: 50,
-  MAX_CONVERSATION_MESSAGES: 500,
-}));
-
 vi.mock('@/utils/app/conversationReplay', () => ({
   sanitizeConversationAssistantReplays: vi.fn((value) => value),
   sanitizeConversationsAssistantReplays: vi.fn((value) => value),
@@ -47,10 +38,6 @@ vi.mock('@/utils/app/imageHandler', () => ({
   restoreMessageImages: vi.fn((value) => value),
   cleanMessagesForStorage: vi.fn((value) => value),
   stripBase64Content: vi.fn((value) => value),
-}));
-
-vi.mock('@/utils/app/visibilityAwareTimer', () => ({
-  createVisibilityAwareInterval: vi.fn(),
 }));
 
 describe('saveConversation', () => {
@@ -119,24 +106,13 @@ describe('saveConversation', () => {
     );
   });
 
-  it('persists the full cleaned conversation even when local cache pagination trims it', async () => {
+  it('persists full history while bounding only the browser selection cache', async () => {
     const { saveConversation } = await import('@/utils/app/conversation');
-    const { paginateConversation } = await import(
-      '@/utils/app/conversationPagination'
-    );
-
-    (paginateConversation as any).mockImplementationOnce(
-      async (conversation: any) => ({
-        ...conversation,
-        messages: conversation.messages.slice(-1),
-      }),
-    );
-
-    const messages = [
-      { id: 'm1', role: 'user', content: 'first' },
-      { id: 'm2', role: 'assistant', content: 'second' },
-      { id: 'm3', role: 'user', content: 'third' },
-    ];
+    const messages = Array.from({ length: 70 }, (_, index) => ({
+      id: `m${index}`,
+      role: index % 2 ? 'assistant' : 'user',
+      content: `message ${index}`,
+    }));
 
     await saveConversation({
       id: 'conv-1',
@@ -158,7 +134,46 @@ describe('saveConversation', () => {
       ([key]) => key === 'selectedConversation',
     );
     expect(JSON.parse(selectedCacheCall?.[1] ?? '{}')).toEqual(
-      expect.objectContaining({ messages: [messages[messages.length - 1]] }),
+      expect.objectContaining({ messages: messages.slice(-50) }),
     );
+  });
+
+  it('persists server history when browser storage is unavailable', async () => {
+    const { saveConversation } = await import('@/utils/app/conversation');
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setUserSessionItem.mockImplementationOnce(() => {
+      throw new DOMException('Storage disabled', 'SecurityError');
+    });
+    const conversation = {
+      id: 'conv-1',
+      messages: [{ role: 'user', content: 'keep this' }],
+    } as any;
+    try {
+      await saveConversation(conversation);
+      expect(apiPut).toHaveBeenCalledWith(
+        '/api/conversations/conv-1',
+        conversation,
+      );
+      expect(apiPut).toHaveBeenCalledWith(
+        '/api/session/selectedConversation',
+        conversation,
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('loads complete server history without supplementing it from a browser cache', async () => {
+    const { loadConversation } = await import('@/utils/app/conversation');
+    const conversation = {
+      id: 'conv-1',
+      messages: Array.from({ length: 70 }, (_, index) => ({
+        id: `m${index}`,
+        role: 'user',
+        content: `message ${index}`,
+      })),
+    };
+    apiGet.mockResolvedValue(conversation);
+    expect(await loadConversation()).toEqual(conversation);
   });
 });

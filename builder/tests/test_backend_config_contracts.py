@@ -684,7 +684,10 @@ def test_make_deploy_is_the_guarded_canonical_path():
     for guide in DEPLOYMENT_GUIDES:
         contents = guide.read_text(encoding="utf-8")
         assert "make deploy" in contents, guide
-        assert "./deploy.sh" not in contents, guide
+        # Asking the script for usage does not deploy or bypass the canonical
+        # Make target. Keep rejecting direct deployment examples.
+        without_help = contents.replace("\n./deploy.sh --help\n", "\n")
+        assert "./deploy.sh" not in without_help, guide
         assert "helm upgrade --install" not in contents, guide
 
 

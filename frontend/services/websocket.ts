@@ -111,6 +111,7 @@ export class WebSocketManager {
   private handlers = new Map<string, Set<MessageHandler>>();
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectGeneration = 0;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
@@ -135,6 +136,7 @@ export class WebSocketManager {
     }
 
     this.intentionalClose = false;
+    this.cancelReconnect();
 
     try {
       // Build absolute WebSocket URL
@@ -143,9 +145,11 @@ export class WebSocketManager {
         ? this.url
         : `${protocol}//${window.location.host}${this.url}`;
 
-      this.ws = new WebSocket(wsUrl);
+      const socket = new WebSocket(wsUrl);
+      this.ws = socket;
 
-      this.ws.onopen = () => {
+      socket.onopen = () => {
+        if (this.ws !== socket) return;
         logger.info('WebSocket connected');
         this._isConnected = true;
         this.reconnectAttempts = 0;
@@ -162,7 +166,8 @@ export class WebSocketManager {
         }
       };
 
-      this.ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (this.ws !== socket) return;
         try {
           const msg: ServerMessage = JSON.parse(event.data);
           this.handleMessage(msg);
@@ -171,11 +176,13 @@ export class WebSocketManager {
         }
       };
 
-      this.ws.onclose = (event) => {
+      socket.onclose = (event) => {
+        if (this.ws !== socket) return;
         logger.info(
           `WebSocket closed: code=${event.code} reason=${event.reason}`,
         );
         this._isConnected = false;
+        this.ws = null;
         this.stopPing();
 
         if (!this.intentionalClose) {
@@ -194,7 +201,8 @@ export class WebSocketManager {
         this.emit('disconnected', undefined);
       };
 
-      this.ws.onerror = () => {
+      socket.onerror = () => {
+        if (this.ws !== socket) return;
         logger.warn('WebSocket error');
         // onclose will fire after this
       };
@@ -209,12 +217,13 @@ export class WebSocketManager {
     this.stopPing();
     this.cancelReconnect();
 
-    if (this.ws) {
-      this.ws.close(1000, 'Client disconnect');
-      this.ws = null;
-    }
-
+    const socket = this.ws;
+    this.ws = null;
     this._isConnected = false;
+    if (socket) {
+      socket.close(1000, 'Client disconnect');
+      this.emit('disconnected', undefined);
+    }
   }
 
   // Register a handler for a specific message type
@@ -354,7 +363,8 @@ export class WebSocketManager {
   }
 
   private startPongTimeout(): void {
-    if (this.pongTimer) clearTimeout(this.pongTimer);
+    // Later pings must not extend the deadline for an unanswered ping.
+    if (this.pongTimer) return;
     this.pongTimer = setTimeout(() => {
       logger.warn('Pong timeout - reconnecting');
       if (this.ws) {
@@ -371,6 +381,7 @@ export class WebSocketManager {
   }
 
   private cancelReconnect(): void {
+    this.reconnectGeneration += 1;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -379,6 +390,7 @@ export class WebSocketManager {
 
   private async scheduleReconnect(): Promise<void> {
     this.cancelReconnect();
+    const generation = this.reconnectGeneration;
 
     // Stop after max attempts
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
@@ -413,6 +425,12 @@ export class WebSocketManager {
       }
     } catch {
       // Battery API not available
+    }
+
+    // Battery lookup is asynchronous. A disconnect or a new connection may
+    // have cancelled this reconnect while it was pending.
+    if (this.intentionalClose || generation !== this.reconnectGeneration) {
+      return;
     }
 
     // Add jitter (±20%)
