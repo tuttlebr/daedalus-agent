@@ -571,6 +571,22 @@ impl Tool {
         self.service.cache.lock().unwrap().entries.clear();
     }
 }
+#[cfg(test)]
+impl Tool {
+    /// The retained fixture's offline transport: every NWS request fails at
+    /// the HTTP boundary, so the production composition still runs.
+    pub(super) fn offline() -> Self {
+        Self {
+            settings: Settings::new(&json!({})).unwrap(),
+            service: Arc::new(Service {
+                http: Err(invalid("RuntimeError", "Synthetic offline transport")),
+                timeout: Duration::from_secs(20),
+                ttl: 86400.,
+                cache: Mutex::new(Cache::default()),
+            }),
+        }
+    }
+}
 impl Drop for Tool {
     fn drop(&mut self) {
         let mut cache = self.service.cache.lock().unwrap();

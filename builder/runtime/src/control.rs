@@ -64,6 +64,8 @@ pub struct RunHandle {
     pub telemetry: Mutex<Option<crate::telemetry::RunSpan>>,
     pub user: String,
     pub conversation: String,
+    /// Background autonomy run; admitted from its own per-user pool.
+    pub autonomy: bool,
     pub sender: mpsc::Sender<Command>,
     pub commands: Mutex<HashMap<Uuid, Command>>,
     pub finished: AtomicBool,
@@ -139,6 +141,7 @@ mod tests {
         let run = RunHandle {
             user: "alice".into(),
             conversation: "chat".into(),
+            autonomy: false,
             sender,
             commands: Mutex::new(HashMap::new()),
             finished: AtomicBool::new(false),
@@ -200,6 +203,7 @@ mod tests {
         let run = RunHandle {
             user: "alice".into(),
             conversation: "chat".into(),
+            autonomy: false,
             sender,
             commands: Mutex::new(HashMap::new()),
             finished: AtomicBool::new(false),
@@ -244,6 +248,7 @@ mod tests {
         let run = RunHandle {
             user: "alice".into(),
             conversation: "chat".into(),
+            autonomy: false,
             sender,
             commands: Mutex::new(HashMap::new()),
             finished: AtomicBool::new(false),

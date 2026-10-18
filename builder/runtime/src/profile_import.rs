@@ -548,6 +548,110 @@ mod tests {
             other => other,
         }
     }
+    #[tokio::test]
+    async fn replacement_deletes_old_profile_only_after_confirmed_retention() {
+        use crate::memory_api::tests::peers;
+        fn confirmed(call: &Value, _: usize) -> Value {
+            match (call["method"].as_str().unwrap(), call["query"].as_str()) {
+                ("GET", Some(query)) if query.contains("offset=0") => json!({"items":
+                    (0..100).map(|i| json!({"id":format!("old-{i:03}")})).collect::<Vec<_>>()}),
+                ("GET", _) => json!({"items":[{"id":"old-100"}]}),
+                ("POST", _) => json!({"success":true,"status":"completed"}),
+                _ => json!({}),
+            }
+        }
+        let body =
+            json!({"mode":"replace","entries":[{"label":"Name","memory":"Synthetic Alice"}]});
+        let (base, calls, peer) = peers::hindsight(confirmed).await;
+        let app = peers::app(&base, "redis://127.0.0.1:1");
+        assert_eq!(
+            peers::send(&app, "POST", "/v1/profile/import", Some(body.clone())).await,
+            (
+                200,
+                json!({"status":"success","user_id":"synthetic-alice","imported":1,"replaced":101,
+                    "queued":0,"operation_id":null,"profile_version":null})
+            )
+        );
+        let calls = calls.lock().await.clone();
+        peer.abort();
+        let bank = format!("/v1/default/banks/{}/", bank_id("synthetic-alice"));
+        let shape: Vec<_> = calls
+            .iter()
+            .map(|call| {
+                format!(
+                    "{} {}",
+                    call["method"].as_str().unwrap(),
+                    call["path"].as_str().unwrap().strip_prefix(&bank).unwrap()
+                )
+            })
+            .collect();
+        assert_eq!(
+            shape[..3],
+            ["GET documents", "GET documents", "POST memories"]
+        );
+        assert_eq!(
+            calls[1]["query"],
+            "limit=100&offset=100&tags=source%3Aprofile-import&tags_match=all_strict"
+        );
+        assert_eq!(calls[2]["body"]["async"], false);
+        let deleted: Vec<_> = shape[3..].to_vec();
+        let expected: Vec<_> = (0..=100)
+            .map(|i| format!("DELETE documents/old-{i:03}"))
+            .collect();
+        assert_eq!(deleted, expected);
+
+        // Unconfirmed or asynchronous retention never removes the old profile.
+        for reply in [
+            (|call: &Value, _: usize| match call["method"].as_str().unwrap() {
+                "GET" => json!({"items":[{"id":"old"}]}),
+                _ => json!({"success":true,"async":true,"operation_id":"pending-operation"}),
+            }) as fn(&Value, usize) -> Value,
+            |call, _| match call["method"].as_str().unwrap() {
+                "GET" => json!({"items":[{"id":"old"}]}),
+                _ => json!({"success":true,"status":"pending"}),
+            },
+            |call, _| match call["method"].as_str().unwrap() {
+                "GET" => json!({"items":[{"id":"old"}]}),
+                _ => json!({"status":"completed"}),
+            },
+        ] {
+            let (base, calls, peer) = peers::hindsight(reply).await;
+            let app = peers::app(&base, "redis://127.0.0.1:1");
+            assert_eq!(
+                peers::send(&app, "POST", "/v1/profile/import", Some(body.clone())).await,
+                (500, json!({"detail":"Profile import failed."}))
+            );
+            assert!(
+                calls
+                    .lock()
+                    .await
+                    .iter()
+                    .all(|call| call["method"] != "DELETE"),
+                "{calls:?}"
+            );
+            peer.abort();
+        }
+
+        // Appends are queued without inventory or deletion.
+        let (base, calls, peer) =
+            peers::hindsight(|_, _| json!({"operation_id":" operation-1 "})).await;
+        let app = peers::app(&base, "redis://127.0.0.1:1");
+        let append = json!({"entries":[{"label":"Name","memory":"Synthetic Alice"}]});
+        assert_eq!(
+            peers::send(&app, "POST", "/v1/profile/import", Some(append)).await,
+            (
+                202,
+                json!({"status":"accepted","user_id":"synthetic-alice","imported":1,"replaced":0,
+                    "queued":1,"operation_id":"operation-1","profile_version":null})
+            )
+        );
+        let calls = calls.lock().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["method"], "POST");
+        assert_eq!(calls[0]["body"]["async"], true);
+        peer.abort();
+    }
+
     #[test]
     fn frozen_profile_import_contracts() {
         let fixture = expand(

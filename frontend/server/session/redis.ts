@@ -365,7 +365,9 @@ export interface StreamingState {
   userId: string;
 }
 
-const STREAMING_STATE_TTL = 600; // 10 minutes auto-cleanup
+// Auto-cleanup for an abandoned run; the stream worker's lease heartbeat
+// renews it while the job that owns it is still running.
+export const STREAMING_STATE_TTL_SECONDS = 600;
 
 // Set streaming state for a conversation
 export async function setStreamingState(
@@ -388,7 +390,7 @@ export async function setStreamingState(
     userId,
   };
 
-  await jsonSetWithExpiry(key, state, STREAMING_STATE_TTL);
+  await jsonSetWithExpiry(key, state, STREAMING_STATE_TTL_SECONDS);
 }
 
 // Clear streaming state for a conversation
@@ -404,53 +406,4 @@ export async function clearStreamingState(
     conversationId,
   ]);
   await jsonDel(key);
-}
-
-// Get all streaming states for a user
-export async function getStreamingStates(
-  userId: string,
-): Promise<Record<string, StreamingState>> {
-  const client = getRedis();
-  const pattern = sessionKey([
-    'streaming',
-    'user',
-    userId,
-    'conversation',
-    '*',
-  ]);
-
-  const states: Record<string, StreamingState> = {};
-
-  try {
-    const keys: string[] = [];
-    let cursor = '0';
-    do {
-      const [nextCursor, batch] = await client.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        100,
-      );
-      cursor = nextCursor;
-      keys.push(...batch);
-    } while (cursor !== '0');
-
-    if (keys.length === 0) {
-      return states;
-    }
-
-    const values = await jsonMGet(keys);
-
-    keys.forEach((_, index) => {
-      const state = values[index] as StreamingState | null;
-      if (state && state.conversationId) {
-        states[state.conversationId] = state;
-      }
-    });
-  } catch (error) {
-    console.error('Error getting streaming states:', error);
-  }
-
-  return states;
 }

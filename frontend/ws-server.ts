@@ -60,6 +60,14 @@ const MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION = positiveIntegerFromEnv(
   'WS_MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION',
   50,
 );
+// Browsers send their subscriptions as soon as the socket opens, before the
+// server has authenticated it and sent `connected`. Hold that bounded backlog
+// (every subscription plus a few pings/directions) until initialization ends.
+const MAX_PENDING_CLIENT_MESSAGES =
+  MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION +
+  MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION +
+  16;
+const MAX_PENDING_CLIENT_BYTES = 4 * MAX_WS_MESSAGE_BYTES;
 try {
   void primeDns(new URL(REDIS_URL).hostname);
 } catch {
@@ -306,23 +314,6 @@ export async function readConfiguredSession(
   return session;
 }
 
-async function validateSession(
-  req: IncomingMessage,
-): Promise<SessionData | null> {
-  try {
-    const cookieHeader = req.headers.cookie || '';
-    const cookies = parseCookie(cookieHeader);
-    const sessionId = cookies['sid'];
-
-    if (!sessionId) return null;
-
-    return await readConfiguredSession(getRedis(), sessionId);
-  } catch (err) {
-    console.error('[WS] Session validation error:', err);
-    return null;
-  }
-}
-
 // ---------- Streaming State ----------
 
 export interface StreamingState {
@@ -337,42 +328,69 @@ interface AsyncJobRequestMeta {
   userId: string;
 }
 
-async function getStreamingStates(
+// Read candidate keys according to their actual type in one round trip.
+// Streaming state may be RedisJSON or a plain string (no RedisJSON module).
+const READ_STREAMING_STATES_LUA = `
+-- READ_STREAMING_STATES
+local values = {}
+for _, key in ipairs(KEYS) do
+  local kind = redis.call('TYPE', key).ok
+  local raw = false
+  if kind == 'string' then
+    raw = redis.call('GET', key)
+  elseif string.find(string.lower(kind), 'rejson', 1, true) then
+    raw = redis.call('JSON.GET', key, '$')
+  end
+  table.insert(values, raw)
+end
+return values
+`;
+const STREAMING_STATE_READ_BATCH = 500;
+
+/**
+ * Streaming state for the user's conversations.
+ *
+ * The submit route reserves conversation membership before writing streaming
+ * state, so candidates come from the user's conversation set. A keyspace-wide
+ * SCAN made every (re)connect cost grow with all users' Redis data.
+ */
+export async function readStreamingStates(
+  redis: Redis,
   userId: string,
 ): Promise<Record<string, StreamingState>> {
-  const redis = getRedis();
-  const pattern = sessionKey([
-    'streaming',
-    'user',
-    userId,
-    'conversation',
-    '*',
-  ]);
   const states: Record<string, StreamingState> = {};
-
   try {
-    const keys: string[] = [];
-    let cursor = '0';
-    do {
-      const [nextCursor, batch] = await redis.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        100,
-      );
-      cursor = nextCursor;
-      keys.push(...batch);
-    } while (cursor !== '0');
-
-    if (keys.length === 0) return states;
-
-    for (const key of keys) {
-      try {
-        const state = await getJsonOrPlain<StreamingState>(redis, key);
-        if (state?.conversationId) states[state.conversationId] = state;
-      } catch {
-        // Skip individual key errors
+    const conversationIds = await redis.smembers(
+      sessionKey(['user', userId, 'conversations']),
+    );
+    for (
+      let offset = 0;
+      offset < conversationIds.length;
+      offset += STREAMING_STATE_READ_BATCH
+    ) {
+      const keys = conversationIds
+        .slice(offset, offset + STREAMING_STATE_READ_BATCH)
+        .map((conversationId) =>
+          sessionKey([
+            'streaming',
+            'user',
+            userId,
+            'conversation',
+            conversationId,
+          ]),
+        );
+      const values = (await redis.eval(
+        READ_STREAMING_STATES_LUA,
+        keys.length,
+        ...keys,
+      )) as Array<string | null>;
+      for (const raw of values) {
+        try {
+          const state = parseRedisJsonResult<StreamingState>(raw);
+          if (state?.conversationId) states[state.conversationId] = state;
+        } catch {
+          // Skip a malformed record; other conversations remain visible.
+        }
       }
     }
   } catch (err) {
@@ -394,11 +412,59 @@ interface ClientConnection {
   revalidateTimer: NodeJS.Timeout | null;
   subscribedJobs: Set<string>;
   subscribedChats: Set<string>; // conversationIds for token streaming
+  // Latest subscribe request per channel while ownership validation is in
+  // flight. An unsubscribe or newer subscribe replaces it, so validation that
+  // finishes late cannot resurrect a subscription the client already dropped.
+  pendingSubscriptions: Map<string, object>;
+  pendingMessages: PendingClientMessages;
   releaseChannel: (channel: string) => Promise<void>;
   releaseUserChannel: (() => void) | null;
   initialized: boolean;
   closed: boolean;
   steeringInFlight: number;
+}
+
+interface PendingClientMessages {
+  messages: Buffer[];
+  bytes: number;
+}
+
+function emptyPendingMessages(): PendingClientMessages {
+  return { messages: [], bytes: 0 };
+}
+
+function queuePendingMessage(
+  ws: WebSocket,
+  pending: PendingClientMessages,
+  raw: Buffer,
+): void {
+  if (
+    pending.messages.length >= MAX_PENDING_CLIENT_MESSAGES ||
+    pending.bytes + raw.length > MAX_PENDING_CLIENT_BYTES
+  ) {
+    pending.messages = [];
+    pending.bytes = 0;
+    closeSocketSafely(ws, 1008, 'Too many messages before initialization');
+    return;
+  }
+  pending.messages.push(raw);
+  pending.bytes += raw.length;
+}
+
+function beginSubscription(conn: ClientConnection, channel: string): object {
+  const request = {};
+  conn.pendingSubscriptions.set(channel, request);
+  return request;
+}
+
+function finishSubscription(
+  conn: ClientConnection,
+  channel: string,
+  request: object,
+): boolean {
+  if (conn.pendingSubscriptions.get(channel) !== request) return false;
+  conn.pendingSubscriptions.delete(channel);
+  return true;
 }
 
 // userId → Set<ClientConnection>
@@ -420,6 +486,8 @@ function removeConnection(conn: ClientConnection): void {
   // user) still depend on (F-006).
   if (conn.closed) return;
   conn.closed = true;
+  conn.pendingMessages = emptyPendingMessages();
+  conn.pendingSubscriptions.clear();
 
   const userConns = connectionsByUser.get(conn.userId);
   if (userConns) {
@@ -562,10 +630,14 @@ async function subscribeToJob(
     return;
   }
 
+  const channel = `job:${jobId}:status`;
+  const request = beginSubscription(conn, channel);
   const jobRequest = await dependencies.getJobRequest(jobId).catch((err) => {
     console.error(`[WS] Error validating job subscription for ${jobId}:`, err);
     return null;
   });
+  // A later unsubscribe/subscribe for this channel supersedes this request.
+  if (!finishSubscription(conn, channel, request)) return;
 
   if (!jobRequest || jobRequest.userId !== conn.userId) {
     console.warn(
@@ -585,7 +657,6 @@ async function subscribeToJob(
   }
 
   conn.subscribedJobs.add(jobId);
-  const channel = `job:${jobId}:status`;
   // Subscriptions to this job are validated against jobRequest.userId above,
   // so only this user's connections can hold one. Scope the fan-out to them
   // instead of scanning every connection of every user per status message.
@@ -638,7 +709,21 @@ async function subscribeToChat(
     return;
   }
 
-  if (!(await dependencies.canSubscribeToChat(userId, conversationId))) {
+  const channelKey = `user:${userId}:chat:${conversationId}:tokens`;
+  const request = beginSubscription(conn, channelKey);
+  const allowed = await dependencies
+    .canSubscribeToChat(userId, conversationId)
+    .catch((err) => {
+      console.error(
+        `[WS] Error validating chat subscription for ${conversationId}:`,
+        err,
+      );
+      return false;
+    });
+  // A later unsubscribe/subscribe for this channel supersedes this request.
+  if (!finishSubscription(conn, channelKey, request)) return;
+
+  if (!allowed) {
     console.warn(
       `[WS] Rejected unauthorized chat subscription for ${userId}: ${conversationId}`,
     );
@@ -654,7 +739,6 @@ async function subscribeToChat(
 
   conn.subscribedChats.add(conversationId);
 
-  const channelKey = `user:${userId}:chat:${conversationId}:tokens`;
   try {
     await dependencies.retainChannel(channelKey, (message) => {
       try {
@@ -728,7 +812,7 @@ const defaultConnectionInitializationDependencies: ConnectionInitializationDepen
     getSession: (sessionId) => readConfiguredSession(getRedis(), sessionId),
     subscribeToUserChannel,
     unsubscribeFromUserChannel,
-    getStreamingStates,
+    getStreamingStates: (userId) => readStreamingStates(getRedis(), userId),
     getJobRequest: (jobId) =>
       getJsonOrPlain<AsyncJobRequestMeta>(
         getRedis(),
@@ -766,6 +850,7 @@ export async function initializeAuthenticatedConnection(
   userId: string,
   sid: string,
   dependencies: ConnectionInitializationDependencies = defaultConnectionInitializationDependencies,
+  earlyMessages: Buffer[] = [],
 ): Promise<void> {
   const conn: ClientConnection = {
     ws,
@@ -777,6 +862,11 @@ export async function initializeAuthenticatedConnection(
     revalidateTimer: null,
     subscribedJobs: new Set(),
     subscribedChats: new Set(),
+    pendingSubscriptions: new Map(),
+    pendingMessages: {
+      messages: [...earlyMessages],
+      bytes: earlyMessages.reduce((total, raw) => total + raw.length, 0),
+    },
     releaseChannel: dependencies.releaseChannel,
     releaseUserChannel: null,
     initialized: false,
@@ -804,12 +894,7 @@ export async function initializeAuthenticatedConnection(
     removeConnection(conn);
   });
 
-  ws.on('message', async (raw: Buffer) => {
-    // Ignore application traffic until the user channel and initial state are
-    // ready. This also prevents a pre-initialization message from retaining a
-    // job/chat channel after an early disconnect.
-    if (!conn.initialized || conn.closed) return;
-
+  const handleMessage = async (raw: Buffer): Promise<void> => {
     try {
       if (raw.length > MAX_WS_MESSAGE_BYTES) {
         closeSocketSafely(ws, 1009, 'Message too large');
@@ -880,8 +965,10 @@ export async function initializeAuthenticatedConnection(
 
         case 'unsubscribe_job':
           if (msg.jobId && typeof msg.jobId === 'string') {
+            const channel = `job:${msg.jobId}:status`;
+            conn.pendingSubscriptions.delete(channel);
             if (conn.subscribedJobs.delete(msg.jobId)) {
-              await conn.releaseChannel(`job:${msg.jobId}:status`);
+              await conn.releaseChannel(channel);
             }
           }
           break;
@@ -899,10 +986,10 @@ export async function initializeAuthenticatedConnection(
 
         case 'unsubscribe_chat':
           if (msg.conversationId && typeof msg.conversationId === 'string') {
+            const channel = `user:${userId}:chat:${msg.conversationId}:tokens`;
+            conn.pendingSubscriptions.delete(channel);
             if (conn.subscribedChats.delete(msg.conversationId)) {
-              await conn.releaseChannel(
-                `user:${userId}:chat:${msg.conversationId}:tokens`,
-              );
+              await conn.releaseChannel(channel);
             }
           }
           break;
@@ -913,6 +1000,19 @@ export async function initializeAuthenticatedConnection(
     } catch (err) {
       console.error(`[WS] Error processing message from ${userId}:`, err);
     }
+  };
+
+  ws.on('message', (raw: Buffer) => {
+    if (conn.closed) return;
+    // Clients send subscriptions as soon as the socket opens. Hold them until
+    // the user channel and initial state are ready, then replay them in order.
+    // A disconnect discards the backlog, so it cannot retain a job/chat channel
+    // for a closed socket.
+    if (!conn.initialized) {
+      queuePendingMessage(ws, conn.pendingMessages, raw);
+      return;
+    }
+    void handleMessage(raw);
   });
 
   addConnection(conn);
@@ -976,11 +1076,69 @@ export async function initializeAuthenticatedConnection(
         console.error('[WS] Session revalidation error:', err);
       }
     }, SESSION_REVALIDATE_INTERVAL);
+
+    // Each handler starts synchronously, so subscription requests keep their
+    // arrival order exactly as later live messages do.
+    const backlog = conn.pendingMessages.messages;
+    conn.pendingMessages = emptyPendingMessages();
+    for (const raw of backlog) void handleMessage(raw);
   } catch (error) {
     console.error(`[WS] Failed to initialize connection for ${userId}:`, error);
     removeConnection(conn);
     closeSocketSafely(ws, 1011, 'Initialization failed');
   }
+}
+
+/**
+ * Authenticate an upgraded socket, then initialize it.
+ *
+ * Listeners are attached before the session lookup awaits Redis. Without an
+ * `error` listener, a protocol violation received in that window would be an
+ * unhandled EventEmitter error and terminate the sidecar for every user.
+ * Messages received while authenticating are kept for initialization.
+ */
+export async function acceptConnection(
+  ws: WebSocket,
+  cookieHeader: string | undefined,
+  dependencies: ConnectionInitializationDependencies = defaultConnectionInitializationDependencies,
+): Promise<void> {
+  const earlyMessages = emptyPendingMessages();
+  const holdMessage = (raw: Buffer) =>
+    queuePendingMessage(ws, earlyMessages, raw);
+  const reportError = (error: Error) =>
+    console.error('[WS] WebSocket error before authentication:', error);
+  ws.on('error', reportError);
+  ws.on('message', holdMessage);
+
+  const sid = parseCookie(cookieHeader || '')['sid'] || '';
+  let session: SessionData | null = null;
+  try {
+    session = sid ? await dependencies.getSession(sid) : null;
+  } catch (error) {
+    ws.off('message', holdMessage);
+    console.error('[WS] Session validation error:', error);
+    // An unavailable session store is not an authentication result. 1013
+    // (try again later) keeps the client's reconnect backoff; 4001 stops it.
+    closeSocketSafely(ws, 1013, 'Session check unavailable');
+    return;
+  }
+  ws.off('message', holdMessage);
+
+  if (!session) {
+    closeSocketSafely(ws, 4001, 'Unauthorized');
+    return;
+  }
+  if (ws.readyState !== WebSocket.OPEN) return;
+
+  // Same tick: the initializer installs its own lifecycle listeners.
+  ws.off('error', reportError);
+  await initializeAuthenticatedConnection(
+    ws,
+    session.username,
+    sid,
+    dependencies,
+    earlyMessages.messages,
+  );
 }
 
 // ---------- WebSocket Server ----------
@@ -1007,17 +1165,8 @@ const server = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server, maxPayload: MAX_WS_MESSAGE_BYTES });
 
-wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
-  // Authenticate
-  const session = await validateSession(req);
-  if (!session) {
-    ws.close(4001, 'Unauthorized');
-    return;
-  }
-
-  const userId = session.username;
-  const sid = parseCookie(req.headers.cookie || '')['sid'] || '';
-  await initializeAuthenticatedConnection(ws, userId, sid);
+wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+  void acceptConnection(ws, req.headers.cookie);
 });
 
 // ---------- Start Server ----------

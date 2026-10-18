@@ -259,11 +259,13 @@ pub(crate) fn decode_with(
         return Some((value, Surrogates::new()));
     }
     let text = std::str::from_utf8(raw).ok()?;
-    let mut used: BTreeSet<u32> = text.chars().map(u32::from).collect();
-    // Cleanup can materialize a private-use scalar from an HTML entity.
-    used.extend(crate::document_text::clean(text).chars().map(u32::from));
+    let mut used: BTreeSet<u32> = BTreeSet::new();
     let mut replacements = Vec::new();
     let mut units = BTreeSet::new();
+    // String contents with JSON escapes decoded. Isolated surrogates become
+    // U+FFFD, which bounds HTML entities exactly as a surrogate does.
+    let mut decoded = String::with_capacity(text.len());
+    let mut copied = 0;
     let hex = |i| {
         raw.get(i..i + 6)
             .filter(|s| s.starts_with(b"\\u"))
@@ -276,23 +278,44 @@ pub(crate) fn decode_with(
             string = !string;
             i += 1;
         } else if string && raw[i] == b'\\' {
-            if let Some(point) = hex(i) {
+            let start = i;
+            let character = if let Some(point) = hex(i) {
                 if (0xd800..=0xdbff).contains(&point)
                     && let Some(low) = hex(i + 6).filter(|n| (0xdc00..=0xdfff).contains(n))
                 {
-                    used.insert(0x10000 + ((point - 0xd800) << 10) + low - 0xdc00);
+                    let point = 0x10000 + ((point - 0xd800) << 10) + low - 0xdc00;
+                    used.insert(point);
                     i += 12;
-                    continue;
-                }
-                if (0xd800..=0xdfff).contains(&point) {
+                    char::from_u32(point)
+                } else if (0xd800..=0xdfff).contains(&point) {
                     units.insert(point);
                     replacements.push((i, point));
+                    i += 6;
+                    Some('\u{fffd}')
                 } else {
                     used.insert(point);
+                    i += 6;
+                    char::from_u32(point)
                 }
-                i += 6;
             } else {
                 i += 2;
+                match raw.get(start + 1) {
+                    Some(b'"') => Some('"'),
+                    Some(b'\\') => Some('\\'),
+                    Some(b'/') => Some('/'),
+                    Some(b'b') => Some('\u{08}'),
+                    Some(b'f') => Some('\u{0c}'),
+                    Some(b'n') => Some('\n'),
+                    Some(b'r') => Some('\r'),
+                    Some(b't') => Some('\t'),
+                    // Invalid escapes fail the final parse; keep them verbatim.
+                    _ => None,
+                }
+            };
+            if let Some(character) = character {
+                decoded.push_str(&text[copied..start]);
+                decoded.push(character);
+                copied = i;
             }
         } else {
             i += 1;
@@ -301,6 +324,12 @@ pub(crate) fn decode_with(
     if replacements.is_empty() {
         return None;
     }
+    decoded.push_str(&text[copied..]);
+    used.extend(text.chars().map(u32::from));
+    // Cleanup can materialize a private-use scalar from an HTML entity, either
+    // written literally or spelled with JSON escapes inside a decoded string.
+    used.extend(crate::document_text::clean(text).chars().map(u32::from));
+    used.extend(crate::document_text::clean(&decoded).chars().map(u32::from));
     let mut available = (0xf0000..=0xffffd)
         .chain(0x100000..=0x10fffd)
         .chain(0xe000..=0xf8ff)
@@ -350,5 +379,70 @@ mod tests {
         );
         assert!(markers.keys().all(|c| *c != '\u{f0000}'));
         assert!(decode(br#"{"bad":"\ud800",}"#).is_none());
+    }
+
+    #[test]
+    fn surrogate_markers_avoid_scalars_materialized_by_cleanup() {
+        // Rendering decodes numeric HTML entities. U+F0000/U+F0001 are real
+        // text here, whether the entity is literal or spelled with JSON escapes;
+        // only the isolated surrogate may remain a marker after cleanup.
+        for raw in [
+            br#"{"content":"\ud800 &#983040; \u0026#983041;"}"#.as_slice(),
+            br#"{"content":"\ud800 &#983040; &\u0023983041\u003b"}"#,
+            br#"["\ud800 &#983040;", "\u0026#x\u0046\u0030001;"]"#,
+        ] {
+            for decoder in [decode as Decoder, decode_indexed] {
+                let (value, markers) = decoder(raw).unwrap();
+                let content = value
+                    .get("content")
+                    .unwrap_or_else(|| &value[0])
+                    .as_str()
+                    .unwrap();
+                let mut rendered = crate::document_text::clean(content);
+                if let Some(second) = value.get(1) {
+                    rendered = format!(
+                        "{rendered} {}",
+                        crate::document_text::clean(second.as_str().unwrap())
+                    );
+                }
+                let found: Vec<_> = rendered
+                    .chars()
+                    .filter(|c| markers.contains_key(c))
+                    .collect();
+                assert_eq!(found.len(), 1, "{rendered:?}");
+                assert_eq!(markers[&found[0]], 0xd800);
+                assert_eq!(
+                    ascii_string(&rendered, &markers),
+                    r#""\ud800 \udb80\udc00 \udb80\udc01""#
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn indexed_parser_bounds_depth_without_recursion() {
+        let nested = |depth: usize| format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        assert_eq!(
+            parse_indexed_depth(nested(3).as_bytes(), 3),
+            Some(serde_json::json!([[[]]]))
+        );
+        assert!(parse_indexed_depth(nested(4).as_bytes(), 3).is_none());
+        assert!(parse_indexed(nested(1024).as_bytes()).is_some());
+        assert!(parse_indexed(nested(1025).as_bytes()).is_none());
+        // Open containers live on a heap stack, so hostile nesting is rejected
+        // at the limit rather than overflowing the runtime thread's stack.
+        assert!(decode_indexed(nested(1_000_000).as_bytes()).is_none());
+        let object = format!("{}1{}", r#"{"a":"#.repeat(200), "}".repeat(200));
+        assert!(parse_indexed(object.as_bytes()).is_some());
+        // Duplicate keys keep their first position and last value, as in Python.
+        assert_eq!(
+            parse_indexed(br#"{"a":1,"b":2,"a":3}"#)
+                .unwrap()
+                .to_string(),
+            r#"{"a":3,"b":2}"#
+        );
+        for invalid in [&b"[1,]"[..], b"{\"a\":1,}", b"[1] x", b"\"a", b"", b"01"] {
+            assert!(parse_indexed(invalid).is_none(), "{invalid:?}");
+        }
     }
 }

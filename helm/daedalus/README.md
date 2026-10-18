@@ -93,6 +93,14 @@ If you manage Secrets outside the chart, set
 set each corresponding `createSecret` value and supply only allowed entries in
 its `data` map. Don't use one Secret for multiple workloads.
 
+With `exploration.enabled=true` (the default), the backend reads
+`EXPLORATION_GRANT_KEY` from key `key` of the `exploration.grantSecret` Secret
+(`exploration-grants`) in the release namespace. The separately provisioned
+exploration service owns that Secret; neither the chart nor `make deploy`
+creates it. The reference is optional, so workflows without
+`sandbox_exploration_tool` start without it. A workflow that configures the
+tool fails at startup until the Secret holds a key of at least 64 characters.
+
 The chart also manages `<release>-daedalus-internal-api`, a shared
 frontend-to-backend token used for direct in-cluster API calls. Leave
 `global.internalApiToken` empty to auto-generate and preserve the token across

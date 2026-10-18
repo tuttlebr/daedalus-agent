@@ -125,11 +125,15 @@ spec:
             {{- if .Values.exploration.enabled }}
             - name: EXPLORATION_BASE_URL
               value: {{ .Values.exploration.baseUrl | quote }}
+            # Provisioned outside this chart. Optional so workflows without
+            # sandbox_exploration_tool can start; a configured exploration
+            # tool still rejects a missing or short key at startup.
             - name: EXPLORATION_GRANT_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.exploration.grantSecret }}
                   key: key
+                  optional: true
             {{- end }}
             {{- include "daedalus.contentCredentialsEnv" . | nindent 12 }}
             - name: DAEDALUS_INTERNAL_API_TOKEN

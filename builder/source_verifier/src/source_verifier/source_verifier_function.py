@@ -119,6 +119,7 @@ _REFERENCE_SECTION_RE = re.compile(
 _CITATION_LINE_RE = re.compile(r"^(\s*[-*]?\s*)\[(\d+)\](\s+.+)$")
 _INLINE_CITATION_RE = re.compile(r"(?<!\w)\[(\d+)\](?!\w)")
 _SOURCE_OMISSION_MARKER = "\n\n[... source content omitted ...]\n\n"
+_AUDIT_DNS_CONCURRENCY = 8
 _CLAIM_STOPWORDS = {
     "about",
     "after",
@@ -452,9 +453,10 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
         return FetchResult(status="invalid_url", error=str(exc))
 
     # F-001: source URLs come from LLM output / stored memories. Reject
-    # non-http(s) schemes and hosts resolving to non-public addresses.
+    # non-http(s) schemes and hosts resolving to non-public addresses. DNS can
+    # take seconds; resolving on the event loop would stall every other call.
     try:
-        validate_public_url(normalized_url, check_dns=True)
+        await asyncio.to_thread(validate_public_url, normalized_url, check_dns=True)
     except UnsafeURLError as exc:
         return FetchResult(status="invalid_url", error=str(exc))
 
@@ -860,6 +862,22 @@ def _safe_audit_url(url: str) -> tuple[bool, str | None]:
     return True, None
 
 
+async def _audit_url_safety(urls: list[str]) -> dict[str, tuple[bool, str | None]]:
+    """Check each distinct audit URL without blocking the event loop.
+
+    Every check performs blocking DNS resolution. The lookups are independent,
+    so they run in worker threads with a small bound instead of serially on
+    the loop shared by all concurrent tool calls.
+    """
+    slots = asyncio.Semaphore(_AUDIT_DNS_CONCURRENCY)
+
+    async def check(url: str) -> tuple[str, tuple[bool, str | None]]:
+        async with slots:
+            return url, await asyncio.to_thread(_safe_audit_url, url)
+
+    return dict(await asyncio.gather(*(check(url) for url in dict.fromkeys(urls))))
+
+
 def _renumber_markdown_citations(
     body: str,
     reference_lines: list[str],
@@ -1250,8 +1268,10 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                         "detail": "No References or Sources section was found.",
                     }
                 )
-            for url in _extract_urls(answer_markdown):
-                safe, reason = _safe_audit_url(url)
+            urls = _extract_urls(answer_markdown)
+            safety = await _audit_url_safety(urls)
+            for url in urls:
+                safe, reason = safety[url]
                 if not safe:
                     invalid.append({"reason": reason, "url": url})
             return json.dumps(
@@ -1271,13 +1291,16 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
         reference_lines = ref_section.splitlines()
         valid_numbers: set[int] = set()
         seen_ref_urls: dict[str, int] = {}
+        citations = [
+            (int(line_match.group(2)), _extract_urls(line_match.group(3)), line)
+            for line in reference_lines
+            if (line_match := _CITATION_LINE_RE.match(line))
+        ]
+        safety = await _audit_url_safety(
+            [urls[0] for _number, urls, _line in citations if urls]
+        )
 
-        for line in reference_lines:
-            line_match = _CITATION_LINE_RE.match(line)
-            if not line_match:
-                continue
-            number = int(line_match.group(2))
-            urls = _extract_urls(line_match.group(3))
+        for number, urls, line in citations:
             if not urls:
                 invalid.append(
                     {
@@ -1289,7 +1312,7 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                 continue
             url = urls[0]
             normalized = _normalize_audit_url(url)
-            safe, reason = _safe_audit_url(url)
+            safe, reason = safety[url]
             if not safe:
                 invalid.append(
                     {

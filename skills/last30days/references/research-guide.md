@@ -2,9 +2,9 @@
 
 ## Time window and tool arguments
 
-`current_datetime_tool(unused="")` returns the current time with its UTC
-offset. Prefer a timezone already established in the conversation; otherwise
-use the returned offset and say which window was used. Compute the trailing
+`current_datetime_tool()`, called with no arguments (`{}`), returns the current
+time with its UTC offset. Prefer a timezone already established in the
+conversation; otherwise use the returned offset and say which window was used. Compute the trailing
 30-day start relative to that instant. Date-only search filters retrieve
 candidates; available timestamps determine exact boundary membership.
 

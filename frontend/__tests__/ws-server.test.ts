@@ -1,4 +1,5 @@
 import {
+  acceptConnection,
   initializeAuthenticatedConnection,
   SharedRedisSubscriber,
   type ConnectionInitializationDependencies,
@@ -491,5 +492,245 @@ describe('authenticated WebSocket initialization', () => {
     socket.disconnect();
     await vi.waitFor(() => expect(releaseChannel).toHaveBeenCalledOnce());
     expect(releaseChannel).toHaveBeenCalledWith('user:erin:chat:chat-1:tokens');
+  });
+
+  // services/websocket.ts resubscribes in `onopen`, before `connected`.
+  it('replays subscriptions sent before initialization completes', async () => {
+    const socket = new FakeWebSocket();
+    const subscription = valueDeferred<void>();
+    const retainChannel = vi.fn().mockResolvedValue(undefined);
+    const initialization = initializeAuthenticatedConnection(
+      socket as unknown as WebSocket,
+      'fay',
+      'session-7',
+      connectionDependencies({
+        subscribeToUserChannel: vi.fn(() => subscription.promise),
+        getJobRequest: vi
+          .fn()
+          .mockResolvedValue({ jobId: 'job-7', userId: 'fay' }),
+        canSubscribeToChat: vi.fn().mockResolvedValue(true),
+        retainChannel,
+      }),
+    );
+
+    for (const message of [
+      { type: 'subscribe_job', jobId: 'job-7' },
+      { type: 'subscribe_chat', conversationId: 'chat-7' },
+      { type: 'ping' },
+    ]) {
+      socket.emit('message', Buffer.from(JSON.stringify(message)));
+    }
+    subscription.resolve(undefined);
+    await initialization;
+
+    await vi.waitFor(() => expect(retainChannel).toHaveBeenCalledTimes(2));
+    expect(retainChannel.mock.calls.map(([channel]) => channel)).toEqual([
+      'job:job-7:status',
+      'user:fay:chat:chat-7:tokens',
+    ]);
+    expect(socket.sent.map((raw) => JSON.parse(raw).type)).toEqual([
+      'connected',
+      'pong',
+    ]);
+    socket.disconnect();
+  });
+
+  it('discards held messages when the socket closes before initialization', async () => {
+    const socket = new FakeWebSocket();
+    const subscription = valueDeferred<void>();
+    const getJobRequest = vi.fn();
+    const retainChannel = vi.fn();
+    const initialization = initializeAuthenticatedConnection(
+      socket as unknown as WebSocket,
+      'gus',
+      'session-8',
+      connectionDependencies({
+        subscribeToUserChannel: vi.fn(() => subscription.promise),
+        getJobRequest,
+        retainChannel,
+      }),
+    );
+
+    socket.emit(
+      'message',
+      Buffer.from(JSON.stringify({ type: 'subscribe_job', jobId: 'job-8' })),
+    );
+    socket.disconnect();
+    subscription.resolve(undefined);
+    await initialization;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getJobRequest).not.toHaveBeenCalled();
+    expect(retainChannel).not.toHaveBeenCalled();
+  });
+
+  it('closes a socket whose pre-initialization backlog exceeds its bound', async () => {
+    const socket = new FakeWebSocket();
+    const subscription = valueDeferred<void>();
+    const initialization = initializeAuthenticatedConnection(
+      socket as unknown as WebSocket,
+      'hal',
+      'session-9',
+      connectionDependencies({
+        subscribeToUserChannel: vi.fn(() => subscription.promise),
+      }),
+    );
+
+    const ping = Buffer.from(JSON.stringify({ type: 'ping' }));
+    for (let index = 0; index < 200; index += 1) socket.emit('message', ping);
+    subscription.resolve(undefined);
+    await initialization;
+
+    expect(socket.closeCalls).toEqual([
+      { code: 1008, reason: 'Too many messages before initialization' },
+    ]);
+    expect(socket.sent).toHaveLength(0);
+  });
+
+  it.each([
+    {
+      kind: 'job',
+      subscribe: { type: 'subscribe_job', jobId: 'job-9' },
+      unsubscribe: { type: 'unsubscribe_job', jobId: 'job-9' },
+    },
+    {
+      kind: 'chat',
+      subscribe: { type: 'subscribe_chat', conversationId: 'chat-9' },
+      unsubscribe: { type: 'unsubscribe_chat', conversationId: 'chat-9' },
+    },
+  ])(
+    'does not retain a $kind channel unsubscribed during ownership validation',
+    async ({ subscribe, unsubscribe }) => {
+      const socket = new FakeWebSocket();
+      const jobValidation = valueDeferred<{
+        jobId: string;
+        userId: string;
+      } | null>();
+      const chatValidation = valueDeferred<boolean>();
+      const getJobRequest = vi.fn(() => jobValidation.promise);
+      const canSubscribeToChat = vi.fn(() => chatValidation.promise);
+      const retainChannel = vi.fn().mockResolvedValue(undefined);
+      await initializeAuthenticatedConnection(
+        socket as unknown as WebSocket,
+        'ivy',
+        'session-10',
+        connectionDependencies({
+          getJobRequest,
+          canSubscribeToChat,
+          retainChannel,
+        }),
+      );
+
+      socket.emit('message', Buffer.from(JSON.stringify(subscribe)));
+      await vi.waitFor(() =>
+        expect(
+          getJobRequest.mock.calls.length +
+            canSubscribeToChat.mock.calls.length,
+        ).toBe(1),
+      );
+      socket.emit('message', Buffer.from(JSON.stringify(unsubscribe)));
+      jobValidation.resolve({ jobId: 'job-9', userId: 'ivy' });
+      chatValidation.resolve(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(retainChannel).not.toHaveBeenCalled();
+      socket.disconnect();
+    },
+  );
+});
+
+describe('WebSocket connection authentication', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('survives a protocol error and keeps messages received while authenticating', async () => {
+    const socket = new FakeWebSocket();
+    const session = valueDeferred<any>();
+    const retainChannel = vi.fn().mockResolvedValue(undefined);
+    const accepted = acceptConnection(
+      socket as unknown as WebSocket,
+      'theme=dark; sid=session-11',
+      connectionDependencies({
+        getSession: vi.fn(() => session.promise),
+        getJobRequest: vi
+          .fn()
+          .mockResolvedValue({ jobId: 'job-11', userId: 'jo' }),
+        retainChannel,
+      }),
+    );
+
+    socket.emit(
+      'message',
+      Buffer.from(JSON.stringify({ type: 'subscribe_job', jobId: 'job-11' })),
+    );
+    // EventEmitter throws for an `error` event that has no listener; in the
+    // sidecar that is an uncaught exception that exits the process.
+    expect(() =>
+      socket.emit('error', new RangeError('Invalid WebSocket frame')),
+    ).not.toThrow();
+    session.resolve({ username: 'jo' });
+    await accepted;
+
+    await vi.waitFor(() =>
+      expect(retainChannel).toHaveBeenCalledWith(
+        'job:job-11:status',
+        expect.any(Function),
+      ),
+    );
+    expect(JSON.parse(socket.sent[0])).toMatchObject({
+      type: 'connected',
+      userId: 'jo',
+    });
+    socket.disconnect();
+  });
+
+  it('rejects missing sessions as unauthorized without authenticating unknown cookies', async () => {
+    const getSession = vi.fn().mockResolvedValue(null);
+    const noCookie = new FakeWebSocket();
+    await acceptConnection(
+      noCookie as unknown as WebSocket,
+      undefined,
+      connectionDependencies({ getSession }),
+    );
+    expect(getSession).not.toHaveBeenCalled();
+    expect(noCookie.closeCalls).toEqual([
+      { code: 4001, reason: 'Unauthorized' },
+    ]);
+
+    const expired = new FakeWebSocket();
+    await acceptConnection(
+      expired as unknown as WebSocket,
+      'sid=expired',
+      connectionDependencies({ getSession }),
+    );
+    expect(getSession).toHaveBeenCalledWith('expired');
+    expect(expired.closeCalls).toEqual([
+      { code: 4001, reason: 'Unauthorized' },
+    ]);
+  });
+
+  it('keeps reconnecting possible when the session store is unavailable', async () => {
+    // The browser stops reconnecting after 4001; a Redis outage is retryable.
+    const socket = new FakeWebSocket();
+    const subscribeToUserChannel = vi.fn();
+    await acceptConnection(
+      socket as unknown as WebSocket,
+      'sid=session-12',
+      connectionDependencies({
+        getSession: vi.fn().mockRejectedValue(new Error('READONLY')),
+        subscribeToUserChannel,
+      }),
+    );
+
+    expect(socket.closeCalls).toEqual([
+      { code: 1013, reason: 'Session check unavailable' },
+    ]);
+    expect(subscribeToUserChannel).not.toHaveBeenCalled();
   });
 });

@@ -80,6 +80,43 @@ def test_execution_route_requires_matching_token_and_user(monkeypatch):
     assert allowed_messages[0]["status"] == 204
 
 
+@pytest.mark.parametrize(
+    "token", [b"caf\xe9-secret", b"trusted-secret\xff", "trusted-秘密".encode()]
+)
+def test_non_ascii_token_is_an_ordinary_denial(monkeypatch, token):
+    """Latin-1 header text must not turn a bad credential into a server error."""
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "trusted-secret")
+    monkeypatch.delenv("ALLOW_INSECURE_INTERNAL", raising=False)
+
+    app_calls, messages = _run_request(
+        "/v1/images/generate",
+        [(b"x-user-id", b"alice"), (b"x-daedalus-internal-token", token)],
+    )
+
+    assert app_calls == []
+    assert messages[0]["status"] == 401
+
+
+def test_identity_helpers_deny_non_ascii_credentials_with_value_errors(monkeypatch):
+    from nat_helpers.identity import (
+        authenticated_request_headers_scope,
+        authenticated_user_id_from_headers,
+        resolve_authenticated_user_id,
+    )
+
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "trusted-secret")
+    with pytest.raises(ValueError, match="x-daedalus-internal-token"):
+        authenticated_user_id_from_headers(
+            {"x-user-id": "alice", "x-daedalus-internal-token": "caf\xe9"}
+        )
+    with authenticated_request_headers_scope(
+        {"x-user-id": "alice", "x-daedalus-internal-token": "trusted-secret"}
+    ):
+        assert resolve_authenticated_user_id("alice") == "alice"
+        with pytest.raises(ValueError, match="does not match"):
+            resolve_authenticated_user_id("al\xefce")
+
+
 def test_health_route_remains_public(monkeypatch):
     monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
     monkeypatch.delenv("ALLOW_INSECURE_INTERNAL", raising=False)

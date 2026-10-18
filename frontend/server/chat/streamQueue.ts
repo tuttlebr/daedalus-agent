@@ -9,6 +9,7 @@ import type { StreamQueuePayload } from './types';
 import { USER_JOB_GUARD_TTL_SECONDS } from './userJobGuard';
 
 import {
+  STREAMING_STATE_TTL_SECONDS,
   getRedis,
   jsonDel,
   jsonGet,
@@ -167,21 +168,44 @@ redis.call('pexpire', KEYS[1], ARGV[2])
 for index = 2, 10 do
   redis.call('expire', KEYS[index], ARGV[3])
 end
-if KEYS[11] and KEYS[11] ~= '' then
-  local guard = redis.call('get', KEYS[11])
+-- Optional keys follow the fixed ones; ARGV[7..9] give their positions (0 when
+-- absent). No placeholder key is declared: Redis ACL rejects an empty name.
+local conversation_index = tonumber(ARGV[7])
+local user_index = tonumber(ARGV[8])
+local streaming_index = tonumber(ARGV[9])
+if conversation_index > 0 then
+  local guard = redis.call('get', KEYS[conversation_index])
   if guard then
     local ok, value = pcall(cjson.decode, guard)
     if ok and value.jobId == ARGV[4] then
-      redis.call('expire', KEYS[11], ARGV[5])
+      redis.call('expire', KEYS[conversation_index], ARGV[5])
     end
   end
 end
-if KEYS[12] then
+if user_index > 0 then
   local clock = redis.call('TIME')
   local now = clock[1] * 1000 + math.floor(clock[2] / 1000)
   -- A late heartbeat must not re-add a job released by finalization.
-  redis.call('ZADD', KEYS[12], 'XX', now + ARGV[6] * 1000, ARGV[4])
-  redis.call('EXPIRE', KEYS[12], ARGV[6])
+  redis.call('ZADD', KEYS[user_index], 'XX', now + ARGV[6] * 1000, ARGV[4])
+  redis.call('EXPIRE', KEYS[user_index], ARGV[6])
+end
+if streaming_index > 0 then
+  -- Cross-device streaming state outlives long runs only while it still
+  -- names this job; a newer turn's state is left alone.
+  local key = KEYS[streaming_index]
+  local kind = redis.call('TYPE', key).ok
+  local owner = nil
+  if kind == 'string' then
+    local ok, value = pcall(cjson.decode, redis.call('GET', key))
+    if ok and type(value) == 'table' then owner = value.sessionId end
+  elseif string.find(string.lower(kind), 'rejson', 1, true) then
+    local ok, raw = pcall(redis.call, 'JSON.GET', key, '$.sessionId')
+    if ok and raw then
+      local decoded = cjson.decode(raw)
+      if type(decoded) == 'table' then owner = decoded[1] end
+    end
+  end
+  if owner == ARGV[4] then redis.call('EXPIRE', key, ARGV[10]) end
 end
 return 1
 `;
@@ -193,6 +217,7 @@ export async function renewStreamLease(
   client: Redis = getRedis(),
   conversationGuardKey?: string,
   userGuardKey?: string,
+  streamingStateKey?: string,
 ): Promise<boolean> {
   // Every key needed to recover a running job must outlive that job, even
   // while a long tool call produces no new response/step writes.
@@ -207,11 +232,15 @@ export async function renewStreamLease(
     legacyStreamStepsKey(jobId),
     sessionKey(['async-job-abort', jobId]),
     sessionKey(['async-job-finalization', jobId]),
-    ...(conversationGuardKey || userGuardKey
-      ? [conversationGuardKey || '']
-      : []),
-    ...(userGuardKey ? [userGuardKey] : []),
   ];
+  const position = (key?: string): number => {
+    if (!key) return 0;
+    keys.push(key);
+    return keys.length;
+  };
+  const conversationIndex = position(conversationGuardKey);
+  const userIndex = position(userGuardKey);
+  const streamingIndex = position(streamingStateKey);
   return (
     (await client.eval(
       RENEW_LEASE_LUA,
@@ -223,6 +252,10 @@ export async function renewStreamLease(
       jobId,
       CONVERSATION_JOB_GUARD_TTL_SECONDS,
       USER_JOB_GUARD_TTL_SECONDS,
+      conversationIndex,
+      userIndex,
+      streamingIndex,
+      STREAMING_STATE_TTL_SECONDS,
     )) === 1
   );
 }

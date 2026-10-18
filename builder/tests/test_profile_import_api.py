@@ -75,6 +75,35 @@ def test_router_exists():
     assert router is not None
 
 
+def test_rollback_route_matches_the_path_rust_proxies(monkeypatch):
+    # With DAEDALUS_PREPARATION=python, builder/runtime/src/profile_import.rs
+    # forwards /v1/profile/import to this router.
+    import fastapi
+
+    routes = set()
+
+    class RecordingRouter:
+        def __init__(self, prefix="", **_kwargs):
+            self.prefix = prefix
+
+        def post(self, path, **_kwargs):
+            def decorate(handler):
+                routes.add(("POST", self.prefix + path))
+                return handler
+
+            return decorate
+
+    monkeypatch.setattr(fastapi, "APIRouter", RecordingRouter)
+    spec = importlib.util.spec_from_file_location(
+        "profile_import_route_contract", _BUILDER_ROOT / "profile_import_api.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+
+    assert routes == {("POST", "/v1/profile/import")}
+
+
 def test_import_failure_does_not_expose_internal_detail(monkeypatch):
     import fastapi
 
@@ -223,6 +252,9 @@ def test_replace_preserves_old_documents_until_retention_completed(
         return failure
 
     fake.retain_batch = retain
+    # Hermetic: an ambient DAEDALUS_MEMORY_MODE=disabled would raise the
+    # expected RuntimeError before retention and make this test vacuous.
+    monkeypatch.setenv("DAEDALUS_MEMORY_MODE", "hindsight")
     monkeypatch.setattr(hindsight_client, "client_from_env", lambda: fake)
     req = profile_request().model_copy(update={"mode": "replace"})
     with pytest.raises(RuntimeError):

@@ -63,7 +63,11 @@ def require_internal_token(x_daedalus_internal_token: str | None) -> None:
         )
 
     provided = (x_daedalus_internal_token or "").strip()
-    if not provided or not hmac.compare_digest(provided, expected):
+    # Compare bytes: str comparison raises TypeError for non-ASCII header text,
+    # turning an invalid credential into a server error instead of a 401.
+    if not provided or not hmac.compare_digest(
+        provided.encode("utf-8"), expected.encode("utf-8")
+    ):
         raise HTTPException(status_code=401, detail="Internal API token is required")
 
 

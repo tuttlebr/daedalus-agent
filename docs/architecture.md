@@ -51,7 +51,10 @@ and frontend instances. Redis atomically reserves a slot before enqueueing,
 including pending jobs, and the owning worker renews that reservation while
 running. Finalization, OAuth handoff and failed submission release it. Separate
 conversations run independently; each conversation retains one active response.
-The Rust service also enforces five runs per user within its process. Each
+The Rust service also enforces five interactive runs per user within its process.
+Scheduled autonomy runs, which carry the trusted `autonomy` execution scope, use a
+separate per-user pool there, as they do not consume the frontend's chat slots;
+the process-wide limit of 64 runs still applies. Each
 stream worker has five execution slots by default. The production values run
 two workers, giving both configured accounts capacity for five concurrent chats.
 Redis admission applies across workers. The frontend displays the limit only
@@ -214,8 +217,9 @@ visual media, and serves the image API and remaining public adapters behind the
 Rust proxy. The [ownership table](rust-migration.md#current-ownership) and
 `main.rs` route registrations identify the boundary.
 Internal tool endpoints require the shared internal credential and are blocked
-at the public Rust proxy. Tool identities come from authenticated request
-context, never model arguments.
+at the public Rust proxy. The block applies to the path actually forwarded, after
+percent-decoding and dot-segment removal. Tool identities come from authenticated
+request context, never model arguments.
 
 `sandbox_exploration_tool` is a native Rust tool with a Python compatibility
 adapter sharing the same JSON schema. It sends short-lived owner/conversation

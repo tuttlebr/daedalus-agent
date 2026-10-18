@@ -240,6 +240,34 @@ class TestGetSkillResource:
         with pytest.raises(ValueError, match="binary file"):
             parser.get_skill_resource("my-skill", "data.bin")
 
+    def test_sibling_directory_sharing_the_name_prefix_is_rejected(self, tmp_path):
+        _make_skill(tmp_path, "my-skill", _VALID_SKILL_MD)
+        sibling = tmp_path / "my-skill-private"
+        sibling.mkdir()
+        (sibling / "secret.md").write_text("private", encoding="utf-8")
+        parser = SkillParser(skills_directory=str(tmp_path))
+        parser.discover_skills()
+        with pytest.raises(PermissionError, match="escapes the skill directory"):
+            parser.get_skill_resource("my-skill", "../my-skill-private/secret.md")
+        with pytest.raises(PermissionError, match="escapes the skill directory"):
+            parser.resolve_script_path("my-skill", "../my-skill-private/secret.md")
+
+    def test_absolute_and_symlinked_escapes_are_rejected(self, tmp_path):
+        skills = tmp_path / "skills"
+        skill_dir = _make_skill(skills, "my-skill", _VALID_SKILL_MD)
+        outside = tmp_path / "outside.md"
+        outside.write_text("outside", encoding="utf-8")
+        (skill_dir / "linked.md").symlink_to(outside)
+        parser = SkillParser(skills_directory=str(skills))
+        parser.discover_skills()
+        # Listing shows the link; reading it must still enforce containment.
+        assert "linked.md" in parser.list_skill_resources("my-skill")
+        for path in ("linked.md", str(outside)):
+            with pytest.raises(PermissionError, match="escapes the skill directory"):
+                parser.get_skill_resource("my-skill", path)
+            with pytest.raises(PermissionError, match="escapes the skill directory"):
+                parser.resolve_script_path("my-skill", path)
+
     def test_subdirectory_resource(self, tmp_path):
         skill_dir = _make_skill(tmp_path, "my-skill", _VALID_SKILL_MD)
         sub = skill_dir / "sub"

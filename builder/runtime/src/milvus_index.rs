@@ -4,7 +4,7 @@ use crate::{document_index, milvus_index_proto as pb, milvus_proto::Status, milv
 use anyhow::{Result, anyhow, bail};
 use prost::Message;
 use serde_json::{Value, json};
-use std::{future::Future, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 /// The retained consumer uses the ORM's default database for its schema/list
 /// reads, and its separately configured client database for writes. Keep this
@@ -68,6 +68,38 @@ fn missing(status: &Status, allowed: Missing) -> bool {
         }
         Missing::Index => status.code == 700 || status.error_code == 25,
     }
+}
+/// A non-transport failure after this upload's row inserts were acknowledged.
+/// Those rows remain in Milvus, so the document runner must not replay the
+/// pipeline: it would insert them again. The message is the underlying error's.
+#[derive(Debug)]
+pub struct CommittedWrite(Box<dyn std::error::Error + Send + Sync + 'static>);
+impl CommittedWrite {
+    pub fn new(error: anyhow::Error) -> Self {
+        Self(error.into())
+    }
+}
+impl std::fmt::Display for CommittedWrite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl std::error::Error for CommittedWrite {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+    }
+}
+/// gRPC failures already carry their own no-replay classification; keep that
+/// type directly downcastable for the runner.
+fn after_commit(committed: bool, error: anyhow::Error) -> anyhow::Error {
+    if !committed
+        || error
+            .downcast_ref::<crate::milvus_index_transport::TransportFailure>()
+            .is_some()
+    {
+        return error;
+    }
+    CommittedWrite::new(error).into()
 }
 fn server_error(code: i32, reason: &str) -> anyhow::Error {
     anyhow!("<MilvusException: (code={code}, message={reason})>")
@@ -401,9 +433,15 @@ async fn wait_for_index(
     flush(io, collection).await?;
     for (name, expected) in expected {
         let mut indexed = indexed_rows(io, collection, name).await?;
+        // NV-Ingest allows max(0.5% of the missing rows, 10) polls without
+        // progress. Its budget restarts every 20 polls and only ends at exactly
+        // zero, so a stalled index with a fractional budget or more than 4,000
+        // missing rows was polled forever while this write owned the collection.
+        // Carry an unchanged budget across rounds and stop once it is spent.
+        let mut remaining = f64::INFINITY;
         while indexed < *expected {
             let initial = ((*expected - indexed) as f64 * 0.005).max(10.);
-            let mut remaining = initial;
+            remaining = remaining.min(initial);
             for _ in 0..20 {
                 let previous = indexed;
                 indexed = indexed_rows(io, collection, name).await?;
@@ -416,7 +454,7 @@ async fn wait_for_index(
                 } else {
                     initial
                 };
-                if remaining == 0. {
+                if remaining <= 0. {
                     bail!("Rows are not getting indexed as expected for: {name} - {collection}");
                 }
             }
@@ -432,6 +470,39 @@ pub struct Options<'a> {
     pub timestamp: &'a str,
     pub model: &'a str,
     pub surrogates: &'a crate::document_json::Surrogates,
+}
+// Row conversion and protobuf packing are CPU-bound: roughly 0.3 s per thousand
+// 2048-dimension chunks in an optimized build. Run them on the blocking pool so
+// a large upload does not stall async workers that also stream chat responses.
+// Neither closure performs I/O, and each result is awaited in the SDK's order.
+async fn records_off_runtime(results: &mut Value) -> Result<Vec<Value>> {
+    let mut owned = std::mem::take(results);
+    let (owned, rows) = tokio::task::spawn_blocking(move || {
+        // The SDK's content_metadata mutations are kept even on failure.
+        let rows = document_index::records(&mut owned);
+        (owned, rows)
+    })
+    .await?;
+    *results = owned;
+    rows
+}
+async fn insert_off_runtime(
+    collection: &str,
+    schema: &Arc<pb::CollectionSchema>,
+    rows: &Arc<Vec<Value>>,
+    batch: std::ops::Range<usize>,
+    surrogates: &crate::document_json::Surrogates,
+) -> Result<pb::InsertRequest> {
+    let (collection, schema, rows, surrogates) = (
+        collection.to_owned(),
+        schema.clone(),
+        rows.clone(),
+        surrogates.clone(),
+    );
+    tokio::task::spawn_blocking(move || {
+        milvus_writer::insert_with_surrogates(&collection, &schema, &rows[batch], &surrogates)
+    })
+    .await?
 }
 /// NV-Ingest's `vdb_upload` is a local consumer of the completed NV results. It
 /// creates the metadata receipt even when cleanup yields no vectors to insert.
@@ -482,7 +553,7 @@ pub async fn upload(io: &mut impl Io, options: &Options<'_>, results: &mut Value
     // describes its schema using the ORM database, independently of the client.
     describe(io, collection, Context::Orm, false).await?;
     describe(io, collection, Context::Orm, false).await?;
-    let rows = document_index::records(results)?;
+    let rows = records_off_runtime(results).await?;
     if rows.is_empty() {
         return Ok(());
     }
@@ -498,23 +569,30 @@ pub async fn upload(io: &mut impl Io, options: &Options<'_>, results: &mut Value
             expected.push((index.index_name, old + rows.len() as i64));
         }
     }
-    let schema = describe(io, collection, Context::Client, false)
-        .await?
-        .schema
-        .unwrap_or_default();
-    for batch in rows.chunks(5000) {
-        let mutation: pb::MutationResult = call(
-            io,
-            "Insert",
-            milvus_writer::insert_with_surrogates(collection, &schema, batch, options.surrogates)?,
-            Context::Client,
-            Missing::None,
-        )
-        .await?;
+    let schema = Arc::new(
+        describe(io, collection, Context::Client, false)
+            .await?
+            .schema
+            .unwrap_or_default(),
+    );
+    let rows = Arc::new(rows);
+    let mut committed = false;
+    for start in (0..rows.len()).step_by(5000) {
+        let batch = start..rows.len().min(start + 5000);
+        let request = insert_off_runtime(collection, &schema, &rows, batch, options.surrogates)
+            .await
+            .map_err(|error| after_commit(committed, error))?;
+        let mutation: pb::MutationResult =
+            call(io, "Insert", request, Context::Client, Missing::None)
+                .await
+                .map_err(|error| after_commit(committed, error))?;
         io.record_mutation(collection, mutation.timestamp);
         drop(mutation);
+        committed = true;
     }
-    wait_for_index(io, collection, &expected).await
+    wait_for_index(io, collection, &expected)
+        .await
+        .map_err(|error| after_commit(committed, error))
 }
 
 #[cfg(test)]
@@ -527,6 +605,7 @@ mod tests {
         calls: VecDeque<Value>,
         completed: usize,
         fail_at: Option<usize>,
+        grpc: bool,
         delays: Vec<Duration>,
     }
     impl Replay {
@@ -542,6 +621,7 @@ mod tests {
                     .collect(),
                 completed: 0,
                 fail_at: None,
+                grpc: false,
                 delays: Vec::new(),
             }
         }
@@ -586,6 +666,13 @@ mod tests {
             );
             let failed = self.fail_at == Some(self.completed);
             self.completed += 1;
+            if failed && self.grpc {
+                return Err(crate::milvus_index_transport::TransportFailure {
+                    method,
+                    code: tonic::Code::Unavailable,
+                }
+                .into());
+            }
             if failed {
                 bail!("Synthetic transport failure");
             }
@@ -675,6 +762,123 @@ mod tests {
                 );
                 assert_eq!(io.completed, index + 1, "{}", call["method"]);
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn failures_after_committed_rows_are_marked_without_changing_messages() {
+        // Row inserts are acknowledged before Flush/index waits. A later
+        // explicit rejection must not let the document runner replay them.
+        for case in fixture()["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["expected"].get("rows").is_none())
+        {
+            let mut io = Replay::new(case);
+            let error = run_case(&mut io, case).await.unwrap_err();
+            assert_eq!(error.to_string(), case["expected"]["message"]);
+            // The ambiguous-index case fails while counting indexes before any
+            // row insert, so the runner may still retry it.
+            let committed =
+                ["reject-Flush", "stalled-index"].contains(&case["mode"].as_str().unwrap());
+            assert_eq!(
+                error.downcast_ref::<CommittedWrite>().is_some(),
+                committed,
+                "{}",
+                case["mode"]
+            );
+        }
+        // A gRPC failure keeps its own no-replay classification unchanged.
+        let case = fixture()["cases"][0].clone();
+        let flush = Replay::new(&case)
+            .calls
+            .iter()
+            .position(|c| c["method"] == "Flush")
+            .unwrap();
+        let mut io = Replay::new(&case);
+        io.fail_at = Some(flush);
+        io.grpc = true;
+        let error = run_case(&mut io, &case).await.unwrap_err();
+        assert!(
+            error
+                .downcast_ref::<crate::milvus_index_transport::TransportFailure>()
+                .is_some()
+        );
+        assert!(error.downcast_ref::<CommittedWrite>().is_none());
+    }
+
+    struct Stalled {
+        indexed: i64,
+        polls: usize,
+        sleeps: usize,
+    }
+    impl Io for Stalled {
+        async fn exchange<I, O>(
+            &mut self,
+            method: &'static str,
+            _input: I,
+            _context: Context,
+        ) -> Result<O>
+        where
+            I: Message + Default + Clone + Send + Sync + 'static,
+            O: Message + Default + Send + Sync + 'static,
+        {
+            let reply = match method {
+                "Flush" => pb::FlushResponse::default().encode_to_vec(),
+                "GetFlushState" => pb::GetFlushStateResponse {
+                    flushed: true,
+                    ..Default::default()
+                }
+                .encode_to_vec(),
+                "DescribeIndex" => {
+                    self.polls += 1;
+                    assert!(self.polls <= 1000, "stalled index wait did not terminate");
+                    pb::DescribeIndexResponse {
+                        index_descriptions: vec![pb::IndexDescription {
+                            index_name: "dense_index".into(),
+                            indexed_rows: self.indexed,
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }
+                    .encode_to_vec()
+                }
+                _ => panic!("Unexpected Milvus call {method}"),
+            };
+            Ok(O::decode(reply.as_slice())?)
+        }
+        async fn sleep(&mut self, duration: Duration) {
+            assert_eq!(duration, Duration::from_secs(1));
+            self.sleeps += 1;
+        }
+    }
+
+    #[tokio::test]
+    async fn stalled_index_wait_honours_its_no_progress_budget() {
+        // NV-Ingest allows max(0.5% of the missing rows, 10) polls without
+        // progress. Fractional budgets and budgets above its 20-poll round
+        // previously never reached exactly zero, so the owned write (and its
+        // collection lock) waited forever on a stalled index.
+        for (missing, stalled_polls) in [(10, 10), (2001, 11), (5000, 25), (100_000, 500)] {
+            let mut io = Stalled {
+                indexed: 7,
+                polls: 0,
+                sleeps: 0,
+            };
+            let error = wait_for_index(
+                &mut io,
+                "private_collection",
+                &[("dense_index".into(), 7 + missing)],
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "Rows are not getting indexed as expected for: dense_index - private_collection"
+            );
+            assert_eq!(io.polls, stalled_polls + 1, "{missing}");
+            assert_eq!(io.sleeps, stalled_polls, "{missing}");
         }
     }
 }

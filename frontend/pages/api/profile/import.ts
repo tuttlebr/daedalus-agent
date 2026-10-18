@@ -4,7 +4,7 @@ import {
   buildBackendBaseUrlForMode,
   buildBackendUrlFromBase,
 } from '@/utils/app/backendApi';
-import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
+import { FetchTimeoutError, fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
 
 import { buildNatRequestHeaders } from '@/server/chat/natMessages';
@@ -68,11 +68,18 @@ export default async function handler(
     );
     const payload = parseBackendPayload(await response.text());
     return res.status(response.status).json(payload);
-  } catch (error: any) {
-    return res.status(502).json({
-      error: `Profile import backend request failed: ${
-        error?.message || 'unknown error'
-      }`,
-    });
+  } catch (error) {
+    // Transport errors name internal hosts and ports; keep them in server logs.
+    console.error('Profile import backend request failed:', error);
+    if (error instanceof FetchTimeoutError) {
+      // The backend may still finish its staged replacement after this point.
+      return res.status(504).json({
+        error:
+          'Profile import is still running or timed out. Check Memory before retrying.',
+      });
+    }
+    return res
+      .status(502)
+      .json({ error: 'Profile import backend request failed.' });
   }
 }

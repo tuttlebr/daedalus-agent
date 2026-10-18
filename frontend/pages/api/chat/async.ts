@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
 import { getSession } from '@/utils/auth/session';
 import { Logger } from '@/utils/logger';
 import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
@@ -99,14 +98,26 @@ function getMessageId(message: any): string | null {
     : null;
 }
 
+/**
+ * Combine the saved conversation with the browser's submitted history.
+ *
+ * The browser submits model-oriented copies (`cleanMessagesForLLM`): inline
+ * data is omitted and attachment instructions are appended to content. Those
+ * copies win for model input. With `preferStored`, saved messages are kept
+ * unchanged and only new messages are appended, which is the form finalization
+ * persists; otherwise a completed job would rewrite earlier saved turns with
+ * their model-oriented copies.
+ */
 export function mergeSubmittedMessagesWithStoredHistory(
   storedMessages: any[],
   submittedMessages: any[],
+  { preferStored = false }: { preferStored?: boolean } = {},
 ): any[] {
   const merged: any[] = [];
   const indexById = new Map<string, number>();
+  const storedIds = new Set<string>();
 
-  const upsert = (message: any) => {
+  const upsert = (message: any, fromStore: boolean) => {
     if (!message || typeof message !== 'object') return;
 
     const id = getMessageId(message);
@@ -119,8 +130,10 @@ export function mergeSubmittedMessagesWithStoredHistory(
     if (existingIndex === undefined) {
       indexById.set(id, merged.length);
       merged.push(message);
+      if (fromStore) storedIds.add(id);
       return;
     }
+    if (preferStored && !fromStore && storedIds.has(id)) return;
 
     merged[existingIndex] = {
       ...merged[existingIndex],
@@ -129,10 +142,10 @@ export function mergeSubmittedMessagesWithStoredHistory(
   };
 
   if (Array.isArray(storedMessages)) {
-    storedMessages.forEach(upsert);
+    storedMessages.forEach((message) => upsert(message, true));
   }
   if (Array.isArray(submittedMessages)) {
-    submittedMessages.forEach(upsert);
+    submittedMessages.forEach((message) => upsert(message, false));
   }
 
   return merged;
@@ -213,52 +226,28 @@ async function claimConversationForJob(
   );
 }
 
+// Response text is returned verbatim: repeated answers are legitimate output
+// (see RELIABILITY.md). Only OAuth prompt fields outlive their state.
 async function sanitizeJobStatusForReturn(
   jobId: string,
   status: AsyncJobStatus,
-  jobRequest: AsyncJobRequest,
   options: { persist?: boolean } = {},
 ): Promise<AsyncJobStatus> {
-  const updates: Partial<AsyncJobStatus> = {};
-
   if (
-    status.status !== 'oauth_required' &&
-    (status.authUrl || status.oauthState || status.oauthRequests?.length)
+    status.status === 'oauth_required' ||
+    !(status.authUrl || status.oauthState || status.oauthRequests?.length)
   ) {
-    Object.assign(updates, clearOAuthStatusFields());
-  }
-
-  if (typeof status.fullResponse === 'string' && status.fullResponse) {
-    const fullResponse = stripReplayedAssistantPrefix(
-      status.fullResponse,
-      jobRequest.messages || [],
-    );
-    if (fullResponse !== status.fullResponse) {
-      updates.fullResponse = fullResponse;
-    }
-  }
-
-  if (typeof status.partialResponse === 'string' && status.partialResponse) {
-    const partialResponse = stripReplayedAssistantPrefix(
-      status.partialResponse,
-      jobRequest.messages || [],
-    );
-    if (partialResponse !== status.partialResponse) {
-      updates.partialResponse = partialResponse;
-    }
-  }
-
-  if (Object.keys(updates).length === 0) {
     return status;
   }
 
+  const updates: Partial<AsyncJobStatus> = clearOAuthStatusFields();
   const sanitized = {
     ...status,
     ...updates,
     updatedAt: Date.now(),
   };
-  // Old cached answers still get presentation sanitization, but the terminal
-  // record must continue to agree with its durable finalization journal.
+  // The terminal record must continue to agree with its durable
+  // finalization journal.
   if (
     options.persist !== false &&
     !isTerminalJobStatus(status.status) &&
@@ -368,6 +357,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const effectiveMessages = mergeSubmittedMessagesWithStoredHistory(
       storedMessages,
       messages,
+    );
+    const persistedMessages = mergeSubmittedMessagesWithStoredHistory(
+      storedMessages,
+      messages,
+      { preferStored: true },
     );
     // Overwrite client-sent identity fields with verified values
     if (additionalProps) {
@@ -523,7 +517,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       natSessionId,
       timezone,
       ...(documentIngest ? { documentIngest } : {}),
-      messages: effectiveMessages, // original messages for conversation saving later
+      // Saved turns plus this submission, persisted by finalization.
+      messages: persistedMessages,
       additionalProps,
       userId: verifiedUsername,
       conversationId,
@@ -699,12 +694,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
           error,
         );
       });
-      const sanitized = await sanitizeJobStatusForReturn(
-        jobId,
-        jobStatus,
-        jobRequest,
-      );
-      return res.status(200).json(sanitized);
+      return res
+        .status(200)
+        .json(await sanitizeJobStatusForReturn(jobId, jobStatus));
     }
 
     if (jobRequest.executionMode === 'stream') {
@@ -720,27 +712,15 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       const sanitized = await sanitizeJobStatusForReturn(
         jobId,
         statusWithLiveProgress,
-        jobRequest,
         { persist: false },
       );
       return res.status(200).json(sanitized);
     }
 
-    if (jobRequest.executionMode === 'document_ingest') {
-      const sanitized = await sanitizeJobStatusForReturn(
-        jobId,
-        jobStatus,
-        jobRequest,
-      );
-      return res.status(200).json(sanitized);
-    }
-
-    const sanitized = await sanitizeJobStatusForReturn(
-      jobId,
-      jobStatus,
-      jobRequest,
-    );
-    return res.status(200).json(sanitized);
+    // Document ingestion and legacy records keep their status snapshot.
+    return res
+      .status(200)
+      .json(await sanitizeJobStatusForReturn(jobId, jobStatus));
   } catch (error) {
     logger.error('Error fetching job status', error);
     return res.status(500).json({ error: 'Failed to fetch job status' });

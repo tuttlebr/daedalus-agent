@@ -68,6 +68,17 @@ class MockWebSocket {
     }
   }
 
+  // Test helper: the server accepts application traffic only after it has
+  // initialized the connection and sent `connected` (ws-server.ts).
+  simulateReady(): void {
+    this.simulateOpen();
+    this.simulateMessage({
+      type: 'connected',
+      userId: 'user-1',
+      streamingStates: {},
+    });
+  }
+
   // Test helper: simulate receiving a message
   simulateMessage(data: any): void {
     if (this.onmessage) {
@@ -134,7 +145,7 @@ describe('WebSocketManager', () => {
     const manager = new WebSocketManager('/ws');
     manager.connect();
     const socket = wsInstances[0];
-    socket.simulateOpen();
+    socket.simulateReady();
     const pending = manager.steerJob('job-a', 'Focus on storage', 'command-a');
     let resolved = false;
     void pending.then(() => {
@@ -174,7 +185,7 @@ describe('WebSocketManager', () => {
   it('keeps unconfirmed steering retryable after a disconnect', async () => {
     const manager = new WebSocketManager('/ws');
     manager.connect();
-    wsInstances[0].simulateOpen();
+    wsInstances[0].simulateReady();
     const pending = manager.steerJob('job-a', 'Focus on storage', 'command-a');
     wsInstances[0].simulateClose();
     await expect(pending).rejects.toThrow('not confirmed');
@@ -207,14 +218,81 @@ describe('WebSocketManager', () => {
       expect(wsInstances[0].url).toBe('ws://custom:9999/live');
     });
 
-    it('sets isConnected to true after onopen', () => {
+    it('is connected only after the server confirms initialization', () => {
       const mgr = new WebSocketManager('/ws');
       expect(mgr.isConnected).toBe(false);
 
       mgr.connect();
       wsInstances[0].simulateOpen();
+      // ws-server ignores application messages until it sends `connected`.
+      expect(mgr.isConnected).toBe(false);
 
+      wsInstances[0].simulateMessage({
+        type: 'connected',
+        userId: 'user-1',
+        streamingStates: {},
+      });
       expect(mgr.isConnected).toBe(true);
+    });
+
+    it('defers (re)subscriptions until the server accepts application traffic', () => {
+      const mgr = new WebSocketManager('/ws');
+      mgr.subscribeToJob('job-1');
+      mgr.subscribeToChat('conv-1');
+      mgr.connect();
+      wsInstances[0].simulateOpen();
+      // Subscribing again after the upgrade but before `connected` must not
+      // send a message the server would drop.
+      mgr.subscribeToJob('job-2');
+      const sentTypes = () =>
+        wsInstances[0].send.mock.calls.map((call: any[]) =>
+          JSON.parse(call[0]),
+        );
+      expect(
+        sentTypes().filter((message: any) => message.type !== 'ping'),
+      ).toEqual([]);
+
+      wsInstances[0].simulateMessage({
+        type: 'connected',
+        userId: 'user-1',
+        streamingStates: {},
+      });
+      expect(sentTypes()).toEqual([
+        { type: 'subscribe_job', jobId: 'job-1' },
+        { type: 'subscribe_job', jobId: 'job-2' },
+        { type: 'subscribe_chat', conversationId: 'conv-1' },
+      ]);
+
+      // A reconnect repeats the same handshake.
+      wsInstances[0].simulateClose(1006, 'abnormal');
+      vi.advanceTimersByTime(1_500);
+      wsInstances[1].simulateOpen();
+      expect(wsInstances[1].send).not.toHaveBeenCalled();
+      wsInstances[1].simulateMessage({
+        type: 'connected',
+        userId: 'user-1',
+        streamingStates: {},
+      });
+      expect(wsInstances[1].send).toHaveBeenCalledTimes(3);
+      mgr.disconnect();
+    });
+
+    it('keeps backing off when sockets open but never initialize', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const mgr = new WebSocketManager('/ws');
+      mgr.connect();
+      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateClose(1006);
+      vi.advanceTimersByTime(1000);
+      expect(wsInstances).toHaveLength(2);
+      // An upgrade that is closed before `connected` is not a success.
+      wsInstances[1].simulateOpen();
+      wsInstances[1].simulateClose(1006);
+      vi.advanceTimersByTime(1999);
+      expect(wsInstances).toHaveLength(2);
+      vi.advanceTimersByTime(1);
+      expect(wsInstances).toHaveLength(3);
+      mgr.disconnect();
     });
 
     it('does not create a second WebSocket if already OPEN', () => {
@@ -241,7 +319,7 @@ describe('WebSocketManager', () => {
       vi.spyOn(Math, 'random').mockReturnValue(0.5);
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
       wsInstances[0].simulateClose(1006);
       vi.advanceTimersByTime(1000);
       expect(wsInstances).toHaveLength(2);
@@ -251,7 +329,7 @@ describe('WebSocketManager', () => {
       expect(wsInstances).toHaveLength(2);
       vi.advanceTimersByTime(1000);
       expect(wsInstances).toHaveLength(3);
-      wsInstances[2].simulateOpen();
+      wsInstances[2].simulateReady();
       wsInstances[2].simulateClose(1006);
       vi.advanceTimersByTime(999);
       expect(wsInstances).toHaveLength(3);
@@ -263,7 +341,7 @@ describe('WebSocketManager', () => {
     it('re-subscribes to tracked jobs on reconnect', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
 
       // Subscribe to a job while connected
       mgr.subscribeToJob('job-1');
@@ -272,7 +350,7 @@ describe('WebSocketManager', () => {
       // Simulate disconnect and reconnect
       wsInstances[0].simulateClose(1006, 'abnormal');
       mgr.connect();
-      wsInstances[1].simulateOpen();
+      wsInstances[1].simulateReady();
 
       // After reconnect, the job subscription should be re-sent
       expect(wsInstances[1].send).toHaveBeenCalledWith(
@@ -300,7 +378,7 @@ describe('WebSocketManager', () => {
     it('sets isConnected to false', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
       expect(mgr.isConnected).toBe(true);
 
       mgr.disconnect();
@@ -433,7 +511,7 @@ describe('WebSocketManager', () => {
     it('subscribeToJob sends a subscribe_job message when connected', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
 
       mgr.subscribeToJob('job-42');
 
@@ -449,7 +527,7 @@ describe('WebSocketManager', () => {
 
       // Now connect - the job should be re-subscribed on open
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
 
       expect(wsInstances[0].send).toHaveBeenCalledWith(
         JSON.stringify({ type: 'subscribe_job', jobId: 'job-99' }),
@@ -459,7 +537,7 @@ describe('WebSocketManager', () => {
     it('unsubscribeFromJob sends an unsubscribe_job message when connected', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
 
       mgr.subscribeToJob('job-42');
       mgr.unsubscribeFromJob('job-42');
@@ -476,7 +554,7 @@ describe('WebSocketManager', () => {
 
       // Connect - unsubscribed job should NOT be re-subscribed
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
 
       const sentMessages = wsInstances[0].send.mock.calls.map((c: any[]) =>
         JSON.parse(c[0]),
@@ -494,7 +572,7 @@ describe('WebSocketManager', () => {
     it('subscribeToChat sends a subscribe_chat message when connected', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
 
       mgr.subscribeToChat('conv-abc');
 
@@ -503,19 +581,32 @@ describe('WebSocketManager', () => {
       );
     });
 
-    it('subscribeToChat does nothing when disconnected', () => {
+    it('subscribeToChat records the chat while disconnected and sends it once ready', () => {
       const mgr = new WebSocketManager('/ws');
-      // Not connected
+      // Not connected: nothing can be sent, but the subscription is retained.
       mgr.subscribeToChat('conv-abc');
-
-      // No WebSocket instance exists to send on
       expect(wsInstances).toHaveLength(0);
+
+      mgr.connect();
+      wsInstances[0].simulateReady();
+      expect(wsInstances[0].send).toHaveBeenCalledWith(
+        JSON.stringify({ type: 'subscribe_chat', conversationId: 'conv-abc' }),
+      );
+
+      mgr.unsubscribeFromChat('conv-abc');
+      wsInstances[0].simulateClose(1006, 'abnormal');
+      vi.advanceTimersByTime(1_500);
+      wsInstances[1].simulateReady();
+      expect(wsInstances[1].send).not.toHaveBeenCalledWith(
+        JSON.stringify({ type: 'subscribe_chat', conversationId: 'conv-abc' }),
+      );
+      mgr.disconnect();
     });
 
     it('unsubscribeFromChat sends an unsubscribe_chat message when connected', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
 
       mgr.unsubscribeFromChat('conv-abc');
 
@@ -582,7 +673,7 @@ describe('WebSocketManager', () => {
     it('pong message resets the pong timeout (no reconnect)', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();
-      wsInstances[0].simulateOpen();
+      wsInstances[0].simulateReady();
 
       // Trigger ping
       vi.advanceTimersByTime(30_000);
@@ -625,7 +716,7 @@ describe('WebSocketManager', () => {
       mgr.on('chat_token', onToken);
       mgr.connect();
       const oldSocket = wsInstances[0];
-      oldSocket.simulateOpen();
+      oldSocket.simulateReady();
       // Browser close events arrive asynchronously, after disconnect returns.
       oldSocket.close.mockImplementation(() => {
         oldSocket.readyState = MockWebSocket.CLOSING;
@@ -633,7 +724,7 @@ describe('WebSocketManager', () => {
       mgr.disconnect();
       expect(onDisconnected).toHaveBeenCalledTimes(1);
       mgr.connect();
-      wsInstances[1].simulateOpen();
+      wsInstances[1].simulateReady();
 
       oldSocket.simulateClose();
       oldSocket.simulateMessage({ type: 'chat_token', content: 'obsolete' });

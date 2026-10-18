@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/server/session/redis', () => ({
+  STREAMING_STATE_TTL_SECONDS: 600,
   getRedis: vi.fn(() => mocks.redis),
   jsonDel: mocks.jsonDel,
   jsonGet: vi.fn(),

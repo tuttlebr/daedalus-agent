@@ -41,6 +41,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV PATH="/workspace/.venv/bin:$PATH"
+# Token counting must not fetch encodings from a third-party store at request
+# time; the build stage below bakes the one the tools use into this directory.
+ENV TIKTOKEN_CACHE_DIR=/workspace/.cache/tiktoken
 
 # Keep only binaries used by the application here. Build and development tools
 # live in the build stage and cannot be copied into the runtime image.
@@ -165,6 +168,10 @@ COPY document_ingest_api.py /workspace/document_ingest_api.py
 COPY memory_api.py /workspace/memory_api.py
 COPY mcp_approval_api.py /workspace/mcp_approval_api.py
 COPY profile_import_api.py /workspace/profile_import_api.py
+
+# tiktoken verifies the pinned SHA-256 of the encoding it downloads here.
+RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')" && \
+    test -n "$(ls -A "$TIKTOKEN_CACHE_DIR")"
 
 # Verify the installed tool registry, security floors, and the absence of NAT.
 RUN --mount=type=bind,from=skills,target=/skills,readonly \

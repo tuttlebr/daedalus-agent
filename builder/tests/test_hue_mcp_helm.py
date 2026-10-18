@@ -1,6 +1,5 @@
 """Validate Hue credential and network access in rendered deployment manifests."""
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -8,7 +7,7 @@ import pytest
 import yaml
 
 CHART = Path(__file__).parents[2] / "helm" / "daedalus"
-pytestmark = pytest.mark.skipif(not shutil.which("helm"), reason="helm not installed")
+pytestmark = pytest.mark.requires_helm
 
 
 @pytest.mark.parametrize("cilium", [True, False])

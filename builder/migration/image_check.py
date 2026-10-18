@@ -11,6 +11,7 @@ import contextlib
 import copy
 import json
 import os
+import re
 import subprocess  # nosec B404 - fixed argv for disposable fixture containers
 import sys
 import tempfile
@@ -30,9 +31,41 @@ from runtime_http_check import Peers, free_port
 ROOT = Path(__file__).resolve().parents[2]
 
 
+CARGO_TEST_RESULT = re.compile(r"^test result: \w+\. (\d+) passed;", re.MULTILINE)
+
+
 def run(*args, **kwargs):
     kwargs.setdefault("check", True)
+    if (
+        args[:2] == ("cargo", "test")
+        and "--no-run" not in args
+        and not {"stdout", "capture_output"} & kwargs.keys()
+    ):
+        return run_selected_cargo_tests(args, **kwargs)
     return subprocess.run(args, **kwargs)  # nosec B603
+
+
+def run_selected_cargo_tests(args, *, check=True, **kwargs):
+    """Run a filtered native contract and fail if the filter selected nothing.
+
+    libtest exits 0 for a name filter that matches no test, which would turn a
+    renamed or moved native contract into a silently passing gate.
+    """
+    output = []
+    with subprocess.Popen(  # nosec B603 - fixed cargo argv from the runners
+        args, stdout=subprocess.PIPE, text=True, **kwargs
+    ) as process:
+        for line in process.stdout:
+            sys.stdout.write(line)
+            output.append(line)
+        returncode = process.wait()
+    stdout = "".join(output)
+    if check and returncode:
+        raise subprocess.CalledProcessError(returncode, args, stdout)
+    passed = sum(int(count) for count in CARGO_TEST_RESULT.findall(stdout))
+    if check and passed == 0:
+        raise RuntimeError("cargo test selected no tests: " + " ".join(map(str, args)))
+    return subprocess.CompletedProcess(args, returncode, stdout)
 
 
 class MemoryPeers(Peers):

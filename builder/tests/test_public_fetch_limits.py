@@ -9,9 +9,8 @@ import nat_helpers.safe_http as safe
 import pytest
 
 
-@pytest.mark.parametrize("asynchronous", [False, True])
 @pytest.mark.parametrize("kind", ["length", "stream", "compressed", "small"])
-def test_public_fetch_binds_body_budget_and_encoding(monkeypatch, asynchronous, kind):
+def test_public_fetch_binds_body_budget_and_encoding(monkeypatch, kind):
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -46,12 +45,7 @@ def test_public_fetch_binds_body_budget_and_encoding(monkeypatch, asynchronous, 
             return await client.get(url)
 
     def request():
-        if asynchronous:
-            return asyncio.run(async_request())
-        with httpx.Client(
-            transport=safe.PublicHTTPTransport(max_response_bytes=1024), trust_env=False
-        ) as client:
-            return client.get(url)
+        return asyncio.run(async_request())
 
     try:
         if kind == "small":

@@ -150,20 +150,11 @@ export class WebSocketManager {
 
       socket.onopen = () => {
         if (this.ws !== socket) return;
-        logger.info('WebSocket connected');
-        this._isConnected = true;
-        this.reconnectAttempts = 0;
+        logger.info('WebSocket opened; waiting for server initialization');
+        // The server ignores application messages until it has subscribed
+        // this user's channel and loaded state, then sends `connected`.
+        // Subscriptions are therefore (re)sent from that message, not here.
         this.startPing();
-
-        // Re-subscribe to any jobs that were active before disconnect
-        for (const jobId of this.subscribedJobs) {
-          this.send({ type: 'subscribe_job', jobId });
-        }
-
-        // Re-subscribe to any chat token channels that were active before disconnect
-        for (const conversationId of this.subscribedChats) {
-          this.send({ type: 'subscribe_chat', conversationId });
-        }
       };
 
       socket.onmessage = (event) => {
@@ -326,7 +317,32 @@ export class WebSocketManager {
       return;
     }
 
+    if (msg.type === 'connected') {
+      this.handleServerReady();
+    }
+
     this.emit(msg.type, 'data' in msg ? (msg as any).data : msg);
+  }
+
+  /**
+   * The server accepts application traffic only after it sends `connected`.
+   * Anything sent between the upgrade and that message is silently dropped,
+   * so readiness, retry reset and (re)subscription all start here.
+   */
+  private handleServerReady(): void {
+    logger.info('WebSocket connected');
+    this._isConnected = true;
+    this.reconnectAttempts = 0;
+
+    // Re-subscribe to any jobs that were active before disconnect
+    for (const jobId of this.subscribedJobs) {
+      this.send({ type: 'subscribe_job', jobId });
+    }
+
+    // Re-subscribe to any chat token channels that were active before disconnect
+    for (const conversationId of this.subscribedChats) {
+      this.send({ type: 'subscribe_chat', conversationId });
+    }
   }
 
   private emit(type: string, data: any): void {

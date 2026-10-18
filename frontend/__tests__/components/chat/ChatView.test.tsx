@@ -9,7 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   asyncOptions: null as any,
+  apiGet: vi.fn(),
   cancelJob: vi.fn(),
+  saveConversation: vi.fn(),
   startAsyncJob: vi.fn(),
 }));
 
@@ -29,7 +31,12 @@ vi.mock('@/components/auth', () => ({
 }));
 
 vi.mock('@/utils/app/conversation', () => ({
-  saveConversation: vi.fn(),
+  saveConversation: mocks.saveConversation,
+}));
+
+vi.mock('@/utils/app/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/app/api')>()),
+  apiGet: mocks.apiGet,
 }));
 
 vi.mock('@/components/chat/ChatInput', () => ({
@@ -403,38 +410,199 @@ describe('ChatView OAuth banner', () => {
     },
   );
 
-  it('coalesces token updates into one render batch per flush interval', async () => {
+  it('renders the reconciled response text supplied with live tokens', async () => {
     const { root } = renderChatView();
-
+    // Earlier tokens were lost before this one; the hook has already repaired
+    // the text from a status read and supplies the reconciled response.
     await act(async () => {
-      mocks.asyncOptions.onToken({
-        conversationId: 'conv-1',
-        assistantMessageId: 'assistant-1',
-        content: 'Hello',
-        responseStart: 0,
-      });
       mocks.asyncOptions.onToken({
         conversationId: 'conv-1',
         assistantMessageId: 'assistant-1',
         content: ' world',
-        responseStart: 5,
+        responseStart: 20,
+        partialResponse: 'Hello, missing words world',
       });
+      vi.advanceTimersByTime(120);
     });
 
-    expect(document.body.textContent).not.toContain('Hello world');
+    expect(
+      useConversationStore.getState().conversations[0].messages[1].content,
+    ).toBe('Hello, missing words world');
+    act(() => root.unmount());
+  });
+
+  describe('a job whose assistant message is missing from this copy', () => {
+    const previousTurn = [
+      { id: 'user-1', role: 'user' as const, content: 'first question' },
+      {
+        id: 'assistant-1',
+        role: 'assistant' as const,
+        content: 'Previous answer',
+        intermediateSteps: [],
+      },
+    ];
+    const step = {
+      payload: { event_type: 'TOOL_START', UUID: 'tool-2', name: 'search' },
+    };
+
+    beforeEach(() => {
+      // Another tab or device started this turn; this copy predates it.
+      const store = useConversationStore.getState();
+      store.clearConversations();
+      store.addConversation({
+        id: 'conv-1',
+        name: 'Stale copy',
+        folderId: null,
+        messages: previousTurn,
+      });
+      store.selectConversation('conv-1');
+    });
+
+    function expectPreviousAnswerIntact() {
+      const conversation = useConversationStore
+        .getState()
+        .conversations.find((c) => c.id === 'conv-1')!;
+      const previous = conversation.messages.find(
+        (message) => message.id === 'assistant-1',
+      )!;
+      expect(previous.content).toBe('Previous answer');
+      expect(previous.intermediateSteps).toEqual([]);
+    }
+
+    function expectNoSaveWithoutJobMessage() {
+      for (const [saved] of mocks.saveConversation.mock.calls) {
+        expect(saved.messages.map((message: any) => message.id)).toContain(
+          'assistant-2',
+        );
+      }
+    }
+
+    it('adopts the authoritative conversation instead of rewriting an earlier answer', async () => {
+      mocks.apiGet.mockResolvedValue({
+        id: 'conv-1',
+        name: 'Stale copy',
+        folderId: null,
+        updatedAt: 10,
+        messages: [
+          ...previousTurn,
+          { id: 'user-2', role: 'user', content: 'second question' },
+          {
+            id: 'assistant-2',
+            role: 'assistant',
+            content: '',
+            metadata: { turnId: 'turn-2' },
+          },
+        ],
+      });
+      const { root } = renderChatView();
+      await act(async () => {
+        mocks.asyncOptions.onProgress({
+          jobId: 'job-2',
+          status: 'streaming',
+          conversationId: 'conv-1',
+          assistantMessageId: 'assistant-2',
+          partialResponse: 'New ans',
+          intermediateSteps: [step],
+          createdAt: 1,
+          updatedAt: 2,
+        });
+        await vi.advanceTimersByTimeAsync(120);
+      });
+      expectPreviousAnswerIntact();
+      expect(mocks.apiGet).toHaveBeenCalledWith('/api/conversations/conv-1');
+
+      await act(async () => {
+        mocks.asyncOptions.onComplete(
+          'New answer',
+          [step],
+          Date.now(),
+          'conv-1',
+          { assistantMessageId: 'assistant-2', jobId: 'job-2' },
+        );
+      });
+      expectPreviousAnswerIntact();
+      const conversation = useConversationStore.getState().conversations[0];
+      expect(conversation.messages.map((message) => message.id)).toEqual([
+        'user-1',
+        'assistant-1',
+        'user-2',
+        'assistant-2',
+      ]);
+      expect(conversation.messages[3].content).toBe('New answer');
+      expect(mocks.saveConversation).toHaveBeenCalled();
+      expectNoSaveWithoutJobMessage();
+      act(() => root.unmount());
+    });
+
+    it('never saves the stale copy when the conversation cannot be reloaded', async () => {
+      mocks.apiGet.mockRejectedValue(new Error('offline'));
+      const { root } = renderChatView();
+      await act(async () => {
+        mocks.asyncOptions.onProgress({
+          jobId: 'job-2',
+          status: 'streaming',
+          conversationId: 'conv-1',
+          assistantMessageId: 'assistant-2',
+          partialResponse: 'New ans',
+          intermediateSteps: [step],
+          createdAt: 1,
+          updatedAt: 2,
+        });
+        await vi.advanceTimersByTimeAsync(120);
+        mocks.asyncOptions.onComplete(
+          'New answer',
+          [step],
+          Date.now(),
+          'conv-1',
+          { assistantMessageId: 'assistant-2', jobId: 'job-2' },
+        );
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expectPreviousAnswerIntact();
+      expectNoSaveWithoutJobMessage();
+      expect(
+        useConversationStore.getState().streamingConversationIds.has('conv-1'),
+      ).toBe(false);
+      act(() => root.unmount());
+    });
+  });
+
+  it('renders the first tokens promptly, then coalesces updates per flush interval', async () => {
+    const { root } = renderChatView();
+    const token = (content: string, responseStart: number) =>
+      mocks.asyncOptions.onToken({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        content,
+        responseStart,
+      });
+
+    await act(async () => {
+      token('Hello', 0);
+      token(' world', 5);
+    });
+    // Tokens from the same task share one render; after an idle interval it
+    // runs on the next task instead of waiting a full flush interval.
+    expect(document.body.textContent).not.toContain('Hello');
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(document.body.textContent).toContain('Hello world');
 
     // STREAM_RENDER_INTERVAL_MS in ChatView. Each flush re-parses the whole
-    // answer through remark/rehype, so the batch window is deliberately wider
-    // than one frame.
+    // answer through remark/rehype, so later updates wait for the interval.
     await act(async () => {
-      vi.advanceTimersByTime(119);
+      vi.advanceTimersByTime(20);
+      token('!', 11);
     });
-    expect(document.body.textContent).not.toContain('Hello world');
-
+    await act(async () => {
+      vi.advanceTimersByTime(99);
+    });
+    expect(document.body.textContent).not.toContain('Hello world!');
     await act(async () => {
       vi.advanceTimersByTime(1);
     });
-    expect(document.body.textContent).toContain('Hello world');
+    expect(document.body.textContent).toContain('Hello world!');
 
     act(() => root.unmount());
   });

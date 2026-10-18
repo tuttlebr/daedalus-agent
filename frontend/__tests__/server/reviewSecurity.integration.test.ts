@@ -186,9 +186,11 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
     });
 
     it('initializes and repairs counter TTLs atomically without extending ordinary fixed windows', async () => {
-      const { incrementExpiringCounter, readExpiringCounter } = await import(
-        '@/server/redisCounter'
-      );
+      const {
+        confirmFailedAttempt,
+        incrementExpiringCounter,
+        reserveLimitedAttempt,
+      } = await import('@/server/redisCounter');
       const ck = key(prefix, 'counter');
       const first = await incrementExpiringCounter(ck, 60);
       expect(first).toEqual([1, 60]);
@@ -200,8 +202,18 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       expect(await client.ttl(ck)).toBe(-1);
       expect(await incrementExpiringCounter(ck, 60)).toEqual([3, 60]);
       await client.persist(ck);
-      expect(await readExpiringCounter(ck, 30)).toEqual([3, 30]);
-      expect(await incrementExpiringCounter(ck, 60, 4, 120)).toEqual([4, 120]);
+      // An exhausted counter without an expiry is repaired to the lockout.
+      expect(await reserveLimitedAttempt([{ key: ck, limit: 3 }], 60, 30)).toBe(
+        30,
+      );
+      expect(await client.ttl(ck)).toBe(30);
+      expect(await reserveLimitedAttempt([{ key: ck, limit: 4 }], 60, 30)).toBe(
+        0,
+      );
+      expect(await client.ttl(ck)).toBe(30);
+      await confirmFailedAttempt([{ key: ck, limit: 4 }], 120);
+      expect(await client.get(ck)).toBe('4');
+      expect(await client.ttl(ck)).toBe(120);
     });
   },
 );

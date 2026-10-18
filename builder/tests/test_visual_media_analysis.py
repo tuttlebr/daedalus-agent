@@ -134,3 +134,49 @@ def test_analyze_does_not_treat_other_urls_as_app_images(analysis_tool, url):
     assert result.startswith("Error: media URL is not allowed:")
     analysis_tool.redis.execute_command.assert_not_called()
     analysis_tool.client.post.assert_not_awaited()
+
+
+def test_public_url_validation_does_not_stall_the_event_loop(
+    analysis_tool, monkeypatch
+):
+    """Hostname validation performs blocking DNS outside the shared loop."""
+    import socket
+    import time
+
+    delay = 0.6
+
+    def slow_public_dns(*_args, **_kwargs):
+        time.sleep(delay)
+        return [(socket.AF_INET, None, None, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", slow_public_dns)
+    url = "https://images.example/photo.png"
+
+    async def scenario():
+        gaps, done = [], asyncio.Event()
+
+        async def heartbeat():
+            last = time.perf_counter()
+            while not done.is_set():
+                await asyncio.sleep(0.01)
+                now = time.perf_counter()
+                gaps.append(now - last)
+                last = now
+
+        beat = asyncio.create_task(heartbeat())
+        await asyncio.sleep(0)
+        try:
+            result = await analysis_tool.invoke({"image_url": url})
+        finally:
+            done.set()
+            await beat
+        return result, max(gaps)
+
+    result, max_gap = asyncio.run(scenario())
+    assert result == "The image matches the request."
+    payload = analysis_tool.client.post.call_args.kwargs["json"]
+    assert payload["messages"][1]["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": url},
+    }
+    assert max_gap < delay / 2, max_gap

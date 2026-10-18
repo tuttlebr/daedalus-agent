@@ -78,9 +78,11 @@ def authenticated_user_id_from_headers(headers: Any) -> str:
     expected_token = _configured_internal_token()
     if expected_token:
         provided_token = _header_value(headers, "x-daedalus-internal-token")
+        # Byte comparison keeps non-ASCII header text an ordinary mismatch;
+        # str comparison raises TypeError instead of denying the request.
         if not provided_token or not hmac.compare_digest(
-            provided_token,
-            expected_token,
+            provided_token.encode("utf-8"),
+            expected_token.encode("utf-8"),
         ):
             raise ValueError("valid x-daedalus-internal-token is required")
     else:
@@ -202,7 +204,9 @@ def resolve_authenticated_user_id(asserted_user_id: str | None = None) -> str:
     authenticated = str(authenticated).strip()
     if not authenticated:
         raise ValueError("authenticated user identity is required")
-    if asserted and not hmac.compare_digest(asserted, authenticated):
+    if asserted and not hmac.compare_digest(
+        asserted.encode("utf-8"), authenticated.encode("utf-8")
+    ):
         raise ValueError(
             "supplied user identity does not match the authenticated request"
         )

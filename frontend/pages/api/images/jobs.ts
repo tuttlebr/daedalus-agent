@@ -31,6 +31,7 @@ import {
 } from '@/server/images/jobRecovery';
 import {
   imageHistoryKey,
+  isBackendUnavailable,
   removeUnsafeBrowserKeys,
 } from '@/server/images/requestHelpers';
 import {
@@ -155,15 +156,7 @@ function statusCodeForError(error: unknown): number {
   if (message.includes('timed out') || message.includes('ETIMEDOUT')) {
     return 504;
   }
-  if (
-    message.includes('ECONNREFUSED') ||
-    message.includes('ENOTFOUND') ||
-    message.includes('EAI_AGAIN') ||
-    message.includes('ECONNRESET') ||
-    message.includes('socket hang up')
-  ) {
-    return 502;
-  }
+  if (isBackendUnavailable(message)) return 502;
   return 500;
 }
 
@@ -187,11 +180,7 @@ async function rememberUserJob(userId: string, jobId: string): Promise<void> {
         ? existing.filter((id) => typeof id === 'string' && id !== jobId)
         : [];
       const jobs = await Promise.all(ids.map((id) => loadOwnedJob(id, userId)));
-      if (
-        jobs.filter(
-          (job) => job && (job.status === 'queued' || job.status === 'running'),
-        ).length >= MAX_ACTIVE_JOBS_PER_USER
-      ) {
+      if (jobs.filter(isInProgress).length >= MAX_ACTIVE_JOBS_PER_USER) {
         throw new ImageBackendError(
           429,
           'You already have two image jobs in progress. Wait for one to finish before starting another.',
@@ -199,12 +188,7 @@ async function rememberUserJob(userId: string, jobId: string): Promise<void> {
       }
       // Keep live jobs in the bounded index even if another slot completes many
       // short requests while an older provider call is still running.
-      const activeIds = ids.filter(
-        (_, index) =>
-          jobs[index] &&
-          (jobs[index]?.status === 'queued' ||
-            jobs[index]?.status === 'running'),
-      );
+      const activeIds = ids.filter((_, index) => isInProgress(jobs[index]));
       return [
         jobId,
         ...activeIds,
@@ -222,6 +206,12 @@ async function loadOwnedJob(
   return loadRecoverableImageJob<ImageJobState>(jobId, userId);
 }
 
+function isInProgress(job: ImageJobState | null): job is ImageJobState {
+  return job?.status === 'queued' || job?.status === 'running';
+}
+
+/** Queued/running jobs only: stopped, failed and completed jobs stay in the
+ * bounded index for recovery lookups but must not consume admission slots. */
 async function loadActiveJobs(userId: string): Promise<ImageJobState[]> {
   const ids = await jsonGet(userJobsKey(userId));
   if (!Array.isArray(ids)) return [];
@@ -231,10 +221,7 @@ async function loadActiveJobs(userId: string): Promise<ImageJobState[]> {
       .filter((id): id is string => typeof id === 'string')
       .map((id) => loadOwnedJob(id, userId)),
   );
-  return jobs.filter(
-    (job): job is ImageJobState =>
-      job !== null && job.status !== 'completed' && job.status !== 'error',
-  );
+  return jobs.filter(isInProgress);
 }
 
 async function appendPartialImageIds(

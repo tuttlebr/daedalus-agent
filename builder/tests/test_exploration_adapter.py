@@ -5,7 +5,6 @@ import base64
 import hashlib
 import hmac
 import json
-import shutil
 import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -158,6 +157,31 @@ def test_publication_requires_integrity_and_provenance(adapter, monkeypatch, mut
 
 
 @pytest.mark.parametrize(
+    "args",
+    [
+        {"operation": "capabilities"},
+        {"operation": "publish_file", "runId": "run", "path": "report.txt"},
+    ],
+)
+def test_rejected_requests_are_tool_errors(adapter, monkeypatch, args):
+    async def exercise():
+        detail = {"detail": "idempotencyKey reused with different arguments"}
+        transport(monkeypatch, lambda request: httpx.Response(409, json=detail))
+        tools = registry()
+        try:
+            tool = await tools.get_function("explore")
+            result = await tool.ainvoke(args)
+            assert result == (
+                "Error: Exploration service returned HTTP 409: " + json.dumps(detail)
+            )
+            adapter[1].assert_not_awaited()
+        finally:
+            await tools.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
     "endpoint",
     [
         "file:///tmp/explore",
@@ -179,7 +203,7 @@ def test_invalid_endpoint_rejected_at_registration(adapter, monkeypatch, endpoin
     asyncio.run(exercise())
 
 
-@pytest.mark.skipif(not shutil.which("helm"), reason="helm not installed")
+@pytest.mark.requires_helm
 @pytest.mark.parametrize(
     "setting, present",
     [

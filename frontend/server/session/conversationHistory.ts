@@ -20,23 +20,27 @@ return read(KEYS[1])
 `;
 
 const LIST_HISTORY = `${READ_JSON}
--- Read membership, records and legacy history in one snapshot. A history copy
--- never grants access to the shared record; membership AND owner must match.
+-- Read membership, records and legacy history in one snapshot. Records stay
+-- opaque here: decoding large conversations in Lua blocks every Redis client.
+-- The caller applies the owner check; a history copy never grants access.
 local history = read(KEYS[1])
 local records = {}
 for _, id in ipairs(redis.call('SMEMBERS', KEYS[2])) do
-  local key = ARGV[2] .. id
-  local raw = read(key)
+  local raw = read(ARGV[1] .. id)
   if raw ~= '' then
-    local owner = cjson.decode(raw)['ownerId']
-    if not owner or owner == ARGV[1] then
-      table.insert(records, {id, raw})
-      redis.call('PERSIST', key)
-    end
+    table.insert(records, {id, raw})
   end
 end
 redis.call('PERSIST', KEYS[1])
 return {history, records}
+`;
+
+// Migrate surviving owned records away from the old seven-day expiry.
+const PERSIST_RECORDS = `
+for _, key in ipairs(KEYS) do
+  redis.call('PERSIST', key)
+end
+return 1
 `;
 
 const MERGE_HISTORY = `${READ_JSON}
@@ -67,20 +71,30 @@ function parseHistory(raw: string): Conversation[] {
 export async function listConversationHistoryForUser(
   username: string,
 ): Promise<Conversation[]> {
-  const [raw, records] = (await getRedis().eval(
+  const recordPrefix = `${sessionKey(['conversation'])}:`;
+  const client = getRedis();
+  const [raw, records] = (await client.eval(
     LIST_HISTORY,
     2,
     sessionKey(['user', username, 'conversationHistory']),
     sessionKey(['user', username, 'conversations']),
-    username,
-    `${sessionKey(['conversation'])}:`,
+    recordPrefix,
   )) as [string, [string, string][]];
-  const conversations = [
-    ...parseHistory(raw),
-    ...records.map(([id, value]) => ({ ...JSON.parse(value), id })),
-  ];
+  const history = parseHistory(raw);
+  // Membership AND owner must match: stale membership never exposes a record
+  // that another user now owns.
+  const owned = records
+    .map(([id, value]) => ({ ...JSON.parse(value), id } as Conversation))
+    .filter((record: any) => !record.ownerId || record.ownerId === username);
+  if (owned.length > 0) {
+    await client.eval(
+      PERSIST_RECORDS,
+      owned.length,
+      ...owned.map((record) => `${recordPrefix}${record.id}`),
+    );
+  }
   return sanitizeConversationsAssistantReplays(
-    dedupeConversationsById(conversations),
+    dedupeConversationsById([...history, ...owned]),
   );
 }
 

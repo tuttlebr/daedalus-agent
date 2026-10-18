@@ -462,6 +462,35 @@ def test_private_feed_is_unavailable_without_http_or_cache_population(monkeypatc
     asyncio.run(run())
 
 
+def test_feed_hostname_resolving_private_is_unavailable_without_http(monkeypatch):
+    """F-002d on the live feed path: DNS validation precedes any request."""
+    from nat_helpers.safe_http import get_public_response_async
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(socket.AF_INET, None, None, "", ("10.0.0.6", 0))],
+    )
+
+    async def run():
+        harness = FeedHarness()
+        async with harness.registered(
+            monkeypatch, feeds={"rebound": "https://feeds.rebind.example/rss"}
+        ) as info:
+            monkeypatch.setattr(
+                rss, "get_public_response_async", get_public_response_async
+            )
+            result = json.loads(await info.fn(query="GPU", mode="discover"))["results"][
+                0
+            ]
+            assert result["status"] == "unavailable"
+            assert result["feeds"][0]["status"] == "unavailable"
+            assert not harness.network_gets
+            harness.article.assert_not_awaited()
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("scheme", ["http", "https"])
 def test_url_shaped_feed_content_cannot_trigger_parser_fetch(monkeypatch, scheme):
     async def run():

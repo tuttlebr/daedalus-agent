@@ -20,7 +20,6 @@ import { dedupeConversationsById } from '@/utils/app/conversationList';
 import { Logger } from '@/utils/logger';
 
 import { Conversation, Message } from '@/types/chat';
-import { IntermediateStep } from '@/types/intermediateSteps';
 
 import { enableMapSet } from 'immer';
 import { create } from 'zustand';
@@ -41,18 +40,6 @@ export interface ConversationState {
   conversations: Conversation[];
   selectedConversationId: string | null;
   streamingConversationIds: Set<string>;
-
-  // Loading states
-  isLoading: boolean;
-  isSyncing: boolean;
-
-  // Error state
-  error: string | null;
-
-  // Computed (implemented as getters in the store)
-  // - selectedConversation
-  // - isSelectedConversationStreaming
-  // - conversationCount
 }
 
 export interface ConversationActions {
@@ -77,26 +64,9 @@ export interface ConversationActions {
     conversationId: string,
     updates: Partial<Message>,
   ) => void;
-  updateMessageIntermediateSteps: (
-    conversationId: string,
-    messageIndex: number,
-    steps: IntermediateStep[],
-  ) => void;
 
   // Streaming
   setStreaming: (conversationId: string, isStreaming: boolean) => void;
-  isStreaming: (conversationId: string) => boolean;
-
-  // Loading
-  setLoading: (isLoading: boolean) => void;
-  setSyncing: (isSyncing: boolean) => void;
-
-  // Error
-  setError: (error: string | null) => void;
-
-  // Bulk operations
-  replaceConversation: (id: string, conversation: Conversation) => void;
-  upsertConversation: (conversation: Conversation) => void;
 
   // Reset
   reset: () => void;
@@ -112,9 +82,6 @@ const initialState: ConversationState = {
   conversations: [],
   selectedConversationId: null,
   streamingConversationIds: new Set(),
-  isLoading: false,
-  isSyncing: false,
-  error: null,
 };
 
 // ============================================================================
@@ -123,7 +90,7 @@ const initialState: ConversationState = {
 
 export const useConversationStore = create<ConversationStore>()(
   subscribeWithSelector(
-    immer((set, get) => ({
+    immer((set) => ({
       // Initial state
       ...initialState,
 
@@ -143,18 +110,35 @@ export const useConversationStore = create<ConversationStore>()(
               preservedLocal.set(conv.id, conv);
             }
           }
+
+          const incomingById = new Map(
+            dedupedConversations.map((c: Conversation) => [c.id, c]),
+          );
+          const incomingIds = new Set(incomingById.keys());
+
           const selectedLocal = state.selectedConversationId
             ? state.conversations.find(
                 (conversation) =>
                   conversation.id === state.selectedConversationId,
               )
             : undefined;
-          if (selectedLocal)
+          const selectedIncoming = selectedLocal
+            ? incomingById.get(selectedLocal.id)
+            : undefined;
+          // Keep the selected copy only when the server lacks it or it is the
+          // newer/more complete record. Another device may have continued the
+          // chat while this tab missed live sync; sending from a stale copy
+          // would write that older history back over the newer record.
+          if (
+            selectedLocal &&
+            (!selectedIncoming ||
+              dedupeConversationsById([
+                selectedIncoming,
+                selectedLocal as Conversation,
+              ])[0] !== selectedIncoming)
+          ) {
             preservedLocal.set(selectedLocal.id, selectedLocal);
-
-          const incomingIds = new Set(
-            dedupedConversations.map((c: Conversation) => c.id),
-          );
+          }
 
           // Replace with incoming data, but keep local copies for streaming conversations
           state.conversations = dedupedConversations.map((c: Conversation) => {
@@ -300,17 +284,6 @@ export const useConversationStore = create<ConversationStore>()(
         });
       },
 
-      updateMessageIntermediateSteps: (conversationId, messageIndex, steps) => {
-        set((state) => {
-          const conv = state.conversations.find(
-            (c: Conversation) => c.id === conversationId,
-          );
-          if (conv && conv.messages[messageIndex]) {
-            conv.messages[messageIndex].intermediateSteps = steps;
-          }
-        });
-      },
-
       // ========================================================================
       // Streaming
       // ========================================================================
@@ -321,64 +294,6 @@ export const useConversationStore = create<ConversationStore>()(
             state.streamingConversationIds.add(conversationId);
           } else {
             state.streamingConversationIds.delete(conversationId);
-          }
-        });
-      },
-
-      isStreaming: (conversationId) => {
-        return get().streamingConversationIds.has(conversationId);
-      },
-
-      // ========================================================================
-      // Loading
-      // ========================================================================
-
-      setLoading: (isLoading) => {
-        set((state) => {
-          state.isLoading = isLoading;
-        });
-      },
-
-      setSyncing: (isSyncing) => {
-        set((state) => {
-          state.isSyncing = isSyncing;
-        });
-      },
-
-      // ========================================================================
-      // Error
-      // ========================================================================
-
-      setError: (error) => {
-        set((state) => {
-          state.error = error;
-        });
-      },
-
-      // ========================================================================
-      // Bulk Operations
-      // ========================================================================
-
-      replaceConversation: (id, conversation) => {
-        set((state) => {
-          const index = state.conversations.findIndex(
-            (c: Conversation) => c.id === id,
-          );
-          if (index !== -1) {
-            state.conversations[index] = conversation;
-          }
-        });
-      },
-
-      upsertConversation: (conversation) => {
-        set((state) => {
-          const index = state.conversations.findIndex(
-            (c: Conversation) => c.id === conversation.id,
-          );
-          if (index !== -1) {
-            state.conversations[index] = conversation;
-          } else {
-            state.conversations.unshift(conversation);
           }
         });
       },

@@ -360,34 +360,48 @@ def test_cancelling_script_kills_parent_and_descendant(tmp_path):
     import os
     from pathlib import Path
 
-    import pytest
     from agent_skills.agent_skills_function import _run_skill_script
 
     marker = tmp_path / "pids"
+    # Publish both PIDs atomically so the test never reads a partial marker.
     body = (
         "import os, subprocess, sys, time\n"
         "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
-        f"open({str(marker)!r}, 'w').write(str(os.getpid()) + ' ' + str(child.pid))\n"
+        f"open({str(marker) + '.tmp'!r}, 'w').write(str(os.getpid()) + ' ' + str(child.pid))\n"
+        f"os.replace({str(marker) + '.tmp'!r}, {str(marker)!r})\n"
         "time.sleep(30)\n"
     )
     parser = _skill_with_script(tmp_path, "parent.py", body)
 
     def live(pid):
-        path = Path(f"/proc/{pid}/stat")
-        return path.exists() and path.read_text().split()[2] != "Z"
+        # Linux exposes zombies in /proc; elsewhere (macOS) probe the PID. The
+        # former /proc-only check reported every process dead on macOS.
+        if Path("/proc/self/stat").exists():
+            path = Path(f"/proc/{pid}/stat")
+            return path.exists() and path.read_text().split()[2] != "Z"
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
 
     async def scenario():
         task = asyncio.create_task(
             _run_skill_script(parser, [".py"], 30, "runner-skill", "parent.py")
         )
         try:
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(5):
                 while not marker.exists():
                     await asyncio.sleep(0.01)
             pids = [int(value) for value in marker.read_text().split()]
+            assert len(pids) == 2 and all(live(pid) for pid in pids)
             task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
+            # Bound the wait: without the group kill, cleanup blocks until the
+            # 30-second scripts exit by themselves, which must not pass.
+            done, _ = await asyncio.wait({task}, timeout=5)
+            assert task in done and task.cancelled()
             async with asyncio.timeout(2):
                 while any(live(pid) for pid in pids):
                     await asyncio.sleep(0.01)
@@ -398,6 +412,9 @@ def test_cancelling_script_kills_parent_and_descendant(tmp_path):
                         os.kill(pid, 9)
                     except ProcessLookupError:
                         pass
+            if not task.done():
+                task.cancel()
+                await asyncio.wait({task}, timeout=5)
 
     run(scenario())
 
@@ -407,8 +424,10 @@ def test_unbounded_output_is_stopped_before_script_finishes(tmp_path, monkeypatc
 
     monkeypatch.setattr(mod, "_MAX_SCRIPT_OUTPUT_BYTES", 1024)
     completed = tmp_path / "completed"
+    # Finite output far beyond the limit: the completion marker is reachable,
+    # so it is written only if the process group survives the limit.
     body = (
-        "import sys, time\nwhile True:\n sys.stdout.write('x'*65536)\n sys.stdout.flush()\n"
+        "import sys\nfor _ in range(64):\n sys.stdout.write('x'*65536)\n sys.stdout.flush()\n"
         f"open({str(completed)!r}, 'w').write('done')\n"
     )
     parser = _skill_with_script(tmp_path, "noisy.py", body)

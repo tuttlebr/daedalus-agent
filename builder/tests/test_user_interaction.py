@@ -1,6 +1,7 @@
 """Tests for the user_interaction package -- structured user interaction framework."""
 
 import asyncio
+import hashlib
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -146,48 +147,31 @@ class TestUserInteractionRegistration:
         ]
 
 
-def test_mcp_argument_preview_redacts_nested_and_embedded_credentials():
-    from user_interaction.approval_tokens import (
-        canonicalize_mcp_arguments,
-        redacted_mcp_arguments,
+def test_pending_mcp_approval_stores_exact_canonical_intent_without_preview():
+    from user_interaction.approval_tokens import create_pending_mcp_approval
+
+    redis = FakeRedis()
+    pending = create_pending_mcp_approval(
+        redis,
+        user_id="brandon",
+        action="Update doc",
+        reason="Requested in chat",
+        target="document/doc-1",
+        server_name="docs_mcp_server",
+        tool_name="update_doc",
+        arguments_json='{"requests":[],"documentId":"doc-1","approval_token":"x"}',
     )
 
-    # Assemble the credential markers at runtime so the redaction regression
-    # test does not itself look like a committed live secret to Gitleaks.
-    authorization_key = "Authori" + "zation"
-    bearer_scheme = "Bear" + "er"
-    token_key = "API_" + "TOKEN"
-    nested_value = "nested-" + "secret"
-    command_value = "command-" + "secret"
-    environment_value = "environment-" + "secret"
-
-    canonical, _ = canonicalize_mcp_arguments(
-        json.dumps(
-            {
-                "name": "safe-resource",
-                "headers": {authorization_key: f"{bearer_scheme} {nested_value}"},
-                "command": (
-                    f"curl -H '{authorization_key}: {bearer_scheme} "
-                    f"{command_value}' https://x"
-                ),
-                "env": [f"{token_key}={environment_value}", "MODE=production"],
-                "url": "https://user:url-secret@example.test/path",
-                "content": "private document text",
-                "description": "x" * 300,
-            }
-        )
+    # The UI renders and redacts its preview from these exact stored arguments
+    # (frontend/server/chat/mcpApproval.ts); a forged credential is stripped.
+    assert pending["canonical_arguments"] == '{"documentId":"doc-1","requests":[]}'
+    assert (
+        pending["arguments_sha256"]
+        == hashlib.sha256(pending["canonical_arguments"].encode()).hexdigest()
     )
-
-    preview = redacted_mcp_arguments(canonical)
-    assert "safe-resource" in preview
-    assert nested_value not in preview
-    assert command_value not in preview
-    assert environment_value not in preview
-    assert "url-secret" not in preview
-    assert "private document text" not in preview
-    assert "[REDACTED CONTENT: 21 chars]" in preview
-    assert "[REDACTED TEXT: 300 chars]" in preview
-    assert preview.count("[REDACTED]") >= 4
+    stored = json.loads(next(iter(redis.store.values())))
+    assert stored == pending
+    assert "arguments_preview" not in stored
 
 
 def test_pending_mcp_approval_rejects_empty_action_or_reason():
@@ -255,6 +239,68 @@ def test_confirmation_is_scoped_and_never_mints_credentials(monkeypatch):
             redis.assert_not_called()
 
     run(check())
+
+
+def test_guarded_delete_credential_check_does_not_block_the_event_loop(monkeypatch):
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "synthetic-internal")
+    import threading
+    from contextlib import asynccontextmanager
+
+    import user_interaction.user_interaction_function as mod
+    from nat_helpers.identity import authenticated_request_headers_scope
+    from user_interaction.approval_tokens import ApprovalRequest, issue_approval_token
+
+    other_work_ran = threading.Event()
+
+    class SlowRedis(FakeRedis):
+        loop_was_free = None
+
+        def getdel(self, key):
+            # Synchronous Redis I/O on the event loop would stall every other
+            # tool call and stream in the service until Redis answers.
+            self.loop_was_free = other_work_ran.wait(timeout=1)
+            return super().getdel(key)
+
+    async def check():
+        redis = SlowRedis()
+        redis.close = MagicMock()
+        token = issue_approval_token(
+            redis,
+            ApprovalRequest(
+                user_id="owner", action_type="delete_memory", target="owner"
+            ),
+        )
+
+        async def other_work():
+            await asyncio.sleep(0.01)
+            other_work_ran.set()
+
+        with patch.object(mod, "make_redis_client", return_value=redis), patch(
+            "nat_helpers.hindsight_client.client_from_env", return_value=object()
+        ), patch(
+            "nat_helpers.hindsight_client.memory_mode", return_value="hindsight"
+        ), patch(
+            "nat_helpers.memory_lifecycle.clear_user_memory", new_callable=AsyncMock
+        ):
+            async with asynccontextmanager(mod.user_interaction_function)(
+                mod.UserInteractionConfig(), MagicMock()
+            ) as tool:
+                with authenticated_request_headers_scope(
+                    {
+                        "x-user-id": "owner",
+                        "x-daedalus-internal-token": "synthetic-internal",
+                    }
+                ):
+                    concurrent = asyncio.create_task(other_work())
+                    result = await tool.ainvoke(
+                        {"operation": "delete_memory_guarded", "approval_token": token}
+                    )
+                    await concurrent
+        return redis, result
+
+    redis, result = run(check())
+    assert result == "Durable memory cleared."
+    assert redis.loop_was_free is True
 
 
 def test_guarded_delete_requires_identity_owner_and_single_use_token(monkeypatch):

@@ -339,22 +339,35 @@ impl Agent {
                 && initial_menu.is_some();
             let withhold_text =
                 response_policy.final_only() || requirement.pending() || review_tool_omission;
+            let available = |tool: &&ToolDefinition| {
+                !briefing_text_fallback
+                    && (!final_synthesis || prepared.final_tools.contains(&tool.name))
+                    && requirement.allows(&tool.name)
+                    && validation_recovery.allows(&tool.name)
+            };
+            let in_menu = |tool: &&ToolDefinition| {
+                iterations != 1
+                    || self.revision != 0
+                    || requirement.pending()
+                    || initial_menu
+                        .as_ref()
+                        .is_none_or(|names| names.contains(&tool.name))
+            };
             let tools: Vec<_> = prepared
                 .tools
                 .iter()
-                .filter(|_| !briefing_text_fallback)
-                .filter(|tool| !final_synthesis || prepared.final_tools.contains(&tool.name))
-                .filter(|tool| requirement.allows(&tool.name))
-                .filter(|tool| validation_recovery.allows(&tool.name))
-                .filter(|tool| {
-                    iterations != 1
-                        || self.revision != 0
-                        || requirement.pending()
-                        || initial_menu
-                            .as_ref()
-                            .is_none_or(|names| names.contains(&tool.name))
-                })
+                .filter(available)
+                .filter(in_menu)
                 .cloned()
+                .collect();
+            // These return with the full catalogue next round. Rejecting a
+            // proposal for one must not spend that tool's argument correction.
+            let menu_hidden: std::collections::HashSet<_> = prepared
+                .tools
+                .iter()
+                .filter(available)
+                .filter(|tool| !in_menu(tool))
+                .map(|tool| tool.name.clone())
                 .collect();
             if requirement.pending() && tools.is_empty() {
                 bail!("Required tool did not complete successfully");
@@ -412,7 +425,12 @@ impl Agent {
             let model_started = Instant::now();
             let request_timeout = if briefing_text_fallback {
                 briefing_fallback_started = true;
-                prepared.model.request_timeout.min(75.0)
+                // Configured and validated alongside the research budget.
+                let synthesis = preparation.as_ref().map_or(75.0, |p| {
+                    p.config
+                        .limit("daily_summary_synthesis_retry_timeout_seconds", 75.0)
+                });
+                prepared.model.request_timeout.min(synthesis)
             } else {
                 prepared.model.request_timeout
             };
@@ -651,7 +669,17 @@ impl Agent {
             }
             let batch_revision = self.revision;
             let problems = catalog.check_batch(&calls, &tools)?;
-            let recovery_exhausted = validation_recovery.exhausted(&calls, &problems);
+            let (counted_calls, counted_problems): (Vec<_>, Vec<_>) = calls
+                .iter()
+                .zip(&problems)
+                .filter(|(call, _)| !menu_hidden.contains(call.function.name.as_str()))
+                .map(|(call, problem)| (call.clone(), problem.clone()))
+                .unzip();
+            let recovery_exhausted =
+                validation_recovery.exhausted(&counted_calls, &counted_problems);
+            // Every tool result must directly answer the assistant's calls.
+            // Correction guidance follows the whole batch, never between results.
+            let mut batch_notice = None;
             if problems.iter().any(|problem| !problem.is_empty()) {
                 invalid_batches += 1;
                 let diagnostics: Vec<_> = calls.iter().zip(&problems)
@@ -697,9 +725,13 @@ impl Agent {
                             reason = "renderer_arguments"
                         );
                     }
-                    history.push(Message::user("Tools with repeated invalid arguments have been disabled for this run. Continue with successful results and other available tools. Report the affected gap without claiming those calls succeeded. Do not repeat disabled calls."));
+                    batch_notice = Some(
+                        "Tools with repeated invalid arguments have been disabled for this run. Continue with successful results and other available tools. Report the affected gap without claiming those calls succeeded. Do not repeat disabled calls.",
+                    );
                 } else {
-                    history.push(Message::user("Invalid calls did not run; valid calls in the same batch will execute. Correct invalid arguments once using the advertised schemas and fresh call IDs. Resolve identifiers from earlier results, supplied context or available memory; do not guess missing values. Read results before dependent calls."));
+                    batch_notice = Some(
+                        "Invalid calls did not run; valid calls in the same batch will execute. Correct invalid arguments once using the advertised schemas and fresh call IDs. Resolve identifiers from earlier results, supplied context or available memory; do not guess missing values. Read results before dependent calls.",
+                    );
                 }
             }
             let mut queued = VecDeque::from(calls);
@@ -912,6 +944,9 @@ impl Agent {
                 {
                     bail!("Repeated identical tool failure");
                 }
+            }
+            if let Some(notice) = batch_notice {
+                history.push(Message::user(notice));
             }
             if let Some((content, reason)) = terminal {
                 self.drain().await?;
@@ -1298,5 +1333,305 @@ impl Agent {
             }
         }
         bail!("Tool stream ended without a result")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! A scripted Responses peer drives the real loop, preparation and native
+    //! clock. Assertions inspect what the next model request actually carried.
+    use super::*;
+    use axum::{Json, Router, extract::State, response::IntoResponse, routing::post};
+    use std::sync::{Arc, Mutex as StdMutex};
+
+    #[derive(Default)]
+    struct Model {
+        scripts: StdMutex<VecDeque<Option<Vec<Value>>>>,
+        requests: StdMutex<Vec<Value>>,
+    }
+
+    async fn respond(
+        State(model): State<Arc<Model>>,
+        Json(body): Json<Value>,
+    ) -> axum::response::Response {
+        model.requests.lock().unwrap().push(body);
+        let script = model.scripts.lock().unwrap().pop_front();
+        // `None` holds the response open until the client gives up.
+        let Some(Some(events)) = script else {
+            return std::future::pending().await;
+        };
+        let body: String = events
+            .iter()
+            .map(|event| format!("data: {event}\n\n"))
+            .collect();
+        ([(http::header::CONTENT_TYPE, "text/event-stream")], body).into_response()
+    }
+
+    async fn catalogue() -> Json<Value> {
+        Json(
+            json!({"briefing_renderer_tool":[{"name":"briefing_renderer_tool",
+            "description":"Render the briefing edition.",
+            "parameters":{"type":"object","required":["edition"],"additionalProperties":false,
+                "properties":{"edition":{"type":"object"}}}}]}),
+        )
+    }
+
+    fn call(id: &str, name: &str, arguments: &str) -> Value {
+        json!({"type":"function_call","id":format!("fc_{id}"),"call_id":id,"name":name,
+            "arguments":arguments,"status":"completed"})
+    }
+
+    fn text(content: &str) -> Value {
+        json!({"type":"message","id":"msg_fixture","status":"completed","role":"assistant",
+            "content":[{"type":"output_text","text":content,"annotations":[]}]})
+    }
+
+    /// One complete Responses stream: every item is announced, streamed and
+    /// finished before the response completes.
+    fn completed(items: Vec<Value>) -> Option<Vec<Value>> {
+        let mut events = vec![
+            json!({"type":"response.created","response":{"id":"resp_fixture",
+            "object":"response","created_at":1,"status":"in_progress","model":"fixture","output":[]}}),
+        ];
+        for (index, item) in items.iter().enumerate() {
+            let mut added = item.clone();
+            added["status"] = json!("in_progress");
+            let delta = if item["type"] == "message" {
+                added["content"] = json!([]);
+                json!({"type":"response.output_text.delta","output_index":index,"content_index":0,
+                    "item_id":item["id"],"delta":item["content"][0]["text"]})
+            } else {
+                added["arguments"] = json!("");
+                json!({"type":"response.function_call_arguments.delta","output_index":index,
+                    "item_id":item["id"],"delta":item["arguments"]})
+            };
+            events.push(
+                json!({"type":"response.output_item.added","output_index":index,"item":added}),
+            );
+            events.push(delta);
+            events
+                .push(json!({"type":"response.output_item.done","output_index":index,"item":item}));
+        }
+        events.push(
+            json!({"type":"response.completed","response":{"id":"resp_fixture",
+            "object":"response","created_at":1,"status":"completed","error":null,
+            "incomplete_details":null,"instructions":null,"max_output_tokens":null,
+            "model":"fixture","output":items,"tools":[],"usage":{"input_tokens":1,
+            "output_tokens":1,"total_tokens":2,"input_tokens_details":{"cached_tokens":0},
+            "output_tokens_details":{"reasoning_tokens":0}}}}),
+        );
+        Some(events)
+    }
+
+    struct Outcome {
+        requests: Vec<Value>,
+        stream: String,
+        result: Result<()>,
+    }
+
+    async fn run(
+        functions: Value,
+        workflow: Value,
+        query: &str,
+        scripts: Vec<Option<Vec<Value>>>,
+    ) -> Outcome {
+        let model = Arc::new(Model::default());
+        model.scripts.lock().unwrap().extend(scripts);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new()
+            .route("/v1/responses", post(respond))
+            .route("/runtime/v1/catalog", post(catalogue))
+            .with_state(model.clone());
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let mut raw = json!({
+            "llms":{"main":{"base_url":format!("{base}/v1"),"api_key":"synthetic",
+                "model_name":"fixture","api_type":"responses","max_retries":0}},
+            "functions":functions,
+            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}
+        });
+        crate::config::merge(&mut raw["workflow"], workflow);
+        let config = crate::config::Config::new(
+            raw,
+            [
+                ("DAEDALUS_MEMORY_MODE".into(), "disabled".into()),
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+            ]
+            .into(),
+        )
+        .unwrap();
+        let http = reqwest::Client::new();
+        let preparation = crate::preparation::Preparation::new(config, http.clone()).unwrap();
+        let (commands, inbox) = mpsc::channel(8);
+        let (sender, mut receiver) = mpsc::channel::<bytes::Bytes>(128);
+        let collector = tokio::spawn(async move {
+            let mut stream = String::new();
+            while let Some(bytes) = receiver.recv().await {
+                stream.push_str(&String::from_utf8_lossy(&bytes));
+            }
+            stream
+        });
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", "synthetic-user".parse().unwrap());
+        let agent = Agent {
+            http,
+            tools_url: base,
+            headers,
+            events: Events {
+                run_id: "synthetic-run".into(),
+                sender,
+            },
+            inbox,
+            handle: Arc::new(RunHandle {
+                telemetry: tokio::sync::Mutex::new(None),
+                user: "synthetic-user".into(),
+                conversation: "synthetic-conversation".into(),
+                autonomy: false,
+                sender: commands,
+                commands: tokio::sync::Mutex::new(HashMap::new()),
+                finished: std::sync::atomic::AtomicBool::new(false),
+                cancellation: tokio::sync::watch::channel(false).0,
+                metrics: crate::control::Metrics::default(),
+            }),
+            pending: Vec::new(),
+            revision: 0,
+            preparation: Some(preparation),
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(20),
+            agent.run(json!({"messages":[{"role":"user","content":query}],"stream":true})),
+        )
+        .await
+        .expect("agent run must finish within the test deadline");
+        let stream = collector.await.unwrap();
+        peer.abort();
+        let requests = model.requests.lock().unwrap().clone();
+        Outcome {
+            requests,
+            stream,
+            result,
+        }
+    }
+
+    fn clocks() -> Value {
+        json!({"clock":{"_type":"current_datetime"},"calendar_clock":{"_type":"current_datetime"}})
+    }
+
+    fn tool_names(request: &Value) -> Vec<&str> {
+        request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn mixed_batch_results_directly_follow_their_calls() {
+        let outcome = run(
+            clocks(),
+            json!({"tools":["clock"]}),
+            "What time is it?",
+            vec![
+                completed(vec![
+                    call("call_valid", "clock", "{}"),
+                    call("call_invalid", "clock", r#"{"extra":1}"#),
+                ]),
+                completed(vec![text("It is now.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert!(outcome.stream.contains("It is now."));
+        assert_eq!(outcome.requests.len(), 2);
+        let input = outcome.requests[1]["input"].as_array().unwrap();
+        let outputs: Vec<_> = input
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item["type"] == "function_call_output")
+            .collect();
+        assert_eq!(outputs.len(), 2);
+        let output = |id: &str| {
+            outputs
+                .iter()
+                .find(|(_, item)| item["call_id"] == id)
+                .unwrap()
+                .1
+                .to_string()
+        };
+        assert!(output("call_invalid").contains("invalid_tool_batch"));
+        assert!(!output("call_valid").contains("invalid_tool_batch"));
+        let notice = input
+            .iter()
+            .position(|item| item.to_string().contains("Invalid calls did not run"))
+            .expect("correction notice");
+        // Chat Completions requires every tool result to answer the preceding
+        // assistant calls before any other message.
+        assert!(
+            outputs.iter().all(|(index, _)| *index < notice),
+            "correction notice interleaved with tool results: {input:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn menu_hidden_proposal_keeps_its_argument_correction() {
+        let outcome = run(
+            clocks(),
+            json!({"tools":["clock","calendar_clock"]}),
+            "Use clock now",
+            vec![
+                // Only `clock` is advertised first; this proposal cannot run.
+                completed(vec![call("hidden", "calendar_clock", "{}")]),
+                // The full catalogue returns. One argument mistake is correctable.
+                completed(vec![call("invalid", "calendar_clock", r#"{"extra":1}"#)]),
+                completed(vec![call("corrected", "calendar_clock", "{}")]),
+                completed(vec![text("Corrected.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert_eq!(tool_names(&outcome.requests[0]), ["clock"]);
+        assert_eq!(
+            tool_names(&outcome.requests[1]),
+            ["clock", "calendar_clock"]
+        );
+        assert_eq!(
+            tool_names(&outcome.requests[2]),
+            ["clock", "calendar_clock"],
+            "a menu-hidden proposal must not consume the argument correction"
+        );
+        let input = outcome.requests[3]["input"].as_array().unwrap();
+        let corrected = input
+            .iter()
+            .find(|item| item["call_id"] == "corrected" && item["type"] == "function_call_output")
+            .unwrap();
+        assert!(!corrected.to_string().contains("invalid_tool_batch"));
+    }
+
+    #[tokio::test]
+    async fn briefing_fallback_uses_the_configured_synthesis_deadline() {
+        let started = Instant::now();
+        let outcome = run(
+            json!({"briefing_renderer_tool":{"_type":"briefing_renderer"}}),
+            json!({"tools":["briefing_renderer_tool"],
+                "daily_summary_synthesis_retry_timeout_seconds":1}),
+            "Prepare my daily briefing",
+            vec![
+                completed(vec![call("first", "briefing_renderer_tool", "{}")]),
+                completed(vec![call("second", "briefing_renderer_tool", "{}")]),
+                // The text-only synthesis attempt never answers.
+                None,
+            ],
+        )
+        .await;
+        let error = outcome.result.unwrap_err();
+        assert_eq!(error.root_cause().to_string(), "Model request timed out");
+        assert_eq!(outcome.requests.len(), 3);
+        assert_eq!(outcome.requests[2]["tool_choice"], "none");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "fallback ignored its configured deadline: {:?}",
+            started.elapsed()
+        );
     }
 }

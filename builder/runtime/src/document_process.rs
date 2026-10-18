@@ -436,11 +436,15 @@ pub async fn run<S: Services>(
             }
         };
         last = error.to_string();
-        // A transport failure can follow a committed write. Retrying the whole
-        // pipeline would defeat the writer's no-replay guarantee.
+        // A transport failure can follow a committed write, and any failure
+        // after confirmed rows certainly does. Retrying the whole pipeline
+        // would defeat the writer's no-replay guarantee and duplicate chunks.
         if error
             .downcast_ref::<crate::milvus_index_transport::TransportFailure>()
             .is_some()
+            || error
+                .downcast_ref::<crate::milvus_index::CommittedWrite>()
+                .is_some()
         {
             break;
         }

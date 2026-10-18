@@ -196,12 +196,15 @@ docker: ## validate all shipped image references, build and scan runtime images
 			$(TRIVY) image --severity CRITICAL,HIGH --exit-code 1 \
 				--skip-files "$(TRIVY_OCI_SAS_EXAMPLE_SKIP_FILES)" "$$image"; \
 		done; \
-		python3 scripts/test_compose_redis.py --image "$$image"
+		python3 scripts/test_compose_redis.py --image "$$(docker compose config --format json | jq -r .services.redis.image)"
 	TRIVY=$(TRIVY) python3 scripts/check_image_inventory.py --scan-upstream
 
 security: ## secret, production dependency, and filesystem vulnerability scans  (CI job: security)
 	gitleaks detect --source . --verbose --redact
-	git ls-files 'builder/*.py' 'builder/**/*.py' | rg -v '(^|/)tests/' | xargs -r uvx --from bandit==1.8.6 bandit -ll -c pyproject.toml
+	set -euo pipefail; \
+		files=$$(git ls-files 'builder/*.py' 'builder/**/*.py' | grep -Ev '(^|/)tests/'); \
+		test -n "$$files"; \
+		printf '%s\n' "$$files" | tr '\n' '\0' | xargs -0 uvx --from bandit==1.8.6 bandit -ll -c pyproject.toml
 	cd frontend && npm run audit:production
 	$(TRIVY) fs --scanners vuln --list-all-pkgs --format json frontend/package-lock.json >$(TRIVY_INVENTORY)
 	jq -e '[.Results[]? | select(.Target | endswith("package-lock.json"))] | length > 0' $(TRIVY_INVENTORY) >/dev/null || { echo "Trivy did not inventory frontend/package-lock.json" >&2; exit 1; }

@@ -11,6 +11,62 @@ def run(coro):
     return asyncio.run(coro)
 
 
+class _RecordingRouter:
+    """Record route registrations; conftest replaces FastAPI with a MagicMock."""
+
+    def __init__(self, prefix="", **_kwargs):
+        self.prefix = prefix
+        self.routes = set()
+
+    def _method(name):
+        def register(self, path, **_kwargs):
+            def decorate(handler):
+                self.routes.add((name, self.prefix + path))
+                return handler
+
+            return decorate
+
+        return register
+
+    get = _method("GET")
+    post = _method("POST")
+    patch = _method("PATCH")
+    delete = _method("DELETE")
+
+
+def test_rollback_routes_match_the_paths_rust_proxies(monkeypatch):
+    # With DAEDALUS_PREPARATION=python, builder/runtime/src/memory_api.rs
+    # forwards exactly these paths to this router. A renamed or dropped Python
+    # route would turn the supported rollback profile into 404s.
+    import importlib.util
+    import sys
+
+    import fastapi
+
+    monkeypatch.setattr(fastapi, "APIRouter", _RecordingRouter)
+    spec = importlib.util.spec_from_file_location(
+        "memory_api_route_contract", memory_api.__file__
+    )
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+
+    assert module.router.routes == {
+        ("POST", "/v1/memory/retain-turn"),
+        ("GET", "/v1/memory/operations/{operation_id}"),
+        ("POST", "/v1/memory/operations/{operation_id}/retry"),
+        ("GET", "/v1/memory-pages"),
+        ("GET", "/v1/memory-pages/{page_id}"),
+        ("GET", "/v1/memories"),
+        ("POST", "/v1/memories/clear"),
+        ("PATCH", "/v1/memories/{memory_id}"),
+        ("POST", "/v1/memories/{memory_id}/invalidate"),
+        ("GET", "/v1/memory-sources"),
+        ("GET", "/v1/memory-sources/{document_id}"),
+        ("DELETE", "/v1/memory-sources/{document_id}"),
+    }
+
+
 class _TestHTTPException(Exception):
     def __init__(self, status_code: int, detail: str):
         super().__init__(detail)
@@ -172,6 +228,36 @@ def test_clear_requires_exact_confirmation(configured):
             {"user_id": "alice", "node_id": "kp-1"},
         ),
     ]
+
+
+@pytest.mark.parametrize("failing", ["clear_memories", "delete_knowledge_node"])
+def test_partial_clear_is_never_acknowledged(configured, monkeypatch, failing):
+    # Matches builder/runtime/src/memory_api.rs: an incomplete lifecycle is a
+    # retryable 503, never "cleared", and the bank is not re-initialized.
+    initialized = []
+
+    async def fail(**_kwargs):
+        raise HindsightError("Hindsight request failed", status_code=500)
+
+    async def initialize(_client, user_id):
+        initialized.append(user_id)
+
+    monkeypatch.setattr(configured, failing, fail)
+    monkeypatch.setattr(memory_api, "ensure_bank_initialized", initialize)
+
+    with pytest.raises(_TestHTTPException) as raised:
+        run(
+            memory_api._clear_memories_for_user(
+                memory_api.ClearMemoryRequest(confirmation="DELETE ALL MY MEMORIES"),
+                "alice",
+            )
+        )
+
+    assert raised.value.status_code == 503
+    assert raised.value.detail == (
+        "memory deletion did not finish; cleanup must be retried"
+    )
+    assert initialized == []
 
 
 def test_edit_updates_hindsight_without_redis_ledger(configured):

@@ -476,13 +476,11 @@ impl Mcp {
             .unwrap_or("")
             .to_owned();
         let connection = self.connection(name, user, headers).await?;
-        let mut guard = connection.guard();
         let schemas = self.schemas(name, &connection)?;
         if tool_name == "connect" {
             if args.as_object().is_none_or(|a| !a.is_empty()) {
                 bail!(FailureClass::Value);
             }
-            guard.0 = None;
             return Ok(ToolOutcome {
                 content: "Connected. The discovered tools are now available.".into(),
                 tools: schemas
@@ -521,7 +519,6 @@ impl Mcp {
         let binding = match gate {
             Gate::Allowed(binding) => binding,
             Gate::Denied(reason, terminal) => {
-                guard.0 = None;
                 return Ok(ToolOutcome {
                     content: reason,
                     is_error: true,
@@ -536,14 +533,17 @@ impl Mcp {
                 .get("tool_call_timeout")
                 .unwrap_or(&json!(120)),
         )?;
+        let arguments = args
+            .as_object()
+            .ok_or_else(|| anyhow!("MCP arguments must be an object"))?
+            .clone();
+        // Only an abandoned remote request has an uncertain session state.
+        // Local validation and approval refusals keep the user's session.
+        let mut guard = connection.guard();
         let result = tokio::time::timeout(
             Duration::from_secs_f64(timeout),
             connection.session.peer().call_tool_once(
-                CallToolRequestParams::new(tool_name.to_owned()).with_arguments(
-                    args.as_object()
-                        .ok_or_else(|| anyhow!("MCP arguments must be an object"))?
-                        .clone(),
-                ),
+                CallToolRequestParams::new(tool_name.to_owned()).with_arguments(arguments),
             ),
         )
         .await;

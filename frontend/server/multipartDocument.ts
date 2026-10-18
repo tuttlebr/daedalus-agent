@@ -266,10 +266,16 @@ export async function parseMultipartDocument(
     );
   }
 
+  // The object store commits as soon as it has received the declared length.
+  // Hold back the most recent file bytes until the closing boundary and the
+  // exact request length have been verified, so an invalid or interrupted
+  // multipart request can never become a stored object, and the store cannot
+  // answer before this stream has been fully validated.
   async function* documentStream(): AsyncGenerator<Buffer> {
     let fileRemaining = size;
     let current = buffered;
     let finalBytes = Buffer.alloc(0);
+    let withheld: Buffer | null = null;
 
     while (true) {
       if (current.length > 0) {
@@ -279,7 +285,8 @@ export async function parseMultipartDocument(
         );
         if (fileBytes.length > 0) {
           fileRemaining -= fileBytes.length;
-          yield fileBytes;
+          if (withheld) yield withheld;
+          withheld = fileBytes;
         }
         if (current.length > fileBytes.length) {
           finalBytes = Buffer.concat([
@@ -318,6 +325,7 @@ export async function parseMultipartDocument(
         'Upload contained data after the final boundary',
       );
     }
+    if (withheld) yield withheld;
   }
 
   return { filename, mimeType, size, stream: documentStream() };

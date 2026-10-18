@@ -77,24 +77,29 @@ impl Engine {
 pub struct Pipeline {
     engine: Engine,
     collection: String,
-    job: String,
+    body: bytes::Bytes,
 }
 impl document_process::Engine for Engine {
     type Pipeline = Pipeline;
     async fn build(&self, input: Build) -> Result<Pipeline> {
+        // Decoded text retains UCS-4 code points (UTF-7 may yield isolated
+        // surrogates). Base64 is ASCII, so it stays a String: as code points it
+        // would occupy four bytes per character, over 1 GiB for a 200 MB file.
+        enum Content {
+            Points(Vec<u32>),
+            Ascii(String),
+        }
         let options = self.options.clone();
         let source = input.filename.clone();
         let (mut job, content) = tokio::task::spawn_blocking(move || {
             let kind = nv_ingest::document_type(&source)?;
             let content = if ["text", "html"].contains(&kind.as_str()) {
-                document_encoding::read_text(&input.bytes)
-                    .map_err(|_| anyhow!("Failed to extract content from buffer {source}"))?
+                Content::Points(
+                    document_encoding::read_text(&input.bytes)
+                        .map_err(|_| anyhow!("Failed to extract content from buffer {source}"))?,
+                )
             } else {
-                base64::engine::general_purpose::STANDARD
-                    .encode(input.bytes)
-                    .chars()
-                    .map(u32::from)
-                    .collect()
+                Content::Ascii(base64::engine::general_purpose::STANDARD.encode(input.bytes))
             };
             Ok::<_, anyhow::Error>((nv_ingest::job(&source, "", &options)?, content))
         })
@@ -112,17 +117,25 @@ impl document_process::Engine for Engine {
             .await?;
         }
         self.indexing_tasks(&mut job, &input.chunk_size, &input.chunk_overlap)?;
+        let body = nv_ingest::blocking(move || {
+            let job = match content {
+                Content::Points(points) => nv_ingest::payload(&job, &points),
+                Content::Ascii(text) => nv_ingest::payload(&job, text.bytes().map(u32::from)),
+            };
+            nv_ingest::submission(&job)
+        })
+        .await;
         Ok(Pipeline {
             engine: self.clone(),
             collection: input.collection_name,
-            job: nv_ingest::payload(&job, &content),
+            body,
         })
     }
 }
 impl document_process::Pipeline for Pipeline {
     async fn ingest(self, progress: Stages) -> Result<Ingested> {
         let engine = self.engine;
-        let mut ingested = engine.client.ingest_payload(&self.job).await;
+        let mut ingested = engine.client.ingest_submission(self.body).await;
         progress
             .emit(
                 "indexing",
@@ -133,6 +146,8 @@ impl document_process::Pipeline for Pipeline {
         if ingested.upload {
             let connection = Connection::from_config(&engine.config);
             let mut writer = connection.connect(&engine.config, true).await?;
+            // A failure after acknowledged rows is a CommittedWrite, which the
+            // document runner never replays.
             milvus_index::upload(
                 &mut writer,
                 &milvus_index::Options {
@@ -231,6 +246,151 @@ mod tests {
             collection_name: "private_collection".into(),
             chunk_size: json!(1024),
             chunk_overlap: json!(150),
+        }
+    }
+
+    /// Replays the frozen SDK responses, in order, to the native writer.
+    struct Script(std::collections::VecDeque<Value>);
+    impl milvus_index::Io for Script {
+        async fn exchange<I, O>(
+            &mut self,
+            method: &'static str,
+            _input: I,
+            _context: milvus_index::Context,
+        ) -> Result<O>
+        where
+            I: prost::Message + Default + Clone + Send + Sync + 'static,
+            O: prost::Message + Default + Send + Sync + 'static,
+        {
+            let call = self.0.pop_front().expect("Unexpected extra Milvus call");
+            assert_eq!(method, call["method"].as_str().unwrap());
+            let bytes = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                call["response_base64"].as_str().unwrap(),
+            )?;
+            Ok(O::decode(bytes.as_slice())?)
+        }
+        async fn sleep(&mut self, _duration: Duration) {}
+    }
+    #[derive(Clone)]
+    struct Runner {
+        config: Config,
+        case: Value,
+        attempts: Arc<Mutex<usize>>,
+    }
+    impl document_process::Services for Runner {
+        type Engine = Self;
+        fn config(&self) -> &Config {
+            &self.config
+        }
+        async fn fetch(
+            &self,
+            _key: &str,
+        ) -> std::result::Result<Option<Vec<u8>>, document_process::FetchError> {
+            Ok(Some(
+                json!({"userId":"alice","filename":"fixture.txt","data":"U3ludGhldGlj"})
+                    .to_string()
+                    .into_bytes(),
+            ))
+        }
+        async fn initialize(&self) -> Result<Self> {
+            Ok(self.clone())
+        }
+    }
+    impl document_process::Engine for Runner {
+        type Pipeline = Self;
+        async fn build(&self, _input: Build) -> Result<Self> {
+            Ok(self.clone())
+        }
+    }
+    impl document_process::Pipeline for Runner {
+        async fn ingest(self, _progress: Stages) -> Result<Ingested> {
+            *self.attempts.lock().unwrap() += 1;
+            let mut io = Script(
+                self.case["calls"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|c| c["method"] != "Connect")
+                    .cloned()
+                    .collect(),
+            );
+            milvus_index::dimension_probe(&mut io, "private_collection", 2, "vector").await?;
+            let mut results = self.case["records"].clone();
+            milvus_index::upload(
+                &mut io,
+                &milvus_index::Options {
+                    collection: "private_collection",
+                    dimension: 2,
+                    recreate: self.case["recreate"].as_bool().unwrap(),
+                    timestamp: "2026-10-13 12:00:00",
+                    model: "nvidia/llama-nemotron-embed-1b-v2",
+                    surrogates: &Default::default(),
+                },
+                &mut results,
+            )
+            .await?;
+            assert!(io.0.is_empty());
+            Ok(Ingested {
+                results,
+                failures: 0,
+                surrogates: Default::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn confirmed_rows_are_never_replayed_by_the_document_runner() {
+        let mut fixture: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/milvus-index.json")).unwrap();
+        crate::document_codecs::tests::expand(&mut fixture);
+        // Rows confirmed, then flush rejection or a stalled index: one attempt.
+        // Earlier rejections leave no document rows and keep the SDK retries.
+        for (mode, attempts) in [
+            ("stalled-index", 1),
+            ("reject-Flush", 1),
+            ("reject-Insert:private_collection", 3),
+            ("reject-Insert:meta", 3),
+            ("reject-CreateCollection", 3),
+            ("rate-limit-exhausted", 3),
+        ] {
+            let case = fixture["cases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|case| case["mode"] == mode)
+                .unwrap();
+            let runner = Runner {
+                config: Config {
+                    raw: json!({}),
+                    policy_raw: json!({}),
+                    env: Default::default(),
+                    python_tools: false,
+                },
+                case: case.clone(),
+                attempts: Arc::new(Mutex::new(0)),
+            };
+            let outcome = document_process::run(
+                &runner,
+                &crate::document_ownership::Collections::default(),
+                &document_process::Options {
+                    ingest_retry_delay: 0.,
+                    ..Default::default()
+                },
+                serde_json::from_value(json!({"documentRef":{"documentId":"document","sessionId":"session"},"username":"alice"})).unwrap(),
+                None,
+            )
+            .await;
+            assert_eq!(outcome.status, "failure", "{mode}");
+            assert_eq!(
+                outcome.error,
+                format!(
+                    "Error processing document with NvIngest: {}",
+                    case["expected"]["message"].as_str().unwrap()
+                ),
+                "{mode}"
+            );
+            assert_eq!(*runner.attempts.lock().unwrap(), attempts, "{mode}");
         }
     }
 

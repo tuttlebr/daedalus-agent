@@ -352,16 +352,27 @@ impl Memory {
             return Err(anyhow!("Authenticated user required"));
         }
         self.initialize(user).await?;
-        let (brief, pages) = tokio::join!(
+        let recall = || {
+            self.request(reqwest::Method::POST,user,"memories/recall",Some(json!({"query":query,"budget":"low","max_tokens":600,"types":["world","experience","observation"],"prefer_observations":true,"include":{"entities":null,"chunks":null,"source_facts":null},"trace":false})),&[])
+        };
+        // A past-lookup query always recalls raw facts, so that read need not
+        // wait for page search. Otherwise recall remains a fallback for no pages.
+        let lookup = matches("past_lookup_pattern", query);
+        let (brief, pages, early) = tokio::join!(
             self.session_brief(user, conversation, query),
-            self.pages(user, query)
+            self.pages(user, query),
+            async { if lookup { Some(recall().await) } else { None } }
         );
         let pages = pages.unwrap_or_default();
+        let recalled = match early {
+            Some(result) => Some(result),
+            None if pages.is_empty() => Some(recall().await),
+            None => None,
+        };
         let mut facts = Vec::new();
-        if (pages.is_empty() || matches("past_lookup_pattern", query))
-            && let Ok(response)=self.request(reqwest::Method::POST,user,"memories/recall",Some(json!({"query":query,"budget":"low","max_tokens":600,"types":["world","experience","observation"],"prefer_observations":true,"include":{"entities":null,"chunks":null,"source_facts":null},"trace":false})),&[]).await {
-                facts=response["results"].as_array().into_iter().flatten().filter(|v|v.is_object()).take(6).filter(|v|!v["text"].as_str().unwrap_or("").trim().is_empty()).map(|v|json!({"text":clip(v["text"].as_str().unwrap(),1000),"type":v["type"],"mentioned_at":v["mentioned_at"]})).collect();
-            }
+        if let Some(Ok(response)) = recalled {
+            facts=response["results"].as_array().into_iter().flatten().filter(|v|v.is_object()).take(6).filter(|v|!v["text"].as_str().unwrap_or("").trim().is_empty()).map(|v|json!({"text":clip(v["text"].as_str().unwrap(),1000),"type":v["type"],"mentioned_at":v["mentioned_at"]})).collect();
+        }
         if brief.is_empty() && pages.is_empty() && facts.is_empty() {
             return Ok(String::new());
         }
@@ -443,4 +454,106 @@ pub fn bounded_payload(brief: &str, pages: Vec<Value>, facts: Vec<Value>) -> Str
         payload = json!({"source":"automatic_hindsight","session_brief":null,"knowledge_pages":[],"precise_facts":[],"truncated":true});
     }
     payload.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{Json, Router, extract::State, http::Uri};
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
+
+    #[derive(Clone)]
+    struct Peer {
+        rendezvous: Option<Arc<Barrier>>,
+        pages: bool,
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+    async fn reply(State(peer): State<Peer>, uri: Uri) -> Json<Value> {
+        let path = uri.path().to_owned();
+        peer.calls.lock().await.push(path.clone());
+        let search = path.ends_with("/knowledge-base/search");
+        if (search || path.ends_with("/memories/recall"))
+            && let Some(barrier) = &peer.rendezvous
+        {
+            barrier.wait().await;
+        }
+        Json(if search {
+            json!({"results": if peer.pages {json!([{"id":"page-1"}])} else {json!([])}})
+        } else if path.ends_with("/knowledge-base/pages/page-1") {
+            json!({"name":"Synthetic page","body":"Synthetic page body"})
+        } else if path.ends_with("/memories/recall") {
+            json!({"results":[{"text":"Synthetic fact","type":"world"}]})
+        } else {
+            json!({})
+        })
+    }
+    async fn context(peer: Peer, query: &str) -> (Result<String>, Vec<String>) {
+        let calls = peer.calls.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new().fallback(reply).with_state(peer);
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let config = Config::new(
+            json!({"llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+            [
+                ("HINDSIGHT_API_URL".into(), base),
+                ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+            ]
+            .into(),
+        )
+        .unwrap();
+        let memory = Memory::new(&config, reqwest::Client::new()).unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            memory.context("synthetic-alice", "", query),
+        )
+        .await
+        .expect("a past-lookup recall must not wait for page search");
+        server.abort();
+        let calls = calls.lock().await.clone();
+        (result, calls)
+    }
+
+    #[tokio::test]
+    async fn past_lookup_recall_overlaps_page_search_without_changing_selection() {
+        // Page search and recall meet at one rendezvous; a recall issued only
+        // after page search completes cannot pass it.
+        let peer = Peer {
+            rendezvous: Some(Arc::new(Barrier::new(2))),
+            pages: true,
+            calls: Arc::default(),
+        };
+        let (result, calls) = context(peer, "What did I decide earlier?").await;
+        let result = result.unwrap();
+        assert!(result.contains("Synthetic page body"), "{result}");
+        assert!(result.contains("Synthetic fact"), "{result}");
+        let recalls = |calls: &[String]| {
+            calls
+                .iter()
+                .filter(|c| c.ends_with("/memories/recall"))
+                .count()
+        };
+        assert_eq!(recalls(&calls), 1, "{calls:?}");
+
+        // Ordinary queries recall only after finding no relevant page.
+        for (pages, expected) in [(true, 0), (false, 1)] {
+            let peer = Peer {
+                rendezvous: None,
+                pages,
+                calls: Arc::default(),
+            };
+            let (result, calls) = context(peer, "Review my project preferences").await;
+            let result = result.unwrap();
+            assert_eq!(result.contains("Synthetic fact"), expected == 1, "{result}");
+            assert_eq!(recalls(&calls), expected, "{calls:?}");
+            let search = calls
+                .iter()
+                .position(|c| c.ends_with("/knowledge-base/search"));
+            let recall = calls.iter().position(|c| c.ends_with("/memories/recall"));
+            assert!(recall.is_none() || search < recall, "{calls:?}");
+        }
+    }
 }

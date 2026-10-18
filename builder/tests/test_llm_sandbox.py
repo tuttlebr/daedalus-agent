@@ -216,6 +216,14 @@ def test_config_reads_and_excludes_llm_sandbox_api_key_from_worker_config(
 ):
     from llm_sandbox.llm_sandbox_function import LlmSandboxConfig
 
+    # Hermetic defaults: a developer's sandbox/frontend URLs or internal token
+    # must not decide whether the environment-derived defaults validate.
+    for name in (
+        "LLM_SANDBOX_BASE_URL",
+        "DAEDALUS_ARTIFACT_PUBLISH_URL",
+        "DAEDALUS_INTERNAL_API_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("LLM_SANDBOX_API_KEY", "env-key")
 
     config = LlmSandboxConfig()
@@ -655,6 +663,10 @@ def test_publish_file_does_not_claim_delivery_when_durable_storage_rejects_it():
     assert "publisher returned HTTP 503" in output
     assert "file was not published" in output
     assert mod.ARTIFACT_REF_MARKER not in output
+    # A rejected publication may already have been stored; it is never retried.
+    publish_url = sandbox_config().artifact_publish_url
+    assert [path for _, path, _ in FakeAsyncClient.calls].count(publish_url) == 1
+    assert len(FakeAsyncClient.responses) == 1
 
 
 def test_execute_discovers_before_shell_command_and_caches_capabilities():

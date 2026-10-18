@@ -26,6 +26,63 @@ describe('conversationStore history reconciliation', () => {
     expect(useConversationStore.getState().conversations).toContainEqual(draft);
   });
 
+  it('adopts a newer server copy of the selected conversation', () => {
+    const store = useConversationStore.getState();
+    store.addConversation({
+      id: 'conv-1',
+      name: 'Shared chat',
+      messages: [{ id: 'user-1', role: 'user', content: 'Hello' }],
+      folderId: null,
+      updatedAt: 1,
+    });
+    store.selectConversation('conv-1');
+
+    // Another device continued this chat while this tab missed live sync.
+    const server = {
+      id: 'conv-1',
+      name: 'Shared chat',
+      messages: [
+        { id: 'user-1', role: 'user' as const, content: 'Hello' },
+        { id: 'assistant-1', role: 'assistant' as const, content: 'Hi' },
+        { id: 'user-2', role: 'user' as const, content: 'From my phone' },
+      ],
+      folderId: null,
+      updatedAt: 5,
+    };
+    store.setConversations([server]);
+
+    const selected = useConversationStore
+      .getState()
+      .conversations.find((c) => c.id === 'conv-1');
+    expect(selected?.messages.map((message) => message.id)).toEqual([
+      'user-1',
+      'assistant-1',
+      'user-2',
+    ]);
+    expect(useConversationStore.getState().selectedConversationId).toBe(
+      'conv-1',
+    );
+  });
+
+  it('keeps newer unsaved local state for the selected conversation', () => {
+    const store = useConversationStore.getState();
+    const local = {
+      id: 'conv-1',
+      name: 'Renamed locally',
+      messages: [{ id: 'user-1', role: 'user' as const, content: 'Hello' }],
+      folderId: null,
+      updatedAt: 10,
+    };
+    store.addConversation(local);
+    store.selectConversation('conv-1');
+
+    store.setConversations([
+      { ...local, name: 'Older server name', updatedAt: 5 },
+    ]);
+
+    expect(useConversationStore.getState().conversations).toEqual([local]);
+  });
+
   it('upserts a conversation instead of adding the same id twice', () => {
     const store = useConversationStore.getState();
     store.addConversation({

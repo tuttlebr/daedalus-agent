@@ -556,6 +556,80 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     #[test]
+    fn detection_is_total_and_selects_decodable_encodings() {
+        // read_text decodes the whole input strictly with the selected label.
+        // Hostile bytes, marks and declarations must neither panic detection
+        // nor select an encoding that cannot decode the document.
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as usize
+        };
+        let alphabets: [&[u8]; 6] = [
+            b"abcdefghijklmnopqrstuvwxyz      .,\n",
+            b"\x1b\x1b$()B@JN.\x0e\x0fabc \n\x80\xa1",
+            b"+-ABCabc/+019 \n",
+            &[
+                0x81, 0x30, 0xfe, 0x39, 0xa1, 0xb0, b' ', b'a', 0xe3, 0x81, 0x82,
+            ],
+            b"\xe9\xe8\xe0 lorem ipsum caf\xe9 na\xefve \xc3\xa9t\xc3\xa9",
+            &[0, 0, 0xfe, 0xff, 0xff, 0xfe, b'a', 0, 0xd8, 0xdc],
+        ];
+        let prefixes: [&[u8]; 8] = [
+            b"",
+            b"\xef\xbb\xbf",
+            b"\xff\xfe",
+            b"\xfe\xff",
+            b"\xff\xfe\x00\x00",
+            b"+/v8",
+            b"\x84\x31\x95\x33",
+            b"<meta charset=\"",
+        ];
+        let declared = [
+            "utf-7",
+            "shift_jis",
+            "iso-2022-jp",
+            "big5",
+            "cp1252",
+            "base64",
+            "utf-16",
+            "unknown",
+        ];
+        let mut detected = 0;
+        for round in 0..400 {
+            let mut raw = prefixes[next() % prefixes.len()].to_vec();
+            if raw.ends_with(b"\"") {
+                raw.extend(declared[next() % declared.len()].as_bytes());
+                raw.extend(b"\">");
+            }
+            let alphabet = alphabets[next() % alphabets.len()];
+            let length = if round % 50 == 0 {
+                2600 + next() % 4000
+            } else {
+                next() % 300
+            };
+            for _ in 0..length {
+                raw.push(if next() % 10 == 0 {
+                    next() as u8
+                } else {
+                    alphabet[next() % alphabet.len()]
+                });
+            }
+            let label = std::panic::catch_unwind(|| detect(&raw))
+                .unwrap_or_else(|_| panic!("detection panicked on {raw:?}"));
+            if let Ok(Some(label)) = label {
+                detected += 1;
+                assert!(
+                    document_codecs::codepoints(&label, &raw, false).is_ok(),
+                    "{label} cannot decode {raw:?}"
+                );
+            }
+        }
+        assert!(detected > 50, "only {detected} inputs selected an encoding");
+    }
+    #[test]
     fn pinned_full_encoding_selection_and_sdk_text() {
         for source in [
             include_str!("../tests/fixtures/document-detection-full-0.json"),

@@ -47,11 +47,46 @@ def _raises_status(monkeypatch, *args):
     return exc_info.value.status_code
 
 
+class _RecordingRouter:
+    """Record route registrations; conftest replaces FastAPI with a MagicMock."""
+
+    def __init__(self, prefix="", **_kwargs):
+        self.prefix = prefix
+        self.routes = set()
+
+    def post(self, path, **_kwargs):
+        def decorate(handler):
+            self.routes.add(("POST", self.prefix + path))
+            return handler
+
+        return decorate
+
+
 class TestRouter:
     def test_router_exists(self):
-        # FastAPI is mocked in conftest, so we can't introspect routes here -
-        # just confirm the module imported and exposed a router object.
         assert router is not None
+
+    def test_rollback_routes_match_the_paths_rust_proxies(self, monkeypatch):
+        # With DAEDALUS_PREPARATION=python, Rust's document_ingest_api.rs and
+        # document_api.rs forward exactly these paths to this router.
+        import importlib.util
+
+        import fastapi
+
+        monkeypatch.setattr(fastapi, "APIRouter", _RecordingRouter)
+        spec = importlib.util.spec_from_file_location(
+            "document_ingest_route_contract", document_ingest_api.__file__
+        )
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, spec.name, module)
+        spec.loader.exec_module(module)
+
+        assert module.router.routes == {
+            ("POST", "/v1/documents/ingest"),
+            ("POST", "/v1/documents/ingest/stream"),
+            ("POST", "/v1/documents/extract"),
+            ("POST", "/v1/documents/markdown"),
+        }
 
 
 class TestInternalAuth:
@@ -164,6 +199,54 @@ class TestIngestRequest:
         assert exc_info.value.status_code == 403
         assert "Shared collection writes" in exc_info.value.detail
 
+    @pytest.mark.parametrize("body_username", ["mallory", " mallory "])
+    def test_body_username_cannot_select_another_identity(
+        self, monkeypatch, body_username
+    ):
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "1")
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+        req = IngestRequest(
+            documentRef=DocumentRef(documentId="doc-a", sessionId="sess-1"),
+            username=body_username,
+        )
+
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            _resolve_request(req, "alice")
+
+        assert exc_info.value.status_code == 403
+
+    def test_trusted_identity_selects_the_private_collection(self, monkeypatch):
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "1")
+        req = IngestRequest(
+            documentRefs=[DocumentRef(documentId="doc-a", sessionId="sess-1")]
+        )
+
+        username, refs, collection, scope, _provenance = _resolve_request(
+            req, " alice "
+        )
+
+        assert (username, collection, scope) == ("alice", "alice", "user")
+        assert refs == [{"documentId": "doc-a", "sessionId": "sess-1"}]
+
+    def test_rejects_batches_above_the_request_limit(self, monkeypatch):
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "1")
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+        monkeypatch.setattr(document_ingest_api, "MAX_DOCUMENTS_PER_REQUEST", 1)
+        req = IngestRequest(
+            documentRefs=[
+                DocumentRef(documentId="doc-a", sessionId="sess-1"),
+                DocumentRef(documentId="doc-b", sessionId="sess-1"),
+            ]
+        )
+
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            _resolve_request(req, "alice")
+
+        assert exc_info.value.status_code == 413
+
     def test_rejects_empty_document_id(self):
         with pytest.raises(ValidationError):
             DocumentRef(documentId="", sessionId="sess-1")
@@ -271,6 +354,33 @@ class TestMarkdownDownload:
         assert response["content"] == markdown_body.encode("utf-8")
         assert response["media_type"] == "text/markdown; charset=utf-8"
         assert "X-Document-Truncated" not in response["headers"]
+
+    def test_body_username_cannot_download_another_users_document(self, monkeypatch):
+        calls = []
+
+        class FakeProcessor:
+            async def extract_document(self, **kwargs):
+                calls.append(kwargs)
+                raise AssertionError("ownership mismatch reached the extractor")
+
+        monkeypatch.setattr(document_ingest_api, "_processor", FakeProcessor)
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            asyncio.run(
+                _create_markdown_download_response(
+                    MarkdownRequest(
+                        documentRef=DocumentRef(
+                            documentId="doc-a", sessionId="session-a"
+                        ),
+                        username="mallory",
+                    ),
+                    "alice",
+                )
+            )
+
+        assert exc_info.value.status_code == 403
+        assert calls == []
 
     def test_rejects_an_incomplete_markdown_result(self, monkeypatch):
         class FakeProcessor:

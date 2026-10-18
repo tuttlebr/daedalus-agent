@@ -245,7 +245,7 @@ def test_mark_goal_run_updates_only_the_selected_goal():
 
 def test_append_feed_items_returns_only_items_that_survive_max_cap():
     store = _store()
-    store.save_config("u", {**store.get_config("u"), "maxFeedItems": 2})
+    store.json_set(key("u", "config"), {**store.get_config("u"), "maxFeedItems": 2})
     items = [
         {
             "id": f"feed_{n}",
@@ -269,7 +269,9 @@ def test_append_feed_items_returns_only_items_that_survive_max_cap():
 
 def test_append_feed_items_respects_disabled_dedupe():
     store = _store()
-    store.save_config("u", {**store.get_config("u"), "feedDedupeEnabled": False})
+    store.json_set(
+        key("u", "config"), {**store.get_config("u"), "feedDedupeEnabled": False}
+    )
     item = {
         "id": "feed_1",
         "title": "Repeated",
@@ -687,3 +689,185 @@ def test_atomic_update_does_not_hide_non_watch_redis_errors():
 
     with pytest.raises(RuntimeError, match="redis connection failed"):
         store.atomic_update(key("u", "runs"), lambda current: (current, None))
+
+
+class _ScheduleRedis(_TxnRedis):
+    """Transactional fake with list pushes and config read/write fault hooks."""
+
+    def __init__(self):
+        super().__init__()
+        self.after_config_read = None
+        self.failed_config_writes = 0
+
+    def get(self, k):
+        value = super().get(k)
+        if k.endswith(":config") and callable(self.after_config_read):
+            hook, self.after_config_read = self.after_config_read, None
+            hook()
+        return value
+
+    def _fail_config_write(self):
+        if self.failed_config_writes:
+            self.failed_config_writes -= 1
+            raise ConnectionError("config write failed")
+
+    def set(self, k, v, **kwargs):
+        if k.endswith(":config"):
+            self._fail_config_write()
+        return super().set(k, v, **kwargs)
+
+    def pipeline(self):
+        return _SchedulePipeline(self)
+
+
+class _SchedulePipeline(_TxnPipeline):
+    def __init__(self, redis):
+        super().__init__(redis)
+        self.queued_pushes = []
+
+    def get(self, redis_key):
+        return self.redis.get(redis_key)
+
+    def lpush(self, redis_key, value):
+        if self.buffering:
+            self.queued_pushes.append((redis_key, value))
+        else:
+            self.redis.lpush(redis_key, value)
+
+    def execute(self):
+        if any(redis_key.endswith(":config") for redis_key, _ in self.queued):
+            self.redis._fail_config_write()
+        if self.redis.kv.get(self.watched_key) != self.watched_version:
+            raise _WatchError("watched key changed")
+        for redis_key, value in self.queued:
+            self.redis.kv[redis_key] = value
+        for redis_key, value in self.queued_pushes:
+            self.redis.lpush(redis_key, value)
+        self.reset()
+
+    def reset(self):
+        super().reset()
+        self.queued_pushes = []
+
+
+def _schedule_store(config=None):
+    store = RedisStore()
+    store.redis = _ScheduleRedis()
+    store._watch_error_type = _WatchError
+    if config is not None:
+        store.redis.kv[key("u", "config")] = json.dumps(config)
+    return store
+
+
+def _stored_config(store):
+    return json.loads(store.redis.kv[key("u", "config")])
+
+
+def test_scheduled_enqueue_preserves_a_concurrent_dashboard_config_change():
+    # The dashboard saves config with compare-and-set while the worker decides
+    # whether a scheduled run is due. The worker must merge only its marker.
+    store = _schedule_store({"enabled": True, "maxFeedItems": 200})
+
+    def dashboard_save():
+        store.redis.kv[key("u", "config")] = json.dumps(
+            {
+                "enabled": True,
+                "maxFeedItems": 7,
+                "sourcePolicy": {"disabledSources": ["perplexity_search"]},
+            }
+        )
+
+    store.redis.after_config_read = dashboard_save
+
+    request = store.maybe_enqueue_scheduled("u")
+
+    assert request is not None and request["trigger"] == "scheduled"
+    config = _stored_config(store)
+    assert config["maxFeedItems"] == 7
+    assert config["sourcePolicy"] == {"disabledSources": ["perplexity_search"]}
+    assert config["lastScheduledRunAt"] == request["createdAt"]
+    assert store.queue_length("u") == 1
+
+
+def test_scheduled_enqueue_retries_when_config_changes_inside_the_transaction():
+    store = _schedule_store({"enabled": True, "maxFeedItems": 200})
+    state = {"fired": False}
+
+    def dashboard_save_after_watch():
+        if state["fired"]:
+            return
+        state["fired"] = True
+        store.redis.kv[key("u", "config")] = json.dumps(
+            {"enabled": True, "maxFeedItems": 9}
+        )
+
+    store.redis.on_watch = dashboard_save_after_watch
+
+    assert store.maybe_enqueue_scheduled("u") is not None
+    assert _stored_config(store)["maxFeedItems"] == 9
+    assert store.queue_length("u") == 1
+
+
+def test_scheduled_slot_is_not_enqueued_twice_after_a_failed_config_write():
+    store = _schedule_store({"enabled": True})
+    store.redis.failed_config_writes = 1
+
+    with pytest.raises(ConnectionError):
+        store.maybe_enqueue_scheduled("u")
+    assert store.maybe_enqueue_scheduled("u") is not None
+    # A second call in the same interval is not due.
+    assert store.maybe_enqueue_scheduled("u") is None
+
+    assert store.queue_length("u") == 1
+    assert _stored_config(store)["lastScheduledRunAt"]
+
+
+def test_scheduled_enqueue_rechecks_a_dashboard_disable():
+    store = _schedule_store({"enabled": True})
+
+    def dashboard_disable():
+        store.redis.kv[key("u", "config")] = json.dumps({"enabled": False})
+
+    store.redis.after_config_read = dashboard_disable
+
+    assert store.maybe_enqueue_scheduled("u") is None
+    assert store.queue_length("u") == 0
+    assert _stored_config(store) == {"enabled": False}
+
+
+@pytest.mark.parametrize("interval", [0, 1, -5, "60", None, True])
+def test_scheduled_interval_uses_the_dashboard_floor(interval):
+    recent = now_ms() - 120_000  # two minutes ago
+    store = _schedule_store(
+        {"enabled": True, "intervalSeconds": interval, "lastScheduledRunAt": recent}
+    )
+
+    assert store.maybe_enqueue_scheduled("u") is None
+    assert store.queue_length("u") == 0
+    assert _stored_config(store)["lastScheduledRunAt"] == recent
+
+
+def test_environment_interval_default_is_clamped_to_the_dashboard_floor(monkeypatch):
+    monkeypatch.setenv("AUTONOMY_INTERVAL_SECONDS", "60")
+    store = _schedule_store()
+
+    assert store.get_config("u")["intervalSeconds"] == 300
+    assert _stored_config(store)["intervalSeconds"] == 300
+
+
+def test_default_config_never_overwrites_a_concurrent_dashboard_create(monkeypatch):
+    monkeypatch.delenv("AUTONOMY_INTERVAL_SECONDS", raising=False)
+    store = _schedule_store()
+
+    def dashboard_create():
+        store.redis.kv[key("u", "config")] = json.dumps(
+            {"enabled": False, "intervalSeconds": 7200}
+        )
+
+    store.redis.after_config_read = dashboard_create
+
+    config = store.get_config("u")
+
+    assert config["enabled"] is False
+    assert config["intervalSeconds"] == 7200
+    assert _stored_config(store) == {"enabled": False, "intervalSeconds": 7200}

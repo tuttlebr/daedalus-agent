@@ -416,14 +416,20 @@ fn retained_docs_contracts() {
         };
         assert_eq!(actual, case["expected"], "result {}", case["input"]);
     }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let settings = Settings::new(&json!({})).unwrap();
     for case in fixture["inputs"].as_array().unwrap() {
         let actual = match arguments(&case["input"]) {
-            Ok((product, query)) => {
+            Ok((_, query)) => {
                 assert!(
                     query.is_empty(),
                     "Valid fixtures must not contact public services"
                 );
-                json!({"ok":crate::memory_tools::json_text(&json!({"error":"query_required", "product":product}), false, true, true)})
+                // Blank queries return before any client or session exists.
+                json!({"ok":runtime.block_on(settings.call(&case["input"], 1024)).unwrap()})
             }
             Err(error) => json!({"error":error.class,"validation":error.validation}),
         };

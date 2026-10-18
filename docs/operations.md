@@ -85,6 +85,9 @@ Run commands from the repository root. First adapt your own configuration:
   Redis, retrieval, and document-storage credentials. The default deployment
   mirrors authoritative Milvus/MinIO Secrets from the `daedalus` namespace;
   adapt those sources or provision release-local Secrets for your installation.
+  A workflow that enables `sandbox_exploration_tool` also needs the separately
+  provisioned `exploration-grants` Secret; the backend refuses to start without
+  its key, while workflows without the tool start normally.
 
 Inspect the supported flags and validate chart rendering:
 

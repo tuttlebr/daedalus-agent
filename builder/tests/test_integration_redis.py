@@ -139,6 +139,83 @@ def test_autonomous_lease_fences_live_reclaim_and_recovers_after_expiry():
             worker_b.redis.close()
 
 
+@pytest.mark.parametrize("storage", ["string", "json"])
+def test_autonomous_schedule_merges_dashboard_writes_atomically(storage):
+    url = os.environ["REDIS_URL"]
+    admin = redis.from_url(url, decode_responses=True)
+    store = RedisStore(url)
+    user_id = f"schedule-itest-{uuid.uuid4().hex}"
+    config_key = autonomy_key(user_id, "config")
+
+    def dashboard_write(config):
+        # The dashboard keeps an existing record's storage type.
+        if storage == "json":
+            admin.execute_command("JSON.SET", config_key, "$", json.dumps(config))
+        else:
+            admin.set(config_key, json.dumps(config))
+
+    def stored():
+        if storage == "json":
+            return json.loads(admin.execute_command("JSON.GET", config_key))
+        return json.loads(admin.get(config_key))
+
+    try:
+        dashboard_write({"enabled": True, "maxFeedItems": 200})
+        # A dashboard save lands after the worker's first read...
+        original_get = store.json_get
+        state = {"read": False, "watched": False}
+
+        def get_then_dashboard_save(redis_key, fallback=None):
+            value = original_get(redis_key, fallback)
+            if redis_key == config_key and not state["read"]:
+                state["read"] = True
+                dashboard_write({"enabled": True, "maxFeedItems": 7})
+            return value
+
+        store.json_get = get_then_dashboard_save
+        # ...and another inside the worker's WATCH window, forcing a retry.
+        original_pipeline = store.redis.pipeline
+
+        def pipeline():
+            pipe = original_pipeline()
+            original_type = pipe.type
+
+            def type_then_dashboard_save(redis_key):
+                result = original_type(redis_key)
+                if redis_key == config_key and not state["watched"]:
+                    state["watched"] = True
+                    dashboard_write(
+                        {"enabled": True, "maxFeedItems": 9, "intervalSeconds": 7200}
+                    )
+                return result
+
+            pipe.type = type_then_dashboard_save
+            return pipe
+
+        store.redis.pipeline = pipeline
+
+        request = store.maybe_enqueue_scheduled(user_id)
+
+        assert request is not None
+        config = stored()
+        assert config["maxFeedItems"] == 9
+        assert config["intervalSeconds"] == 7200
+        assert config["lastScheduledRunAt"] == request["createdAt"]
+        assert state == {"read": True, "watched": True}
+        expected_type = "ReJSON-RL" if storage == "json" else "string"
+        assert admin.type(config_key) == expected_type
+        assert admin.lrange(autonomy_key(user_id, "queue"), 0, -1) == [
+            json.dumps(request)
+        ]
+        assert store.maybe_enqueue_scheduled(user_id) is None
+        assert admin.llen(autonomy_key(user_id, "queue")) == 1
+    finally:
+        for redis_key in admin.scan_iter(match=f"autonomy:{user_id}:*"):
+            admin.delete(redis_key)
+        store.redis.close()
+        admin.close()
+
+
 def test_autonomous_scoped_acl_reads_json_and_preserves_workspace():
     from autonomous_agent.prompt import load_workspace, workspace_key
 

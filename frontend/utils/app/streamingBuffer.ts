@@ -30,6 +30,42 @@ export function isStaleCumulativeSnapshot(
   return currentContent.startsWith(snapshot);
 }
 
+export interface OffsetDelta {
+  content: string;
+  responseStart: number;
+}
+
+/**
+ * Apply held-back deltas that a repaired response now reaches.
+ *
+ * One worker publishes a job's tokens in order, so a delta whose offset lies
+ * beyond the received text means earlier deltas were lost (for example during
+ * a reconnect). Such deltas are held until a cumulative snapshot fills the
+ * hole, then applied by offset. Deltas still beyond the end stay pending; ones
+ * already covered by the snapshot are dropped.
+ */
+export function drainOffsetDeltas<T extends OffsetDelta>(
+  text: string,
+  pending: T[],
+): { text: string; pending: T[] } {
+  let result = text;
+  const remaining: T[] = [];
+  for (const delta of [...pending].sort(
+    (left, right) => left.responseStart - right.responseStart,
+  )) {
+    if (delta.responseStart > result.length) {
+      remaining.push(delta);
+      continue;
+    }
+    result = applyStreamingContentDelta(
+      result,
+      delta.content,
+      delta.responseStart,
+    );
+  }
+  return { text: result, pending: remaining };
+}
+
 export function reduceStreamingUpdates(
   currentContent: string,
   updates: BufferedStreamingUpdate[],

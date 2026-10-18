@@ -212,6 +212,113 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     }
   });
 
+  it('renews a conversation-less job as the ACL-restricted stream worker', async () => {
+    // The Helm stream-worker user. An empty placeholder key in the renewal
+    // script made Redis reject every heartbeat for this user (NOPERM).
+    const { sessionKey } = await import('@/server/session/redis');
+    const { default: Redis } = await import('ioredis');
+    const username = `stream-worker-acl-${process.pid}`;
+    const password = `acl-${Date.now()}`;
+    const restrictedJobId = `${jobId}-acl`;
+    const userGuardKey = sessionKey(['user', 'acl-user', 'active-jobs']);
+    await client.call(
+      'ACL',
+      'SETUSER',
+      username,
+      'on',
+      `>${password}`,
+      ...'~async-* ~conversation:* ~conversation-job:* ~streaming:user:*:conversation:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~session-documents:* ~generated:* ~image:* ~image-job:*'.split(
+        ' ',
+      ),
+      '+@all',
+      '-@dangerous',
+      '+info',
+    );
+    const url = new URL(process.env.REDIS_URL as string);
+    url.username = username;
+    url.password = password;
+    const restricted = new Redis(url.toString(), { maxRetriesPerRequest: 1 });
+    try {
+      await queue.acquireStreamLease(restrictedJobId, 'owner', 30000, client);
+      await client.zadd(userGuardKey, Date.now() + 1000, restrictedJobId);
+      expect(
+        await queue.renewStreamLease(
+          restrictedJobId,
+          'owner',
+          30000,
+          restricted,
+          undefined,
+          userGuardKey,
+        ),
+      ).toBe(true);
+      expect(await client.ttl(userGuardKey)).toBeGreaterThan(1000);
+    } finally {
+      restricted.disconnect();
+      await client.call('ACL', 'DELUSER', username);
+      await client.del(userGuardKey, queue.streamLeaseKey(restrictedJobId));
+    }
+  });
+
+  it.each(['plain', 'json'])(
+    'keeps %s streaming state only while it still names the running job',
+    async (format) => {
+      const { sessionKey } = await import('@/server/session/redis');
+      const runningJobId = `${jobId}-streaming-${format}`;
+      const streamingKey = sessionKey([
+        'streaming',
+        'user',
+        'state-user',
+        'conversation',
+        `conversation-${format}`,
+      ]);
+      const write = async (sessionId: string) => {
+        const state = JSON.stringify({
+          conversationId: `conversation-${format}`,
+          sessionId,
+          startedAt: Date.now(),
+          userId: 'state-user',
+        });
+        await client.del(streamingKey);
+        if (format === 'json') {
+          await client.call('JSON.SET', streamingKey, '$', state);
+          await client.pexpire(streamingKey, 500);
+        } else {
+          await client.set(streamingKey, state, 'PX', 500);
+        }
+      };
+      try {
+        await queue.acquireStreamLease(runningJobId, 'owner', 30000, client);
+        await write(runningJobId);
+        expect(
+          await queue.renewStreamLease(
+            runningJobId,
+            'owner',
+            30000,
+            client,
+            undefined,
+            undefined,
+            streamingKey,
+          ),
+        ).toBe(true);
+        expect(await client.ttl(streamingKey)).toBeGreaterThanOrEqual(599);
+
+        await write('a-newer-job');
+        await queue.renewStreamLease(
+          runningJobId,
+          'owner',
+          30000,
+          client,
+          undefined,
+          undefined,
+          streamingKey,
+        );
+        expect(await client.pttl(streamingKey)).toBeLessThanOrEqual(500);
+      } finally {
+        await client.del(streamingKey, queue.streamLeaseKey(runningJobId));
+      }
+    },
+  );
+
   it('reaches an abandoned entry beyond a page of recently touched pending entries', async () => {
     const ids: string[] = [];
     try {

@@ -29,9 +29,12 @@ describe('Google Workspace connection state', () => {
         'utf8',
       ),
     );
-    for (const fixture of fixtures.cases.filter(
+    const vectors = fixtures.cases.filter(
       (item: any) => item.operation === 'oauth-key',
-    )) {
+    );
+    // An empty selection would make this cross-language contract vacuous.
+    expect(vectors.length).toBeGreaterThan(0);
+    for (const fixture of vectors) {
       expect(
         googleWorkspaceTokenKey(
           fixture.input.service as GoogleWorkspaceServiceId,
@@ -96,6 +99,35 @@ describe('Google Workspace connection state', () => {
       { id: 'calendar', authorizationSaved: false },
       { id: 'docs', authorizationSaved: true },
     ]);
+  });
+
+  it('bounds a reset request when the backend never answers', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError')),
+            );
+          }),
+      ),
+    );
+    try {
+      const reset = resetGoogleWorkspaceConnection('gmail', 'alice');
+      const outcome = reset.then(
+        () => 'resolved',
+        () => 'rejected',
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await Promise.race([outcome, Promise.resolve('pending')])).toBe(
+        'rejected',
+      );
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('resets through the trusted backend using the stable NAT identity', async () => {

@@ -572,4 +572,109 @@ describe('durable stream worker entry processing', () => {
     expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
     expect(mocks.finalizeError).not.toHaveBeenCalled();
   });
+
+  function blockUntilAbortOrRelease() {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let signal: AbortSignal | undefined;
+    mocks.startBackgroundStreamReader.mockImplementation(
+      async (jobId: string, ...args: any[]) => {
+        const control = args[3];
+        signal = control.signal;
+        await control.beforeBackendRequest();
+        await Promise.race([
+          released,
+          new Promise<void>((resolve) =>
+            control.signal.addEventListener('abort', () => resolve(), {
+              once: true,
+            }),
+          ),
+        ]);
+        if (control.signal.aborted) throw control.signal.reason;
+        const key = `daedalus:async-job-status:${jobId}`;
+        mocks.store.set(key, {
+          ...mocks.store.get(key),
+          status: 'completed',
+          finalizedAt: 2,
+        });
+      },
+    );
+    return { release, aborted: () => Boolean(signal?.aborted) };
+  }
+
+  it('keeps executing when a heartbeat fails transiently inside the lease window', async () => {
+    vi.useFakeTimers();
+    const reader = blockUntilAbortOrRelease();
+    mocks.renewStreamLease
+      .mockRejectedValueOnce(new Error('Command timed out'))
+      .mockResolvedValue(true);
+
+    const promise = processStreamQueueEntry(
+      entry,
+      { ...options, leaseTtlMs: 30_000, heartbeatMs: 10 },
+      undefined,
+      'owner-transient',
+    );
+    await vi.advanceTimersByTimeAsync(25);
+    // A failed renewal is not lease loss: Redis still holds this owner's
+    // lease until its TTL, so the started backend run must not be dropped.
+    expect(mocks.renewStreamLease.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // The heartbeat also keeps cross-device streaming state for long runs.
+    expect(mocks.renewStreamLease.mock.calls[0][6]).toBe(
+      'daedalus:streaming:user:testuser:conversation:conv-1',
+    );
+    expect(reader.aborted()).toBe(false);
+    reader.release();
+
+    await expect(promise).resolves.toBe('completed');
+    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+    expect(mocks.finalizeError).not.toHaveBeenCalled();
+  });
+
+  it('aborts only after the lease validity window passes without a renewal', async () => {
+    vi.useFakeTimers();
+    const reader = blockUntilAbortOrRelease();
+    mocks.renewStreamLease.mockRejectedValue(new Error('Connection is closed'));
+
+    const promise = processStreamQueueEntry(
+      entry,
+      { ...options, leaseTtlMs: 100, heartbeatMs: 10 },
+      undefined,
+      'owner-expiring',
+    );
+    await vi.advanceTimersByTimeAsync(60);
+    expect(reader.aborted()).toBe(false);
+    await vi.advanceTimersByTimeAsync(60);
+    expect(reader.aborted()).toBe(true);
+
+    await expect(promise).resolves.toBe('interrupted');
+    expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
+    expect(mocks.finalizeError).not.toHaveBeenCalled();
+  });
+
+  it('records a user stop when its ownership check fails transiently inside the lease window', async () => {
+    vi.useFakeTimers();
+    blockUntilAbortOrRelease();
+    mocks.renewStreamLease.mockRejectedValue(new Error('Command timed out'));
+
+    const promise = processStreamQueueEntry(
+      entry,
+      { ...options, cancellationPollMs: 10, heartbeatMs: 60_000 },
+      undefined,
+      'owner-stop-transient',
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    mocks.store.set('daedalus:async-job-abort:job-1', true);
+    await vi.advanceTimersByTimeAsync(20);
+
+    await expect(promise).resolves.toBe('recovered_as_error');
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.any(Object),
+      'Job canceled by user',
+    );
+    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+  });
 });

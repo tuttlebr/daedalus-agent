@@ -1,11 +1,12 @@
 """Tests for the SSRF egress guard (F-001)."""
 
+import asyncio
 import random
 import socket
 from types import SimpleNamespace
 
 import pytest
-from nat_helpers.safe_http import _PinnedPublicSyncBackend, get_public_response
+from nat_helpers.safe_http import _PinnedPublicAsyncBackend, get_public_response_async
 from nat_helpers.url_guard import (
     UnsafeURLError,
     resolve_public_addresses,
@@ -128,6 +129,8 @@ class TestValidatePublicURL:
 
 
 class TestPinnedPublicTransport:
+    """The async pinned backend is the only production connection path."""
+
     def test_dns_rebinding_between_validation_and_connect_fails_closed(
         self, monkeypatch
     ):
@@ -137,14 +140,16 @@ class TestPinnedPublicTransport:
             return [(socket.AF_INET, None, None, "", (next(answers), 0))]
 
         class _Backend:
-            def connect_tcp(self, *_args, **_kwargs):
+            async def connect_tcp(self, *_args, **_kwargs):
                 raise AssertionError("a private address must never reach connect_tcp")
 
         monkeypatch.setattr(socket, "getaddrinfo", _resolve)
 
         assert validate_public_url("https://rebind.example", check_dns=True)
         with pytest.raises(UnsafeURLError, match="non-public"):
-            _PinnedPublicSyncBackend(_Backend()).connect_tcp("rebind.example", 443)
+            asyncio.run(
+                _PinnedPublicAsyncBackend(_Backend()).connect_tcp("rebind.example", 443)
+            )
 
     def test_connection_uses_the_validated_ip_without_second_dns_lookup(
         self, monkeypatch
@@ -159,24 +164,30 @@ class TestPinnedPublicTransport:
             def __init__(self):
                 self.connected_host = None
 
-            def connect_tcp(self, host, *_args, **_kwargs):
+            async def connect_tcp(self, host, *_args, **_kwargs):
                 self.connected_host = host
                 return SimpleNamespace()
 
         monkeypatch.setattr(socket, "getaddrinfo", _resolve)
         backend = _Backend()
 
-        _PinnedPublicSyncBackend(backend).connect_tcp("public.example", 443)
+        asyncio.run(
+            _PinnedPublicAsyncBackend(backend).connect_tcp("public.example", 443)
+        )
 
         assert lookups == ["public.example"]
         assert backend.connected_host == "93.184.216.34"
+
+    def test_unix_socket_connections_are_rejected(self):
+        with pytest.raises(UnsafeURLError, match="Unix socket"):
+            asyncio.run(_PinnedPublicAsyncBackend().connect_unix_socket("/run/x.sock"))
 
     def test_redirect_target_is_validated_before_fetch(self, monkeypatch):
         class _Client:
             def __init__(self):
                 self.urls = []
 
-            def get(self, url):
+            async def get(self, url):
                 self.urls.append(url)
                 return SimpleNamespace(
                     is_redirect=True,
@@ -193,6 +204,34 @@ class TestPinnedPublicTransport:
         client = _Client()
 
         with pytest.raises(UnsafeURLError, match="non-public"):
-            get_public_response(client, "https://public.example/start")
+            asyncio.run(
+                get_public_response_async(client, "https://public.example/start")
+            )
+
+        assert client.urls == ["https://public.example/start"]
+
+    def test_redirect_hostname_rebinding_to_private_is_not_fetched(self, monkeypatch):
+        def _resolve(host, *_args, **_kwargs):
+            address = "10.0.0.9" if host == "rebind.example" else "93.184.216.34"
+            return [(socket.AF_INET, None, None, "", (address, 0))]
+
+        class _Client:
+            def __init__(self):
+                self.urls = []
+
+            async def get(self, url):
+                self.urls.append(url)
+                return SimpleNamespace(
+                    is_redirect=True,
+                    headers={"location": "https://rebind.example/private"},
+                )
+
+        monkeypatch.setattr(socket, "getaddrinfo", _resolve)
+        client = _Client()
+
+        with pytest.raises(UnsafeURLError, match="non-public"):
+            asyncio.run(
+                get_public_response_async(client, "https://public.example/start")
+            )
 
         assert client.urls == ["https://public.example/start"]

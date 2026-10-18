@@ -10,24 +10,24 @@ use tokio::sync::Semaphore;
 /// Keep the SDK's UCS-4 text until the inner, ASCII-escaped JSON is written.
 /// In particular, UTF-7 may decode to isolated surrogates. The outer HTTP JSON
 /// remains ordinary UTF-8 because it carries the inner JSON as a string.
-pub fn payload(job: &Value, content: &[u32]) -> String {
+fn quote<P: std::borrow::Borrow<u32>>(out: &mut String, content: impl Iterator<Item = P>) {
     use std::fmt::Write;
-    let mut quoted = String::from("\"");
-    for &point in content {
+    for point in content {
+        let point = *point.borrow();
         match point {
-            8 => quoted.push_str("\\b"),
-            9 => quoted.push_str("\\t"),
-            10 => quoted.push_str("\\n"),
-            12 => quoted.push_str("\\f"),
-            13 => quoted.push_str("\\r"),
-            34 => quoted.push_str("\\\""),
-            92 => quoted.push_str("\\\\"),
-            32..=126 => quoted.push(char::from_u32(point).unwrap()),
-            0..=0xffff => write!(quoted, "\\u{point:04x}").unwrap(),
+            8 => out.push_str("\\b"),
+            9 => out.push_str("\\t"),
+            10 => out.push_str("\\n"),
+            12 => out.push_str("\\f"),
+            13 => out.push_str("\\r"),
+            34 => out.push_str("\\\""),
+            92 => out.push_str("\\\\"),
+            32..=126 => out.push(char::from_u32(point).unwrap()),
+            0..=0xffff => write!(out, "\\u{point:04x}").unwrap(),
             _ => {
                 let n = point - 0x10000;
                 write!(
-                    quoted,
+                    out,
                     "\\u{:04x}\\u{:04x}",
                     0xd800 + (n >> 10),
                     0xdc00 + (n & 1023)
@@ -36,37 +36,71 @@ pub fn payload(job: &Value, content: &[u32]) -> String {
             }
         }
     }
-    quoted.push('"');
+}
+/// The document is written once into the output buffer: a 200 MB upload is
+/// about 267 MB of base64, so intermediate copies dominate memory and time.
+pub fn payload<P: std::borrow::Borrow<u32>>(
+    job: &Value,
+    content: impl IntoIterator<Item = P>,
+) -> String {
+    let content = content.into_iter();
+    let mut out = String::with_capacity(content.size_hint().0.saturating_add(4096));
+    let mut content = Some(content);
     let encode = |value: &Value| json_text(value, false, true, true);
-    let fields = job
-        .as_object()
-        .unwrap()
-        .iter()
-        .map(|(key, value)| {
-            let value = if key == "job_payload" {
-                let fields = value
-                    .as_object()
-                    .unwrap()
-                    .iter()
-                    .map(|(key, value)| {
-                        let value = if key == "content" {
-                            format!("[{quoted}]")
-                        } else {
-                            encode(value)
-                        };
-                        format!("{}: {value}", encode(&json!(key)))
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{{{fields}}}")
-            } else {
-                encode(value)
-            };
-            format!("{}: {value}", encode(&json!(key)))
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("{{{fields}}}")
+    out.push('{');
+    for (i, (key, value)) in job.as_object().unwrap().iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&encode(&json!(key)));
+        out.push_str(": ");
+        if key != "job_payload" {
+            out.push_str(&encode(value));
+            continue;
+        }
+        out.push('{');
+        for (j, (key, value)) in value.as_object().unwrap().iter().enumerate() {
+            if j > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&encode(&json!(key)));
+            out.push_str(": ");
+            if key != "content" {
+                out.push_str(&encode(value));
+                continue;
+            }
+            out.push_str("[\"");
+            // A JSON object has one content key, which receives the document.
+            if let Some(content) = content.take() {
+                quote(&mut out, content);
+            }
+            out.push_str("\"]");
+        }
+        out.push('}');
+    }
+    out.push('}');
+    out
+}
+
+/// Run document-sized CPU work on the blocking pool, so it cannot stall the
+/// async workers that serve other runs. A panic propagates as it did inline.
+pub(crate) async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    match tokio::task::spawn_blocking(work).await {
+        Ok(value) => value,
+        Err(error) => std::panic::resume_unwind(error.into_panic()),
+    }
+}
+
+/// The REST submission body, serialized once rather than on every transport
+/// retry. Byte-identical to `serde_json::to_vec(&json!({"payload": job}))`.
+pub fn submission(job: &str) -> bytes::Bytes {
+    #[derive(serde::Serialize)]
+    struct Submission<'a> {
+        payload: &'a str,
+    }
+    serde_json::to_vec(&Submission { payload: job })
+        .expect("a JSON string always serializes")
+        .into()
 }
 
 pub struct Options {
@@ -269,7 +303,8 @@ fn terminal(status: u16) -> bool {
     matches!(status, 400..=418 | 421..=426 | 428 | 429 | 431 | 451 | 500 | 501 | 503 | 505..=508 | 510 | 511)
 }
 
-fn results(envelope: &Value) -> Value {
+/// Takes the envelope so a large `data` array is moved rather than copied.
+fn results(mut envelope: Value) -> Value {
     let Some(map) = envelope.as_object() else {
         return json!([]);
     };
@@ -282,7 +317,7 @@ fn results(envelope: &Value) -> Value {
     if "failed".contains(status) || map.get("description").is_some_and(|v| !v.is_string()) {
         return json!([]);
     }
-    json!([envelope["data"]])
+    json!([envelope["data"].take()])
 }
 
 #[derive(Clone)]
@@ -333,7 +368,7 @@ impl Client {
             )),
         })
     }
-    async fn request(&self, suffix: &str, payload: Option<&Value>) -> Reply {
+    async fn request(&self, suffix: &str, payload: Option<&bytes::Bytes>) -> Reply {
         // The retained client shares one executor for submissions and fetches.
         // A task owns its slot through REST retries/backoff, and returns it on
         // a terminal response or a pending fetch before the next poll queues.
@@ -354,7 +389,7 @@ impl Client {
                 .request(method, format!("{}{suffix}", self.base))
                 .header("content-type", "application/json");
             if let Some(payload) = payload {
-                request = request.json(payload);
+                request = request.body(payload.clone());
             }
             if let Ok(response) = request.send().await {
                 let status = response.status();
@@ -375,12 +410,12 @@ impl Client {
             backoff = (backoff * 2).min(32);
         }
     }
-    async fn run(&self, job: &str, decode: crate::document_json::Decoder) -> Extraction {
+    async fn run(&self, body: bytes::Bytes, decode: crate::document_json::Decoder) -> Extraction {
         // The SDK default is v2 even when the application's use_v2_api is false.
-        let body = json!({"payload": job});
         let Reply::Success(id) = self.request("/v2/submit_job", Some(&body)).await else {
             return Extraction::default();
         };
+        drop(body);
         let id = String::from_utf8_lossy(&id).replace('"', "");
         if id.is_empty() {
             return Extraction::default();
@@ -390,12 +425,17 @@ impl Client {
                 Reply::Pending => tokio::task::yield_now().await,
                 Reply::Failed => return Extraction::default(),
                 Reply::Success(bytes) => {
-                    return decode(&bytes)
-                        .map(|(envelope, surrogates)| Extraction {
-                            results: results(&envelope),
-                            surrogates,
-                        })
-                        .unwrap_or_default();
+                    // Large envelopes carry every chunk's embedding. Decode and
+                    // select them off the async workers shared by other runs.
+                    return blocking(move || {
+                        decode(&bytes)
+                            .map(|(envelope, surrogates)| Extraction {
+                                results: results(envelope),
+                                surrogates,
+                            })
+                            .unwrap_or_default()
+                    })
+                    .await;
                 }
             }
         }
@@ -403,23 +443,32 @@ impl Client {
     pub async fn extract_payload(&self, job: &str, timeout: Duration) -> Result<Extraction> {
         // There is no orphan thread: cancellation drops the active HTTP request
         // and stops every future retry owned by this extraction.
-        tokio::time::timeout(timeout, self.run(job, crate::document_json::decode))
-            .await
-            .map_err(|_| {
-                anyhow!(
-                    "Error extracting document with NvIngest: timed out after {:.0} seconds.",
-                    timeout.as_secs_f64()
-                )
-            })
+        let job = job.to_owned();
+        tokio::time::timeout(timeout, async {
+            let body = blocking(move || submission(&job)).await;
+            self.run(body, crate::document_json::decode).await
+        })
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "Error extracting document with NvIngest: timed out after {:.0} seconds.",
+                timeout.as_secs_f64()
+            )
+        })
     }
+    #[cfg(test)]
     pub async fn ingest_payload(&self, job: &str) -> Ingestion {
+        self.ingest_submission(submission(job)).await
+    }
+    /// `body` is a prepared [`submission`].
+    pub async fn ingest_submission(&self, body: bytes::Bytes) -> Ingestion {
         // Each per-document pipeline submits one job. A successful job is
         // retained as one group, even when its data is empty or null. Omitted
         // jobs yield one (job_id, error) tuple, whose len() is the application's
         // failure count. Ingestor skips local upload when every job failed.
         // The collection-owning worker, rather than this HTTP call, owns the
         // deadline: a cancelled waiter must leave its started pipeline alive.
-        let extraction = self.run(job, crate::document_json::decode_indexed).await;
+        let extraction = self.run(body, crate::document_json::decode_indexed).await;
         let upload = extraction.results.as_array().is_some_and(|r| !r.is_empty());
         Ingestion {
             extraction,
@@ -484,8 +533,8 @@ mod tests {
             );
         }
         for case in data["results"].as_array().unwrap() {
-            assert_eq!(results(&case["input"]), case["expected"], "{case}");
-            let rendered = crate::document_text::markdown(&results(&case["input"]));
+            assert_eq!(results(case["input"].clone()), case["expected"], "{case}");
+            let rendered = crate::document_text::markdown(&results(case["input"].clone()));
             if let Some(expected) = case["markdown"].get("ok") {
                 assert_eq!(json!(rendered.unwrap()), *expected, "rendered {case}");
             } else {
@@ -542,6 +591,44 @@ mod tests {
                 assert!(actual.is_err(), "{case}");
             }
         }
+    }
+
+    #[test]
+    fn payload_is_the_ascii_python_json_and_retains_surrogates() {
+        let options = Options::default();
+        for (filename, text) in [
+            ("fixture.txt", ""),
+            ("fixture.txt", "Synthetic \"quoted\" back\\slash"),
+            (
+                "fixture.md",
+                "\u{0}\u{8}\t\n\u{b}\u{c}\r\u{1f} ~\u{7f}\u{80}\u{ff}",
+            ),
+            ("fixture.html", "雪🌲\u{ffff}\u{10000}\u{10ffff}"),
+            ("fixture.pdf", "U3ludGhldGlj+/=="),
+        ] {
+            let points: Vec<u32> = text.chars().map(u32::from).collect();
+            let expected = json_text(&job(filename, text, &options).unwrap(), false, true, true);
+            let empty = job(filename, "", &options).unwrap();
+            assert_eq!(payload(&empty, &points), expected, "{text:?}");
+            assert_eq!(
+                payload(&empty, text.chars().map(u32::from)),
+                expected,
+                "{text:?}"
+            );
+            assert_eq!(
+                submission(&expected).to_vec(),
+                serde_json::to_vec(&json!({"payload": expected})).unwrap()
+            );
+        }
+        // UTF-7 can decode to isolated surrogates; JSON keeps their escapes.
+        let actual = payload(
+            &job("fixture.txt", "", &options).unwrap(),
+            [0x41, 0xd800, 0xdfff, 0x1f332],
+        );
+        let escaped = ["d800", "dfff", "d83c", "df32"]
+            .map(|unit| format!("{}u{unit}", char::from(92)))
+            .concat();
+        assert!(actual.contains(&format!("\"content\": [\"A{escaped}\"]")));
     }
 
     #[tokio::test]

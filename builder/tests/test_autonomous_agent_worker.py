@@ -25,6 +25,19 @@ from autonomous_agent.worker import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_backend_environment(monkeypatch):
+    # make_backend reads deployment settings; a developer's REQUEST_TIMEOUT or
+    # backend URL must not decide these results.
+    for name in (
+        "REQUEST_TIMEOUT",
+        "BACKEND_BASE_URL",
+        "BACKEND_API_PATH",
+        "DAEDALUS_INTERNAL_API_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 class FakeStore:
     def __init__(self):
         self.text = {}
@@ -1276,3 +1289,105 @@ def test_run_with_lease_heartbeat_aborts_when_refresh_loses_ownership():
     assert run["status"] == "aborted"
     assert store.refresh_calls >= 2
     assert store.feed == []
+
+
+class _CancellableStore(FakeStore):
+    def __init__(self):
+        super().__init__()
+        import threading
+
+        self.refresh_calls = 0
+        self.cancel_checks = 0
+        self.cancel_flag = threading.Event()
+
+    def refresh_lease(self, _user_id, *, ttl_seconds):
+        self.refresh_calls += 1
+        return True
+
+    def owns_lease(self, _user_id):
+        return True
+
+    def cancel_requested(self, user_id, run_id):
+        self.cancel_checks += 1
+        return self.cancel_flag.is_set()
+
+
+class _BlockingBackend(FakeBackend):
+    """Hold the stream open until aborted, like BackendClient's abort poll."""
+
+    def __init__(self):
+        import threading
+
+        super().__init__("")
+        self.entered = threading.Event()
+
+    def call(self, messages, *, execution_id="", abort=None):
+        from autonomous_agent.backend_client import RunAbortedError
+
+        self.entered.set()
+        assert abort is not None
+        assert abort.wait(timeout=30), "abort never reached the open request"
+        raise RunAbortedError("backend request aborted")
+
+
+def test_dashboard_cancel_reaches_open_backend_request_promptly():
+    import threading
+    import time
+
+    store = _CancellableStore()
+    backend = _BlockingBackend()
+    result = {}
+    thread = threading.Thread(
+        target=lambda: result.update(
+            run=run_with_lease_heartbeat(
+                store=store,
+                backend=backend,
+                user_id="test-user",
+                request={"id": "request-cancel", "trigger": "manual"},
+                # Production lease: the refresh interval is 20 seconds.
+                lease_ttl=60,
+            )
+        ),
+        daemon=True,
+    )
+    thread.start()
+    assert backend.entered.wait(5)
+    cancelled_at = time.monotonic()
+    store.cancel_flag.set()
+    thread.join(5)
+
+    assert not thread.is_alive(), "cancellation waited for the lease heartbeat"
+    assert time.monotonic() - cancelled_at < 3
+    assert result["run"]["status"] == "cancelled"
+    assert store.events[-1]["type"] == "run_cancelled"
+
+
+def test_cancel_polling_does_not_refresh_the_lease_on_every_poll(monkeypatch):
+    import threading
+    import time
+
+    from autonomous_agent import worker
+
+    monkeypatch.setattr(worker, "CANCEL_POLL_SECONDS", 0.02)
+    store = _CancellableStore()
+    backend = _BlockingBackend()
+    thread = threading.Thread(
+        target=lambda: run_with_lease_heartbeat(
+            store=store,
+            backend=backend,
+            user_id="test-user",
+            request={"id": "request-poll", "trigger": "manual"},
+            lease_ttl=3,  # one-second lease refresh interval
+        ),
+        daemon=True,
+    )
+    thread.start()
+    assert backend.entered.wait(5)
+    time.sleep(1.5)
+    store.cancel_flag.set()
+    thread.join(5)
+
+    assert not thread.is_alive()
+    # The initial claim plus one interval refresh, despite dozens of polls.
+    assert 2 <= store.refresh_calls <= 3
+    assert store.cancel_checks >= 10

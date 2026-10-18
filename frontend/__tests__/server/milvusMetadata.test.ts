@@ -89,6 +89,27 @@ describe('Milvus metadata backend client', () => {
     );
   });
 
+  it('releases an unread error body instead of holding its connection', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull() {
+        // A slow diagnostic body that never finishes on its own.
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(body, { status: 502 })),
+    );
+
+    await expect(getMilvusMetadata('alice')).rejects.toThrow(
+      'metadata returned 502',
+    );
+    expect(cancelled).toBe(true);
+  });
+
   it('fails closed when the backend metadata endpoint is unavailable', async () => {
     vi.stubGlobal(
       'fetch',

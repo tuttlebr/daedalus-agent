@@ -1,8 +1,6 @@
 """Unit tests for rss_feed utility functions and data models."""
 
-import asyncio
 import socket
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,16 +9,13 @@ from rss_feed.rss_feed_function import (
     RssEntry,
     RssFeedFunctionConfig,
     RssSearchRequest,
-    RssSearchResponse,
     _build_reranker_passages,
     _can_use_tiktoken,
+    _convert_public_article,
     _count_tokens,
-    _feed_url_rejection_reason,
     _normalize_reranker_text,
     _reranker_error_message,
     _reranker_passage_token_limit,
-    _scrape_content,
-    _scrape_content_with_timeout,
     truncate_text,
 )
 
@@ -219,11 +214,11 @@ class TestRssSearchRequest:
 
 
 # ---------------------------------------------------------------------------
-# RssSearchResponse
+# RssFeedFunctionConfig defaults
 # ---------------------------------------------------------------------------
 
 
-class TestRssSearchResponse:
+class TestRssFeedConfigDefaults:
     def test_default_scraped_content_budget_is_8000_tokens(self):
         config = RssFeedFunctionConfig()
 
@@ -234,135 +229,15 @@ class TestRssSearchResponse:
 
         assert config.scrape_timeout == 20.0
 
-    def test_complete_scrape_is_bounded_by_one_timeout(self):
-        async def slow_to_thread(*_args, **_kwargs):
-            await asyncio.sleep(10)
-
-        async def run_timeout():
-            with patch.object(rss_mod.asyncio, "to_thread", slow_to_thread):
-                with pytest.raises(TimeoutError):
-                    await _scrape_content_with_timeout(
-                        "https://example.com/article",
-                        100,
-                        timeout=0.01,
-                    )
-
-        asyncio.run(run_timeout())
-
-    def test_success_response(self):
-        resp = RssSearchResponse(
-            success=True,
-            query="test",
-            feed_url="https://feed.example.com/rss",
-        )
-        assert resp.success is True
-        assert resp.entries_count == 0
-        assert resp.cached is False
-        assert resp.error is None
-        assert resp.top_result is None
-        assert resp.scraped_content is None
-        assert resp.content_truncated is False
-
-    def test_failure_response(self):
-        resp = RssSearchResponse(
-            success=False,
-            query="test",
-            feed_url="",
-            error="Service unavailable",
-        )
-        assert resp.success is False
-        assert resp.error == "Service unavailable"
-
-    def test_with_top_result(self):
-        resp = RssSearchResponse(
-            success=True,
-            query="q",
-            feed_url="https://feed.example.com",
-            top_result={"title": "Article", "link": "https://x.com"},
-            entries_count=5,
-        )
-        assert resp.top_result is not None
-        assert resp.top_result["title"] == "Article"
-        assert resp.entries_count == 5
-
-    def test_model_dump_returns_dict(self):
-        resp = RssSearchResponse(success=True, query="q", feed_url="url")
-        d = resp.model_dump()
-        assert isinstance(d, dict)
-        assert "success" in d
-        assert "query" in d
-        assert "feed_url" in d
-
-    def test_cached_flag(self):
-        resp = RssSearchResponse(success=True, query="q", feed_url="url", cached=True)
-        assert resp.cached is True
-
 
 # ---------------------------------------------------------------------------
-# _feed_url_rejection_reason (F-002d SSRF guard for feed-fetch path)
+# _convert_public_article (shared-session converter for fetched bytes)
 # ---------------------------------------------------------------------------
 
 
-class TestFeedUrlRejectionReason:
-    def test_public_https_feed_allowed(self, monkeypatch):
-        monkeypatch.setattr(
-            socket,
-            "getaddrinfo",
-            lambda *_args, **_kwargs: [
-                (socket.AF_INET, None, None, "", ("93.184.216.34", 0))
-            ],
-        )
-        assert _feed_url_rejection_reason("https://feeds.example.com/rss") is None
+class TestConvertPublicArticle:
+    """Article bytes were fetched by the pinned public transport beforehand."""
 
-    def test_public_http_feed_allowed(self, monkeypatch):
-        monkeypatch.setattr(
-            socket,
-            "getaddrinfo",
-            lambda *_args, **_kwargs: [
-                (socket.AF_INET, None, None, "", ("93.184.216.34", 0))
-            ],
-        )
-        assert _feed_url_rejection_reason("http://feeds.example.com/rss") is None
-
-    def test_hostname_resolving_private_is_rejected(self, monkeypatch):
-        monkeypatch.setattr(
-            socket,
-            "getaddrinfo",
-            lambda *_args, **_kwargs: [
-                (socket.AF_INET, None, None, "", ("169.254.169.254", 0))
-            ],
-        )
-
-        reason = _feed_url_rejection_reason("https://rebind.example/rss")
-
-        assert reason is not None
-        assert "non-public" in reason.lower()
-
-    def test_non_http_scheme_rejected(self):
-        reason = _feed_url_rejection_reason("file:///etc/passwd")
-        assert reason is not None
-        assert "scheme" in reason.lower()
-
-    def test_literal_internal_ip_rejected(self):
-        reason = _feed_url_rejection_reason("http://127.0.0.1/rss")
-        assert reason is not None
-        assert "non-public" in reason.lower()
-
-    def test_cloud_metadata_ip_rejected(self):
-        reason = _feed_url_rejection_reason("http://169.254.169.254/latest/meta-data/")
-        assert reason is not None
-        assert "non-public" in reason.lower()
-
-    def test_empty_url_rejected(self):
-        assert _feed_url_rejection_reason("") is not None
-
-
-# ---------------------------------------------------------------------------
-# _scrape_content
-# ---------------------------------------------------------------------------
-
-
-class TestScrapeContent:
     def _make_mock_md(self, title="Page Title", text_content="Content here"):
         mock_result = MagicMock()
         mock_result.title = title
@@ -371,112 +246,59 @@ class TestScrapeContent:
         mock_md_instance.convert.return_value = mock_result
         return mock_md_instance
 
-    def _scrape(self, url="https://example.com", token_limit=64000):
-        return _scrape_content(
-            url,
-            token_limit,
-            fetched_content=b"<html>article</html>",
-            content_type="text/html",
-        )
+    def _convert(self, url="https://example.com", content_type="text/html"):
+        return _convert_public_article(b"<html>article</html>", url, content_type)
 
-    def test_returns_content_and_flag(self):
+    def test_converts_a_removed_local_file_never_the_url(self):
         mock_md = self._make_mock_md()
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, was_truncated = self._scrape()
+            content = self._convert()
         converted_path = mock_md.convert.call_args.args[0]
         assert converted_path != "https://example.com"
+        assert converted_path.endswith(".html")
         assert not rss_mod.os.path.exists(converted_path)
-        assert isinstance(content, str)
-        assert isinstance(was_truncated, bool)
-
-    def test_hostname_resolving_private_is_rejected_before_markitdown(
-        self, monkeypatch
-    ):
-        monkeypatch.setattr(
-            socket,
-            "getaddrinfo",
-            lambda *_args, **_kwargs: [
-                (socket.AF_INET, None, None, "", ("10.0.0.6", 0))
-            ],
+        assert (
+            content == "# Page Title\n\n_Source: https://example.com_\n\nContent here"
         )
-        markitdown = MagicMock()
 
-        with patch.object(rss_mod, "MarkItDown", markitdown):
-            content, was_truncated = _scrape_content(
-                "https://rebind.example/article", 64000
-            )
+    def test_conversion_performs_no_dns_after_the_pinned_fetch(self, monkeypatch):
+        # A resolver failure after a successful fetch must not discard the
+        # article; the transport already validated the connected address.
+        lookups = []
 
-        assert content.startswith("Error: ")
-        assert "non-public" in content.lower()
-        assert was_truncated is False
-        markitdown.assert_not_called()
+        def unavailable_dns(host, *_args, **_kwargs):
+            lookups.append(host)
+            raise socket.gaierror("resolver unavailable")
 
-    def test_redirect_to_metadata_is_rejected_before_markitdown(self):
-        class _Client:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def get(self, _url):
-                return SimpleNamespace(
-                    is_redirect=True,
-                    headers={"location": "http://169.254.169.254/metadata"},
-                )
-
-        markitdown = MagicMock()
-        with patch.object(rss_mod.httpx, "Client", return_value=_Client()):
-            with patch.object(rss_mod, "MarkItDown", markitdown):
-                content, was_truncated = _scrape_content(
-                    "http://8.8.8.8/article", 64000
-                )
-
-        assert content.startswith("Error: ")
-        assert "non-public" in content.lower()
-        assert was_truncated is False
-        markitdown.assert_not_called()
-
-    def test_content_includes_title(self):
-        mock_md = self._make_mock_md(title="My Article Title")
+        monkeypatch.setattr(socket, "getaddrinfo", unavailable_dns)
+        mock_md = self._make_mock_md(text_content="Fetched article body.")
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = self._scrape()
-        assert "My Article Title" in content
+            content = self._convert("https://news.example/article")
+        assert "Fetched article body." in content
+        assert lookups == []
 
-    def test_content_includes_source_url(self):
+    def test_untrusted_suffixes_are_not_used_for_local_files(self):
         mock_md = self._make_mock_md()
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = self._scrape()
-        assert "https://example.com" in content
-
-    def test_content_includes_text_body(self):
-        mock_md = self._make_mock_md(text_content="This is the article body text.")
-        with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = self._scrape()
-        assert "This is the article body text." in content
+            self._convert("https://example.com/a.ph%2fp", content_type="")
+        assert mock_md.convert.call_args.args[0].endswith(".bin")
 
     def test_no_title_falls_back_to_url(self):
         mock_md = self._make_mock_md(title=None)
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = self._scrape("https://example.com/no-title")
-        assert "https://example.com/no-title" in content
-
-    def test_not_truncated_within_limit(self):
-        mock_md = self._make_mock_md(text_content="Short content")
-        with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            _, was_truncated = self._scrape()
-        assert not was_truncated
+            content = self._convert("https://example.com/no-title")
+        assert content.startswith("# https://example.com/no-title\n")
 
     def test_raises_on_exception(self):
         mock_md_instance = MagicMock()
-        mock_md_instance.convert.side_effect = RuntimeError("Connection refused")
+        mock_md_instance.convert.side_effect = RuntimeError("Converter failed")
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md_instance):
-            with pytest.raises(RuntimeError, match="Connection refused"):
-                self._scrape()
+            with pytest.raises(RuntimeError, match="Converter failed"):
+                self._convert()
 
-    def test_none_text_content_handled(self):
-        """text_content=None should not crash — treated as empty string."""
-        mock_md = self._make_mock_md(title="Title", text_content=None)
+    @pytest.mark.parametrize("text_content", [None, "", "  \n"])
+    def test_empty_conversion_is_an_error_not_an_article(self, text_content):
+        mock_md = self._make_mock_md(title="Title", text_content=text_content)
         with patch.object(rss_mod, "MarkItDown", return_value=mock_md):
-            content, _ = self._scrape()
-        assert "Title" in content
+            with pytest.raises(ValueError, match="no content"):
+                self._convert()

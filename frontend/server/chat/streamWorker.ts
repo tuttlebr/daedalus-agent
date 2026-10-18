@@ -178,12 +178,16 @@ export async function processStreamQueueEntry(
   controller: AbortController = new AbortController(),
   ownerToken: string = uuidv4(),
 ): Promise<StreamQueueProcessOutcome> {
+  // Redis starts each lease TTL no earlier than the request is sent, so this
+  // conservative deadline never outlives the lease actually held in Redis.
+  const acquireRequestedAt = Date.now();
   const acquired = await acquireStreamLease(
     entry.jobId,
     ownerToken,
     options.leaseTtlMs,
   );
   if (!acquired) return 'busy';
+  let leaseValidUntil = acquireRequestedAt + options.leaseTtlMs;
 
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let cancellationTimer: NodeJS.Timeout | null = null;
@@ -193,6 +197,43 @@ export async function processStreamQueueEntry(
   const abortForLostLease = () => {
     if (!controller.signal.aborted) {
       controller.abort(new StreamLeaseLostError(entry.jobId));
+    }
+  };
+
+  // A renewal that fails to reach Redis is not lease loss: no other worker can
+  // acquire the lease before its TTL ends, and the heartbeat runs at a fraction
+  // of that TTL so a later attempt can still renew it. Only an explicit
+  // ownership mismatch, or an elapsed validity window, proves ownership ended.
+  const renewOwnedLease = async (
+    ...guardKeys: [
+      conversationGuardKey?: string,
+      userGuardKey?: string,
+      streamingStateKey?: string,
+    ]
+  ): Promise<boolean> => {
+    const requestedAt = Date.now();
+    try {
+      const renewed = await renewStreamLease(
+        entry.jobId,
+        ownerToken,
+        options.leaseTtlMs,
+        undefined,
+        ...guardKeys,
+      );
+      if (renewed) {
+        leaseValidUntil = Math.max(
+          leaseValidUntil,
+          requestedAt + options.leaseTtlMs,
+        );
+      }
+      return renewed;
+    } catch (error) {
+      if (Date.now() >= leaseValidUntil) return false;
+      logger.warn(
+        `Job ${entry.jobId}: lease renewal failed; retrying before expiry`,
+        error,
+      );
+      return true;
     }
   };
 
@@ -250,26 +291,38 @@ export async function processStreamQueueEntry(
       jobRequest = await refreshBackendForReclaim(entry.jobId, jobRequest);
     }
 
+    const conversationGuardKey = jobRequest.conversationId
+      ? conversationJobGuardKey(jobRequest.userId, jobRequest.conversationId)
+      : undefined;
+    const userGuardKey = userJobGuardKey(jobRequest.userId);
+    // Other devices learn about this run from its streaming state; keep it
+    // for runs longer than its standalone TTL.
+    const streamingStateKey = jobRequest.conversationId
+      ? sessionKey([
+          'streaming',
+          'user',
+          jobRequest.userId,
+          'conversation',
+          jobRequest.conversationId,
+        ])
+      : undefined;
     heartbeatTimer = setInterval(() => {
-      if (heartbeatInFlight || controller.signal.aborted) return;
+      if (controller.signal.aborted) return;
+      // A stalled renewal must not hide expiry of the lease it tried to extend.
+      if (Date.now() >= leaseValidUntil) {
+        abortForLostLease();
+        return;
+      }
+      if (heartbeatInFlight) return;
       heartbeatInFlight = true;
-      void renewStreamLease(
-        entry.jobId,
-        ownerToken,
-        options.leaseTtlMs,
-        undefined,
-        jobRequest.conversationId
-          ? conversationJobGuardKey(
-              jobRequest.userId,
-              jobRequest.conversationId,
-            )
-          : undefined,
-        userJobGuardKey(jobRequest.userId),
+      void renewOwnedLease(
+        conversationGuardKey,
+        userGuardKey,
+        streamingStateKey,
       )
-        .then((renewed) => {
-          if (!renewed) abortForLostLease();
+        .then((owned) => {
+          if (!owned) abortForLostLease();
         })
-        .catch(() => abortForLostLease())
         .finally(() => {
           heartbeatInFlight = false;
         });
@@ -367,9 +420,7 @@ export async function processStreamQueueEntry(
       }
       // The reader has stopped and flushed its buffers. Only the current
       // owner may now take the terminal snapshot for a user cancellation.
-      if (
-        !(await renewStreamLease(entry.jobId, ownerToken, options.leaseTtlMs))
-      ) {
+      if (!(await renewOwnedLease())) {
         return 'interrupted';
       }
     }

@@ -51,8 +51,10 @@ different collection when the authoritative metadata source is unavailable.
 
 - `utils/app/queries/milvus.ts` exposes only `writableCollections` to the
   document-ingest selection UI.
-- `pages/api/chat/async.ts` and `pages/api/document/process.ts` retrieve the
-  same backend metadata before resolving a target collection.
+- `pages/api/chat/async.ts` retrieves the same backend metadata before
+  resolving a chat attachment's ingest target collection.
+  `pages/api/document/process.ts` performs inline extraction only and doesn't
+  resolve collections.
 - `utils/app/milvusCollections.ts` validates that an ingest target matches the
   authenticated user's authoritative private collection and records
   provenance. It isn't a discovery source.

@@ -54,6 +54,19 @@ def _mk_response(
     return resp
 
 
+@pytest.fixture
+def public_dns(monkeypatch):
+    """Resolve fixture hostnames to a public address without real DNS."""
+    lookups = []
+
+    def resolve(host, *_args, **_kwargs):
+        lookups.append(host)
+        return [(socket.AF_INET, None, None, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    return lookups
+
+
 class _QueuedClient:
     """Minimal async stand-in for httpx.AsyncClient that replays responses.
 
@@ -567,6 +580,7 @@ class TestCheckRobots:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("public_dns")
 class TestGetFollowingSafeRedirects:
     def test_no_redirect_returns_response(self):
         async def _run():
@@ -824,18 +838,66 @@ class TestScrapeWithHttpxResult:
                     + "Converted PDF content. " * 5
                 )
             )
-            monkeypatch.setattr(
-                webscrape_mod, "_scrape_with_markitdown", local_conversion
-            )
+            monkeypatch.setattr(webscrape_mod, "_bytes_to_markdown", local_conversion)
 
             content, outcome = await _scrape_with_httpx_result(
                 "https://example.com/file.pdf"
             )
             assert "Converted PDF content" in content
             assert outcome == "ok"
-            assert local_conversion.call_args.kwargs["fetched_content"] == b"%PDF-1.7"
+            assert local_conversion.call_args.args[:2] == (
+                b"%PDF-1.7",
+                "https://example.com/file.pdf",
+            )
             assert (
                 local_conversion.call_args.kwargs["content_type"] == "application/pdf"
             )
+
+        asyncio.run(_run())
+
+    def test_legacy_encoded_html_is_converted_from_original_bytes(self, monkeypatch):
+        """Source verification must see the same characters as the page.
+
+        httpx decodes a media type without charset as UTF-8 with replacement
+        characters. Conversion must receive the original bytes so the HTML
+        charset declaration can be honored.
+        """
+        legacy = (
+            "<html><head><title>Résumé</title>"
+            '<meta charset="windows-1252"></head><body><p>'
+            + "Müller reported revenue of £42 million in Zürich. " * 3
+            + "</p></body></html>"
+        ).encode("cp1252")
+
+        async def _run():
+            response = httpx.Response(
+                200,
+                content=legacy,
+                headers={"content-type": "text/html"},
+                request=httpx.Request("GET", "https://example.com/legacy"),
+            )
+            assert "�" in response.text  # the lossy decode this guards
+            self._patch_client(monkeypatch, _QueuedClient([response]))
+            converted = {}
+
+            def convert(path):
+                with open(path, "rb") as file_obj:
+                    converted["bytes"] = file_obj.read()
+                return MagicMock(title="Résumé", text_content="Article body. " * 10)
+
+            monkeypatch.setattr(
+                webscrape_mod, "_convert_html_article", lambda *_: None, raising=False
+            )
+            monkeypatch.setattr(
+                webscrape_mod,
+                "MarkItDown",
+                MagicMock(return_value=MagicMock(convert=convert)),
+            )
+            content, outcome = await _scrape_with_httpx_result(
+                "https://example.com/legacy"
+            )
+            assert outcome == "ok"
+            assert content.startswith("# Résumé")
+            assert converted["bytes"] == legacy
 
         asyncio.run(_run())
