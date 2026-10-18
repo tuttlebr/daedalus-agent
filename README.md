@@ -4,9 +4,11 @@
 
 # Daedalus
 
-Daedalus is a self-hosted AI assistant I build and maintain for myself and my
+Daedalus is my self-hosted AI assistant I build and maintain for myself and my
 wife. I'm Brandon Tuttle, an independent developer, and our two-person
-household guides the design of this personal project.
+household guides the design of this personal project. It is also used as an
+educational medium for me as LLMs, agents and technology progress. This started
+as a Gradio app in early 2024 and has progressed into what you see today.
 
 It combines a Next.js chat application, a Rust agent runtime built with Rig,
 Tokio, and Axum, and a Python tool service. Chat history and streaming work with
@@ -18,7 +20,8 @@ The agent keeps results from tools already started and uses your direction for
 the next model round. See the [request path](docs/architecture.md#request-path)
 for the execution and recovery boundaries.
 
-Contributions are welcome. I maintain this around my own use and available
+Forks are encouraged but this is a personal project so I'll likely nver look for
+contributions. I maintain this around my own use and available
 time; there is no support team, guaranteed response time, or fixed release
 schedule. Use by two people does not establish suitability for a public service.
 
