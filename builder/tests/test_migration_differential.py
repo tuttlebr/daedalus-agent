@@ -65,6 +65,43 @@ def test_conversation_comparison_retains_order_payloads_and_multiplicity(differe
         assert differential.requests_by_conversation({"requests": changed}) != expected
 
 
+def test_conversation_comparison_ignores_only_parallel_output_order(differential):
+    calls = [
+        {"type": "function_call", "call_id": name, "name": name, "arguments": "{}"}
+        for name in ("read", "clock")
+    ]
+    outputs = [
+        {"type": "function_call_output", "call_id": name, "output": result}
+        for name, result in (("read", "exact evidence"), ("clock", "<clock-instant>"))
+    ]
+    message = {"role": "user", "content": "next turn"}
+    report = {
+        "requests": [
+            {"user": "alice-chat", "input": calls},
+            {"user": "alice-chat", "input": calls + outputs + [message]},
+        ]
+    }
+    original = copy.deepcopy(report)
+    expected = differential.requests_by_conversation(report)
+
+    def compared(items):
+        changed = copy.deepcopy(report)
+        changed["requests"][1]["input"] = items
+        return differential.requests_by_conversation(changed)
+
+    assert compared(calls + outputs[::-1] + [message]) == expected
+    for changed in (
+        calls + outputs[:1] + [message],
+        calls + outputs + outputs[:1] + [message],
+        calls + [outputs[0], {**outputs[1], "output": "changed"}, message],
+        calls + [outputs[0], {**outputs[1], "call_id": "other"}, message],
+        calls + [outputs[0], message, outputs[1]],
+        calls[::-1] + outputs + [message],
+    ):
+        assert compared(changed) != expected
+    assert report == original
+
+
 def test_legacy_comparison_rejects_unexplained_model_and_schema_changes(differential):
     baseline = {
         "version": 1,

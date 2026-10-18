@@ -8,6 +8,8 @@ No live providers or production Redis are contacted.
 """
 
 import argparse
+import copy
+import itertools
 import json
 import re
 import sys
@@ -20,9 +22,23 @@ from runtime_http_check import check
 
 
 def requests_by_conversation(report):
-    """Ignore cross-conversation scheduling, retaining every ordered round."""
+    """Retain ordered rounds while ignoring independent tool completion order."""
     grouped = {}
-    for request in report["requests"]:
+    for request in copy.deepcopy(report["requests"]):
+        if isinstance(request.get("input"), list):
+            # Parallel tool results may finish in either order. Only reorder
+            # adjacent outputs; never move them past a message or tool call.
+            inputs = []
+            for outputs, items in itertools.groupby(
+                request["input"],
+                key=lambda item: isinstance(item, dict)
+                and item.get("type") == "function_call_output",
+            ):
+                batch = list(items)
+                if outputs:
+                    batch.sort(key=lambda item: json.dumps(item, sort_keys=True))
+                inputs.extend(batch)
+            request["input"] = inputs
         grouped.setdefault(request["user"], []).append(request)
     return grouped
 
