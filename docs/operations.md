@@ -191,13 +191,12 @@ the parsed Rust configuration without starting services. See the
 [migration record](rust-migration.md) for image, rollback and validation commands.
 OAuth callbacks, resets and approval execution/polling terminate in Axum.
 Keep callback and execution polling affinity to their originating process; drain
-active runs and OAuth/approval waits before changing implementations. Grant keys,
-refresh locks and receipt formats remain compatible with the rollback image.
+active runs and OAuth/approval waits before changing implementations. Grant keys
+and refresh locks remain compatible with the rollback image.
 
 ## Timeouts and tool concurrency
 
-`DAEDALUS_LLM_TIMEOUT` sets the model inactivity timeout in seconds, from 1 to
-3600. A model call times out when no stream event arrives within that time,
+`DAEDALUS_LLM_TIMEOUT` sets the model inactivity timeout in seconds, from 1 to 3600. A model call times out when no stream event arrives within that time,
 counted from the request until the first event and then between events; every
 received event, including private reasoning and tool-argument fragments, resets
 it. A response that keeps streaming is not cut off. A silent attempt is retried

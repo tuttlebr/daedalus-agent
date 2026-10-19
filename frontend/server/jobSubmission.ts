@@ -17,9 +17,11 @@ export function validSubmissionId(value: unknown): value is string {
   );
 }
 
-function key(kind: Kind, user: string, id: string): string {
+export function submissionKey(kind: Kind, user: string, id: string): string {
   return sessionKey(['job-submission', kind, user, id]);
 }
+
+const key = submissionKey;
 
 // The browser knows this identifier before POST is sent. A user-scoped stop
 // tombstone can therefore win even before the server allocates the job.

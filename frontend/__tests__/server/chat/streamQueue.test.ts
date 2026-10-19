@@ -1,12 +1,11 @@
 import {
   STREAM_QUEUE_GROUP,
   STREAM_QUEUE_KEY,
-  acquireStreamLease,
+  acquireStreamLeaseSnapshot,
   claimStaleStreamJobs,
   enqueueStreamJob,
   ensureStreamConsumerGroup,
   getStreamJobPresence,
-  hasBackendRequestStarted,
   markBackendRequestStarted,
   readNewStreamJobs,
   releaseStreamLease,
@@ -23,18 +22,15 @@ const mocks = vi.hoisted(() => ({
     xautoclaim: vi.fn(),
     set: vi.fn(),
     eval: vi.fn(),
+    // An empty script cache: every digest call falls back to EVAL.
+    evalsha: vi.fn(),
     exists: vi.fn(),
   },
-  jsonSetWithExpiry: vi.fn(),
-  jsonDel: vi.fn(),
 }));
 
 vi.mock('@/server/session/redis', () => ({
   STREAMING_STATE_TTL_SECONDS: 600,
   getRedis: vi.fn(() => mocks.redis),
-  jsonDel: mocks.jsonDel,
-  jsonGet: vi.fn(),
-  jsonSetWithExpiry: mocks.jsonSetWithExpiry,
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
 }));
 
@@ -45,33 +41,41 @@ describe('durable stream queue', () => {
     mocks.redis.xadd.mockResolvedValue('1-0');
     mocks.redis.set.mockResolvedValue('OK');
     mocks.redis.eval.mockResolvedValue(1);
+    mocks.redis.evalsha.mockRejectedValue(
+      new Error('NOSCRIPT No matching script. Please use EVAL.'),
+    );
     mocks.redis.exists.mockResolvedValue(0);
-    mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
-    mocks.jsonDel.mockResolvedValue(1);
   });
 
-  it('stores the execution payload before adding the reliable stream entry', async () => {
+  it('stores the payload and its stream entry in one commit', async () => {
     const payload = {
       messagesForNat: [{ role: 'user', content: 'hello' }],
       verifiedUsername: 'testuser',
     };
+    mocks.redis.eval.mockResolvedValueOnce('1-0');
 
-    await expect(enqueueStreamJob('job-1', payload)).resolves.toBe('1-0');
+    await expect(
+      enqueueStreamJob('job-1', payload, {
+        submissionKey: 'daedalus:job-submission:chat:testuser:sub-1',
+        notice: { channel: 'user:testuser:updates', payload: '{}' },
+      }),
+    ).resolves.toBe('1-0');
 
-    expect(mocks.jsonSetWithExpiry).toHaveBeenCalledWith(
+    expect(mocks.redis.eval).toHaveBeenCalledOnce();
+    expect(mocks.redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining('ENQUEUE_STREAM_JOB'),
+      4,
       streamPayloadKey('job-1'),
-      payload,
-      3600,
-    );
-    expect(mocks.redis.xadd).toHaveBeenCalledWith(
       STREAM_QUEUE_KEY,
-      '*',
-      'jobId',
+      'daedalus:async-job-abort:job-1',
+      'daedalus:job-submission:chat:testuser:sub-1',
+      JSON.stringify(payload),
+      3600,
       'job-1',
+      'user:testuser:updates',
+      '{}',
     );
-    expect(mocks.jsonSetWithExpiry.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.redis.xadd.mock.invocationCallOrder[0],
-    );
+    expect(mocks.redis.xadd).not.toHaveBeenCalled();
   });
 
   it('creates the consumer group idempotently', async () => {
@@ -90,8 +94,8 @@ describe('durable stream queue', () => {
     );
   });
 
-  it('removes the payload when adding the stream entry fails', async () => {
-    mocks.redis.xadd.mockRejectedValueOnce(new Error('Redis unavailable'));
+  it('reports a failed enqueue to the submitting route', async () => {
+    mocks.redis.eval.mockRejectedValueOnce(new Error('Redis unavailable'));
 
     await expect(
       enqueueStreamJob('job-failed', {
@@ -99,8 +103,6 @@ describe('durable stream queue', () => {
         verifiedUsername: 'testuser',
       }),
     ).rejects.toThrow('Redis unavailable');
-
-    expect(mocks.jsonDel).toHaveBeenCalledWith(streamPayloadKey('job-failed'));
   });
 
   it('parses new and reclaimed Redis Stream entries', async () => {
@@ -161,10 +163,45 @@ describe('durable stream queue', () => {
     );
   });
 
-  it('uses owner-token-checked lease and start-marker scripts', async () => {
+  it('reads a lease snapshot, or nothing when another owner holds the lease', async () => {
+    mocks.redis.eval.mockResolvedValueOnce([
+      1,
+      JSON.stringify({ jobId: 'job-1', status: 'pending' }),
+      JSON.stringify({ jobId: 'job-1', userId: 'testuser' }),
+      JSON.stringify({ messagesForNat: [], verifiedUsername: 'testuser' }),
+      0,
+      1,
+    ]);
     await expect(
-      acquireStreamLease('job-1', 'owner-1', 30000, mocks.redis as any),
-    ).resolves.toBe(true);
+      acquireStreamLeaseSnapshot('job-1', 'owner-1', 30000, mocks.redis as any),
+    ).resolves.toEqual({
+      status: { jobId: 'job-1', status: 'pending' },
+      request: { jobId: 'job-1', userId: 'testuser' },
+      payload: { messagesForNat: [], verifiedUsername: 'testuser' },
+      started: false,
+      canceled: true,
+    });
+    const [script, keyCount, ...rest] = mocks.redis.eval.mock.calls[0];
+    expect(script).toContain('ACQUIRE_STREAM_LEASE_SNAPSHOT');
+    expect(rest.slice(0, keyCount)).toEqual([
+      'daedalus:async-stream-lease:job-1',
+      'daedalus:async-job-status:job-1',
+      'daedalus:async-job-request:job-1',
+      'daedalus:async-stream-payload:job-1',
+      'daedalus:async-stream-backend-started:job-1',
+      'daedalus:async-job-response:job-1',
+      'daedalus:async-job-steps-v2:job-1',
+      'daedalus:async-job-abort:job-1',
+    ]);
+    expect(rest.slice(keyCount)).toEqual(['owner-1', 30000]);
+
+    mocks.redis.eval.mockResolvedValueOnce([0]);
+    await expect(
+      acquireStreamLeaseSnapshot('job-1', 'owner-2', 30000, mocks.redis as any),
+    ).resolves.toBeNull();
+  });
+
+  it('uses owner-token-checked lease and start-marker scripts', async () => {
     await expect(
       renewStreamLease('job-1', 'owner-1', 30000, mocks.redis as any),
     ).resolves.toBe(true);
@@ -175,13 +212,6 @@ describe('durable stream queue', () => {
       releaseStreamLease('job-1', 'owner-1', mocks.redis as any),
     ).resolves.toBe(true);
 
-    expect(mocks.redis.set).toHaveBeenCalledWith(
-      'daedalus:async-stream-lease:job-1',
-      'owner-1',
-      'PX',
-      30000,
-      'NX',
-    );
     expect(mocks.redis.eval).toHaveBeenCalledTimes(3);
     expect(mocks.redis.eval.mock.calls[1]).toEqual(
       expect.arrayContaining([
@@ -224,18 +254,6 @@ describe('durable stream queue', () => {
     await expect(
       markBackendRequestStarted('job-1', 'owner-1', mocks.redis as any),
     ).resolves.toBe(expected);
-  });
-
-  it('counts streamed output as backend start evidence', async () => {
-    mocks.redis.exists.mockResolvedValueOnce(1);
-    await expect(
-      hasBackendRequestStarted('job-1', mocks.redis as any),
-    ).resolves.toBe(true);
-    expect(mocks.redis.exists).toHaveBeenCalledWith(
-      'daedalus:async-stream-backend-started:job-1',
-      'daedalus:async-job-response:job-1',
-      'daedalus:async-job-steps-v2:job-1',
-    );
   });
 
   it('reports which execution records a job still has', async () => {

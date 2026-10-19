@@ -302,7 +302,6 @@ class MCPManager:
             token = (
                 trusted_request_header_from_context("x-daedalus-approval-token") or ""
             )
-            binding = {}
             allowed, reason = await asyncio.to_thread(
                 approval._validate_mcp_approval,
                 tool_name,
@@ -310,7 +309,6 @@ class MCPManager:
                 annotations=tool.annotations,
                 server_name=name,
                 approval_token=token,
-                validated_binding=binding,
             )
             if not allowed:
                 from nat_helpers.approval_context import is_trusted_approval_marker
@@ -358,16 +356,9 @@ class MCPManager:
                     "content": "MCP call did not return a confirmed result. Its remote outcome may be unknown; check the current state before repeating a change.",
                     "is_error": True,
                 }
-            failed = approval._mcp_result_is_error(result)
-            if not failed and binding:
-                await asyncio.to_thread(
-                    approval._record_approved_mcp_receipt,
-                    approval_token=token,
-                    validated_binding=binding,
-                )
             return {
                 "content": result.model_dump_json(exclude_none=True),
-                "is_error": failed,
+                "is_error": approval._mcp_result_is_error(result),
             }
 
     async def reset(self, service, user):

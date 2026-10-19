@@ -8,6 +8,7 @@ import { clearOAuthStatusFields, updateJobStatus } from './jobState';
 import { buildNatRequestHeaders } from './natMessages';
 import {
   ApiRouteError,
+  PublicJobError,
   type AsyncJobRequest,
   type BackgroundExecutionControl,
   type DocumentIngestProgress,
@@ -51,51 +52,25 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-const ERROR_DETAIL_MAX_BYTES = 4096;
-const ERROR_DETAIL_TIMEOUT_MS = 5_000;
+// The backend's terminal ingestion error (builder/runtime/src/document_processor.rs
+// FAILED). Other error text can carry storage or service diagnostics.
+const PUBLIC_INGEST_ERRORS = new Set(['Document operation failed.']);
+const INGEST_INTERNAL_FAILURE_MESSAGE =
+  'Document ingestion failed because of an internal error. Please try again.';
 
 /**
- * Backend rejections carry a short application-owned `detail`. Read only a
- * bounded prefix for a bounded time: the ingestion deadline is an hour, and a
- * stalled diagnostic body must not hold a worker slot for that long.
+ * Saved explanation for a rejected ingestion request. Like chat, it is derived
+ * from the status alone; the body is cancelled unread so a stalled diagnostic
+ * cannot hold the worker slot or reach the saved chat.
  */
-async function readRejectionDetail(
-  response: Response,
-  controller: AbortController,
-): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return '';
-  const deadline = setTimeout(
-    () => controller.abort(new Error('Error body deadline exceeded')),
-    ERROR_DETAIL_TIMEOUT_MS,
-  );
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  const detailFrom = (): string | null => {
-    try {
-      const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      return typeof parsed?.detail === 'string' ? parsed.detail.trim() : '';
-    } catch {
-      return null;
-    }
-  };
-  try {
-    while (size < ERROR_DETAIL_MAX_BYTES) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      size += value.byteLength;
-      // A complete document needs no transport EOF.
-      const detail = detailFrom();
-      if (detail !== null) return detail;
-    }
-    return detailFrom() ?? '';
-  } catch {
-    return detailFrom() ?? '';
-  } finally {
-    clearTimeout(deadline);
-    await reader.cancel().catch(() => {});
+export function documentIngestRejectionMessage(status: number): string {
+  if (status === 413) {
+    return 'Too many documents were sent at once. Upload them in smaller batches.';
   }
+  if (status === 400 || status === 403 || status === 422) {
+    return `Document ingestion rejected the request (${status}).`;
+  }
+  return `Document ingestion is unavailable (${status}). Please try again.`;
 }
 
 async function streamDocumentIngestJob(
@@ -168,7 +143,7 @@ async function streamDocumentIngestJob(
         : err;
     }
     if (timedOut || err?.name === 'AbortError') {
-      throw new Error(
+      throw new PublicJobError(
         `Document ingest timed out after ${DOCUMENT_INGEST_TIMEOUT_MS}ms`,
       );
     }
@@ -176,27 +151,19 @@ async function streamDocumentIngestJob(
   }
 
   if (!response.ok) {
-    let detail = '';
-    try {
-      detail = await readRejectionDetail(response, controller);
-    } finally {
-      clearTimeout(timeoutId);
-      control.signal?.removeEventListener('abort', handleExternalAbort);
-    }
-    if (control.signal?.aborted && control.signal.reason instanceof Error) {
-      throw control.signal.reason;
-    }
-    throw new Error(
-      `Document ingest failed (${response.status})${
-        detail ? `: ${detail}` : ''
-      }`,
-    );
+    clearTimeout(timeoutId);
+    control.signal?.removeEventListener('abort', handleExternalAbort);
+    await response.body?.cancel().catch(() => {});
+    logger.warn(`Document ingest request rejected`, {
+      status: response.status,
+    });
+    throw new PublicJobError(documentIngestRejectionMessage(response.status));
   }
 
   if (!response.body) {
     clearTimeout(timeoutId);
     control.signal?.removeEventListener('abort', handleExternalAbort);
-    throw new Error('Document ingest stream returned no body');
+    throw new PublicJobError('Document ingest stream returned no body');
   }
 
   const reader = response.body.getReader();
@@ -285,10 +252,16 @@ async function streamDocumentIngestJob(
   }
 
   if (errorDetail !== null) {
-    throw new Error(`Document ingest failed: ${errorDetail}`);
+    if (PUBLIC_INGEST_ERRORS.has(errorDetail)) {
+      throw new PublicJobError(`Document ingest failed: ${errorDetail}`);
+    }
+    logger.error('Document ingest stream reported an error', {
+      detail: errorDetail.slice(0, 2000),
+    });
+    throw new PublicJobError('Document ingestion failed.');
   }
   if (!completed) {
-    throw new Error(
+    throw new PublicJobError(
       'Document ingest stream ended before completion was confirmed.',
     );
   }
@@ -352,7 +325,9 @@ export async function startBackgroundDocumentIngest(
     await finalizeError(
       jobId,
       jobRequest,
-      error?.message || 'Document ingestion failed.',
+      error instanceof PublicJobError || error instanceof ApiRouteError
+        ? error.message
+        : INGEST_INTERNAL_FAILURE_MESSAGE,
     );
   }
 }

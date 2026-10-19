@@ -3,11 +3,13 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from '@/utils/auth/session';
 import { publishConversationUpdate } from '@/utils/sync/publish';
 
-// The notification names a conversation; receivers fetch its record.
+// The notification names a conversation; receivers fetch its record. Tabs
+// loaded before that change also send the conversation itself, which is
+// ignored; accept the same body size as the conversation save route.
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '16kb',
+      sizeLimit: '10mb',
     },
   },
 };

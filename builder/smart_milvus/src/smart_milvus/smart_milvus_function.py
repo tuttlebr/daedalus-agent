@@ -39,7 +39,6 @@ class MilvusRetriever:
         client: MilvusClient,
         embedder: Embeddings,
         content_field: str = "content",
-        database_name: str | None = None,
         vector_field_name: str = "vector",
         reranker_config: dict | None = None,
         search_timeout: float | None = None,
@@ -55,8 +54,6 @@ class MilvusRetriever:
                 queries.
             content_field (str): The field name containing the main text
                 content. Defaults to "content".
-            database_name (str | None): The name of the Milvus database to
-                use. If provided, switches to this database.
             vector_field_name (str): The field name containing vectors.
                 Defaults to "vector".
             reranker_config (dict | None): Configuration for the reranker service.
@@ -68,7 +65,6 @@ class MilvusRetriever:
         """
         self._client = client
         self._embedder = embedder
-        self._database_name = database_name
         self._vector_field_name = vector_field_name
         self._reranker_config = reranker_config
         # F-008: bound every Milvus/embedder round-trip so a slow or wedged
@@ -77,9 +73,7 @@ class MilvusRetriever:
         self._session = None  # Lazy-loaded requests session
         self._metadata_cache_ttl = max(0.0, metadata_cache_ttl)
         self._metadata_cache_max_entries = max(1, metadata_cache_max_entries)
-        self._collection_cache: OrderedDict[str, tuple[float, tuple[bool, str]]] = (
-            OrderedDict()
-        )
+        self._collection_cache: OrderedDict[str, tuple[float, bool]] = OrderedDict()
         self._schema_cache: OrderedDict[str, tuple[float, dict[str, Any]]] = (
             OrderedDict()
         )
@@ -89,11 +83,6 @@ class MilvusRetriever:
         # semaphore additionally caps concurrent synchronous Milvus calls per
         # retriever so one hot tool cannot monopolize that shared pool.
         self._client_call_slots = asyncio.Semaphore(8)
-
-        # Note: For MilvusClient, database switching is handled by prefixing
-        # collection names with database name (e.g., "db_name.collection_name")
-        if database_name and database_name != "default":
-            logger.info("Configured to use Milvus database: %s", database_name)
 
         self.content_field = content_field
 
@@ -115,7 +104,7 @@ class MilvusRetriever:
             self._invalidate_metadata_cache()
             raise
 
-    def _get_cached_collection(self, collection_name: str) -> tuple[bool, str] | None:
+    def _get_cached_collection(self, collection_name: str) -> bool | None:
         cached = self._collection_cache.get(collection_name)
         if cached is None:
             return None
@@ -126,7 +115,7 @@ class MilvusRetriever:
         self._collection_cache.move_to_end(collection_name)
         return value
 
-    def _cache_collection(self, collection_name: str, value: tuple[bool, str]) -> None:
+    def _cache_collection(self, collection_name: str, value: bool) -> None:
         if self._metadata_cache_ttl <= 0:
             return
         self._collection_cache[collection_name] = (
@@ -137,14 +126,10 @@ class MilvusRetriever:
         while len(self._collection_cache) > self._metadata_cache_max_entries:
             self._collection_cache.popitem(last=False)
 
-    async def _resolve_collection(self, collection_name: str) -> tuple[bool, str]:
-        """Validate and resolve a collection name in a single round-trip.
+    async def _collection_exists(self, collection_name: str) -> bool:
+        """Check a collection with one cached ``list_collections()`` call.
 
-        Returns a ``(exists, resolved_name)`` tuple. ``resolved_name`` carries
-        the database prefix (e.g. ``db.collection``) when the prefixed form is
-        the one that exists; otherwise it is the original name. Combining the
-        validate and resolve steps avoids two ``list_collections()`` calls per
-        search (F-012).
+        Milvus lists unqualified names within the client's database.
         """
         cached = self._get_cached_collection(collection_name)
         if cached is not None:
@@ -160,16 +145,7 @@ class MilvusRetriever:
             collections = await self._client_call(
                 self._client.list_collections, timeout=self._search_timeout
             )
-            if self._database_name and self._database_name != "default":
-                full_name = f"{self._database_name}.{collection_name}"
-                # Try both with and without database prefix.
-                value = (
-                    (True, full_name)
-                    if full_name in collections
-                    else (collection_name in collections, collection_name)
-                )
-            else:
-                value = (collection_name in collections, collection_name)
+            value = collection_name in collections
 
             self._cache_collection(collection_name, value)
             return value
@@ -372,14 +348,13 @@ class MilvusRetriever:
         if timeout is None:
             timeout = self._search_timeout
 
-        exists, actual_collection_name = await self._resolve_collection(collection_name)
-        if not exists:
+        if not await self._collection_exists(collection_name):
             raise CollectionNotFoundError(
                 f"Collection: {collection_name} does not exist"
             )
 
         collection_schema = await self._describe_collection(
-            actual_collection_name, timeout=timeout
+            collection_name, timeout=timeout
         )
         available_fields = [v.get("name") for v in collection_schema.get("fields", {})]
 
@@ -407,7 +382,7 @@ class MilvusRetriever:
         search_vector = await asyncio.to_thread(self._embedder.embed_query, query)
         res = await self._client_call(
             self._client.search,
-            collection_name=actual_collection_name,
+            collection_name=collection_name,
             data=[search_vector],
             filter=filters,
             output_fields=output_fields,

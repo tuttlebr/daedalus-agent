@@ -427,7 +427,6 @@ class TestExtractFailureMapping:
     @pytest.mark.parametrize(
         "message,status",
         [
-            ("Error: You do not have access to this document.", 403),
             ("Error: Document not found in storage.", 404),
             ("Error: The file may have expired.", 404),
             (
@@ -449,6 +448,130 @@ class TestExtractFailureMapping:
         with pytest.raises(_FakeHTTPException) as exc_info:
             document_ingest_api._raise_for_extract_failure(message)
         assert exc_info.value.status_code == status
+
+    @pytest.mark.parametrize(
+        "message,kind,status",
+        [
+            ("Error: You do not have access to this document.", "forbidden", 403),
+            (
+                "Error accessing document storage: Connection refused",
+                "unavailable",
+                503,
+            ),
+            (
+                "Error accessing document object storage. "
+                "Please upload the document again.",
+                "unavailable",
+                503,
+            ),
+            # Untyped text never grants an authorization status, as in Rust.
+            ("Error accessing document storage: Connection refused", "", 500),
+        ],
+    )
+    def test_maps_typed_storage_failures_like_rust(
+        self, monkeypatch, message, kind, status
+    ):
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            document_ingest_api._raise_for_extract_failure(message, kind)
+        assert exc_info.value.status_code == status
+
+
+class _FakeRedisError(Exception):
+    pass
+
+
+class TestStorageOutageStatus:
+    """The Python rollback route classifies the extractor's real failures."""
+
+    @staticmethod
+    def _download(monkeypatch, *, redis_getter, load_bytes=None):
+        from nat_nv_ingest import nat_nv_ingest as ingest
+
+        monkeypatch.setattr(ingest.redis, "RedisError", _FakeRedisError)
+        if load_bytes is not None:
+            monkeypatch.setattr(ingest, "_load_document_bytes", load_bytes)
+
+        class Processor:
+            async def extract_document(self, **kwargs):
+                return await ingest._extract_document_to_markdown(
+                    config=ingest.NvIngestFunctionConfig(),
+                    redis_getter=redis_getter,
+                    nv_getter=None,
+                    **kwargs,
+                )
+
+        monkeypatch.setattr(document_ingest_api, "_processor", Processor)
+        monkeypatch.setattr(document_ingest_api, "HTTPException", _FakeHTTPException)
+        with pytest.raises(_FakeHTTPException) as exc_info:
+            asyncio.run(
+                _create_markdown_download_response(
+                    MarkdownRequest(
+                        documentRef=DocumentRef(documentId="d", sessionId="s"),
+                        username="alice",
+                    ),
+                    "alice",
+                )
+            )
+        return exc_info.value
+
+    @staticmethod
+    def _redis_with(record):
+        class Client:
+            def execute_command(self, *_args):
+                return json.dumps(record)
+
+        async def getter():
+            return Client()
+
+        return getter
+
+    def test_unreachable_redis_is_service_unavailable(self, monkeypatch):
+        async def unreachable():
+            raise _FakeRedisError("Error 111 connecting to redis:6379.")
+
+        error = self._download(monkeypatch, redis_getter=unreachable)
+        assert error.status_code == 503
+        assert error.detail.startswith("Error accessing document storage")
+
+    def test_object_storage_outage_is_service_unavailable(self, monkeypatch):
+        from nat_nv_ingest import nat_nv_ingest as ingest
+
+        async def outage(**_kwargs):
+            raise ingest.DocumentStorageUnavailableError(
+                "Error accessing document object storage. "
+                "Please upload the document again."
+            )
+
+        error = self._download(
+            monkeypatch,
+            redis_getter=self._redis_with({"userId": "alice", "filename": "a.pdf"}),
+            load_bytes=outage,
+        )
+        assert error.status_code == 503
+
+    def test_another_users_document_is_forbidden(self, monkeypatch):
+        error = self._download(
+            monkeypatch,
+            redis_getter=self._redis_with({"userId": "bob", "filename": "a.pdf"}),
+        )
+        assert error.status_code == 403
+        assert "do not have access" in error.detail
+
+    def test_invalid_stored_reference_keeps_its_client_status(self, monkeypatch):
+        from nat_nv_ingest import nat_nv_ingest as ingest
+
+        async def invalid(**_kwargs):
+            raise ingest.DocumentStorageError(
+                "Error: Stored document object reference is invalid."
+            )
+
+        error = self._download(
+            monkeypatch,
+            redis_getter=self._redis_with({"userId": "alice", "filename": "a.pdf"}),
+            load_bytes=invalid,
+        )
+        assert error.status_code == 400
 
 
 class TestConfig:

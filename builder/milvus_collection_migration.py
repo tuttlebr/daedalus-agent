@@ -1,6 +1,6 @@
 """Fail-closed operator migration for legacy private Milvus collections.
 
-This module is intentionally separate from the NeMo Agent Toolkit tool surface.
+This module is intentionally separate from the agent tool surface.
 It migrates one reviewed authenticated subject at a time and never drops,
 truncates, renames, or aliases either collection.
 """

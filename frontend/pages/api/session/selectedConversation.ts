@@ -7,10 +7,13 @@ import {
 import { sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
 
 // The selection is an id pointer; conversation content is saved separately.
+// Tabs loaded before that change still send the whole conversation they just
+// saved through /api/conversations/:id, and treat a rejection as a failed save.
+// Accept the same body size as that route and keep only the id.
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '16kb',
+      sizeLimit: '10mb',
     },
   },
 };
@@ -31,9 +34,8 @@ export default async function handler(
 
   if (req.method === 'GET') {
     try {
-      // Older records hold a copy of the conversation, and finalization
-      // refreshes such a copy for the selected conversation. Clients read only
-      // its id.
+      // Older records hold a copy of the conversation; nothing refreshes it
+      // any more. Clients read only its id.
       const data = await jsonGet(key);
       if (!data) return res.status(200).json(null);
       return res.status(200).json(data);

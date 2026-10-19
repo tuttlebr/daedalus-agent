@@ -309,7 +309,7 @@ def test_chat_generate_and_edit_deliver_signed_finals(
     redis = _redis_recording_transactions()
     monkeypatch.setattr(visual.redis, "from_url", lambda *a, **kw: redis)
     monkeypatch.setattr(
-        visual, "resolve_authenticated_user_id", lambda *_: "private account"
+        visual, "resolve_authenticated_user_id", lambda: "private account"
     )
     monkeypatch.setattr(visual.AsyncOpenAI.return_value, "close", AsyncMock())
     monkeypatch.setattr(

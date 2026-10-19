@@ -361,19 +361,26 @@ export interface StreamingState {
 // renews it while the job that owns it is still running.
 export const STREAMING_STATE_TTL_SECONDS = 600;
 
-// Set streaming state for a conversation
-export async function setStreamingState(
+export function streamingStateKey(
   userId: string,
   conversationId: string,
-  sessionId: string,
-): Promise<void> {
-  const key = sessionKey([
+): string {
+  return sessionKey([
     'streaming',
     'user',
     userId,
     'conversation',
     conversationId,
   ]);
+}
+
+// Set streaming state for a conversation
+export async function setStreamingState(
+  userId: string,
+  conversationId: string,
+  sessionId: string,
+): Promise<void> {
+  const key = streamingStateKey(userId, conversationId);
 
   const state: StreamingState = {
     conversationId,
@@ -406,12 +413,10 @@ export async function clearStreamingState(
   conversationId: string,
   sessionId: string,
 ): Promise<void> {
-  const key = sessionKey([
-    'streaming',
-    'user',
-    userId,
-    'conversation',
-    conversationId,
-  ]);
-  await getRedis().eval(CLEAR_STREAMING_STATE_LUA, 1, key, sessionId);
+  await getRedis().eval(
+    CLEAR_STREAMING_STATE_LUA,
+    1,
+    streamingStateKey(userId, conversationId),
+    sessionId,
+  );
 }

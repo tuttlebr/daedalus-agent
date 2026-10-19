@@ -30,9 +30,12 @@ BACKEND_KEYS = {
     # runtime/src/authorization.rs and user_interaction.approval_tokens.
     "approval grant": "approval:user-1:token-1",
     "pending approval": "approval-pending:user-1:request-1",
-    "approval receipt": "approval-receipt:digest-1",
-    # nat_helpers.hindsight_memory_context caches and locks.
+    # runtime/src/memory.rs and nat_helpers.hindsight_memory_context caches.
     "memory cache": "daedalus:memory:session:v1:user-1:conversation-1",
+    # runtime/src/output.rs and nat_helpers.tool_output_compaction.
+    "tool output": "daedalus:tool-output:v1:user-1:reference-1",
+    # runtime/src/document_reservations.rs and nat_helpers.idempotency.
+    "idempotency receipt": "daedalus:idempotency:v1:a:b:c:d",
     # runtime/src/oauth.rs and daedalus_runtime/oauth.py durable grants.
     "Google OAuth grant": "nat/object_store/gmail-mcp-oauth-ro/tokens/digest-1",
 }
@@ -46,6 +49,11 @@ BACKEND_DENIED = (
     "user:user-1:conversations",
     "user:user-1:videos",
     "autonomy:user-1:config",
+    # Retired families no backend code reads or writes: the Redis memory store
+    # (now Hindsight), the RSS cache, and unread MCP execution receipts.
+    "nat:memory:user-1:memory-1",
+    "rss_feed:https://feeds.example/rss",
+    "approval-receipt:digest-1",
 )
 
 

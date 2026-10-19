@@ -145,26 +145,14 @@ def authenticated_user_id_from_context_or_fallback(fallback_user_id: str = "") -
     return authenticated_user_id_from_headers(headers)
 
 
-def resolve_authenticated_user_id(asserted_user_id: str | None = None) -> str:
-    """Return the trusted request user and validate an optional legacy assertion.
+def resolve_authenticated_user_id() -> str:
+    """Return the trusted request user.
 
-    ``asserted_user_id`` is never an authority source in an HTTP request. It is
-    retained only so direct callers using an older signature get an explicit
-    mismatch error during migration. When there is no HTTP request context at
-    all, the assertion is accepted as the direct-call/test fallback.
+    Tool arguments are never an identity source, and there is no fallback
+    outside an authenticated request.
     """
 
-    asserted = str(asserted_user_id or "").strip()
-    authenticated = authenticated_user_id_from_context_or_fallback(asserted)
+    authenticated = authenticated_user_id_from_context_or_fallback("")
     if not authenticated:
         raise ValueError("authenticated user identity is required")
-    authenticated = str(authenticated).strip()
-    if not authenticated:
-        raise ValueError("authenticated user identity is required")
-    if asserted and not hmac.compare_digest(
-        asserted.encode("utf-8"), authenticated.encode("utf-8")
-    ):
-        raise ValueError(
-            "supplied user identity does not match the authenticated request"
-        )
     return authenticated

@@ -329,7 +329,7 @@ def environment(
         )
         # Same key scopes as the shipped backend workload, not an unrestricted client.
         # The authoritative ACL command/key rules live in the Redis image.
-        acl = "user default off\nuser fixture-admin on >synthetic-admin ~* &* +@all\nuser backend on >synthetic-backend ~nat:* ~nat/* ~approval:* ~approval-pending:* ~approval-receipt:* ~document:* ~generated:* ~image:* ~user:*:image:* ~video:* ~user:*:video:* ~rss_feed:* ~daedalus:* +@all -@dangerous +info\n"
+        acl = "user default off\nuser fixture-admin on >synthetic-admin ~* &* +@all\nuser backend on >synthetic-backend ~nat/* ~approval:* ~approval-pending:* ~document:* ~generated:* ~image:* ~user:*:image:* ~video:* ~user:*:video:* ~daedalus:* +@all -@dangerous +info\n"
         (root / "users.acl").write_text(acl)
         for path in root.iterdir():
             path.chmod(0o644)

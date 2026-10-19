@@ -1,4 +1,5 @@
-import handler from '@/pages/api/session/selectedConversation';
+import { config as conversationRouteConfig } from '@/pages/api/conversations/[id]';
+import handler, { config } from '@/pages/api/session/selectedConversation';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -77,6 +78,14 @@ describe('session/selectedConversation assistant content preservation', () => {
       'daedalus:user:testuser:selectedConversation',
       { id: 'conv-2' },
       60 * 60 * 24 * 7,
+    );
+  });
+
+  // A tab loaded before the id pointer awaits this PUT with the conversation
+  // it just saved; rejecting a body the save route accepted fails its save.
+  it('accepts any body the conversation save route accepts', () => {
+    expect(config.api.bodyParser.sizeLimit).toBe(
+      conversationRouteConfig.api.bodyParser.sizeLimit,
     );
   });
 

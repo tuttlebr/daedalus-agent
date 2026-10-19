@@ -112,9 +112,12 @@ def test_identity_helpers_deny_non_ascii_credentials_with_value_errors(monkeypat
     with authenticated_request_headers_scope(
         {"x-user-id": "alice", "x-daedalus-internal-token": "trusted-secret"}
     ):
-        assert resolve_authenticated_user_id("alice") == "alice"
-        with pytest.raises(ValueError, match="does not match"):
-            resolve_authenticated_user_id("al\xefce")
+        assert resolve_authenticated_user_id() == "alice"
+    with authenticated_request_headers_scope(
+        {"x-user-id": "alice", "x-daedalus-internal-token": "trusted-secr\xe9t"}
+    ):
+        with pytest.raises(ValueError, match="x-daedalus-internal-token"):
+            resolve_authenticated_user_id()
 
 
 def test_health_route_remains_public(monkeypatch):

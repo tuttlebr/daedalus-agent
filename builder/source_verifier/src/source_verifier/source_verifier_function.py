@@ -1,6 +1,6 @@
-"""Source citation verification for NeMo Agent Toolkit.
+"""Source citation verification for the Daedalus Python tool service.
 
-Registers one typed evidence dispatcher with NAT:
+Registers one typed evidence dispatcher:
 
   verify_claim      Fetch a source URL and assess whether it actually
                     supports a specific claim.  Returns a structured
@@ -21,7 +21,7 @@ Retrieves sources through the builder-scoped public article session shared
 with webscrape and RSS (pinned public transport, redirect validation, bounded
 cache and request coalescing) without consuming a tool call. Claim
 verification is driven by a provider-neutral critic using any LLM configured
-in NeMo Agent Toolkit.
+in the workflow's ``llms`` section.
 """
 
 import asyncio
@@ -420,7 +420,7 @@ class SourceVerifierConfig(ToolConfig, name="source_verifier"):
 
 
 # ---------------------------------------------------------------------------
-# Provider-neutral NeMo Agent Toolkit LLM adapter
+# Provider-neutral critic LLM adapter
 # ---------------------------------------------------------------------------
 async def _call_llm(
     builder: ToolRegistry,
@@ -428,7 +428,7 @@ async def _call_llm(
     system_prompt: str,
     user_prompt: str,
 ) -> str:
-    """Invoke the configured critic through the toolkit's LangChain wrapper."""
+    """Invoke the configured critic through the tool registry's LangChain client."""
     try:
         llm = await builder.get_llm(
             config.llm_name,
@@ -1456,7 +1456,8 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
         )
 
     # ------------------------------------------------------------------
-    # NAT consumes this factory as an async context manager: exactly one yield.
+    # The tool registry consumes this factory as an async context manager:
+    # exactly one yield.
     # Multiple yields expose only the first operation and break cleanup.
     # ------------------------------------------------------------------
     async def source_verifier(

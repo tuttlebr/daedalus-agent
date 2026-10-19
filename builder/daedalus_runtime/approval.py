@@ -1,4 +1,4 @@
-"""Application-owned, exact-call MCP authorization and execution receipts."""
+"""Application-owned, exact-call MCP authorization."""
 
 import base64
 import hashlib
@@ -404,7 +404,7 @@ def _has_local_read_only_evidence(server_name: str, tool_name: str) -> bool:
 
 
 def _canonical_mcp_call(payload: dict, input_schema=None) -> tuple[str, str]:
-    """Canonicalize the exact arguments used for approval and receipts."""
+    """Canonicalize the exact arguments used for approval."""
 
     canonical_payload = dict(payload)
     canonical_payload.pop("approval_token", None)
@@ -522,7 +522,6 @@ def _validate_mcp_approval(
     server_name: str = "",
     approval_token: str | None = None,
     input_schema=None,
-    validated_binding: dict[str, str] | None = None,
 ) -> tuple[bool, str]:
     logical_server, normalized_tool = _mcp_policy_target(server_name, tool_name)
     group_policy = _MCP_GROUP_APPROVAL_POLICIES.get(logical_server)
@@ -607,11 +606,6 @@ def _validate_mcp_approval(
                 raise ValueError("approved MCP arguments must be an object")
             return _canonical_mcp_call(approved_payload, input_schema)[1]
 
-        def _capture_validated_binding(binding: dict[str, str]) -> None:
-            if validated_binding is not None:
-                validated_binding.clear()
-                validated_binding.update(binding)
-
         ok, reason = validate_approval_token(
             make_redis_client(os.getenv("APPROVAL_REDIS_URL")),
             user_id=user_id,
@@ -626,7 +620,6 @@ def _validate_mcp_approval(
             arguments_sha256=arguments_sha256,
             normalize_arguments_hash=_normalized_approved_hash,
             consume=True,
-            on_validated=_capture_validated_binding,
         )
     except Exception as exc:
         logger.warning(
@@ -664,39 +657,3 @@ def _mcp_result_is_error(result) -> bool:
             and isinstance(result.get("retryable"), bool)
         )
     return False
-
-
-def _record_approved_mcp_receipt(
-    *,
-    approval_token: str,
-    validated_binding: dict[str, str],
-) -> bool:
-    """Persist a short-lived receipt after the exact approved call succeeds."""
-
-    try:
-        from user_interaction.approval_tokens import (
-            make_redis_client,
-            record_mcp_execution_receipt,
-        )
-
-        if validated_binding.get("action_type") != "mcp_mutation":
-            raise ValueError("validated MCP receipt binding is missing")
-        record_mcp_execution_receipt(
-            make_redis_client(os.getenv("APPROVAL_REDIS_URL")),
-            user_id=validated_binding.get("user_id", ""),
-            token=approval_token,
-            server_name=validated_binding.get("server_name", ""),
-            tool_name=validated_binding.get("tool_name", ""),
-            arguments_sha256=validated_binding.get("arguments_sha256", ""),
-        )
-        return True
-    except Exception as exc:
-        # The remote mutation already succeeded. Never turn a receipt-storage
-        # failure into a tool error that could induce the model to retry it.
-        logger.error(
-            "MCP success receipt was not recorded: server=%s tool=%s error_class=%s",
-            validated_binding.get("server_name", "unknown"),
-            validated_binding.get("tool_name", "unknown"),
-            type(exc).__name__,
-        )
-        return False

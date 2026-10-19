@@ -129,3 +129,98 @@ def test_initial_tools_cannot_expand_allowlist_or_ignore_discovery_mode(
         ConfigValidationError, match="function_groups.lights.initial_tools"
     ):
         validate_config(runtime_config, ToolRegistry(runtime_config))
+
+
+def test_retired_tool_type_names_the_function_to_remove(runtime_config):
+    runtime_config["functions"] = {"memory_guard": {"_type": "user_interaction"}}
+    runtime_config["workflow"]["tools"] = ["memory_guard"]
+    with pytest.raises(ConfigValidationError) as caught:
+        validate_config(runtime_config, ToolRegistry(runtime_config))
+
+    detail = describe_validation_error(caught.value)
+    assert "Retired function type user_interaction" in detail
+    assert "functions.memory_guard" in detail
+    assert "Memory Center" in detail
+
+
+def test_unknown_tool_type_is_a_named_configuration_error(runtime_config):
+    runtime_config["functions"] = {
+        "custom": {"_type": "private-test-credential", "token": "x"}
+    }
+    with pytest.raises(ConfigValidationError) as caught:
+        validate_config(runtime_config, ToolRegistry(runtime_config))
+
+    detail = describe_validation_error(caught.value)
+    assert detail == "Unsupported functions.custom._type"
+    assert "private-test-credential" not in detail
+
+
+@pytest.fixture(autouse=True)
+def _retrieval_factories():
+    # Startup imports every factory; register the two retrieval tools here.
+    import nat_nv_ingest.nat_nv_ingest  # noqa: F401
+    import smart_milvus.register  # noqa: F401
+
+
+def _document_tool(runtime_config, **fields):
+    runtime_config["functions"] = {
+        "documents": {"_type": "nat_nv_ingest", **fields},
+    }
+    runtime_config["workflow"]["tools"] = ["documents"]
+    return runtime_config
+
+
+def test_upload_collection_sources_must_agree(runtime_config, monkeypatch):
+    monkeypatch.delenv("DOCUMENT_INGEST_DEFAULT_COLLECTION", raising=False)
+    config = _document_tool(runtime_config, default_collection_name="user_uploads")
+    validate_config(config, ToolRegistry(config))
+    monkeypatch.setenv("DOCUMENT_INGEST_DEFAULT_COLLECTION", "team_uploads")
+    config = _document_tool(runtime_config, default_collection_name=" Team Uploads ")
+    validate_config(config, ToolRegistry(config))
+
+    # HTTP uploads and metadata would use a collection tool search never reads.
+    config = _document_tool(runtime_config)
+    with pytest.raises(ConfigValidationError) as caught:
+        validate_config(config, ToolRegistry(config))
+    detail = describe_validation_error(caught.value)
+    assert "functions.documents.default_collection_name" in detail
+    assert "DOCUMENT_INGEST_DEFAULT_COLLECTION" in detail
+    assert "team_uploads" not in detail
+
+
+@pytest.mark.parametrize("database", ["", " default ", "default"])
+def test_default_milvus_database_is_accepted(runtime_config, monkeypatch, database):
+    monkeypatch.setenv("MILVUS_DATABASE", database)
+    config = _document_tool(runtime_config, database_name=database)
+    validate_config(config, ToolRegistry(config))
+
+
+def test_milvus_database_must_be_the_ingestion_database(runtime_config, monkeypatch):
+    monkeypatch.setenv("MILVUS_DATABASE", "private-database")
+    with pytest.raises(ConfigValidationError) as caught:
+        validate_config(runtime_config, ToolRegistry(runtime_config))
+    detail = describe_validation_error(caught.value)
+    assert detail.startswith("MILVUS_DATABASE must be empty or default")
+    assert "private-database" not in detail
+
+
+@pytest.mark.parametrize(
+    "function",
+    [
+        {"_type": "nat_nv_ingest", "database_name": "custom"},
+        {
+            "_type": "domain_retriever",
+            "uri": "http://milvus.example:19530",
+            "embedding_model": "embedder",
+            "database_name": "custom",
+        },
+    ],
+)
+def test_tool_database_must_be_the_default(runtime_config, monkeypatch, function):
+    monkeypatch.delenv("MILVUS_DATABASE", raising=False)
+    runtime_config["functions"] = {"retrieval": function}
+    with pytest.raises(ConfigValidationError) as caught:
+        validate_config(runtime_config, ToolRegistry(runtime_config))
+    assert "functions.retrieval.database_name" in describe_validation_error(
+        caught.value
+    )

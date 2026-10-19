@@ -13,11 +13,9 @@ import { processDueMemoryRetentions } from '@/server/chat/memoryRetention';
 import {
   acknowledgeDuplicateStreamEntry,
   acknowledgeStreamQueueEntry,
-  acquireStreamLease,
+  acquireStreamLeaseSnapshot,
   claimStaleStreamJobs,
   ensureStreamConsumerGroup,
-  hasBackendRequestStarted,
-  loadStreamQueuePayload,
   markBackendRequestStarted,
   readNewStreamJobs,
   releaseStreamLease,
@@ -27,6 +25,7 @@ import {
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import {
   ApiRouteError,
+  PublicJobError,
   StreamUserCancellationError,
   type AsyncJobRequest,
   type AsyncJobStatus,
@@ -38,6 +37,7 @@ import {
   jsonGet,
   jsonSetWithExpiry,
   sessionKey,
+  streamingStateKey,
 } from '@/server/session/redis';
 import type Redis from 'ioredis';
 import { existsSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -128,7 +128,8 @@ const WORKER_FAILURE_MESSAGE =
 function publicFailureMessage(jobId: string, error: unknown): string {
   if (
     error instanceof StreamUserCancellationError ||
-    error instanceof ApiRouteError
+    error instanceof ApiRouteError ||
+    error instanceof PublicJobError
   ) {
     return error.message;
   }
@@ -197,12 +198,12 @@ export async function processStreamQueueEntry(
   // Redis starts each lease TTL no earlier than the request is sent, so this
   // conservative deadline never outlives the lease actually held in Redis.
   const acquireRequestedAt = Date.now();
-  const acquired = await acquireStreamLease(
+  const snapshot = await acquireStreamLeaseSnapshot(
     entry.jobId,
     ownerToken,
     options.leaseTtlMs,
   );
-  if (!acquired) return 'busy';
+  if (!snapshot) return 'busy';
   let leaseValidUntil = acquireRequestedAt + options.leaseTtlMs;
 
   let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -254,7 +255,9 @@ export async function processStreamQueueEntry(
   };
 
   try {
-    let status = await loadJobStatus(entry.jobId);
+    // One round trip took the lease and read the status, request, start
+    // evidence, stop signal and (for a runnable job) the model payload.
+    let status = snapshot.status;
     if (!status) {
       await acknowledgeStreamQueueEntry(entry);
       return 'missing';
@@ -265,7 +268,7 @@ export async function processStreamQueueEntry(
         : 'finalization_pending';
     }
 
-    let jobRequest = await loadJobRequest(entry.jobId);
+    let jobRequest = snapshot.request;
     if (!jobRequest) {
       await acknowledgeStreamQueueEntry(entry);
       return 'missing';
@@ -276,33 +279,33 @@ export async function processStreamQueueEntry(
     // Document ingestion is queued as `streaming` and relies on the marker.
     const backendStarted =
       (jobRequest.executionMode === 'stream' && status.status !== 'pending') ||
-      (await hasBackendRequestStarted(entry.jobId));
+      snapshot.started;
     // Delivery history belongs to a stream entry, while execution belongs to
     // the job. A retried XADD can create a fresh entry for a started job after
     // its original worker loses the lease; that entry must not replay tools.
     if (backendStarted) {
       // A user stop whose owner lost its lease before finalizing remains the
       // outcome the user asked for, not an interruption.
-      const canceled = Boolean(await jsonGet(abortKey(entry.jobId)));
       await finalizeError(
         entry.jobId,
         jobRequest,
-        canceled ? USER_CANCELLATION_MESSAGE : STARTED_BEFORE_RECLAIM_MESSAGE,
+        snapshot.canceled
+          ? USER_CANCELLATION_MESSAGE
+          : STARTED_BEFORE_RECLAIM_MESSAGE,
       );
       return (await acknowledgeTerminalEntry(entry))
         ? 'recovered_as_error'
         : 'finalization_pending';
     }
 
-    const cancellationRequested = Boolean(await jsonGet(abortKey(entry.jobId)));
-    if (cancellationRequested) {
+    if (snapshot.canceled) {
       await finalizeError(entry.jobId, jobRequest, USER_CANCELLATION_MESSAGE);
       return (await acknowledgeTerminalEntry(entry))
         ? 'completed'
         : 'finalization_pending';
     }
 
-    const payload = await loadStreamQueuePayload(entry.jobId);
+    const payload = snapshot.payload;
     if (jobRequest.executionMode === 'stream' && !payload) {
       await finalizeError(
         entry.jobId,
@@ -324,14 +327,8 @@ export async function processStreamQueueEntry(
     const userGuardKey = userJobGuardKey(jobRequest.userId);
     // Other devices learn about this run from its streaming state; keep it
     // for runs longer than its standalone TTL.
-    const streamingStateKey = jobRequest.conversationId
-      ? sessionKey([
-          'streaming',
-          'user',
-          jobRequest.userId,
-          'conversation',
-          jobRequest.conversationId,
-        ])
+    const streamingKey = jobRequest.conversationId
+      ? streamingStateKey(jobRequest.userId, jobRequest.conversationId)
       : undefined;
     heartbeatTimer = setInterval(() => {
       if (controller.signal.aborted) return;
@@ -342,11 +339,7 @@ export async function processStreamQueueEntry(
       }
       if (heartbeatInFlight) return;
       heartbeatInFlight = true;
-      void renewOwnedLease(
-        conversationGuardKey,
-        userGuardKey,
-        streamingStateKey,
-      )
+      void renewOwnedLease(conversationGuardKey, userGuardKey, streamingKey)
         .then((owned) => {
           if (!owned) abortForLostLease();
         })

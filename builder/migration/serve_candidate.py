@@ -206,7 +206,9 @@ def browser_control(peers, milvus, port, weather):
                     "rename_collections": {"private_collection": physical},
                     "script": script,
                     "reader_authorization": reader_auth,
-                    "reader_database": "synthetic-browser-database",
+                    # Metadata reads the default database, which ingestion
+                    # writes. That database is selected by an empty name.
+                    "reader_database": "",
                     "collections": ["nvidia", "another_private_collection"],
                     "delay": {"Insert": {"seconds": 60, "count": 1}},
                     "mutation_timestamps": {physical: 1234, "meta": 9999},
@@ -375,7 +377,7 @@ with browser_skills() as skills_root, milvus_fixture(
         "NV_INGEST_PORT": str(port),
         "MILVUS_URI": f"http://127.0.0.1:{milvus['port']}",
         "MILVUS_TOKEN": "synthetic-browser-milvus-token",
-        "MILVUS_DATABASE": "synthetic-browser-database",
+        "MILVUS_DATABASE": "default",
         "MILVUS_USERNAME": "synthetic-user",
         "MILVUS_PASSWORD": "synthetic-password",
         "EMBEDDING_DENSE_DIM": "2",

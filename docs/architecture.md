@@ -47,6 +47,13 @@ actions. There is no durable checkpoint/resume of an in-flight Rust agent. See t
 [long-running workflow guide](long-running-workflows.md) for scheduling,
 context bounds and measurement commands.
 
+Finalization saves the conversation, then records that save, releases the
+conversation and chat slot, clears streaming state and publishes completion in
+one Redis commit, so a guard is never released before the save is recorded.
+The same commit queues a completed turn for memory retention; the stream worker
+sends it afterwards with bounded retries, and neither completion nor the next
+turn waits for the memory service.
+
 Each authenticated user can submit up to five chats concurrently across tabs
 and frontend instances. Redis atomically reserves a slot before enqueueing,
 including pending jobs, and the owning worker renews that reservation while
@@ -159,7 +166,7 @@ duplicate command IDs are idempotent, and conflicting reuse is rejected.
 Rust also owns YAML configuration, model/profile selection, inbound history budgeting,
 automatic Hindsight context, tool-output compaction/cache writes and run state.
 Its native clock and MCP clients need no Python tool service. Rust also owns
-Google OAuth, exact-call approvals, execution receipts and per-user sessions.
+Google OAuth, exact-call approvals and per-user sessions.
 Shared protocol types are generated for Rust, TypeScript and Python. The
 [runtime compatibility guide](rust-migration.md)
 describes the compatibility fixtures, remaining Python ownership and rollback.
@@ -181,6 +188,14 @@ fixed event/category labels and parser positions, without conversation content.
 Invalid requests and explicit incomplete responses keep their failure status.
 Repeated malformed responses and exhausted transport retries return explicit
 errors while preserving completed output.
+
+The stream worker always requests SSE. A request without `"stream": true`
+receives one Chat Completions object when the run ends. Its `finish_reason` is
+the streaming terminal reason, such as `mcp_approval_required`, and approval,
+OAuth and applied-steering events are kept in order in `daedalus_events`.
+A failed run returns HTTP 502 with the streamed error message. Use streaming
+for interactive runs: a non-streaming caller sees an OAuth prompt only after
+the run ends.
 
 Hidden reasoning and tool-argument events send content-free SSE activity comments
 at most once every 15 seconds. These keep the frontend's stream idle watchdog

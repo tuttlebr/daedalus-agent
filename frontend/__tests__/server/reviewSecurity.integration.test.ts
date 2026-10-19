@@ -247,7 +247,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         'Interrupted legacy job',
       );
       expect(await redis.jsonGet(ck)).toEqual(original);
-      expect(await state.getFinalizationJournal(jobId)).toMatchObject({
+      expect(
+        JSON.parse((await client.get(state.finalizationJournalKey(jobId)))!),
+      ).toMatchObject({
         state: 'completed',
         conversationSuppressedAt: expect.any(Number),
       });

@@ -16,3 +16,10 @@ repository's ordinary 1 MiB size limit.
 Consumers are the Python independent URL-validation tests and the frontend
 independent persistence and chat-stream tests. Treat expected results as a
 contract, and investigate regressions before changing them.
+
+The finalization journal no longer stores a memory-service receipt in its
+`delivered` phase: the accepted operation is recorded once in the retention
+record, and a later submission never replaces it
+(`frontend/server/chat/memoryRetention.ts`). The frontend persistence test
+therefore compares every phase timestamp, first-value rule and payload in
+`reference.json` but omits the `delivered.receipt` sub-fields.

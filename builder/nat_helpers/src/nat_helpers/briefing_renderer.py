@@ -5,13 +5,13 @@ import json
 import logging
 import os
 import runpy
-import signal
 import sys
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
+from daedalus_runtime.processes import kill_process_group, reap_process
 from daedalus_runtime.tools import (
     ToolConfig,
     ToolDefinition,
@@ -67,7 +67,7 @@ def briefing_input_schema(skill_directory: str):
     """Advertise the canonical nested schema without duplicating its validator.
 
     Keep runtime edition values as dictionaries so one canonical validation pass
-    can return every structural correction instead of NAT rejecting the first.
+    can return every structural correction instead of rejecting only the first.
     """
     root = Path(skill_directory)
     contract = runpy.run_path(str(root / "scripts/edition_contract.py"))
@@ -194,19 +194,22 @@ async def _render_locally(config, edition):
                     stderr=asyncio.subprocess.DEVNULL,
                 )
                 try:
-                    output = await process.stdout.read(65_537)
-                    if len(output) > 65_536:
-                        raise ValueError(
-                            "canonical renderer diagnostic budget exceeded"
-                        )
+                    # read(n) returns as soon as any bytes arrive; a report
+                    # written in several pipe chunks must be read to EOF.
+                    output = bytearray()
+                    while chunk := await process.stdout.read(65_537 - len(output)):
+                        output += chunk
+                        if len(output) > 65_536:
+                            raise ValueError(
+                                "canonical renderer diagnostic budget exceeded"
+                            )
                     await process.wait()
                 finally:
                     if process.returncode is None:
-                        try:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                        await asyncio.shield(process.communicate())
+                        kill_process_group(process)
+                        # communicate() would also wait for a descendant that
+                        # escaped the group kill and still holds stdout.
+                        await asyncio.shield(reap_process(process))
                 report = json.loads(output)
                 if process.returncode != 0 or report.get("passed") is not True:
                     return None, {**report, "validation_stage": argv[0]}

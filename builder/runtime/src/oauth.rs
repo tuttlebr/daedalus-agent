@@ -244,6 +244,15 @@ impl GoogleOAuth {
         lease.write(key, Some(&grant.to_string())).await?;
         Ok(access.into())
     }
+    async fn saved(&self, key: &str) -> Result<Value> {
+        Ok(self
+            .store
+            .get(key)
+            .await?
+            .map(|raw| decode_grant(&raw))
+            .transpose()?
+            .unwrap_or(Value::Null))
+    }
     pub async fn access_token(
         &self,
         user: &str,
@@ -251,6 +260,15 @@ impl GoogleOAuth {
         emit: Option<&Emitter>,
     ) -> Result<Option<String>> {
         let key = token_key(service(config)?, user)?;
+        // A valid grant needs neither the per-grant lock nor the refresh
+        // lease. Writers replace the whole grant, so a concurrent refresh is
+        // read as either the old or the new complete grant. Any read failure
+        // takes the locked path, which reports it as before.
+        if let Ok(saved) = self.saved(&key).await
+            && let Some(access) = usable(&saved)
+        {
+            return Ok(Some(access));
+        }
         let lock = self.locks.get(&key);
         let _lock = if emit.is_some() {
             lock.lock().await
@@ -260,21 +278,15 @@ impl GoogleOAuth {
                 .map_err(|_| anyhow!(IN_USE))?
         };
         {
+            // Single-flight refresh: recheck under the lease, as another task
+            // or process may have refreshed while this one waited.
             let lease = self
                 .store
                 .owned_lease(&format!("{key}/refresh-lock"))
                 .await?;
-            let saved = self
-                .store
-                .get(&key)
-                .await?
-                .map(|raw| decode_grant(&raw))
-                .transpose()?
-                .unwrap_or(Value::Null);
-            if let Some(access) = saved["access_token"].as_str().filter(|s| !s.is_empty())
-                && saved["expires_at"].as_f64().unwrap_or(0.) > now() + 60.
-            {
-                return Ok(Some(access.into()));
+            let saved = self.saved(&key).await?;
+            if let Some(access) = usable(&saved) {
+                return Ok(Some(access));
             }
             if let Some(refresh) = saved["refresh_token"].as_str().filter(|s| !s.is_empty()) {
                 let (status, token) = self
@@ -425,6 +437,14 @@ impl GoogleOAuth {
         self.locks.get(&token_key(service, user).unwrap())
     }
 }
+/// An access token that remains valid for at least another minute.
+fn usable(saved: &Value) -> Option<String> {
+    saved["access_token"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .filter(|_| saved["expires_at"].as_f64().unwrap_or(0.) > now() + 60.)
+        .map(str::to_owned)
+}
 fn field(config: &Value, key: &str) -> String {
     config[key].as_str().unwrap_or("").into()
 }
@@ -488,6 +508,78 @@ mod tests {
                 .callback("cancelled", Some("synthetic-code"), None)
                 .is_err()
         );
+    }
+    /// RESP2 peer holding a valid grant while another process owns the
+    /// refresh lease: every lease attempt (SET NX) is refused.
+    async fn leased_redis(
+        grant: String,
+    ) -> (
+        String,
+        Arc<std::sync::Mutex<Vec<String>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("redis://{}", listener.local_addr().unwrap());
+        let commands = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = commands.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let (seen, grant) = (seen.clone(), grant.clone());
+                tokio::spawn(async move {
+                    let (read, mut write) = stream.into_split();
+                    let mut read = tokio::io::BufReader::new(read);
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        if read.read_line(&mut line).await.unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let count: usize = line.trim_end()[1..].parse().unwrap();
+                        let mut args = Vec::new();
+                        for _ in 0..count {
+                            line.clear();
+                            read.read_line(&mut line).await.unwrap();
+                            let length: usize = line.trim_end()[1..].parse().unwrap();
+                            let mut data = vec![0; length + 2];
+                            read.read_exact(&mut data).await.unwrap();
+                            data.truncate(length);
+                            args.push(String::from_utf8(data).unwrap());
+                        }
+                        let command = args[0].to_ascii_uppercase();
+                        let reply = match command.as_str() {
+                            "GET" => format!("${}\r\n{grant}\r\n", grant.len()),
+                            "SET" => "$-1\r\n".into(),
+                            _ => "+OK\r\n".into(),
+                        };
+                        seen.lock().unwrap().push(command);
+                        write.write_all(reply.as_bytes()).await.unwrap();
+                    }
+                });
+            }
+        });
+        (url, commands, task)
+    }
+    #[tokio::test]
+    async fn a_valid_grant_is_read_without_waiting_for_the_refresh_lease() {
+        let grant = json!({"version":2,"access_token":"synthetic-access",
+            "refresh_token":"synthetic-refresh","scope":"","expires_at":now() + 3600.})
+        .to_string();
+        let (url, commands, peer) = leased_redis(grant).await;
+        let mut config = config();
+        config.env.insert("REDIS_URL".into(), url);
+        let oauth = GoogleOAuth::new(&config).unwrap();
+        let mcp = json!({"server_url":"https://gmailmcp.googleapis.com/mcp"});
+        let token = tokio::time::timeout(
+            Duration::from_secs(5),
+            oauth.access_token("alice", &mcp, None),
+        )
+        .await
+        .expect("a valid grant must not wait for another process's refresh");
+        assert_eq!(token.unwrap().as_deref(), Some("synthetic-access"));
+        assert!(!commands.lock().unwrap().iter().any(|c| c == "SET"));
+        peer.abort();
     }
     #[test]
     fn oauth_endpoint_and_malformed_grant_validation_is_redacted() {

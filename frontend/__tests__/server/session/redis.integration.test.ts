@@ -198,5 +198,130 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         get.mockRestore();
       }
     });
+
+    describe('field-limited ownership reads', () => {
+      const history = Array.from({ length: 200 }, (_, index) => ({
+        id: `m${index}`,
+        role: index % 2 ? 'assistant' : 'user',
+        content: 'x'.repeat(2_000),
+        // Nested owner-like keys must never be mistaken for the record's.
+        metadata: { ownerId: 'mallory', userId: 'mallory' },
+      }));
+
+      it.each(['string', 'json', 'absent'])(
+        'reads only the requested request fields from a %s record',
+        async (format) => {
+          const { readJsonFields } = await import(
+            '@/server/session/redisShared'
+          );
+          const target = key(prefix, 'request', format);
+          const request = {
+            jobId: 'job-1',
+            messages: history,
+            userId: 'alice',
+            executionMode: 'stream',
+            natBaseUrl: 'http://backend:8000',
+          };
+          if (format === 'string')
+            await client.set(target, JSON.stringify(request));
+          if (format === 'json')
+            await client.call('JSON.SET', target, '$', JSON.stringify(request));
+          const fields = await readJsonFields<typeof request>(client, target, [
+            'userId',
+            'executionMode',
+            'timezone' as any,
+          ]);
+          expect(fields).toEqual(
+            format === 'absent'
+              ? null
+              : { userId: 'alice', executionMode: 'stream' },
+          );
+          const single = await readJsonFields<typeof request>(client, target, [
+            'userId',
+          ]);
+          expect(single).toEqual(
+            format === 'absent' ? null : { userId: 'alice' },
+          );
+        },
+      );
+
+      it('binds identity first so the owner is read from the record head', async () => {
+        const { saveConversationForUser } = await import(
+          '@/server/session/conversationStore'
+        );
+        const { readConversationOwner } = await import(
+          '@/server/session/redisShared'
+        );
+        const id = `${prefix}-owned`;
+        key('conversation', id);
+        key('user', prefix, 'conversations');
+        await saveConversationForUser(
+          prefix,
+          id,
+          () => ({
+            name: 'Owned',
+            messages: history,
+            ownerId: 'spoofed',
+            id: 'spoofed-id',
+          }),
+          true,
+        );
+        const raw = await client.get(redis.sessionKey(['conversation', id]));
+        expect(raw!.startsWith(`{"id":"${id}","ownerId":"${prefix}",`)).toBe(
+          true,
+        );
+        const { recordRedisLayers } = await import(
+          '../../fixtures/redisLayers'
+        );
+        // The first read may send the script body once; later reads send its
+        // digest only.
+        await readConversationOwner(client, prefix, id);
+        const recorder = recordRedisLayers(client);
+        try {
+          await expect(
+            readConversationOwner(client, prefix, id),
+          ).resolves.toEqual({ member: true, ownerId: prefix });
+        } finally {
+          recorder.stop();
+        }
+        // One round trip; the reply is the owner, not the history.
+        expect(
+          recorder.steady().map((command) => [command.name, command.tag]),
+        ).toEqual([['EVALSHA', 'READ_CONVERSATION_OWNER']]);
+        expect(recorder.steady()[0].replyBytes).toBeLessThan(200);
+        await expect(
+          readConversationOwner(client, 'someone-else', id),
+        ).resolves.toEqual({ member: false, ownerId: null });
+      });
+
+      it.each(['legacy order', 'json', 'missing'])(
+        'reads the owner of a %s conversation record',
+        async (format) => {
+          const { readConversationOwner } = await import(
+            '@/server/session/redisShared'
+          );
+          const id = `${prefix}-${format.replace(' ', '-')}`;
+          const target = key('conversation', id);
+          await client.sadd(key('user', prefix, 'conversations'), id);
+          // Older saves appended the identity after the history.
+          const record = {
+            name: 'Legacy',
+            messages: history,
+            id,
+            ownerId: 'bob',
+          };
+          if (format === 'legacy order')
+            await client.set(target, JSON.stringify(record));
+          if (format === 'json')
+            await client.call('JSON.SET', target, '$', JSON.stringify(record));
+          await expect(
+            readConversationOwner(client, prefix, id),
+          ).resolves.toEqual({
+            member: true,
+            ownerId: format === 'missing' ? null : 'bob',
+          });
+        },
+      );
+    });
   },
 );

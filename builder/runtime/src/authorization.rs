@@ -288,7 +288,7 @@ pub fn token_key(user: &str, token: &str) -> String {
     format!("approval:{}:{}", safe_user(user), token.trim())
 }
 pub enum Gate {
-    Allowed(Option<Value>),
+    Allowed,
     Denied(String, bool),
 }
 
@@ -460,7 +460,7 @@ impl Approvals {
         annotations: &Value,
     ) -> Gate {
         if self.policies.allowed(server, tool, args, annotations) {
-            return Gate::Allowed(None);
+            return Gate::Allowed;
         }
         if self.policies.read_only(server, tool) {
             // The direct-execution route deliberately rejects read-only tools.
@@ -497,7 +497,7 @@ impl Approvals {
         digest: &str,
     ) -> Gate {
         match self.validate(user, token, server, tool, digest, true).await {
-            Ok(binding) => Gate::Allowed(Some(binding)),
+            Ok(_) => Gate::Allowed,
             Err(error) => {
                 let message = error.to_string();
                 Gate::Denied(
@@ -509,27 +509,6 @@ impl Approvals {
                     false,
                 )
             }
-        }
-    }
-    pub async fn receipt(&self, token: &str, binding: &Value) {
-        let mut receipt = json!({"action_type":"mcp_mutation","created_at":now() as u64});
-        for key in ["user_id", "server_name", "tool_name", "arguments_sha256"] {
-            receipt[key] = binding[key].clone();
-        }
-        if self
-            .store
-            .set(
-                &format!("approval-receipt:{}", hash(token.trim())),
-                &ascii_json(&receipt),
-                7200,
-            )
-            .await
-            .is_err()
-        {
-            tracing::error!(
-                event = "mcp_receipt_unavailable",
-                remote_outcome = "confirmed_success"
-            );
         }
     }
 }

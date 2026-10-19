@@ -9,6 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   store: new Map<string, any>(),
+  acquireStreamLeaseSnapshot: vi.fn(),
+  // These knobs model parts of the snapshot script: whether the lease is
+  // free, whether start evidence exists, and the stored model payload.
   acquireStreamLease: vi.fn(),
   acknowledgeStreamQueueEntry: vi.fn(),
   acknowledgeDuplicateStreamEntry: vi.fn(),
@@ -43,11 +46,9 @@ vi.mock('@/server/chat/conversationJobGuard', () => ({
 vi.mock('@/server/chat/streamQueue', () => ({
   acknowledgeDuplicateStreamEntry: mocks.acknowledgeDuplicateStreamEntry,
   acknowledgeStreamQueueEntry: mocks.acknowledgeStreamQueueEntry,
-  acquireStreamLease: mocks.acquireStreamLease,
+  acquireStreamLeaseSnapshot: mocks.acquireStreamLeaseSnapshot,
   claimStaleStreamJobs: mocks.claimStaleStreamJobs,
   ensureStreamConsumerGroup: vi.fn(),
-  hasBackendRequestStarted: mocks.hasBackendRequestStarted,
-  loadStreamQueuePayload: mocks.loadStreamQueuePayload,
   markBackendRequestStarted: mocks.markBackendRequestStarted,
   readNewStreamJobs: mocks.readNewStreamJobs,
   releaseStreamLease: mocks.releaseStreamLease,
@@ -78,6 +79,8 @@ vi.mock('@/server/session/redis', () => ({
     mocks.store.set(key, value);
   }),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
+  streamingStateKey: (userId: string, conversationId: string) =>
+    `daedalus:streaming:user:${userId}:conversation:${conversationId}`,
 }));
 
 vi.mock('@/server/chat/memoryRetention', () => ({
@@ -147,6 +150,48 @@ describe('durable stream worker entry processing', () => {
     vi.clearAllMocks();
     mocks.store.clear();
     seedRunningJob();
+    // Mirrors ACQUIRE_STREAM_LEASE_SNAPSHOT: lease first, then the records;
+    // a terminal job reads nothing more, and only a job with no start
+    // evidence or stop signal reads its payload.
+    mocks.acquireStreamLeaseSnapshot.mockImplementation(
+      async (jobId: string) => {
+        if (!(await mocks.acquireStreamLease(jobId))) return null;
+        const status = mocks.store.get(`daedalus:async-job-status:${jobId}`);
+        if (!status)
+          return {
+            status: null,
+            request: null,
+            payload: null,
+            started: false,
+            canceled: false,
+          };
+        if (
+          status.finalizedAt !== undefined ||
+          ['completed', 'error'].includes(status.status)
+        )
+          return {
+            status,
+            request: null,
+            payload: null,
+            started: false,
+            canceled: false,
+          };
+        const request =
+          mocks.store.get(`daedalus:async-job-request:${jobId}`) ?? null;
+        const started = Boolean(await mocks.hasBackendRequestStarted(jobId));
+        const canceled = mocks.store.has(`daedalus:async-job-abort:${jobId}`);
+        return {
+          status,
+          request,
+          payload:
+            request && !started && !canceled
+              ? await mocks.loadStreamQueuePayload(jobId)
+              : null,
+          started,
+          canceled,
+        };
+      },
+    );
     mocks.acquireStreamLease.mockResolvedValue(true);
     mocks.acknowledgeStreamQueueEntry.mockResolvedValue(undefined);
     mocks.acknowledgeDuplicateStreamEntry.mockResolvedValue(undefined);

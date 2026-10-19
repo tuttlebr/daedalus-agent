@@ -17,7 +17,6 @@
  * @requires zustand - Run: npm install zustand
  */
 import { dedupeConversationsById } from '@/utils/app/conversationList';
-import type { RevisionedConversation } from '@/utils/app/conversationRevision';
 import { Logger } from '@/utils/logger';
 
 import { Conversation, Message } from '@/types/chat';
@@ -223,7 +222,7 @@ export const useConversationStore = create<ConversationStore>()(
         set((state) => {
           const conversation = state.conversations.find(
             (c: Conversation) => c.id === id,
-          ) as RevisionedConversation | undefined;
+          );
           if (conversation && replaced.includes(conversation.revision ?? null))
             conversation.revision = revision;
         });

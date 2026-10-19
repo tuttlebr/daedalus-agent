@@ -10,6 +10,14 @@ use http::HeaderMap;
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+/// Total deadline for the loopback Python tool catalogue, including the body.
+/// The shared client bounds only connection setup. This matches Rust MCP
+/// discovery's 15-second connection deadline, plus margin for first use.
+#[cfg(not(test))]
+const CATALOGUE_TIMEOUT: Duration = Duration::from_secs(20);
+#[cfg(test)]
+const CATALOGUE_TIMEOUT: Duration = Duration::from_secs(1);
+
 pub struct Preparation {
     pub config: Config,
     pub profile_import_max: i64,
@@ -511,6 +519,7 @@ impl Preparation {
                 return Ok(HashMap::new());
             }
             http.post(format!("{tools_url}/runtime/v1/catalog"))
+                .timeout(CATALOGUE_TIMEOUT)
                 .headers(headers.clone())
                 .json(&json!({"version":1,"names":external}))
                 .send()
@@ -723,6 +732,45 @@ mod tests {
         .expect("catalogue failure must cancel pending memory preparation");
         peer.abort();
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn an_unresponsive_catalogue_ends_preparation_at_its_deadline() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new().route(
+            "/runtime/v1/catalog",
+            post(std::future::pending::<Json<Value>>),
+        );
+        let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let config = Config::new(
+            json!({
+                "llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
+                "functions":{"feed":{"_type":"rss_feed"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["feed"]}
+            }),
+            [
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+                ("DAEDALUS_MEMORY_MODE".into(), "disabled".into()),
+            ]
+            .into(),
+        )
+        .unwrap();
+        let preparation = Preparation::new(config).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user-id", "fixture-user".parse().unwrap());
+        let body = json!({"messages":[{"role":"user","content":"Read my feeds"}]});
+        let started = tokio::time::Instant::now();
+        // Without a total deadline, preparation waits for the run deadline.
+        let result = tokio::time::timeout(
+            CATALOGUE_TIMEOUT * 5,
+            preparation.prepare(&reqwest::Client::new(), &base, &headers, &body),
+        )
+        .await
+        .expect("an unresponsive catalogue must end preparation at its own deadline");
+        peer.abort();
+        assert!(result.is_err());
+        assert!(started.elapsed() >= CATALOGUE_TIMEOUT);
     }
 
     /// Python catalogue plus one deferred group with initial tools and one

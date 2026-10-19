@@ -49,6 +49,39 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
     let jobs: typeof import('@/server/chat/jobState');
     let stream: typeof import('@/server/chat/streamState');
     let client: ReturnType<typeof redis.getRedis>;
+
+    // Durable journal contents, as written.
+    const journalOf = async (job: string) => {
+      const raw = await client.get(jobs.finalizationJournalKey(job));
+      return raw ? JSON.parse(raw) : null;
+    };
+    const claimTerminal = async (
+      ...args: Parameters<typeof jobs.claimTerminalJobStatus>
+    ) => (await jobs.claimTerminalJobStatus(...args)).claimed;
+    const markPhases = (
+      job: string,
+      finalizationId: string,
+      phases: any[],
+      at: number,
+    ) =>
+      jobs.updateFinalizationJournal(
+        job,
+        finalizationId,
+        () => ({ phases }),
+        at,
+      );
+    const publishEvents = (
+      job: string,
+      finalizationId: string,
+      events: Array<{ channel: string; payload: string }>,
+      at: number,
+    ) =>
+      jobs.updateFinalizationJournal(
+        job,
+        finalizationId,
+        () => ({ events }),
+        at,
+      );
     const keys = new Set<string>();
     let serial = 0;
     const id = () => `independent-${process.pid}-${serial++}`;
@@ -315,33 +348,31 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         payload: reference.finalization.payload,
       });
     };
+    // Finalization no longer journals a memory service receipt: the write
+    // that records the delivered phase queues the retention submission, and
+    // its accepted operation lives in the retention record
+    // (server/chat/memoryRetention.ts). The reference's receipt therefore has
+    // no journal field to compare; every phase expectation still applies.
     const applyPhase = async (jobId: string, operation: any) => {
       const finalizationId = operation.finalization_id ?? 'f71';
-      await jobs.markFinalizationPhases(
+      await markPhases(
         jobId,
         finalizationId,
         [phaseFields[operation.phase]],
         operation.value.at,
       );
-      if (operation.value.receipt) {
-        await jobs.setMemoryRetentionReceipt(jobId, finalizationId, {
-          operationId: operation.value.receipt.id,
-          acceptedAt: operation.value.at,
-          empty: operation.value.receipt.empty,
-        } as any);
-      }
+    };
+    const withoutReceipt = (expected: any) => {
+      const copy = structuredClone(expected);
+      if (copy.phases?.delivered) delete copy.phases.delivered.receipt;
+      return copy;
     };
     const readJournal = async (jobId: string) => {
-      const stored: any = await jobs.getFinalizationJournal(jobId);
+      const stored: any = await journalOf(jobId);
       const phases: any = {};
       for (const [name, field] of Object.entries(phaseFields)) {
         if (stored[field] !== undefined) phases[name] = { at: stored[field] };
       }
-      if (stored.memoryRetention)
-        phases.delivered.receipt = {
-          id: stored.memoryRetention.operationId,
-          empty: stored.memoryRetention.empty,
-        };
       return {
         finalization_id: stored.finalizationId,
         outcome: stored.outcome === 'completed' ? 'success' : 'failure',
@@ -354,7 +385,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       await seedJournal(jobId);
       for (const operation of reference.finalization.phase_operations) {
         await applyPhase(jobId, operation);
-        expect(await readJournal(jobId)).toEqual(operation.expect.stored);
+        expect(await readJournal(jobId)).toEqual(
+          withoutReceipt(operation.expect.stored),
+        );
       }
     });
     it.each<Record<string, any>>(reference.finalization.phase_races)(
@@ -367,7 +400,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
             applyPhase(jobId, operation),
           ),
         );
-        expect(await readJournal(jobId)).toEqual(scenario.expect);
+        expect(await readJournal(jobId)).toEqual(
+          withoutReceipt(scenario.expect),
+        );
       },
     );
     it.each<Record<string, any>>(reference.finalization.publication_schedules)(
@@ -383,7 +418,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         try {
           for (const operation of scenario.operations) {
             const error = await withFault(operation.fault, () =>
-              jobs.publishFinalizationEvents(
+              publishEvents(
                 jobId,
                 'f71',
                 [{ channel, payload: 'one completion' }],
@@ -395,7 +430,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
             else expect(error).toBeNull();
             await observer.ping();
             expect(published.length).toBe(operation.expect.publications);
-            const journal = await jobs.getFinalizationJournal(jobId);
+            const journal = await journalOf(jobId);
             expect(journal?.eventsPublishedAt !== undefined).toBe(
               operation.expect.phase_recorded,
             );
@@ -518,19 +553,15 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
           for (const operation of scenario.operations) {
             if (operation.op === 'finish') {
               const patch = encodeJob(operation.patch);
-              const applied = await jobs.claimTerminalJobStatus(
+              const applied = await claimTerminal(jobId, patch as any, {
+                version: 1,
+                state: 'pending',
                 jobId,
-                patch as any,
-                {
-                  version: 1,
-                  state: 'pending',
-                  jobId,
-                  userId: 'alice',
-                  finalizationId: operation.patch.finalization_id,
-                  outcome: patch.status,
-                  finalizedAt: patch.finalizedAt,
-                },
-              );
+                userId: 'alice',
+                finalizationId: operation.patch.finalization_id,
+                outcome: patch.status,
+                finalizedAt: patch.finalizedAt,
+              });
               expect(applied).toBe(operation.expect.result === 'applied');
               claimed ||= applied;
             } else if (operation.op === 'callback') {
@@ -543,7 +574,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
             expect(decodeJob(await raw(key, json))).toEqual(
               operation.expect.stored,
             );
-            const journal = await jobs.getFinalizationJournal(jobId);
+            const journal = await journalOf(jobId);
             expect(Boolean(journal)).toBe(claimed);
             if (journal) {
               expect(decodeJob(journal.terminalStatus)).toEqual(

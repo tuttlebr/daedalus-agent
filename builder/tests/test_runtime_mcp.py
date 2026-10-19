@@ -76,7 +76,7 @@ def test_mcp_transport_is_closed_in_its_owning_task(monkeypatch, abort, duplicat
     ]
 
 
-def test_failed_mutation_is_never_replayed_and_only_success_gets_receipt(monkeypatch):
+def test_failed_mutation_is_never_replayed(monkeypatch):
     config = {
         "function_groups": {
             "fixture": {"server": {"url": "https://fixture.invalid/mcp"}}
@@ -97,21 +97,14 @@ def test_failed_mutation_is_never_replayed_and_only_success_gets_receipt(monkeyp
             )
         },
     )
-    receipt = []
 
     def allowed(*args, **kwargs):
-        kwargs["validated_binding"]["exact"] = True
         return True, ""
 
     monkeypatch.setattr(
         mcp, "trusted_request_header_from_context", lambda _: "fixture-token"
     )
     monkeypatch.setattr(mcp.approval, "_validate_mcp_approval", allowed)
-    monkeypatch.setattr(
-        mcp.approval,
-        "_record_approved_mcp_receipt",
-        lambda **kwargs: receipt.append(kwargs),
-    )
 
     async def scenario():
         manager = mcp.MCPManager(config, SimpleNamespace())
@@ -120,7 +113,6 @@ def test_failed_mutation_is_never_replayed_and_only_success_gets_receipt(monkeyp
         assert result["is_error"] and "unknown" in result["content"]
         assert session.call_tool.await_count == 1
         assert connection.close.await_count == 1
-        assert not receipt
         session.call_tool.side_effect = None
         session.call_tool.return_value = SimpleNamespace(
             isError=True, model_dump_json=lambda **_: '{"isError":true}'
@@ -128,14 +120,13 @@ def test_failed_mutation_is_never_replayed_and_only_success_gets_receipt(monkeyp
         assert (await manager.call("fixture__write", {}, "alice", AsyncMock()))[
             "is_error"
         ]
-        assert not receipt
         session.call_tool.return_value = SimpleNamespace(
             isError=False, model_dump_json=lambda **_: '{"isError":false}'
         )
         assert not (await manager.call("fixture__write", {}, "alice", AsyncMock()))[
             "is_error"
         ]
-        assert len(receipt) == 1
+        assert session.call_tool.await_count == 3
 
     asyncio.run(scenario())
 

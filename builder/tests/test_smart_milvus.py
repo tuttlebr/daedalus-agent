@@ -155,7 +155,7 @@ class TestWrapMilvusResults:
 
 
 class TestMilvusRetrieverConstruction:
-    def _make_retriever(self, database_name=None):
+    def _make_retriever(self):
         mock_client = MagicMock()
         mock_client.list_collections.return_value = ["test_collection"]
         mock_embedder = MagicMock()
@@ -163,16 +163,11 @@ class TestMilvusRetrieverConstruction:
             client=mock_client,
             embedder=mock_embedder,
             content_field="text",
-            database_name=database_name,
         )
 
     def test_basic_construction(self):
         retriever = self._make_retriever()
         assert retriever.content_field == "text"
-
-    def test_database_name_stored(self):
-        retriever = self._make_retriever(database_name="mydb")
-        assert retriever._database_name == "mydb"
 
 
 # ---------------------------------------------------------------------------
@@ -325,8 +320,9 @@ class TestSearchTimeout:
 
 
 class TestSingleListCollectionsRoundTrip:
-    def _make_retriever(self, database_name=None):
+    def _make_retriever(self):
         client = MagicMock()
+        # MilvusClient lists unqualified names within its own database.
         client.list_collections.return_value = ["col"]
         client.describe_collection.return_value = {
             "fields": [{"name": "text"}, {"name": "vector"}]
@@ -338,51 +334,24 @@ class TestSingleListCollectionsRoundTrip:
             client=client,
             embedder=embedder,
             content_field="text",
-            database_name=database_name,
         )
         return retriever, client
 
-    def test_default_db_calls_list_collections_once(self):
+    def test_search_calls_list_collections_once_with_the_listed_name(self):
         retriever, client = self._make_retriever()
         asyncio.run(retriever.search(query="q", collection_name="col", top_k=3))
         assert client.list_collections.call_count == 1
+        assert client.describe_collection.call_args.args[0] == "col"
+        assert client.search.call_args.kwargs["collection_name"] == "col"
 
-    def test_non_default_db_calls_list_collections_once(self):
-        retriever, client = self._make_retriever(database_name="mydb")
-        # Collection exists under the database prefix.
-        client.list_collections.return_value = ["mydb.col"]
-        asyncio.run(retriever.search(query="q", collection_name="col", top_k=3))
-        assert client.list_collections.call_count == 1
-        # Resolved name carries the database prefix.
-        assert client.search.call_args.kwargs["collection_name"] == "mydb.col"
-
-    def test_resolve_collection_returns_exists_and_name(self):
+    def test_collection_exists(self):
         retriever, _ = self._make_retriever()
-        exists, name = asyncio.run(retriever._resolve_collection("col"))
-        assert exists is True
-        assert name == "col"
+        assert asyncio.run(retriever._collection_exists("col")) is True
 
-    def test_resolve_collection_missing(self):
+    def test_collection_missing(self):
         retriever, client = self._make_retriever()
         client.list_collections.return_value = []
-        exists, name = asyncio.run(retriever._resolve_collection("nope"))
-        assert exists is False
-        assert name == "nope"
-
-    def test_resolve_collection_prefixed_db(self):
-        retriever, client = self._make_retriever(database_name="mydb")
-        client.list_collections.return_value = ["mydb.col"]
-        exists, name = asyncio.run(retriever._resolve_collection("col"))
-        assert exists is True
-        assert name == "mydb.col"
-
-    def test_resolve_collection_unprefixed_in_db(self):
-        retriever, client = self._make_retriever(database_name="mydb")
-        # Only the unprefixed form exists.
-        client.list_collections.return_value = ["col"]
-        exists, name = asyncio.run(retriever._resolve_collection("col"))
-        assert exists is True
-        assert name == "col"
+        assert asyncio.run(retriever._collection_exists("nope")) is False
 
 
 # ---------------------------------------------------------------------------

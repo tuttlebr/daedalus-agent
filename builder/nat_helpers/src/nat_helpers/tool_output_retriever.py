@@ -1,4 +1,4 @@
-"""NAT tool for exact recovery of reversibly compacted tool output."""
+"""Python tool for exact recovery of reversibly compacted tool output."""
 
 import json
 import logging

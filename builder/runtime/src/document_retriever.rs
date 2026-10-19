@@ -121,7 +121,7 @@ pub struct Retriever {
     client: milvus::Client,
     embedder: Arc<embeddings::Client>,
     settings: Value,
-    collections: Cache<(bool, String)>,
+    collections: Cache<bool>,
     schemas: Cache<Vec<String>>,
     slots: tokio::sync::Semaphore,
     reranker: crate::document_reranker::Client,
@@ -174,11 +174,13 @@ impl Retriever {
         };
         Failure::new(class)
     }
-    async fn resolve(
+    /// Whether the client's database lists this collection. Milvus lists
+    /// unqualified names within that database.
+    async fn exists(
         &self,
         collection: &str,
         deadline: Option<tokio::time::Instant>,
-    ) -> Result<(bool, String), Failure> {
+    ) -> Result<bool, Failure> {
         if let Some(value) = self.collections.get(collection) {
             return Ok(value);
         }
@@ -193,14 +195,8 @@ impl Retriever {
                 .await
                 .map_err(|e| self.read_failure(e, false, deadline))?
         };
-        let database = self.settings["database_name"].as_str().unwrap_or_default();
-        let prefixed = format!("{database}.{collection}");
-        let value = if !database.is_empty() && database != "default" && listed.contains(&prefixed) {
-            (true, prefixed)
-        } else {
-            (listed.iter().any(|v| v == collection), collection.into())
-        };
-        self.collections.insert(collection, value.clone());
+        let value = listed.iter().any(|v| v == collection);
+        self.collections.insert(collection, value);
         Ok(value)
     }
     async fn fields(
@@ -263,11 +259,10 @@ impl Retriever {
         input: &Value,
         deadline: Option<tokio::time::Instant>,
     ) -> Result<Vec<Document>, Failure> {
-        let (exists, collection) = self.resolve(collection, deadline).await?;
-        if !exists {
+        if !self.exists(collection, deadline).await? {
             return Err(Failure::new("CollectionNotFoundError"));
         }
-        let fields = self.fields(&collection, deadline).await?;
+        let fields = self.fields(collection, deadline).await?;
         let content = self.settings["content_field"].as_str().unwrap();
         let vector = self.settings["vector_field"].as_str().unwrap();
         if !fields.iter().any(|v| v == content) || !fields.iter().any(|v| v == vector) {
@@ -300,7 +295,7 @@ impl Retriever {
         let args = json!({"collection_name":collection,"output_fields":output,"anns_field":vector,"filter":input["filters"],"limit":limit,"search_params":params});
         let result = {
             let _slot = self.slots.acquire().await.expect("retriever slots");
-            let timestamp = self.client.mutation_timestamp(&collection);
+            let timestamp = self.client.mutation_timestamp(collection);
             match milvus_search::request(&args, &[embedded], timestamp) {
                 Ok(request) => milvus_search::search(&mut self.read_client(), request).await,
                 Err(error) => Err(error),

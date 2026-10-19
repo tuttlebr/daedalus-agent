@@ -88,6 +88,18 @@ export interface StreamFailureSnapshot {
   persistedStepCount: number;
 }
 
+/**
+ * An error whose message was written for users. Saved chat errors and job
+ * statuses keep only these messages; anything else (Redis, network or
+ * provider diagnostics) is logged server-side and saved as a fixed message.
+ */
+export class PublicJobError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PublicJobError';
+  }
+}
+
 export class StreamUserCancellationError extends Error {
   snapshot?: StreamFailureSnapshot;
 

@@ -300,7 +300,7 @@ def test_chat_runtime_schema_options_description_and_no_second_model_call(monkey
 
     planner = AsyncMock(side_effect=AssertionError("chat must not call planner"))
     monkeypatch.setattr(mod, "_plan_brief", planner)
-    monkeypatch.setattr(visual, "resolve_authenticated_user_id", lambda *_: "alice")
+    monkeypatch.setattr(visual, "resolve_authenticated_user_id", lambda: "alice")
     monkeypatch.setattr(visual.AsyncOpenAI.return_value, "close", AsyncMock())
     generate = AsyncMock(
         return_value=[SimpleNamespace(b64_json="aW1n", mime_type="image/png")]

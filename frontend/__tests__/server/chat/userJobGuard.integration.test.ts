@@ -134,8 +134,8 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       await guard.acquireUserJobGuard(user, jobId, client);
       await client.zadd(key, 0, jobId);
       expect(
-        await queue.acquireStreamLease(jobId, 'owner', 30000, client),
-      ).toBe(true);
+        await queue.acquireStreamLeaseSnapshot(jobId, 'owner', 30000, client),
+      ).not.toBeNull();
       expect(
         await queue.renewStreamLease(
           jobId,

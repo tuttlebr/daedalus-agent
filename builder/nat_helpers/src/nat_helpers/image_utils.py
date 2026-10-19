@@ -1,4 +1,4 @@
-"""Shared utilities for image-related NAT functions.
+"""Shared utilities for image-related Python tools.
 
 Provides Redis storage/retrieval for uploaded and generated media,
 plus reference parsing.

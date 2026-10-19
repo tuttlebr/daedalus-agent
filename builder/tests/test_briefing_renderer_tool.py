@@ -619,3 +619,86 @@ def test_malformed_edition_does_not_fetch_photos_before_correction(
             fetcher.assert_not_awaited()
 
     asyncio.run(scenario())
+
+
+def test_local_render_deadline_returns_while_an_escaped_descendant_holds_stdout(
+    tmp_path,
+):
+    """A setsid + fork descendant survives the group kill with stdout open.
+
+    Local recovery must end at its deadline instead of waiting for that
+    descendant to close the pipe, as communicate() would.
+    """
+    import os
+    import time
+
+    from nat_helpers.briefing_renderer import _RESOURCES, _render_locally
+
+    marker = tmp_path / "escaped.pid"
+    skill = tmp_path / "skill"
+    for relative in _RESOURCES.values():
+        (skill / relative).parent.mkdir(parents=True, exist_ok=True)
+        (skill / relative).write_text("{}", encoding="utf-8")
+    (skill / _RESOURCES["render_daybook.py"]).write_text(
+        "import os, time\n"
+        "if os.fork() == 0:\n"
+        "    os.setsid()\n"
+        f"    open({str(marker)!r}, 'w').write(str(os.getpid()))\n"
+        "    time.sleep(10)\n"
+        "    os._exit(0)\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    config = BriefingRendererConfig.model_construct(
+        skill_directory=str(skill), timeout_seconds=1, max_edition_bytes=1_000_000
+    )
+
+    async def render():
+        # Bound a regression here instead of hanging the suite.
+        async with asyncio.timeout(5):
+            await _render_locally(config, edition())
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError):
+            asyncio.run(render())
+        elapsed = time.monotonic() - started
+    finally:
+        if marker.exists():
+            try:
+                os.kill(int(marker.read_text()), 9)
+            except (ProcessLookupError, ValueError):
+                pass
+
+    assert marker.exists()
+    assert elapsed < 3, elapsed
+
+
+def test_local_render_reads_a_report_written_in_several_chunks(tmp_path):
+    from nat_helpers.briefing_renderer import _RESOURCES, _render_locally
+
+    skill = tmp_path / "skill"
+    for relative in _RESOURCES.values():
+        (skill / relative).parent.mkdir(parents=True, exist_ok=True)
+        (skill / relative).write_text("{}", encoding="utf-8")
+    # A diagnostic larger than one pipe read, flushed in separate writes.
+    (skill / _RESOURCES["render_daybook.py"]).write_text(
+        "import json, sys, time\n"
+        "text = json.dumps({'passed': False, 'errors': ['x' * 40000]})\n"
+        "for start in range(0, len(text), 1000):\n"
+        "    sys.stdout.write(text[start:start + 1000])\n"
+        "    sys.stdout.flush()\n"
+        "    time.sleep(0.001)\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    config = BriefingRendererConfig.model_construct(
+        skill_directory=str(skill), timeout_seconds=10, max_edition_bytes=1_000_000
+    )
+
+    html, report = asyncio.run(_render_locally(config, edition()))
+
+    assert html is None
+    assert report["passed"] is False
+    assert report["errors"] == ["x" * 40000]
+    assert report["validation_stage"] == "render_daybook.py"

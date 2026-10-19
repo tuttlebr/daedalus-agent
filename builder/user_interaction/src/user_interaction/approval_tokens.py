@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import secrets
 import time
 from collections.abc import Callable
@@ -21,10 +20,6 @@ except Exception:  # pragma: no cover
 
 DEFAULT_APPROVAL_TTL_SECONDS = 300
 DEFAULT_PENDING_APPROVAL_TTL_SECONDS = 7 * 24 * 60 * 60
-# Execution credentials remain short lived, but a success receipt may be
-# written early in a backend request that is allowed to run for one hour. Keep
-# proof long enough for that request plus retry/recovery margin.
-DEFAULT_MCP_RECEIPT_TTL_SECONDS = 2 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -50,99 +45,6 @@ def approval_token_key(user_id: str, token: str) -> str:
 def pending_approval_key(user_id: str, request_id: str) -> str:
     safe_user = hashlib.sha256(_norm(user_id, "anonymous").encode()).hexdigest()[:16]
     return f"approval-pending:{safe_user}:{_norm(request_id)}"
-
-
-def mcp_execution_receipt_key(token: str) -> str:
-    """Return an opaque receipt key without putting the credential in Redis."""
-
-    normalized_token = _norm(token)
-    if not normalized_token:
-        raise ValueError("MCP execution receipt requires a credential")
-    token_hash = hashlib.sha256(normalized_token.encode("utf-8")).hexdigest()
-    return f"approval-receipt:{token_hash}"
-
-
-def record_mcp_execution_receipt(
-    redis_client: Any,
-    *,
-    user_id: str,
-    token: str,
-    server_name: str,
-    tool_name: str,
-    arguments_sha256: str,
-    ttl_seconds: int = DEFAULT_MCP_RECEIPT_TTL_SECONDS,
-) -> None:
-    """Record that the gate observed one exact approved MCP call succeed.
-
-    The high-entropy worker credential is represented only by its SHA-256 in
-    the Redis key and is never persisted in the receipt payload.
-    """
-
-    binding = {
-        "user_id": _norm(user_id),
-        "server_name": _norm(server_name),
-        "tool_name": _norm(tool_name),
-        "arguments_sha256": _norm(arguments_sha256),
-    }
-    if not all(binding.values()):
-        raise ValueError("MCP execution receipt requires an exact call binding")
-    if not re.fullmatch(r"[0-9a-f]{64}", binding["arguments_sha256"]):
-        raise ValueError("MCP execution receipt requires a SHA-256 argument hash")
-
-    payload = {
-        **binding,
-        "action_type": "mcp_mutation",
-        "created_at": int(time.time()),
-    }
-    redis_client.setex(
-        mcp_execution_receipt_key(token),
-        max(1, int(ttl_seconds)),
-        json.dumps(payload, sort_keys=True, separators=(",", ":")),
-    )
-
-
-def consume_mcp_execution_receipt(
-    redis_client: Any,
-    *,
-    user_id: str,
-    token: str,
-    server_name: str,
-    tool_name: str,
-    arguments_sha256: str,
-) -> bool:
-    """GETDEL and validate an exact, gate-generated MCP success receipt."""
-
-    try:
-        receipt_key = mcp_execution_receipt_key(token)
-    except ValueError:
-        return False
-    getdel = getattr(redis_client, "getdel", None)
-    if callable(getdel):
-        raw = getdel(receipt_key)
-    else:
-        raw = redis_client.eval(
-            "local v=redis.call('GET',KEYS[1]); "
-            "if v then redis.call('DEL',KEYS[1]) end; return v",
-            1,
-            receipt_key,
-        )
-    if not raw:
-        return False
-    try:
-        payload = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return False
-    if not isinstance(payload, dict):
-        return False
-
-    expected = {
-        "user_id": _norm(user_id),
-        "server_name": _norm(server_name),
-        "tool_name": _norm(tool_name),
-        "arguments_sha256": _norm(arguments_sha256),
-        "action_type": "mcp_mutation",
-    }
-    return all(payload.get(field) == value for field, value in expected.items())
 
 
 def canonicalize_mcp_arguments(arguments_json: str) -> tuple[str, str]:
@@ -326,7 +228,6 @@ def validate_approval_token(
     arguments_sha256: str = "",
     normalize_arguments_hash: Callable[[str], str] | None = None,
     consume: bool = True,
-    on_validated: Callable[[dict[str, str]], None] | None = None,
 ) -> tuple[bool, str]:
     if not token:
         return False, "approval_token is required"
@@ -364,12 +265,9 @@ def validate_approval_token(
         tool_name=_norm(tool_name),
         arguments_sha256=_norm(arguments_sha256),
     )
-    # Retain the original approved-argument hash for downstream receipts. When
-    # a remote schema supplies defaults, the normalized hash below proves the
-    # executed call is equivalent, but the worker's protected execution record
-    # is intentionally bound to this original hash.
-    approved_arguments_sha256 = _norm(payload.get("arguments_sha256"))
-    actual_arguments_sha256 = approved_arguments_sha256
+    # When a remote schema supplies defaults, the normalized hash below proves
+    # the executed call is equivalent to the approved arguments.
+    actual_arguments_sha256 = _norm(payload.get("arguments_sha256"))
     if action_type == "mcp_mutation" and normalize_arguments_hash is not None:
         canonical_arguments = payload.get("canonical_arguments")
         if not isinstance(canonical_arguments, str) or not canonical_arguments:
@@ -409,16 +307,4 @@ def validate_approval_token(
         return False, "approval_token tool mismatch"
     if actual.arguments_sha256 != expected.arguments_sha256:
         return False, "approval_token arguments mismatch"
-
-    if on_validated is not None:
-        on_validated(
-            {
-                "user_id": actual.user_id,
-                "action_type": actual.action_type,
-                "target": _norm(payload.get("target")),
-                "server_name": actual.server_name,
-                "tool_name": actual.tool_name,
-                "arguments_sha256": approved_arguments_sha256,
-            }
-        )
     return True, "approved"

@@ -264,7 +264,7 @@ def build_messages(
     recent_feed: list[dict[str, Any]] | None = None,
     exploration: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
-    """Build a stable-prefix autonomous prompt for the NAT workflow."""
+    """Build a stable-prefix autonomous prompt for the backend workflow."""
 
     all_active_goals = [g for g in goals if g.get("status", "active") == "active"]
     active_goals = [_goal_digest(goal) for goal in all_active_goals]

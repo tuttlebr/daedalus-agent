@@ -14,7 +14,6 @@ and configuration defaults are exported to
 ## What It Does
 
 - Vector search against Milvus collections
-- Optional non-default Milvus database prefixes
 - Configurable content and vector field names
 - Optional reranking through an external reranker endpoint
 - Per-domain routing through `domain_retriever` (e.g. `nvidia`, `semianalysis`, `kubernetes`, `veterinarian`, `mentalhealth`)
@@ -24,9 +23,10 @@ and configuration defaults are exported to
 The domain retriever requires a `query` and a configured logical `domain`.
 It resolves the domain to its collection before calling `MilvusRetriever`.
 
-When `database_name` is set to something other than `default`, the retriever
-automatically checks both plain collection names and `database.collection`
-names.
+Collections are read from Milvus's default database, the one document
+ingestion writes. Milvus lists unqualified collection names within a client's
+database, so the retriever looks up names exactly as configured. Startup rejects
+a `database_name` other than `default`.
 
 Synchronous PyMilvus construction and calls run in worker threads so retrieval
 does not block the async server. Collection resolution and schema metadata use
@@ -82,7 +82,7 @@ Important fields:
 | `uri`                | Milvus endpoint                                                                                                     |
 | `connection_args`    | Optional Milvus connection or auth arguments; defaults from `MILVUS_USERNAME` / `MILVUS_PASSWORD` or `MILVUS_TOKEN` |
 | `embedding_model`    | Query embedder used before search                                                                                   |
-| `database_name`      | Optional Milvus database prefix                                                                                     |
+| `database_name`      | Must be `default`; retained for configuration compatibility                                                         |
 | `content_field`      | Field containing returned text content                                                                              |
 | `vector_field_name`  | Vector column name in the collection                                                                                |
 | `top_k`              | Number of retrieved candidates                                                                                      |

@@ -388,8 +388,9 @@ test('candidate extracts an S3 upload and downloads complete Markdown', async ({
   const privateName =
     'user_uploads_e2e_user_' +
     createHash('sha256').update('e2e-user').digest('hex');
+  // Ingestion writes the default database, so the backend accepts no other.
   expect(metadata).toMatchObject({
-    databaseName: 'synthetic-browser-database',
+    databaseName: 'default',
     userCollection: {
       name: privateName,
       displayName: 'My documents',

@@ -26,83 +26,6 @@ class _FakeRedis:
         return self.store.pop(key, None)
 
 
-def test_mcp_success_receipt_is_hashed_exact_durable_and_single_use():
-    from user_interaction.approval_tokens import (
-        consume_mcp_execution_receipt,
-        mcp_execution_receipt_key,
-        record_mcp_execution_receipt,
-    )
-
-    redis = _FakeRedis()
-    token = "worker-only-secret-token"
-    arguments_hash = hashlib.sha256(b'{"name":"api","replicas":3}').hexdigest()
-    record_mcp_execution_receipt(
-        redis,
-        user_id="alice",
-        token=token,
-        server_name="k8s_mcp_server",
-        tool_name="scale_deployment",
-        arguments_sha256=arguments_hash,
-    )
-
-    receipt_key = mcp_execution_receipt_key(token)
-    assert receipt_key.endswith(hashlib.sha256(token.encode()).hexdigest())
-    assert token not in receipt_key
-    assert token not in redis.store[receipt_key]
-    assert redis.ttls[receipt_key] == 2 * 60 * 60
-    assert consume_mcp_execution_receipt(
-        redis,
-        user_id="alice",
-        token=token,
-        server_name="k8s_mcp_server",
-        tool_name="scale_deployment",
-        arguments_sha256=arguments_hash,
-    )
-    assert not consume_mcp_execution_receipt(
-        redis,
-        user_id="alice",
-        token=token,
-        server_name="k8s_mcp_server",
-        tool_name="scale_deployment",
-        arguments_sha256=arguments_hash,
-    )
-
-
-def test_mcp_success_receipt_mismatch_is_consumed():
-    from user_interaction.approval_tokens import (
-        consume_mcp_execution_receipt,
-        record_mcp_execution_receipt,
-    )
-
-    redis = _FakeRedis()
-    token = "worker-only-secret-token"
-    arguments_hash = "a" * 64
-    record_mcp_execution_receipt(
-        redis,
-        user_id="alice",
-        token=token,
-        server_name="k8s_mcp_server",
-        tool_name="scale_deployment",
-        arguments_sha256=arguments_hash,
-    )
-    assert not consume_mcp_execution_receipt(
-        redis,
-        user_id="alice",
-        token=token,
-        server_name="k8s_mcp_server",
-        tool_name="delete_deployment",
-        arguments_sha256=arguments_hash,
-    )
-    assert not consume_mcp_execution_receipt(
-        redis,
-        user_id="alice",
-        token=token,
-        server_name="k8s_mcp_server",
-        tool_name="scale_deployment",
-        arguments_sha256=arguments_hash,
-    )
-
-
 def test_read_only_mcp_call_does_not_need_token():
     ok, reason = mcp_patches._validate_mcp_approval(
         "get_thread",
@@ -175,15 +98,11 @@ def test_mutating_approval_is_exact_and_single_use(monkeypatch):
     assert "already used" in replay_reason
 
 
-def test_receipt_keeps_original_approved_hash_when_schema_adds_default(monkeypatch):
+def test_approval_accepts_schema_defaults_added_to_approved_arguments(monkeypatch):
     from nat_helpers import identity
     from pydantic import BaseModel
     from user_interaction import approval_tokens
-    from user_interaction.approval_tokens import (
-        ApprovalRequest,
-        consume_mcp_execution_receipt,
-        issue_approval_token,
-    )
+    from user_interaction.approval_tokens import ApprovalRequest, issue_approval_token
 
     class ToolInput(BaseModel):
         name: str
@@ -219,7 +138,6 @@ def test_receipt_keeps_original_approved_hash_when_schema_adds_default(monkeypat
         lambda _asserted: "alice",
     )
     monkeypatch.setattr(approval_tokens, "make_redis_client", lambda _url: redis)
-    binding = {}
 
     ok, reason = mcp_patches._validate_mcp_approval(
         "delete_deployment",
@@ -227,23 +145,10 @@ def test_receipt_keeps_original_approved_hash_when_schema_adds_default(monkeypat
         server_name="restricted_mcp_server",
         approval_token=token,
         input_schema=ToolInput,
-        validated_binding=binding,
     )
 
     assert (ok, reason) == (True, "approved")
-    assert binding["arguments_sha256"] == approved_hash
-    assert mcp_patches._record_approved_mcp_receipt(
-        approval_token=token,
-        validated_binding=binding,
-    )
-    assert consume_mcp_execution_receipt(
-        redis,
-        user_id="alice",
-        token=token,
-        server_name="restricted_mcp_server",
-        tool_name="delete_deployment",
-        arguments_sha256=approved_hash,
-    )
+    assert not redis.store
 
 
 def test_mutating_approval_rejects_changed_arguments_and_burns_token(monkeypatch):

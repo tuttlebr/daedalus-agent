@@ -105,7 +105,14 @@ export async function saveConversationForUser(
     ) {
       throw new ConversationWriteError('forbidden');
     }
-    const value = { ...update(current), id, ownerId: username };
+    // Identity leads the record so ownership checks read only its first bytes
+    // (readConversationOwner in server/session/redisShared.ts).
+    const {
+      id: _id,
+      ownerId: _ownerId,
+      ...fields
+    } = update(current) as Record<string, any>;
+    const value = { id, ownerId: username, ...fields };
     const result = await client.eval(
       SAVE,
       keys.length + cancellationKeys.length,

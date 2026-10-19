@@ -23,6 +23,29 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
   let auth: typeof import('@/utils/auth/session');
   let jobs: typeof import('@/server/chat/jobState');
   let client: ReturnType<typeof redis.getRedis>;
+
+  // Durable journal contents, as written.
+  const journalOf = async (job: string) => {
+    const raw = await client.get(jobs.finalizationJournalKey(job));
+    return raw ? JSON.parse(raw) : null;
+  };
+  const claimTerminal = async (
+    ...args: Parameters<typeof jobs.claimTerminalJobStatus>
+  ) => (await jobs.claimTerminalJobStatus(...args)).claimed;
+  const markPhases = (
+    job: string,
+    finalizationId: string,
+    phases: any[],
+    at: number,
+  ) =>
+    jobs.updateFinalizationJournal(job, finalizationId, () => ({ phases }), at);
+  const publishEvents = (
+    job: string,
+    finalizationId: string,
+    events: Array<{ channel: string; payload: string }>,
+    at: number,
+  ) =>
+    jobs.updateFinalizationJournal(job, finalizationId, () => ({ events }), at);
   const keys = new Set<string>();
   let serial = 0;
   const id = () => `audit-${process.pid}-${Date.now()}-${serial++}`;
@@ -68,17 +91,24 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
       const jobId = id();
       keys.add(state.streamResponseKey(jobId));
       keys.add(state.streamStepsKey(jobId));
-      const evaluate = client.eval.bind(client);
+      const evaluate = client.evalsha.bind(client);
       const delta = 'First 🌍';
       const steps = [
         { id: 'one', values: [] },
         { id: 'two', n: 7 },
       ];
+      // Flushes run cached scripts by digest; cache both bodies first so the
+      // fault below lands on the call each write actually makes.
+      const warm = id();
+      keys.add(state.streamResponseKey(warm));
+      keys.add(state.streamStepsKey(warm));
+      await state.appendStreamResponseDelta(warm, 'x', 0);
+      await state.appendStreamSteps(warm, [{ id: 'x' }], 0);
       for (const write of [
         () => state.appendStreamResponseDelta(jobId, delta, 0),
         () => state.appendStreamSteps(jobId, steps, 0),
       ]) {
-        vi.spyOn(client, 'eval').mockImplementationOnce(
+        vi.spyOn(client, 'evalsha').mockImplementationOnce(
           async (...args: any[]) => {
             if (committed)
               await evaluate(...(args as [string, number, ...any[]]));
@@ -120,18 +150,28 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
     keys.add(leaseKey);
     keys.add(startedKey);
     expect(
-      await queue.acquireStreamLease(jobId, 'old-owner', 1000, client),
-    ).toBe(true);
+      await queue.acquireStreamLeaseSnapshot(jobId, 'old-owner', 1000, client),
+    ).not.toBeNull();
     expect(
-      await queue.acquireStreamLease(jobId, 'replacement', 1000, client),
-    ).toBe(false);
+      await queue.acquireStreamLeaseSnapshot(
+        jobId,
+        'replacement',
+        1000,
+        client,
+      ),
+    ).toBeNull();
     expect(await queue.renewStreamLease(jobId, 'old-owner', 1000, client)).toBe(
       true,
     );
     await client.pexpire(leaseKey, 0);
     expect(
-      await queue.acquireStreamLease(jobId, 'replacement', 1000, client),
-    ).toBe(true);
+      await queue.acquireStreamLeaseSnapshot(
+        jobId,
+        'replacement',
+        1000,
+        client,
+      ),
+    ).not.toBeNull();
     expect(await queue.renewStreamLease(jobId, 'old-owner', 1000, client)).toBe(
       false,
     );
@@ -240,49 +280,32 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
     };
     await client.set(key, JSON.stringify(initial), 'EX', 120);
     await Promise.all([
-      jobs.markFinalizationPhases(
+      markPhases(jobId, initial.finalizationId, ['conversationAppliedAt'], 0),
+      markPhases(jobId, initial.finalizationId, ['streamingStateClearedAt'], 5),
+      markPhases(
         jobId,
         initial.finalizationId,
-        ['conversationAppliedAt'],
-        0,
+        ['memoryRetentionAttemptedAt'],
+        7,
       ),
-      jobs.markFinalizationPhases(
-        jobId,
-        initial.finalizationId,
-        ['streamingStateClearedAt'],
-        5,
-      ),
-      jobs.setMemoryRetentionReceipt(jobId, initial.finalizationId, {
-        operationId: 'first',
-        acceptedAt: 7,
-      }),
     ]);
-    await jobs.markFinalizationPhases(
+    await markPhases(
       jobId,
       initial.finalizationId,
-      ['conversationAppliedAt'],
+      ['conversationAppliedAt', 'memoryRetentionAttemptedAt'],
       99,
     );
-    await jobs.setMemoryRetentionReceipt(jobId, initial.finalizationId, {
-      operationId: 'second',
-      acceptedAt: 99,
-    });
-    const before = await jobs.getFinalizationJournal(jobId);
+    const before = await journalOf(jobId);
     expect(before).toEqual({
       ...initial,
       conversationAppliedAt: 0,
       streamingStateClearedAt: 5,
-      memoryRetention: { operationId: 'first', acceptedAt: 7 },
+      memoryRetentionAttemptedAt: 7,
     });
     expect(
-      await jobs.markFinalizationPhases(
-        jobId,
-        'stale-owner',
-        ['completedAt'],
-        11,
-      ),
+      await markPhases(jobId, 'stale-owner', ['completedAt'], 11),
     ).toBeNull();
-    expect(await jobs.getFinalizationJournal(jobId)).toEqual(before);
+    expect(await journalOf(jobId)).toEqual(before);
 
     const subscriber = client.duplicate();
     const channel = `audit:${jobId}`;
@@ -298,14 +321,14 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
         },
       );
       await expect(
-        jobs.publishFinalizationEvents(
+        publishEvents(
           jobId,
           initial.finalizationId,
           [{ channel, payload: 'first event' }],
           13,
         ),
       ).rejects.toThrow('Response lost');
-      await jobs.publishFinalizationEvents(
+      await publishEvents(
         jobId,
         initial.finalizationId,
         [{ channel, payload: 'duplicate event' }],
@@ -313,7 +336,7 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
       );
       await subscriber.ping();
       expect(delivered).toEqual(['first event']);
-      expect(await jobs.getFinalizationJournal(jobId)).toEqual({
+      expect(await journalOf(jobId)).toEqual({
         ...before,
         eventsPublishedAt: 13,
       });
@@ -324,7 +347,7 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
 
   for (const json of [false, true]) {
     describe(json ? 'RedisJSON' : 'plain string', () => {
-      it.each(['claim', 'phase', 'receipt', 'events'] as const)(
+      it.each(['claim', 'phase', 'effects', 'events'] as const)(
         'preserves JSON arrays, objects, and exact integers through journal %s',
         async (operation) => {
           const jobId = id();
@@ -374,9 +397,7 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
               { jobId, status: 'streaming', createdAt: 1, updatedAt: 2 },
               json,
             );
-            expect(
-              await jobs.claimTerminalJobStatus(jobId, terminal, journal),
-            ).toBe(true);
+            expect(await claimTerminal(jobId, terminal, journal)).toBe(true);
             expect(await redis.jsonGet(key)).toEqual(terminal);
           } else {
             await client.set(
@@ -386,27 +407,31 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
               120,
             );
             if (operation === 'phase')
-              await jobs.markFinalizationPhases(
+              await markPhases(
                 jobId,
                 journal.finalizationId,
                 ['conversationAppliedAt'],
                 7,
               );
-            if (operation === 'receipt')
-              await jobs.setMemoryRetentionReceipt(
+            if (operation === 'effects')
+              await jobs.updateFinalizationJournal(
                 jobId,
                 journal.finalizationId,
-                { operationId: 'op', acceptedAt: 7 },
+                () => ({
+                  phases: ['streamStateClearedAt'],
+                  effects: [{ kind: 'delete', key: `audit:${jobId}:scratch` }],
+                }),
+                7,
               );
             if (operation === 'events')
-              await jobs.publishFinalizationEvents(
+              await publishEvents(
                 jobId,
                 journal.finalizationId,
                 [{ channel: `audit:${jobId}`, payload: 'done' }],
                 7,
               );
           }
-          const stored = await jobs.getFinalizationJournal(jobId);
+          const stored = await journalOf(jobId);
           expect(stored?.conversation).toEqual(journal.conversation);
           expect(stored?.terminalStatus).toEqual(terminal);
         },
@@ -547,7 +572,7 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
                   ? 'completed'
                   : 'error';
               attempts.push(
-                await jobs.claimTerminalJobStatus(
+                await claimTerminal(
                   jobId,
                   {
                     status: requested,
@@ -625,7 +650,7 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
         await client.del(lockKey);
         try {
           expect(
-            await jobs.claimTerminalJobStatus(
+            await claimTerminal(
               jobId,
               {
                 status: 'error',

@@ -309,28 +309,59 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
             .into_response();
     }
     let mut receiver = receiver;
-    let mut content = String::new();
-    let mut failed = None;
+    let mut stream = Vec::new();
     while let Some(bytes) = receiver.recv().await {
-        for line in String::from_utf8_lossy(&bytes).lines() {
-            if let Some(data) = line.strip_prefix("data: ")
-                && let Ok(value) = serde_json::from_str::<Value>(data)
-            {
-                if let Some(delta) = value["choices"][0]["delta"]["content"].as_str() {
-                    content.push_str(delta);
-                }
-                if let Some(message) = value["error"]["message"].as_str() {
-                    failed = Some(message.to_owned());
-                }
+        stream.extend_from_slice(&bytes);
+    }
+    let (status, body) = completion(&String::from_utf8_lossy(&stream));
+    (StatusCode::from_u16(status).unwrap(), Json(body)).into_response()
+}
+
+/// Collect a run's SSE output into one Chat Completions response. The streaming
+/// terminal reason, such as `mcp_approval_required`, survives, and events a
+/// caller must act on (approval, OAuth, applied steering) stay in
+/// `daedalus_events` in their stream order. Tool progress is omitted.
+fn completion(stream: &str) -> (u16, Value) {
+    let (mut id, mut content, mut finish, mut failed) = (Value::Null, String::new(), None, None);
+    let mut events = Vec::new();
+    for frame in stream.split("\n\n") {
+        let mut name = "message";
+        let mut data = None;
+        for line in frame.lines() {
+            if let Some(value) = line.strip_prefix("event: ") {
+                name = value;
+            } else if let Some(value) = line.strip_prefix("data: ") {
+                data = serde_json::from_str::<Value>(value).ok();
             }
         }
+        let Some(data) = data else { continue };
+        match name {
+            "message" => {
+                id = data["id"].clone();
+                let choice = &data["choices"][0];
+                if let Some(delta) = choice["delta"]["content"].as_str() {
+                    content.push_str(delta);
+                }
+                if let Some(reason) = choice["finish_reason"].as_str() {
+                    finish = Some(reason.to_owned());
+                }
+            }
+            "error" => failed = data["error"]["message"].as_str().map(str::to_owned),
+            _ => events.push(json!({"event":name,"data":data})),
+        }
     }
-    if let Some(message) = failed {
-        return error(502, &message);
+    let Some(finish) = finish.filter(|_| failed.is_none()) else {
+        let message = failed
+            .as_deref()
+            .unwrap_or("Run ended without a terminal event");
+        return (502, json!({"error":{"message":message}}));
+    };
+    let mut body = json!({"id":id,"object":"chat.completion","choices":[{"index":0,
+        "message":{"role":"assistant","content":content},"finish_reason":finish}]});
+    if !events.is_empty() {
+        body["daedalus_events"] = json!(events);
     }
-    Json(json!({"object":"chat.completion","choices":[{"index":0,
-        "message":{"role":"assistant","content":content},"finish_reason":"stop"}]}))
-    .into_response()
+    (200, body)
 }
 
 /// Owns an admitted run until it ends. Every outcome, including a panic in
@@ -891,6 +922,85 @@ mod tests {
         // The conversation and the user's slot are available again.
         let next = run("alice", "conversation", false);
         assert!(admission_rejection(&*runs.lock().await, "next", &next).is_none());
+    }
+
+    #[tokio::test]
+    async fn non_streaming_responses_keep_the_terminal_reason_and_caller_events() {
+        let (sender, mut receiver) = mpsc::channel(16);
+        let events = Events {
+            run_id: "run-1".into(),
+            sender,
+        };
+        events
+            .event(
+                "oauth_required",
+                json!({"auth_url":"https://accounts.example/o"}),
+            )
+            .await
+            .unwrap();
+        events
+            .tool("call-1", "clock", true, json!({"output":"noon"}))
+            .await
+            .unwrap();
+        events
+            .event("steering", json!({"command_id":"c1","status":"applied"}))
+            .await
+            .unwrap();
+        events
+            .event("mcp_approval_required", json!({"marker":"<!--approval-->"}))
+            .await
+            .unwrap();
+        events.delta("Approve the change.").await.unwrap();
+        events.finish("mcp_approval_required").await.unwrap();
+        drop(events);
+        let mut stream = String::new();
+        while let Some(bytes) = receiver.recv().await {
+            stream.push_str(&String::from_utf8_lossy(&bytes));
+        }
+
+        let (status, body) = completion(&stream);
+        assert_eq!(status, 200);
+        assert_eq!(body["id"], "run-1");
+        assert_eq!(body["choices"][0]["finish_reason"], "mcp_approval_required");
+        assert_eq!(
+            body["choices"][0]["message"]["content"],
+            "Approve the change."
+        );
+        let names: Vec<_> = body["daedalus_events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["event"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            ["oauth_required", "steering", "mcp_approval_required"]
+        );
+        assert_eq!(
+            body["daedalus_events"][0]["data"]["auth_url"],
+            "https://accounts.example/o"
+        );
+
+        // A completed answer stays a plain completion.
+        let (status, body) = completion(
+            "event: message\ndata: {\"id\":\"r\",\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n\
+             event: message\ndata: {\"id\":\"r\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+        );
+        assert_eq!(
+            (status, &body["choices"][0]["finish_reason"]),
+            (200, &json!("stop"))
+        );
+        assert!(body.get("daedalus_events").is_none());
+        // Failures and truncated runs are never reported as completed.
+        assert_eq!(
+            completion(
+                "event: message\ndata: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n\
+                 event: error\ndata: {\"error\":{\"message\":\"Agent run timed out\"}}\n\n\
+                 event: message\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"error\"}]}\n\n"
+            ),
+            (502, json!({"error":{"message":"Agent run timed out"}}))
+        );
+        assert_eq!(completion("").0, 502);
     }
 
     #[tokio::test]

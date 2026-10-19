@@ -86,7 +86,7 @@ class DaedalusInternalAuthMiddleware:
     """Enforce trusted frontend identity on every backend execution route.
 
     Health, documentation, OpenAPI, and the browser-facing OAuth redirect stay
-    public. All NAT and Daedalus execution APIs share the same fail-closed gate.
+    public. All Daedalus execution APIs share the same fail-closed gate.
     """
 
     def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
@@ -99,7 +99,7 @@ class DaedalusInternalAuthMiddleware:
             return
 
         path = str(scope.get("path") or "/").rstrip("/") or "/"
-        # Protect by default so a newly added NAT execution route cannot bypass
+        # Protect by default so a newly added execution route cannot bypass
         # identity enforcement merely because its prefix was not anticipated.
         protected = scope_type == "websocket" or path not in _PUBLIC_HTTP_PATHS
         if protected:

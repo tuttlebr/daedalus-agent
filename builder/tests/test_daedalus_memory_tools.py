@@ -83,25 +83,16 @@ def test_authenticated_user_id_from_headers_requires_matching_internal_token(
         )
 
 
-def test_resolve_authenticated_user_rejects_legacy_identity_mismatch(monkeypatch):
+def test_resolve_authenticated_user_requires_an_authenticated_request(monkeypatch):
     import nat_helpers.identity as identity
 
-    monkeypatch.setattr(
-        identity,
-        "authenticated_user_id_from_context_or_fallback",
-        lambda _fallback="": "alice",
-    )
-
-    with pytest.raises(ValueError, match="does not match"):
-        identity.resolve_authenticated_user_id("mallory")
-
-
-def test_context_fallback_is_used_only_when_request_headers_are_absent():
-    import nat_helpers.identity as identity
-
-    assert (
-        identity.resolve_authenticated_user_id("direct-test-user") == "direct-test-user"
-    )
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "trusted-secret")
+    with pytest.raises(ValueError, match="authenticated user identity is required"):
+        identity.resolve_authenticated_user_id()
+    with identity.authenticated_request_headers_scope(
+        {"x-user-id": " alice ", "x-daedalus-internal-token": "trusted-secret"}
+    ):
+        assert identity.resolve_authenticated_user_id() == "alice"
 
 
 def test_execution_id_is_available_only_in_autonomy_scope():

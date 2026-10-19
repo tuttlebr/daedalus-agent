@@ -22,6 +22,13 @@ class ConfigValidationError(ValueError):
     """An application-owned diagnostic containing no configuration values."""
 
 
+# Tool types removed from the application, with what replaces each. A workflow
+# written for an older image fails startup with this guidance.
+RETIRED_TOOL_TYPES = {
+    "user_interaction": "users delete durable memory in the Memory Center",
+}
+
+
 def describe_validation_error(error: Exception) -> str:
     """Expose field locations and error types, never provider values or inputs."""
     if isinstance(error, ConfigValidationError):
@@ -70,6 +77,27 @@ def load_config(path: str | Path, *, _seen: frozenset = frozenset()) -> dict:
             load_config(path.parent / str(base), _seen=_seen | {path}), data
         )
     return _expand(data)
+
+
+def _default_database(value: str | None) -> bool:
+    # NV-Ingest's writer reads collection schemas from Milvus's default
+    # database and cannot select another, so every reader must use it too.
+    return (value or "").strip() in {"", "default"}
+
+
+def _validate_upload_collection(name: str, configured: str | None) -> None:
+    """Keep tool search on the collection that uploads and metadata use."""
+    from nat_nv_ingest.nat_nv_ingest import normalize_collection_part
+
+    uploads = os.getenv("DOCUMENT_INGEST_DEFAULT_COLLECTION", "user_uploads")
+    if normalize_collection_part(
+        configured, fallback="user_uploads"
+    ) != normalize_collection_part(uploads, fallback="user_uploads"):
+        raise ConfigValidationError(
+            f"functions.{name}.default_collection_name must match "
+            "DOCUMENT_INGEST_DEFAULT_COLLECTION, which uploads and collection "
+            "metadata use"
+        )
 
 
 def validate_config(config: dict, registry) -> None:
@@ -135,8 +163,31 @@ def validate_config(config: dict, registry) -> None:
             raise ConfigValidationError(
                 f"Unknown or duplicate tool in workflow.{field}"
             )
-    for name in functions:
-        registry.get_function_config(name)
+    for name, function in functions.items():
+        kind = function.get("_type") if isinstance(function, dict) else None
+        if kind in RETIRED_TOOL_TYPES:
+            raise ConfigValidationError(
+                f"Retired function type {kind}: remove functions.{name} and its "
+                f"workflow tool entries; {RETIRED_TOOL_TYPES[kind]}"
+            )
+        if not registry.supports(kind):
+            raise ConfigValidationError(f"Unsupported functions.{name}._type")
+        tool_config = registry.get_function_config(name)
+        if kind in {"domain_retriever", "nat_nv_ingest"} and not _default_database(
+            tool_config.database_name
+        ):
+            raise ConfigValidationError(
+                f"functions.{name}.database_name must be empty or default: "
+                "Milvus collections are read from the default database"
+            )
+        if kind == "nat_nv_ingest":
+            _validate_upload_collection(name, tool_config.default_collection_name)
+    if not _default_database(os.getenv("MILVUS_DATABASE", "")):
+        raise ConfigValidationError(
+            "MILVUS_DATABASE must be empty or default: document ingestion writes "
+            "to Milvus's default database, which retrieval and collection "
+            "metadata share"
+        )
     if workflow["llm_name"] not in config.get("llms", {}):
         raise ConfigValidationError("Unknown main model")
     for name, model in config["llms"].items():

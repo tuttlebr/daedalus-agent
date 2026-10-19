@@ -84,8 +84,8 @@ Important fields:
 | `chunk_size` / `chunk_overlap`                                         | Chunking behavior                                                                         |
 | `embedder_dim` / `tokenizer`                                           | Embedding dimension and tokenizer used during chunking                                    |
 | `recreate_collection`                                                  | Rebuild collection on ingestion                                                           |
-| `default_collection_name`                                              | Fallback collection when caller does not provide one                                      |
-| `database_name`                                                        | Milvus database name used by the user-document retriever                                  |
+| `default_collection_name`                                              | Private collection base; must match `DOCUMENT_INGEST_DEFAULT_COLLECTION` (startup check)  |
+| `database_name`                                                        | Must be `default` (startup check); retained for configuration compatibility               |
 | `use_v2_api` / `pdf_pages_per_chunk`                                   | Enables NV-Ingest V2 server-side PDF chunking                                             |
 | `enable_image_filter` / `enable_captioning`                            | Image pipeline toggles                                                                    |
 | `caption_*`                                                            | VLM endpoint and credentials for image captioning                                         |
@@ -248,7 +248,13 @@ index completion, restart from an interrupted batch, application reads from
 the hashed collection, and deployment rollback from the retained legacy
 collection.
 
-- Shared and user-scoped collections intentionally live in the same Milvus database.
+- Shared and user-scoped collections intentionally live in the same Milvus database:
+  the default one. NV-Ingest's writer reads collection schemas there and cannot
+  select another database, so the backend rejects a non-default `MILVUS_DATABASE`
+  or tool `database_name` at startup. The HTTP upload, collection metadata and
+  tool search paths share one private collection base, so startup also rejects
+  a tool `default_collection_name` that differs from
+  `DOCUMENT_INGEST_DEFAULT_COLLECTION` (default `user_uploads`).
 - Search may read the allow-listed shared collections `kubernetes`, `mentalhealth`, `nvidia`, `semianalysis`, and `vetpartner`.
 - User-facing ingestion rejects those shared targets. Every accepted write is scoped to the authenticated user's private collection.
 - `collection_scope` mismatches are rejected and optional `provenance` remains available for private-ingest audit context.

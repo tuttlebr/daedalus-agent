@@ -126,10 +126,11 @@ describe('real HTTP ingestion terminal protocol', () => {
 
     await startBackgroundDocumentIngest('protocol-test', request, 'test-user');
 
+    // The Redis failure is logged; the saved chat error is a fixed message.
     expect(mocks.error).toHaveBeenCalledWith(
       'protocol-test',
       expect.anything(),
-      'Redis unavailable',
+      'Document ingestion failed because of an internal error. Please try again.',
     );
     // The failed job must not leave the backend ingesting on an orphaned
     // connection until the one-hour ingestion deadline.
@@ -141,10 +142,32 @@ describe('real HTTP ingestion terminal protocol', () => {
     ).resolves.toBe('closed');
   });
 
-  it('reports a backend rejection without waiting for a stalled error body', async () => {
+  it.each([
+    [
+      'Document operation failed.',
+      'Document ingest failed: Document operation failed.',
+    ],
+    [
+      'Milvus at 10.0.4.7:19530 refused the insert',
+      'Document ingestion failed.',
+    ],
+  ])(
+    'saves only the backend-owned ingestion failure text: %s',
+    async (detail, saved) => {
+      await ingest(`event: error\ndata: ${JSON.stringify({ detail })}\n\n`);
+      expect(mocks.error).toHaveBeenCalledWith(
+        'protocol-test',
+        expect.anything(),
+        saved,
+      );
+    },
+  );
+  it('reports a backend rejection from its status without reading a stalled body', async () => {
     server = createServer((_req, res) => {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.write('{"detail":"documentRef or documentRefs required"}');
+      // Diagnostics stay out of the saved chat, and a body that never ends
+      // cannot delay the outcome.
+      res.write('{"detail":"collection user_uploads_x at 10.0.4.7 is locked"}');
     });
     await new Promise<void>((resolve) =>
       server!.listen(0, '127.0.0.1', resolve),
@@ -163,13 +186,11 @@ describe('real HTTP ingestion terminal protocol', () => {
     const started = Date.now();
     await startBackgroundDocumentIngest('protocol-test', request, 'test-user');
 
-    // The complete JSON detail must end the read, well before the 5 s error
-    // body deadline that only bounds an incomplete diagnostic body.
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(mocks.error).toHaveBeenCalledWith(
       'protocol-test',
       expect.anything(),
-      'Document ingest failed (400): documentRef or documentRefs required',
+      'Document ingestion rejected the request (400).',
     );
   }, 15_000);
 

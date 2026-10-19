@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { applyStreamingContentDelta } from '@/utils/app/streamingContent';
+
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import type { AsyncJobRequest } from '@/server/chat/types';
 import { saveOAuthCallbackTarget } from '@/server/mcpOAuth';
@@ -322,4 +324,193 @@ describe('backend stream reader persistence', () => {
       }
     },
   );
+
+  const delta = (content: string) =>
+    `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`;
+  const published = () =>
+    mocks.publish.mock.calls.map(([, payload]) => JSON.parse(payload));
+
+  it('publishes the first delta at once and coalesces later deltas within the interval', async () => {
+    const body = controlledBody();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => body.response),
+    );
+    const reading = startBackgroundStreamReader(
+      'job-1',
+      structuredClone(jobRequest),
+      [],
+      'alice',
+    );
+
+    body.push(delta('Th'));
+    await settle();
+    // Time to first token is unchanged: the first delta is not held.
+    expect(published()).toEqual([
+      expect.objectContaining({
+        type: 'chat_token',
+        content: 'Th',
+        responseStart: 0,
+      }),
+    ]);
+
+    body.push(delta('e '));
+    body.push(delta('pods'));
+    body.push(delta(' are'));
+    await settle();
+    expect(published()).toHaveLength(1);
+    // A quiet stream still delivers buffered text after one interval.
+    await vi.advanceTimersByTimeAsync(25);
+    expect(published()).toHaveLength(2);
+    expect(published()[1]).toMatchObject({
+      type: 'chat_token',
+      content: 'e pods are',
+      responseStart: 2,
+    });
+
+    vi.setSystemTime(Date.now() + 100);
+    body.push(delta(' ready.'));
+    body.push('data: [DONE]\n\n');
+    await reading;
+
+    const tokens = published().filter((event) => event.type === 'chat_token');
+    expect(tokens.map((event) => event.content)).toEqual([
+      'Th',
+      'e pods are',
+      ' ready.',
+    ]);
+    // The browser's delta application rebuilds the answer from the coalesced
+    // deltas and their offsets, and ignores a replayed one.
+    const rebuilt = [...tokens, tokens[1]].reduce(
+      (text, event) =>
+        applyStreamingContentDelta(text, event.content, event.responseStart),
+      '',
+    );
+    expect(rebuilt).toBe('The pods are ready.');
+    expect(mocks.finalizeSuccess).toHaveBeenCalledWith(
+      'job-1',
+      expect.anything(),
+      'The pods are ready.',
+    );
+  });
+
+  it('publishes buffered tokens before an intermediate step to keep stream order', async () => {
+    const body = controlledBody();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => body.response),
+    );
+    const reading = startBackgroundStreamReader(
+      'job-1',
+      structuredClone(jobRequest),
+      [],
+      'alice',
+    );
+    body.push(delta('Checking'));
+    body.push(delta(' now.'));
+    body.push(step('call-1', 'Start'));
+    body.push(delta(' Done.'));
+    body.push('data: [DONE]\n\n');
+    await reading;
+
+    expect(
+      published().map((event) =>
+        event.type === 'chat_token'
+          ? `token:${event.responseStart}:${event.content}`
+          : event.type,
+      ),
+    ).toEqual([
+      'token:0:Checking',
+      'token:8: now.',
+      'chat_intermediate_step',
+      'token:13: Done.',
+    ]);
+  });
+
+  it('keeps the backend run outcome but saves a fixed message for other error text', async () => {
+    for (const [message, saved] of [
+      [
+        'Model request timed out',
+        'Backend stream failed: Model request timed out',
+      ],
+      [
+        'upstream 10.0.3.4:443 returned invalid_request_error: max_tokens',
+        'Backend stream reported an error',
+      ],
+    ]) {
+      mocks.finalizeError.mockClear();
+      mocks.response = '';
+      const body = controlledBody();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => body.response),
+      );
+      const reading = startBackgroundStreamReader(
+        'job-1',
+        structuredClone(jobRequest),
+        [],
+        'alice',
+      );
+      body.push(delta('Partial'));
+      body.push(
+        `event: error\ndata: ${JSON.stringify({ error: { message } })}\n\n`,
+      );
+      await reading;
+      expect(mocks.finalizeError).toHaveBeenCalledWith(
+        'job-1',
+        expect.anything(),
+        saved,
+        expect.objectContaining({ response: 'Partial' }),
+      );
+    }
+  });
+
+  it('saves a fixed message when stream persistence fails with an internal error', async () => {
+    mocks.markJobStreaming.mockRejectedValueOnce(
+      new Error('connect ECONNREFUSED 10.0.7.2:6379'),
+    );
+    const body = controlledBody();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => body.response),
+    );
+    const reading = startBackgroundStreamReader(
+      'job-1',
+      structuredClone(jobRequest),
+      [],
+      'alice',
+    );
+    body.push(delta('Partial'));
+    await reading;
+
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.anything(),
+      'The response could not be completed because of an internal error. Please try again.',
+      expect.objectContaining({ response: 'Partial' }),
+    );
+  });
+
+  it('saves a fixed message when the backend cannot be reached', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('fetch failed', {
+          cause: new Error('connect ECONNREFUSED 10.0.2.61:8000'),
+        });
+      }),
+    );
+    await startBackgroundStreamReader(
+      'job-1',
+      structuredClone(jobRequest),
+      [],
+      'alice',
+    );
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.anything(),
+      'The response service could not be reached. Please try again.',
+      expect.anything(),
+    );
+  });
 });

@@ -1,7 +1,7 @@
 //! Contracts are checked before scheduling calls; invalid calls never execute.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::{Result, bail};
 use rig_core::completion::ToolDefinition;
@@ -144,9 +144,38 @@ impl Recovery {
     }
 }
 
+/// Compiled argument validators shared across runs. Every run checks the same
+/// configured schemas, and compiling them was repeated work before the first
+/// model request. Keys are schema digests, so runs and users share only
+/// validators of byte-identical schemas; validators hold no request state.
+static VALIDATORS: LazyLock<std::sync::Mutex<HashMap<[u8; 32], Arc<jsonschema::Validator>>>> =
+    LazyLock::new(Default::default);
+const MAX_CACHED_VALIDATORS: usize = 1024;
+
+/// A format-agnostic validator for one tool argument schema.
+pub fn validator(schema: &Value) -> Result<Arc<jsonschema::Validator>> {
+    use sha2::{Digest, Sha256};
+    let key: [u8; 32] = Sha256::digest(serde_json::to_vec(schema)?).into();
+    if let Some(validator) = VALIDATORS.lock().unwrap().get(&key) {
+        return Ok(validator.clone());
+    }
+    let validator = Arc::new(
+        jsonschema::options()
+            .should_validate_formats(false)
+            .build(schema)
+            .map_err(|_| anyhow::anyhow!("Tool catalog contains an invalid schema"))?,
+    );
+    let mut cache = VALIDATORS.lock().unwrap();
+    // MCP servers can change schemas over time; bound the retained set.
+    if cache.len() >= MAX_CACHED_VALIDATORS {
+        cache.clear();
+    }
+    Ok(cache.entry(key).or_insert(validator).clone())
+}
+
 #[derive(Default)]
 pub struct Catalog {
-    entries: HashMap<String, (Value, String, jsonschema::Validator)>,
+    entries: HashMap<String, (Value, String, Arc<jsonschema::Validator>)>,
     call_ids: HashSet<String>,
 }
 
@@ -161,10 +190,7 @@ impl Catalog {
             }
             return Ok(false);
         }
-        let validator = jsonschema::options()
-            .should_validate_formats(false)
-            .build(&tool.parameters)
-            .map_err(|_| anyhow::anyhow!("Tool catalog contains an invalid schema"))?;
+        let validator = validator(&tool.parameters)?;
         self.entries.insert(
             tool.name.clone(),
             (tool.parameters.clone(), tool.description.clone(), validator),
@@ -250,6 +276,23 @@ mod tests {
                 arguments: args,
             },
         )
+    }
+
+    #[test]
+    fn runs_share_compiled_validators_for_identical_schemas() {
+        let first = validator(&tool().parameters).unwrap();
+        // A later run's catalogue reuses the compiled validator.
+        let mut catalog = Catalog::default();
+        assert!(catalog.add(&tool()).unwrap());
+        assert!(Arc::ptr_eq(&first, &catalog.entries["read"].2));
+        assert!(Arc::ptr_eq(&first, &validator(&tool().parameters).unwrap()));
+        // A different schema never receives another schema's validator.
+        let other = json!({"type":"object","required":["name"]});
+        let distinct = validator(&other).unwrap();
+        assert!(!Arc::ptr_eq(&first, &distinct));
+        assert!(distinct.is_valid(&json!({"name":"x"})));
+        assert!(!distinct.is_valid(&json!({"id":1})));
+        assert!(validator(&json!({"type":7})).is_err());
     }
 
     #[test]

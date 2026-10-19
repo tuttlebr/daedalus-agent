@@ -71,6 +71,11 @@ const mocks = vi.hoisted(() => {
     publisher,
     redisDel: vi.fn().mockResolvedValue(0),
     redisEval: vi.fn().mockResolvedValue(1),
+    // An empty Redis script cache: digest calls fall back to EVAL, so the
+    // eval doubles below see every script body.
+    redisEvalsha: vi.fn(async () => {
+      throw new Error('NOSCRIPT No matching script. Please use EVAL.');
+    }),
     redisGet: vi.fn().mockResolvedValue(null),
     redisSet: vi.fn().mockResolvedValue('OK'),
     redisLrange: vi.fn().mockResolvedValue([]),
@@ -109,6 +114,7 @@ vi.mock('@/server/session/redis', () => ({
     del: mocks.redisDel,
     set: mocks.redisSet,
     eval: mocks.redisEval,
+    evalsha: mocks.redisEvalsha,
     get: mocks.redisGet,
     lrange: mocks.redisLrange,
     exists: mocks.redisExists,
@@ -118,6 +124,8 @@ vi.mock('@/server/session/redis', () => ({
     expire: vi.fn().mockResolvedValue(1),
   })),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
+  streamingStateKey: (userId: string, conversationId: string) =>
+    `daedalus:streaming:user:${userId}:conversation:${conversationId}`,
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
   jsonDel: vi.fn().mockResolvedValue(0),
@@ -126,9 +134,49 @@ vi.mock('@/server/session/redis', () => ({
 }));
 
 vi.mock('@/utils/sync/publish', () => ({
-  publishStreamingState: vi.fn().mockResolvedValue(undefined),
+  streamingStateEvent: (
+    conversationId: string,
+    isStreaming: boolean,
+    sessionId = '',
+  ) => ({
+    type: isStreaming ? 'streaming_started' : 'streaming_ended',
+    timestamp: Date.now(),
+    data: { conversationId, sessionId, isStreaming },
+  }),
   publishConversationUpdate: vi.fn().mockResolvedValue(undefined),
 }));
+
+/**
+ * Doubles for the queue and ownership scripts on top of the test's
+ * jsonGet/jsonSetWithExpiry doubles, so every store fixture sees their
+ * writes. Returns undefined for any other script.
+ */
+async function emulateQueueScripts(
+  script: string,
+  numKeys: number,
+  rest: any[],
+): Promise<any> {
+  const keys = rest.slice(0, numKeys).map(String);
+  const argv = rest.slice(numKeys);
+  if (script.includes('ENQUEUE_STREAM_JOB')) {
+    if (keys[3] && (await (jsonGet as any)(keys[3]))?.cancelled === true)
+      await (jsonSetWithExpiry as any)(keys[2], true, Number(argv[1]));
+    await (jsonSetWithExpiry as any)(
+      keys[0],
+      JSON.parse(argv[0]),
+      Number(argv[1]),
+    );
+    const entry = await mocks.redisXadd(keys[1], '*', 'jobId', argv[2]);
+    if (argv[3]) await mocks.publisher.publish(argv[3], argv[4]);
+    return entry;
+  }
+  if (script.includes('READ_JSON_FIELDS')) {
+    const value = await (jsonGet as any)(keys[0]);
+    // A plain-string record is returned whole and parsed by the caller.
+    return value == null ? [0] : [2, JSON.stringify(value)];
+  }
+  return undefined;
+}
 
 vi.mock('@/utils/fetchWithTimeout', () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
@@ -171,6 +219,12 @@ describe('chat/async backend pinning helpers', () => {
     mocks.redisDel.mockResolvedValue(0);
     mocks.redisEval.mockImplementation(
       async (script: string, count: number, ...args: any[]) => {
+        const queued = await emulateQueueScripts(script, count, args);
+        if (queued !== undefined) return queued;
+        if (script.includes('ACQUIRE_FINALIZATION')) {
+          const raw = await mocks.redisGet(args[0]);
+          return raw ? [1, raw] : [0];
+        }
         if (script.includes('READ_OWNED_CONVERSATION')) {
           const value = await jsonGet(args[0]);
           return [value ? JSON.stringify(value) : '', 1];
@@ -2023,8 +2077,29 @@ function wireRedisStore(initial: Record<string, any> = {}) {
     const had = store.delete(key);
     return had ? 1 : 0;
   });
+  journalEffects.length = 0;
   mocks.redisEval.mockImplementation(async (...args: any[]) => {
     const script = args[0] as string;
+    const queued = await emulateQueueScripts(script, args[1], args.slice(2));
+    if (queued !== undefined) return queued;
+    if (script.includes('ACQUIRE_FINALIZATION')) {
+      const [, , journalKey, lockKey, token, , prefix] = args;
+      const raw = store.get(journalKey);
+      if (!raw) return [0];
+      if (String(raw).startsWith(prefix)) return [2];
+      if (store.has(lockKey)) return [3];
+      store.set(lockKey, token);
+      return [1, raw];
+    }
+    // Owner-checked release of the finalizer lock (and stream lease).
+    if (
+      script.includes("if redis.call('get', KEYS[1]) == ARGV[1] then") &&
+      script.includes("redis.call('del', KEYS[1])")
+    ) {
+      if (store.get(args[2]) !== args[3]) return 0;
+      store.delete(args[2]);
+      return 1;
+    }
     if (script.includes("local reply = redis.call('TYPE'")) {
       const current = store.get(args[2]);
       const kind = current === undefined ? 'none' : 'string';
@@ -2118,8 +2193,9 @@ function wireRedisStore(initial: Record<string, any> = {}) {
       return 1;
     }
     if (script.includes('CLAIM_TERMINAL_FINALIZATION')) {
-      const statusKey = args[2] as string;
-      const journalKey = args[3] as string;
+      const count = args[1] as number;
+      const [statusKey, journalKey, lockKey] = args.slice(2, 2 + count);
+      const [snapshot, terminal, , journal, token] = args.slice(2 + count);
       const current = store.get(statusKey);
       if (
         !current ||
@@ -2129,20 +2205,53 @@ function wireRedisStore(initial: Record<string, any> = {}) {
       ) {
         return null;
       }
-      if (JSON.stringify(current) !== args[4]) return 0;
-      store.set(statusKey, JSON.parse(args[5]));
-      store.set(journalKey, args[7]);
+      if (JSON.stringify(current) !== snapshot) return 0;
+      store.set(statusKey, JSON.parse(terminal));
+      store.set(journalKey, journal);
+      if (lockKey && !store.has(lockKey)) {
+        store.set(lockKey, token);
+        return 2;
+      }
       return 1;
     }
     if (script.includes('UPDATE_FINALIZATION_JOURNAL')) {
-      const journalKey = args[2] as string;
-      const raw = store.get(journalKey);
+      const count = args[1] as number;
+      const keys = args.slice(2, 2 + count) as string[];
+      const argv = args.slice(2 + count);
+      const raw = store.get(keys[0]);
       if (!raw) return null;
-      if (createHash('sha1').update(raw).digest('hex') !== args[3]) return 0;
-      store.set(journalKey, args[4]);
-      for (let index = 6; index < args.length; index += 2) {
-        await mocks.publisher.publish(args[index], args[index + 1]);
+      if (createHash('sha1').update(raw).digest('hex') !== argv[0]) return 0;
+      const [, , , userId, conversationId, jobId, effectCount] = argv;
+      store.set(keys[0], argv[1]);
+      let argIndex = 7;
+      let keyIndex = 1;
+      const effects: Array<{ name: string; key: string; value?: string }> = [];
+      for (let index = 0; index < Number(effectCount); index += 1) {
+        const name = argv[argIndex++];
+        const key = keys[keyIndex++];
+        if (name === 'retention') {
+          keyIndex += 1;
+          effects.push({ name, key, value: argv[argIndex] });
+          store.set(key, argv[argIndex]);
+          argIndex += 3;
+          continue;
+        }
+        effects.push({ name, key });
+        if (name === 'delete') store.delete(key);
+        if (name === 'conversation_guard' && store.has(key)) {
+          const guard = JSON.parse(store.get(key));
+          if (
+            guard.userId === userId &&
+            guard.conversationId === conversationId &&
+            guard.jobId === jobId
+          )
+            store.delete(key);
+        }
       }
+      for (let index = argIndex; index < argv.length; index += 2) {
+        await mocks.publisher.publish(argv[index], argv[index + 1]);
+      }
+      journalEffects.push({ jobId, effects });
       return 1;
     }
     // withRedisLock unlock script
@@ -2150,6 +2259,19 @@ function wireRedisStore(initial: Record<string, any> = {}) {
     return 1;
   });
   return store;
+}
+
+// Effects committed with each finalization journal write (guard releases,
+// cleanup and memory retention submissions), recorded by wireRedisStore.
+const journalEffects: Array<{
+  jobId: string;
+  effects: Array<{ name: string; key: string; value?: string }>;
+}> = [];
+
+function effectsFor(jobId: string) {
+  return journalEffects
+    .filter((write) => write.jobId === jobId)
+    .flatMap((write) => write.effects);
 }
 
 function stubFetch(impl: (...args: any[]) => any) {
@@ -2633,17 +2755,17 @@ describe('chat/async streaming + finalize (characterization)', () => {
     },
   );
 
-  it('preserves accepted text and tool results when NAT emits an SSE error event', async () => {
+  it('preserves accepted text and tool results when the backend emits an SSE error event', async () => {
+    // The Rust runtime's terminal error event carries one of its fixed,
+    // user-facing run outcomes (builder/runtime/src/main.rs).
     const { statusKey, store } = await runStreamTurn([
       'data: {"choices":[{"delta":{"content":"Preserved research answer."}}]}\n\n',
       'intermediate_data: {"name":"Function Complete: <research>","id":"r1","parent_id":"root","payload":"Preserved full tool result."}\n\n',
-      'event: error\ndata: {"code":"workflow_error","message":"This request is incomplete","details":"IncompleteAgentRun"}\n\n',
+      'event: error\ndata: {"error":{"message":"Agent run timed out"}}\n\n',
     ]);
     const status = store.get(statusKey);
     expect(status.status).toBe('error');
-    expect(status.error).toBe(
-      'Backend stream failed: This request is incomplete',
-    );
+    expect(status.error).toBe('Backend stream failed: Agent run timed out');
     expect(status.partialResponse).toBe('Preserved research answer.');
     expect(status.intermediateSteps).toHaveLength(1);
     expect(status.intermediateSteps[0].payload.data.output).toContain(
@@ -2654,7 +2776,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
         content: 'Preserved research answer.',
         intermediateSteps: status.intermediateSteps,
         errorMessages: expect.objectContaining({
-          message: 'Backend stream failed: This request is incomplete',
+          message: 'Backend stream failed: Agent run timed out',
         }),
       }),
     );
@@ -2810,7 +2932,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     }
   }, 120_000);
 
-  it('accumulates token deltas across reads and publishes chat_token per delta', async () => {
+  it('accumulates token deltas across reads and publishes them as chat_token events', async () => {
     const { statusKey, store } = await runStreamTurn([
       'data: {"choices":[{"delta":{"content":"Hel"}}]}\n',
       'data: {"choices":[{"delta":{"content":"lo"}}]}\n',
@@ -3252,9 +3374,11 @@ describe('chat/async streaming + finalize (characterization)', () => {
 
     const status = store.get(statusKey);
     expect(status?.status).toBe('error');
-    expect(status?.error).toBe(
-      'Backend stream failed: Extra inputs are not permitted, field: reasoning',
-    );
+    // A provider validation diagnostic is logged, not saved with the chat.
+    expect(status?.error).toBe('Backend stream reported an error');
+    expect(
+      JSON.stringify(store.get('daedalus:conversation:conv-1')),
+    ).not.toContain('Extra inputs');
     expect(status?.partialResponse).toBe('');
     expect(status?.fullResponse).toBeUndefined();
     expect(status?.intermediateSteps).toHaveLength(1);
@@ -3633,14 +3757,11 @@ describe('chat/async streaming + finalize (characterization)', () => {
         error: `Backend did not return response headers within ${STREAM_CONNECT_TIMEOUT_MS}ms`,
         finalizedAt: expect.any(Number),
       });
-      expect(
-        mocks.redisEval.mock.calls.some(
-          ([script, _count, key, member]) =>
-            script.includes("redis.call('ZREM'") &&
-            key === 'daedalus:async-user-jobs:testuser' &&
-            member === jobId,
-        ),
-      ).toBe(true);
+      // The slot is released by the journal write that records completion.
+      expect(effectsFor(jobId)).toContainEqual({
+        name: 'user_guard',
+        key: 'daedalus:async-user-jobs:testuser',
+      });
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();
@@ -3816,11 +3937,15 @@ describe('chat/async streaming + finalize (characterization)', () => {
     });
     const status = store.get(statusKey);
     expect(status?.status).toBe('error');
-    expect(status?.error).toContain('socket reset');
+    // Transport and Redis failures are logged; the saved error is fixed text.
+    expect(status?.error).toBe(
+      'The response could not be completed because of an internal error. Please try again.',
+    );
     expect(status?.intermediateSteps).toHaveLength(1);
   });
 
-  it('finalizeSuccess saves the conversation, updates the selected conversation, and publishes chat_complete', async () => {
+  it('finalizeSuccess saves the conversation, leaves the selection pointer alone, and publishes chat_complete', async () => {
+    const pointer = { id: 'conv-1' };
     const { jobId, statusKey, store } = await runStreamTurn(
       [
         'data: {"choices":[{"delta":{"content":"Answer."}}]}\n',
@@ -3829,11 +3954,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       {
         conversationId: 'conv-1',
         seedStore: {
-          'daedalus:user:testuser:selectedConversation': {
-            id: 'conv-1',
-            name: 'Old name',
-            messages: [],
-          },
+          'daedalus:user:testuser:selectedConversation': pointer,
         },
       },
     );
@@ -3848,24 +3969,30 @@ describe('chat/async streaming + finalize (characterization)', () => {
     const duration = terminalStatus.finalizedAt - terminalStatus.createdAt;
     expect(assistant.generationDurationMs).toBe(duration);
 
-    const selected = store.get('daedalus:user:testuser:selectedConversation');
-    expect(selected.messages).toHaveLength(2);
-    expect(selected.messages[1].generationDurationMs).toBe(duration);
+    // The selection is an id pointer; a finished turn neither copies the
+    // conversation into it nor touches it.
+    expect(store.get('daedalus:user:testuser:selectedConversation')).toEqual(
+      pointer,
+    );
+    expect(
+      mocks.redisEval.mock.calls.some((call) =>
+        call.includes('daedalus:user:testuser:selectedConversation'),
+      ),
+    ).toBe(false);
 
     const complete = eventsOfType('chat_complete');
     expect(complete).toHaveLength(1);
     expect(complete[0].fullResponse).toBe('Answer.');
     expect(complete[0].generationDurationMs).toBe(duration);
 
-    expect(clearStreamingState).toHaveBeenCalledWith(
-      'testuser',
-      'conv-1',
-      jobId,
-    );
+    expect(effectsFor(jobId)).toContainEqual({
+      name: 'streaming_state',
+      key: 'daedalus:streaming:user:testuser:conversation:conv-1',
+    });
     expect(store.get(statusKey)?.status).toBe('completed');
   });
 
-  it('publishes UI completion before optional memory retention resolves', async () => {
+  it('completes without waiting for the memory service and queues the turn for retention', async () => {
     const jobId = 'slow-memory-retention';
     const statusKey = `daedalus:async-job-status:${jobId}`;
     const store = wireRedisStore({
@@ -3878,15 +4005,15 @@ describe('chat/async streaming + finalize (characterization)', () => {
       },
     });
     await reserveConversationForUser('testuser', 'conv-slow-memory');
-    let resolveRetention!: (response: any) => void;
-    mocks.fetchWithTimeout.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveRetention = resolve;
-        }),
-    );
+    // A memory service that never answers must not hold the worker slot or
+    // a follow-up turn waiting on this finalization.
+    mocks.fetchWithTimeout.mockImplementation(() => new Promise(() => {}));
+    const journalWrites = () =>
+      mocks.redisEval.mock.calls.filter(([script]) =>
+        String(script).includes('UPDATE_FINALIZATION_JOURNAL'),
+      ).length;
 
-    const finalization = finalizeSuccess(
+    await finalizeSuccess(
       jobId,
       {
         jobId,
@@ -3901,33 +4028,35 @@ describe('chat/async streaming + finalize (characterization)', () => {
       'The response is ready.',
     );
 
-    await drainUntil(() => mocks.fetchWithTimeout.mock.calls.length === 1);
-
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
     expect(eventsOfType('chat_complete')).toHaveLength(1);
-    expect(clearStreamingState).toHaveBeenCalledWith(
-      'testuser',
-      'conv-slow-memory',
-      jobId,
-    );
-    const pendingJournal = JSON.parse(
-      store.get(`daedalus:async-job-finalization:${jobId}`),
-    );
-    expect(pendingJournal.eventsPublishedAt).toEqual(expect.any(Number));
-    expect(pendingJournal.memoryRetentionAttemptedAt).toBeUndefined();
-
-    resolveRetention({ ok: false, status: 503 });
-    await finalization;
-
+    // One journal write after the claim records the receipt, releases the
+    // guards, publishes completion, queues retention and completes.
+    expect(journalWrites()).toBe(1);
     const completedJournal = JSON.parse(
       store.get(`daedalus:async-job-finalization:${jobId}`),
     );
-    expect(completedJournal.memoryRetentionAttemptedAt).toEqual(
-      expect.any(Number),
+    expect(completedJournal).toMatchObject({
+      state: 'completed',
+      conversationAppliedAt: expect.any(Number),
+      eventsPublishedAt: expect.any(Number),
+      memoryRetentionAttemptedAt: expect.any(Number),
+      completedAt: expect.any(Number),
+    });
+    const [retention] = effectsFor(jobId).filter(
+      (effect) => effect.name === 'retention',
     );
-    expect(completedJournal.state).toBe('completed');
-    expect(completedJournal.terminalStatus.generationDurationMs).toBe(
-      pendingJournal.terminalStatus.generationDurationMs,
+    expect(retention.key).toBe(
+      `daedalus:memory-retention:submission:v1:${jobId}`,
     );
+    expect(JSON.parse(retention.value!)).toMatchObject({
+      jobId,
+      userId: 'testuser',
+      conversationId: 'conv-slow-memory',
+      assistantMessageId: 'assistant-slow-memory',
+      userContent: 'remember this turn',
+      assistantContent: 'The response is ready.',
+    });
   });
 
   it('deduplicates repeated success finalizers before conversation and event side effects', async () => {
@@ -4052,15 +4181,18 @@ describe('chat/async streaming + finalize (characterization)', () => {
 
     const conversation = store.get('daedalus:conversation:conv-1');
     expect(conversation.isPartial).toBe(true);
-    expect(conversation.error).toBe('boom');
+    expect(conversation.error).toBe(
+      'The response could not be completed because of an internal error. Please try again.',
+    );
+    expect(JSON.stringify(conversation)).not.toContain('boom');
     const assistant = conversation.messages[conversation.messages.length - 1];
     expect(assistant.content).toBe('Partial answer.');
-    expect(assistant.errorMessages.message).toBe('boom');
+    expect(assistant.errorMessages.message).toBe(conversation.error);
 
     const status = store.get(statusKey);
     expect(status?.status).toBe('error');
     expect(status?.partialResponse).toBe('Partial answer.');
-    expect(status?.error).toBe('boom');
+    expect(status?.error).toBe(conversation.error);
   });
 
   it('finalizeError preserves partial text shared with an earlier answer', async () => {
@@ -4189,7 +4321,8 @@ describe('chat/async streaming + finalize (characterization)', () => {
       await drainUntil(() => Boolean(store.get(statusKey)?.finalizedAt));
       const status = store.get(statusKey);
       expect(status?.status).toBe('error');
-      expect(status?.error).toContain('ingest exploded');
+      // Only the backend's own ingestion failure text is saved verbatim.
+      expect(status?.error).toBe('Document ingestion failed.');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -4334,11 +4467,10 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.intermediateSteps).toHaveLength(1);
     expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
     expect(store.has(`daedalus:async-job-steps-v2:${jobId}`)).toBe(false);
-    expect(clearStreamingState).toHaveBeenCalledWith(
-      'testuser',
-      'conv-1',
-      jobId,
-    );
+    expect(effectsFor(jobId)).toContainEqual({
+      name: 'streaming_state',
+      key: 'daedalus:streaming:user:testuser:conversation:conv-1',
+    });
   });
 
   it.each([false, true])(
@@ -4584,11 +4716,19 @@ describe('chat/async submission recovery and validation', () => {
   }
 
   function slotReleased(jobId: string): boolean {
-    return mocks.redisEval.mock.calls.some(
-      ([script, , key, member]) =>
-        String(script).includes("redis.call('ZREM'") &&
-        key === 'daedalus:async-user-jobs:testuser' &&
-        member === jobId,
+    return (
+      mocks.redisEval.mock.calls.some(
+        ([script, , key, member]) =>
+          String(script).includes("redis.call('ZREM'") &&
+          key === 'daedalus:async-user-jobs:testuser' &&
+          member === jobId,
+      ) ||
+      // Finalization releases it with the journal write recording completion.
+      effectsFor(jobId).some(
+        (effect) =>
+          effect.name === 'user_guard' &&
+          effect.key === 'daedalus:async-user-jobs:testuser',
+      )
     );
   }
 

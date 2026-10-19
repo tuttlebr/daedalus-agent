@@ -22,6 +22,8 @@ import {
   REDIS_CLIENT_OPTIONS,
   channels,
   createRedisErrorThrottle,
+  readConversationOwner,
+  readJsonFields,
   redisErrorMessage,
   resolveRedisUrl,
   sessionKey,
@@ -326,10 +328,29 @@ export interface StreamingState {
   userId: string;
 }
 
-interface AsyncJobRequestMeta {
-  jobId: string;
-  userId: string;
-}
+type AsyncJobRequestMeta = Pick<AsyncJobRequest, 'jobId' | 'userId'> &
+  Partial<
+    Pick<
+      AsyncJobRequest,
+      | 'executionMode'
+      | 'natBaseUrl'
+      | 'natSessionId'
+      | 'timezone'
+      | 'conversationId'
+    >
+  >;
+
+// Subscription ownership and steering need only these request fields; the
+// record also carries the conversation history.
+const JOB_REQUEST_META_FIELDS: Array<keyof AsyncJobRequestMeta> = [
+  'jobId',
+  'userId',
+  'executionMode',
+  'natBaseUrl',
+  'natSessionId',
+  'timezone',
+  'conversationId',
+];
 
 // Read candidate keys according to their actual type in one round trip.
 // Streaming state may be RedisJSON or a plain string (no RedisJSON module).
@@ -569,7 +590,6 @@ async function canSubscribeToChat(
   conversationId: string,
 ): Promise<boolean> {
   const redis = getRedis();
-  const userConversationsKey = sessionKey(['user', userId, 'conversations']);
   const streamingKey = sessionKey([
     'streaming',
     'user',
@@ -579,12 +599,15 @@ async function canSubscribeToChat(
   ]);
 
   try {
-    if ((await redis.sismember(userConversationsKey, conversationId)) === 1) {
-      const conversation = await getJsonOrPlain<{ ownerId?: string }>(
-        redis,
-        sessionKey(['conversation', conversationId]),
-      );
-      return !conversation?.ownerId || conversation.ownerId === userId;
+    // Membership and the record's owner binding in one round trip, reading
+    // only the record's leading bytes rather than its history.
+    const ownership = await readConversationOwner(
+      redis,
+      userId,
+      conversationId,
+    );
+    if (ownership.member) {
+      return !ownership.ownerId || ownership.ownerId === userId;
     }
   } catch (error) {
     console.error(
@@ -818,11 +841,12 @@ const defaultConnectionInitializationDependencies: ConnectionInitializationDepen
     subscribeToUserChannel,
     unsubscribeFromUserChannel,
     getStreamingStates: (userId) => readStreamingStates(getRedis(), userId),
-    getJobRequest: (jobId) =>
-      getJsonOrPlain<AsyncJobRequestMeta>(
+    getJobRequest: async (jobId) =>
+      (await readJsonFields<AsyncJobRequestMeta>(
         getRedis(),
         sessionKey(['async-job-request', jobId]),
-      ),
+        JOB_REQUEST_META_FIELDS,
+      )) as AsyncJobRequestMeta | null,
     canSubscribeToChat,
     retainChannel: (channel, handler) =>
       getRedisSubscriber().retain(channel, handler),

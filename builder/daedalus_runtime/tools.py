@@ -196,6 +196,11 @@ class ToolRegistry:
                 self._tools[name] = tool
             return self._tools[name]
 
+    @staticmethod
+    def supports(kind: object) -> bool:
+        """Whether a loaded factory owns this function ``_type``."""
+        return isinstance(kind, str) and kind in _FACTORIES
+
     def get_function_config(self, name: str):
         raw = dict(self.config.get("functions", {})[name])
         config_type, _ = _FACTORIES[raw.pop("_type")]

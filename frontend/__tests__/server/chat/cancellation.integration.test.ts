@@ -196,7 +196,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
           expect(
             await client.zscore(userJobGuardKey(userId), jobId),
           ).toBeNull();
-          expect(await queue.loadStreamQueuePayload(jobId)).toBeNull();
+          expect(await redis.jsonGet(queue.streamPayloadKey(jobId))).toBeNull();
         } finally {
           controller.abort();
           await processing?.catch(() => {});
@@ -281,7 +281,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
             expect(
               (await redis.jsonGet(statusKey)).finalizedAt,
             ).toBeUndefined();
-            expect(await queue.loadStreamQueuePayload(jobId)).not.toBeNull();
+            expect(
+              await redis.jsonGet(queue.streamPayloadKey(jobId)),
+            ).not.toBeNull();
             await expect(processing).resolves.toBe('recovered_as_error');
             expect(await redis.jsonGet(statusKey)).toMatchObject({
               status: 'error',
@@ -304,7 +306,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
               canceled: false,
             });
           }
-          expect(await queue.loadStreamQueuePayload(jobId)).toBeNull();
+          expect(await redis.jsonGet(queue.streamPayloadKey(jobId))).toBeNull();
           expect(await client.xlen(queue.STREAM_QUEUE_KEY)).toBe(0);
         } finally {
           releaseReader();

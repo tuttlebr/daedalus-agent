@@ -1,14 +1,3 @@
-import type { Conversation } from '@/types/chat';
-
-/**
- * A conversation as the browser knows it, together with the server revision
- * that copy was derived from. The revision is an opaque concurrency token:
- * clients compare it for equality and send it back unchanged, never order it.
- */
-export type RevisionedConversation = Conversation & {
-  revision?: string | null;
-};
-
 /**
  * The concurrency token of a stored conversation record, or null when no
  * record exists.

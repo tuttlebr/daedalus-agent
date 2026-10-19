@@ -174,6 +174,68 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       },
     );
 
+    it.each(['json', 'plain'])(
+      'authorizes a %s job subscription from the request owner field alone',
+      async (format) => {
+        const owner = `${user}-job-${format}`;
+        const jobId = `${owner}-job`;
+        const requestKey = `async-job-request:${jobId}`;
+        keys.push(requestKey);
+        const request = JSON.stringify({
+          jobId,
+          executionMode: 'stream',
+          natBaseUrl: 'http://backend:8000',
+          messages: Array.from({ length: 100 }, () => ({
+            role: 'user',
+            content: 'history '.repeat(100),
+          })),
+          userId: owner,
+        });
+        if (format === 'json')
+          await client.call('JSON.SET', requestKey, '$', request);
+        else await client.set(requestKey, request);
+        for (const [subscriber, allowed] of [
+          [owner, true],
+          [other, false],
+        ] as const) {
+          const socket = new FakeSocket();
+          await ws.initializeAuthenticatedConnection(
+            socket as any,
+            subscriber,
+            `sid-${subscriber}-${format}`,
+          );
+          try {
+            socket.emit(
+              'message',
+              Buffer.from(JSON.stringify({ type: 'subscribe_job', jobId })),
+            );
+            const status = { jobId, status: 'streaming' };
+            if (allowed) {
+              await vi.waitFor(async () => {
+                await client.publish(
+                  `job:${jobId}:status`,
+                  JSON.stringify(status),
+                );
+                expect(socket.messages()).toContainEqual({
+                  type: 'job_status',
+                  data: status,
+                });
+              });
+            } else {
+              await vi.waitFor(() =>
+                expect(socket.messages()).toContainEqual({
+                  type: 'error',
+                  message: 'Unauthorized job subscription',
+                }),
+              );
+            }
+          } finally {
+            socket.disconnect();
+          }
+        }
+      },
+    );
+
     it('reads conversation sets larger than one script batch', async () => {
       const owner = `${user}-many`;
       const conversations = `user:${owner}:conversations`;

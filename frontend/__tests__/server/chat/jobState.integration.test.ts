@@ -7,6 +7,15 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
     let state: typeof import('@/server/chat/jobState');
     let client: ReturnType<typeof redis.getRedis>;
 
+    // Durable journal contents, as written.
+    const journalOf = async (job: string) => {
+      const raw = await client.get(state.finalizationJournalKey(job));
+      return raw ? JSON.parse(raw) : null;
+    };
+    const claimTerminal = async (
+      ...args: Parameters<typeof state.claimTerminalJobStatus>
+    ) => (await state.claimTerminalJobStatus(...args)).claimed;
+
     beforeAll(async () => {
       if (!process.env.REDIS_URL)
         throw new Error('Disposable REDIS_URL required');
@@ -164,7 +173,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
           });
         try {
           await expect(
-            state.claimTerminalJobStatus(
+            claimTerminal(
               jobId,
               {
                 status: 'error',
@@ -191,9 +200,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
             partialResponse: 'newer',
             finalizedAt: 3,
           });
-          expect(
-            (await state.getFinalizationJournal(jobId))?.terminalStatus,
-          ).toMatchObject({ partialResponse: 'newer' });
+          expect((await journalOf(jobId))?.terminalStatus).toMatchObject({
+            partialResponse: 'newer',
+          });
         } finally {
           spy.mockRestore();
           await client.del(key, journalKey);

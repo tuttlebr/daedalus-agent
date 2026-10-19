@@ -50,6 +50,8 @@ class DomainRetrieverConfig(ToolConfig, name="domain_retriever"):
     embedding_model: str = Field(
         description="Embedder name used to vectorize the query"
     )
+    # Retained for configuration compatibility; startup validation requires
+    # the default database, which is the only one document ingestion writes.
     database_name: str = Field(default="default", description="Milvus database name")
     domain_collections: dict[str, str] = Field(
         default_factory=lambda: {
@@ -207,11 +209,6 @@ async def domain_retriever_function(
                     client=milvus_client,
                     embedder=embedder,
                     content_field=config.content_field,
-                    database_name=(
-                        config.database_name
-                        if config.database_name != "default"
-                        else None
-                    ),
                     vector_field_name=config.vector_field_name,
                     reranker_config=reranker_config,
                     search_timeout=config.search_timeout,

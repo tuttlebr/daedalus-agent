@@ -1,4 +1,5 @@
-import handler from '@/pages/api/sync/notify';
+import { config as conversationRouteConfig } from '@/pages/api/conversations/[id]';
+import handler, { config } from '@/pages/api/sync/notify';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -70,6 +71,12 @@ describe('sync/notify', () => {
     await handler(req, res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('accepts the whole-conversation body older tabs still send', () => {
+    expect(config.api.bodyParser.sizeLimit).toBe(
+      conversationRouteConfig.api.bodyParser.sizeLimit,
+    );
   });
 
   it('reports a failed publication', async () => {

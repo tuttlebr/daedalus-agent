@@ -283,8 +283,26 @@ impl Config {
         if functions.keys().any(|k| groups.contains_key(k)) {
             bail!("Tool and MCP group names must be distinct");
         }
+        // A workflow written for an older image would otherwise surface as an
+        // unrelated executor or tool-service failure.
+        if let Some(name) = functions
+            .iter()
+            .find_map(|(name, f)| (f["_type"] == "user_interaction").then_some(name))
+        {
+            bail!(
+                "Retired function type user_interaction: remove functions.{name} and its workflow tool entries; users delete durable memory in the Memory Center"
+            );
+        }
         if self.python_tools && self.variable("DAEDALUS_TOOL_EXECUTOR", "python") == "disabled" {
             bail!("Configured required tools need the transitional Python executor");
+        }
+        // NV-Ingest's writer reads collection schemas from Milvus's default
+        // database and cannot select another. Metadata, readiness and search
+        // must therefore use that database too, or uploads would disappear.
+        if !crate::collections::default_database(&self.variable("MILVUS_DATABASE", "")) {
+            bail!(
+                "MILVUS_DATABASE must be empty or default: document ingestion writes to Milvus's default database, which retrieval and collection metadata share"
+            );
         }
         for (name, function) in functions {
             if function["_type"] == "nws_weather" {
@@ -305,11 +323,35 @@ impl Config {
             if function["_type"] == "nvidia_docs" {
                 crate::nvidia_docs::Settings::new(function)?;
             }
+            let database = |values: &Value| {
+                if values["database_name"]
+                    .as_str()
+                    .is_some_and(|value| !crate::collections::default_database(value))
+                {
+                    bail!(
+                        "functions.{name}.database_name must be empty or default: Milvus collections are read from the default database"
+                    );
+                }
+                Ok(())
+            };
             if function["_type"] == "domain_retriever" {
-                crate::domain_retriever::Settings::new(function, &self.env)?;
+                database(&crate::domain_retriever::Settings::new(function, &self.env)?.values)?;
             }
             if function["_type"] == "nat_nv_ingest" {
-                crate::document_tools::Settings::new(function, &self.env)?;
+                let settings = crate::document_tools::Settings::new(function, &self.env)?;
+                database(&settings.values)?;
+                // HTTP uploads and collection metadata use the environment
+                // value; this tool's ingest, search and listing use the field.
+                // A difference would hide each user's upload collection.
+                let configured = settings.values["default_collection_name"].as_str();
+                let uploads = self.variable("DOCUMENT_INGEST_DEFAULT_COLLECTION", "user_uploads");
+                if crate::collections::upload_base(configured)
+                    != crate::collections::upload_base(Some(&uploads))
+                {
+                    bail!(
+                        "functions.{name}.default_collection_name must match DOCUMENT_INGEST_DEFAULT_COLLECTION, which uploads and collection metadata use"
+                    );
+                }
             }
             if crate::memory_tools::owns(function["_type"].as_str().unwrap_or("")) {
                 crate::memory_tools::validate(function)?;
@@ -483,6 +525,114 @@ mod concurrency_tests {
                 "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
             Default::default(),
         )
+    }
+
+    fn documents(function: Value, env: &[(&str, &str)]) -> Result<Config> {
+        let mut function = function;
+        function["_type"] = json!("nat_nv_ingest");
+        Config::new(
+            json!({"llms":{"main":{"base_url":"http://model.invalid/v1","model_name":"fixture"}},
+                "functions":{"documents":function},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+            env.iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn upload_collection_sources_must_agree() {
+        // The shipped pairing, including equivalent spellings of the base.
+        documents(json!({"default_collection_name":"user_uploads"}), &[]).unwrap();
+        documents(json!({}), &[]).unwrap();
+        documents(
+            json!({"default_collection_name":" Team Uploads "}),
+            &[("DOCUMENT_INGEST_DEFAULT_COLLECTION", "team_uploads")],
+        )
+        .unwrap();
+        // HTTP uploads would land in a collection tool search never reads.
+        let error = documents(
+            json!({"default_collection_name":"team_uploads"}),
+            &[("DOCUMENT_INGEST_DEFAULT_COLLECTION", "user_uploads")],
+        )
+        .err()
+        .expect("a split upload collection must be rejected")
+        .to_string();
+        assert!(
+            error.contains("functions.documents.default_collection_name"),
+            "{error}"
+        );
+        assert!(
+            error.contains("DOCUMENT_INGEST_DEFAULT_COLLECTION"),
+            "{error}"
+        );
+        assert!(
+            documents(
+                json!({}),
+                &[("DOCUMENT_INGEST_DEFAULT_COLLECTION", "team_uploads")]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn milvus_database_must_be_the_ingestion_database() {
+        for database in ["", " default ", "default"] {
+            documents(json!({}), &[("MILVUS_DATABASE", database)]).unwrap();
+        }
+        let error = documents(json!({}), &[("MILVUS_DATABASE", "custom")])
+            .err()
+            .expect("a database ingestion cannot write must be rejected")
+            .to_string();
+        assert!(error.starts_with("MILVUS_DATABASE must be"), "{error}");
+        assert!(!error.contains("custom"), "{error}");
+        // Tool database fields were only an unqualified-name prefix guess.
+        let error = documents(json!({"database_name":"custom"}), &[])
+            .err()
+            .expect("a document tool database must be the default")
+            .to_string();
+        assert!(
+            error.contains("functions.documents.database_name"),
+            "{error}"
+        );
+        let error = Config::new(
+            json!({"llms":{"main":{"base_url":"http://model.invalid/v1","model_name":"fixture"}},
+                "functions":{"domains":{"_type":"domain_retriever","uri":"http://milvus.invalid:19530",
+                    "embedding_model":"embedder","database_name":"custom"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+            Default::default(),
+        )
+        .err()
+        .expect("a domain database must be the default")
+        .to_string();
+        assert!(error.contains("functions.domains.database_name"), "{error}");
+    }
+
+    #[test]
+    fn retired_tool_types_name_the_function_to_remove() {
+        let error = configured("user_interaction", json!(1))
+            .err()
+            .expect("a retired tool type must be rejected")
+            .to_string();
+        assert!(
+            error.contains("Retired function type user_interaction"),
+            "{error}"
+        );
+        assert!(error.contains("functions.test"), "{error}");
+        // The minimal image must report the retirement, not a missing executor.
+        let error = Config::new(
+            json!({"llms":{"main":{"base_url":"http://model.invalid/v1","model_name":"fixture"}},
+                "functions":{"test":{"_type":"user_interaction"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+            HashMap::from([("DAEDALUS_TOOL_EXECUTOR".into(), "disabled".into())]),
+        )
+        .err()
+        .expect("a retired tool type must be rejected")
+        .to_string();
+        assert!(
+            error.contains("Retired function type user_interaction"),
+            "{error}"
+        );
     }
 
     #[test]

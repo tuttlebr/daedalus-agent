@@ -619,15 +619,6 @@ def check(image, redis_image, rollback_image):
                     len(peers.mcp_calls) == before + 1,
                     "Approval dispatched more than once",
                 )
-                receipt_key = "approval-receipt:" + digest(
-                    auth["x-daedalus-approval-token"]
-                )
-                receipt = json.loads(db.get(receipt_key))
-                require(
-                    receipt["arguments_sha256"] == body["arguments_sha256"]
-                    and 7100 < db.ttl(receipt_key) <= 7200,
-                    "Receipt binding or TTL changed",
-                )
                 winner = next(r for r in results if r.status_code == 200)
                 owner_base = str(winner.request.url).split("/v1/")[0]
                 status_url = owner_base + "/executions/" + winner.json()["executionId"]
@@ -654,12 +645,6 @@ def check(image, redis_image, rollback_image):
                 )
                 require(
                     len(peers.mcp_calls) == before + 1, "Uncertain mutation replayed"
-                )
-                require(
-                    not db.exists(
-                        "approval-receipt:" + digest(auth["x-daedalus-approval-token"])
-                    ),
-                    "False success receipt",
                 )
                 require(
                     execute(body, auth).status_code == 409,
@@ -928,12 +913,6 @@ def check(image, redis_image, rollback_image):
             require(
                 peers.call_disconnected.wait(5), "Shutdown did not close MCP transport"
             )
-            require(
-                not db.exists(
-                    "approval-receipt:" + digest(auth["x-daedalus-approval-token"])
-                ),
-                "Shutdown wrote a false receipt",
-            )
             cases.append(
                 "C04/C08/C15 SIGTERM terminates direct execution and preserves uncertainty"
             )
@@ -956,7 +935,7 @@ def check(image, redis_image, rollback_image):
 
         baseline_store("read", {**record, "token": legacy_credential})
         cases.append(
-            "C07/C08/C16 baseline writes grants and approvals; rollback reads Rust grants and receipts"
+            "C07/C08/C16 baseline writes grants and approvals; rollback reads Rust grants"
         )
         logs = (fixture["root"] / "backend.log").read_text() + (
             fixture["root"] / "second.log"

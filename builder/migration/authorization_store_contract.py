@@ -10,11 +10,7 @@ import httpx
 import redis
 from daedalus_runtime.oauth import GoogleOAuth, decode_grant, token_key
 from redis.asyncio import from_url
-from user_interaction.approval_tokens import (
-    ApprovalRequest,
-    consume_mcp_execution_receipt,
-    issue_approval_token,
-)
+from user_interaction.approval_tokens import ApprovalRequest, issue_approval_token
 
 
 async def check(mode, record):
@@ -60,15 +56,6 @@ async def check(mode, record):
                 or await db.ttl(key) != -1
             ):
                 raise AssertionError("Grant scope or persistence changed")
-            if not consume_mcp_execution_receipt(
-                sync,
-                user_id=record["user_id"],
-                token=record["token"],
-                server_name=record["server_name"],
-                tool_name=record["tool_name"],
-                arguments_sha256=record["arguments_sha256"],
-            ):
-                raise AssertionError("Rollback could not consume the Rust receipt")
     sync.close()
     await db.aclose()
 

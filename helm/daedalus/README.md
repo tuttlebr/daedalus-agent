@@ -297,8 +297,10 @@ ownership and recovery boundaries.
 namespace; Kubernetes cannot mount a Secret across namespaces. Password mode
 expects `MILVUS_USERNAME` and `MILVUS_PASSWORD`. Token mode is selected by
 setting `retrieval.milvus.auth.tokenKey` and expects that key instead. MinIO
-expects `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY`. Endpoint, database, bucket,
-namespace, port, and key names are all configurable under `retrieval.*`.
+expects `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY`. Endpoint, bucket, namespace,
+port, and key names are configurable under `retrieval.*`. Keep
+`retrieval.milvus.database` at `default`: NV-Ingest writes uploads through
+Milvus's default database, so the backend rejects another value at startup.
 
 `retrieval.readiness.mode` controls the authenticated Milvus dependency check:
 `degraded` keeps the backend ready while reporting RAG unavailable, `required`

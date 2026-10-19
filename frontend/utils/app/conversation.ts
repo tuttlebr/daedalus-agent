@@ -3,10 +3,7 @@ import { apiGet, apiPost, apiPut, ConflictError } from '@/utils/app/api';
 import { Conversation, Message } from '@/types/chat';
 
 import { cleanConversationHistory } from './clean';
-import {
-  conversationRevision,
-  type RevisionedConversation,
-} from './conversationRevision';
+import { conversationRevision } from './conversationRevision';
 import { cleanMessagesForStorage, stripBase64Content } from './imageHandler';
 import { getUserSessionItem, setUserSessionItem } from './storage';
 
@@ -45,7 +42,7 @@ const lineages = new Map<
 >();
 
 function knownRevision(conversation: Conversation): string | null {
-  return (conversation as RevisionedConversation).revision ?? null;
+  return conversation.revision ?? null;
 }
 
 function baseRevisionFor(conversation: Conversation): string | null {
@@ -55,8 +52,7 @@ function baseRevisionFor(conversation: Conversation): string | null {
 }
 
 function storageCopy(conversation: Conversation): Conversation {
-  const { revision: _revision, ...fields } =
-    conversation as RevisionedConversation;
+  const { revision: _revision, ...fields } = conversation;
   // Persist complete history; attachment bytes are stored separately.
   return stripBase64Content({
     ...fields,
@@ -163,7 +159,7 @@ function recordCommit(
 async function persistConversation(
   conversation: Conversation,
   change: ConversationChange,
-): Promise<RevisionedConversation> {
+): Promise<Conversation> {
   const id = conversation.id;
   const known = knownRevision(conversation);
   let body = storageCopy(conversation);
@@ -207,7 +203,7 @@ async function persistConversation(
 export function saveConversation(
   conversation: Conversation,
   change: ConversationChange = {},
-): Promise<RevisionedConversation> {
+): Promise<Conversation> {
   const id = conversation.id;
   const previous = saveQueues.get(id) ?? Promise.resolve();
   const run = previous

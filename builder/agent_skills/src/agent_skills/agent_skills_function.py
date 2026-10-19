@@ -9,12 +9,12 @@ import asyncio
 import json
 import logging
 import os
-import signal
 from datetime import UTC, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agent_skills.skill_parser import SkillParser
+from daedalus_runtime.processes import kill_process_group, reap_process
 from daedalus_runtime.tools import (
     ToolConfig,
     ToolDefinition,
@@ -92,43 +92,6 @@ def _sanitized_env() -> dict[str, str]:
     code, even if a new secret env var is added later under any naming scheme.
     """
     return {k: v for k, v in os.environ.items() if k in _ALLOWED_ENV_VARS}
-
-
-def _terminate_process_group(proc) -> None:
-    """Kill the script's entire process group.
-
-    Skill scripts (especially .sh) may spawn child processes; ``proc.kill()``
-    only signals the direct child and can orphan grandchildren. Because the
-    process is launched with ``start_new_session=True`` it is its own process
-    group leader, so we can signal the whole group.
-    """
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-
-
-async def _reap_script(proc) -> None:
-    """Wait for the terminated script itself, not for every holder of its pipes.
-
-    On Python 3.12, ``Process.wait()`` and ``communicate()`` also wait for
-    stdout/stderr EOF. A descendant that escaped the process group (``setsid``
-    plus ``fork``) survives the group kill and can hold those pipes open
-    indefinitely. Close our read ends first, as the Rust runtime drops its
-    pipes before waiting; the script's exit status still comes from the child
-    watcher. asyncio exposes the pipe transports only through the process's
-    subprocess transport.
-    """
-    transport = getattr(proc, "_transport", None)
-    if transport is not None:
-        for fd in (1, 2):
-            pipe = transport.get_pipe_transport(fd)
-            if pipe is not None:
-                pipe.close()
-    await proc.wait()
 
 
 # ----------------------------------------------------------------------
@@ -339,11 +302,11 @@ async def _run_skill_script(
         # This also runs on task cancellation. The group ID is the original
         # child's PID even if the group leader has already exited.
         if proc is not None:
-            _terminate_process_group(proc)
+            kill_process_group(proc)
             for reader in readers:
                 reader.cancel()
             await asyncio.gather(*readers, return_exceptions=True)
-            await asyncio.shield(_reap_script(proc))
+            await asyncio.shield(reap_process(proc))
 
     output_parts: list[str] = []
     if stdout:

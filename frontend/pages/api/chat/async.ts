@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSession } from '@/utils/auth/session';
 import { Logger } from '@/utils/logger';
 import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
-import { publishStreamingState } from '@/utils/sync/publish';
+import { streamingStateEvent } from '@/utils/sync/publish';
 
 import { selectStreamBackendBaseUrl } from '@/server/chat/backendSelection';
 import {
@@ -64,7 +64,7 @@ import {
 import {
   cancelSubmission,
   registerSubmission,
-  submissionCancelled,
+  submissionKey,
   validSubmissionId,
 } from '@/server/jobSubmission';
 import { getMilvusMetadata } from '@/server/milvusMetadata';
@@ -75,6 +75,8 @@ import {
   reserveConversationForUser,
 } from '@/server/session/conversationStore';
 import {
+  channels,
+  getRedis,
   sessionKey,
   jsonGet,
   jsonSetWithExpiry,
@@ -82,6 +84,7 @@ import {
   setStreamingState,
   clearStreamingState,
 } from '@/server/session/redis';
+import { readJsonFields } from '@/server/session/redisShared';
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
@@ -455,34 +458,35 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     acquiredUserGuard = { userId: verifiedUsername, jobId };
 
-    // Publish a provisional status immediately after the guard so a status read
-    // sees the submission while backend selection and queue preparation run.
-    // It expires quickly unless initialization below replaces it; stale-owner
-    // recovery also treats a guard past its grace without a request or queue
-    // payload as abandoned.
-    await jsonSetWithExpiry(
-      sessionKey(['async-job-status', jobId]),
-      {
-        jobId,
-        status: 'pending',
-        createdAt,
-        updatedAt: createdAt,
-        conversationId,
-        ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
-        ...(typeof assistantMessageId === 'string' && assistantMessageId
-          ? { assistantMessageId }
-          : {}),
-      } satisfies AsyncJobStatus,
-      JOB_INITIALIZATION_TTL_SECONDS,
-    );
-
-    // Claiming the guard can recover and save the previous turn. Read history
-    // only after that recovery, while this submission owns the conversation.
-    const storedMessages = await loadStoredConversationMessages(
-      verifiedUsername,
-      conversationId,
-      jobId,
-    );
+    // Publish a provisional status as soon as the guard is held so a status
+    // read sees the submission while backend selection and queue preparation
+    // run. It expires quickly unless initialization below replaces it;
+    // stale-owner recovery also treats a guard past its grace without a request
+    // or queue payload as abandoned. Claiming the guard can recover and save
+    // the previous turn, so history is read only now, while this submission
+    // owns the conversation; the two writes are independent. Both settle
+    // before any cleanup so a late write cannot follow it.
+    const [provisional, stored] = await Promise.allSettled([
+      jsonSetWithExpiry(
+        sessionKey(['async-job-status', jobId]),
+        {
+          jobId,
+          status: 'pending',
+          createdAt,
+          updatedAt: createdAt,
+          conversationId,
+          ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
+          ...(typeof assistantMessageId === 'string' && assistantMessageId
+            ? { assistantMessageId }
+            : {}),
+        } satisfies AsyncJobStatus,
+        JOB_INITIALIZATION_TTL_SECONDS,
+      ),
+      loadStoredConversationMessages(verifiedUsername, conversationId, jobId),
+    ]);
+    if (stored.status === 'rejected') throw stored.reason;
+    if (provisional.status === 'rejected') throw provisional.reason;
+    const storedMessages = stored.value;
     const effectiveMessages = mergeSubmittedMessagesWithStoredHistory(
       storedMessages,
       messages,
@@ -682,18 +686,35 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       );
     }
 
-    if (await submissionCancelled('chat', verifiedUsername, submissionId)) {
-      await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
-    }
-    await enqueueStreamJob(jobId, {
-      messagesForNat: messagesWithIdentity,
-      verifiedUsername,
-    });
+    // One commit stores the payload, queues the job, turns a Stop already
+    // recorded for this submission into the job's stop signal, and tells the
+    // user's other sessions the conversation is streaming.
+    await enqueueStreamJob(
+      jobId,
+      { messagesForNat: messagesWithIdentity, verifiedUsername },
+      {
+        ...(submissionId
+          ? {
+              submissionKey: submissionKey(
+                'chat',
+                verifiedUsername,
+                submissionId,
+              ),
+            }
+          : {}),
+        ...(conversationId
+          ? {
+              notice: {
+                channel: channels.userUpdates(effectiveUserId),
+                payload: JSON.stringify(
+                  streamingStateEvent(conversationId, true, jobId),
+                ),
+              },
+            }
+          : {}),
+      },
+    );
     jobEnqueued = true;
-
-    if (conversationId) {
-      await publishStreamingState(effectiveUserId, conversationId, true, jobId);
-    }
 
     return res.status(200).json({ jobId, status: jobStatus.status });
   } catch (error) {
@@ -772,15 +793,23 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const statusKey = sessionKey(['async-job-status', jobId]);
-    const jobStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
+    // Independent reads in one round trip. Ownership needs only two fields
+    // of the request, which also carries the conversation history; live
+    // output is returned only after ownership is confirmed.
+    const [jobStatus, jobRequest, liveResponse, liveSteps] = await Promise.all([
+      jsonGet(statusKey) as Promise<AsyncJobStatus | null>,
+      readJsonFields<AsyncJobRequest>(
+        getRedis(),
+        sessionKey(['async-job-request', jobId]),
+        ['userId', 'executionMode'],
+      ),
+      getStreamResponse(jobId),
+      getStreamSteps(jobId),
+    ]);
 
     if (!jobStatus) {
       return res.status(404).json({ error: 'Job not found' });
     }
-
-    const jobRequest = (await jsonGet(
-      sessionKey(['async-job-request', jobId]),
-    )) as AsyncJobRequest | null;
     if (!jobRequest || jobRequest.userId !== session.username) {
       return res.status(404).json({ error: 'Job not found' });
     }
@@ -802,10 +831,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (jobRequest.executionMode === 'stream') {
-      const [liveResponse, liveSteps] = await Promise.all([
-        getStreamResponse(jobId, jobStatus.partialResponse || ''),
-        getStreamSteps(jobId, jobStatus.intermediateSteps || []),
-      ]);
       const statusWithLiveProgress: AsyncJobStatus = {
         ...jobStatus,
         ...(liveResponse ? { partialResponse: liveResponse } : {}),
@@ -860,13 +885,25 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ error: 'Invalid job ID' });
     const requestKey = sessionKey(['async-job-request', jobId]);
     const statusKey = sessionKey(['async-job-status', jobId]);
-    const jobRequest = (await jsonGet(requestKey)) as AsyncJobRequest | null;
-    if (!jobRequest && submissionId)
+    // Ownership and backend cancellation need only the request's routing
+    // fields, not the conversation history it carries.
+    const [jobMeta, currentStatus] = await Promise.all([
+      readJsonFields<AsyncJobRequest>(getRedis(), requestKey, [
+        'jobId',
+        'userId',
+        'executionMode',
+        'natBaseUrl',
+        'natSessionId',
+        'timezone',
+        'conversationId',
+      ]),
+      jsonGet(statusKey) as Promise<AsyncJobStatus | null>,
+    ]);
+    if (!jobMeta && submissionId)
       return res.status(200).json({ success: true, canceled: true });
-    if (!jobRequest || jobRequest.userId !== session.username) {
+    if (!jobMeta || jobMeta.userId !== session.username) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
 
     let canceled = false;
     let workerOwnsFinalization = false;
@@ -884,9 +921,7 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
       // lease. Without either, including a pending job whose submitting
       // process stopped before queueing it, no worker will observe the stop.
       workerOwnsFinalization =
-        ['stream', 'document_ingest'].includes(
-          jobRequest.executionMode ?? '',
-        ) &&
+        ['stream', 'document_ingest'].includes(jobMeta.executionMode ?? '') &&
         Boolean(afterAbort) &&
         !isTerminalJobStatus(afterAbort!.status) &&
         (presence.payload || presence.lease);
@@ -897,19 +932,21 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
         canceled = true;
         // The durable abort remains authoritative if the run is queued or the
         // backend is unreachable. Active runs also get an immediate signal.
-        if (jobRequest.executionMode === 'stream')
-          await forwardCancellation(jobRequest).catch(() => {
+        if (jobMeta.executionMode === 'stream')
+          await forwardCancellation(jobMeta as AsyncJobRequest).catch(() => {
             logger.warn(
               'Backend cancellation unavailable; worker abort remains active',
               { jobId },
             );
           });
       } else {
-        canceled = await finalizeError(
-          jobId,
-          jobRequest,
-          'Job canceled by user',
-        );
+        // Finalizing here saves the turn, which needs the whole request.
+        const jobRequest = (await jsonGet(
+          requestKey,
+        )) as AsyncJobRequest | null;
+        canceled = jobRequest
+          ? await finalizeError(jobId, jobRequest, 'Job canceled by user')
+          : false;
       }
     }
 

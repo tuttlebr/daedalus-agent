@@ -20,6 +20,7 @@ import {
   STREAM_READ_IDLE_TIMEOUT_MS,
   STREAM_STATUS_FLUSH_INTERVAL_MS,
   STREAM_STEPS_FLUSH_INTERVAL_MS,
+  STREAM_TOKEN_PUBLISH_INTERVAL_MS,
   JOB_EXPIRY_SECONDS,
 } from './constants';
 import {
@@ -39,6 +40,7 @@ import {
 } from './streamState';
 import {
   ApiRouteError,
+  PublicJobError,
   StreamUserCancellationError,
   type AsyncJobRequest,
   type AsyncJobStatus,
@@ -56,7 +58,7 @@ import {
 
 const logger = new Logger('AsyncJob');
 
-class StreamIdleTimeoutError extends Error {
+class StreamIdleTimeoutError extends PublicJobError {
   constructor(timeoutMs: number) {
     super(
       `Backend response stream was idle for ${Math.round(
@@ -65,6 +67,40 @@ class StreamIdleTimeoutError extends Error {
     );
     this.name = 'StreamIdleTimeoutError';
   }
+}
+
+const STREAM_INTERNAL_FAILURE_MESSAGE =
+  'The response could not be completed because of an internal error. Please try again.';
+const BACKEND_UNREACHABLE_MESSAGE =
+  'The response service could not be reached. Please try again.';
+
+/**
+ * Run outcomes the Rust backend reports as `{"error":{"message":...}}` in its
+ * terminal error event (builder/runtime/src/main.rs). They are written for
+ * users; any other error text may be a provider, proxy or validation
+ * diagnostic and is logged instead of saved.
+ */
+const PUBLIC_BACKEND_RUN_ERRORS = new Set([
+  'Run cancelled by user',
+  'Agent run timed out',
+  'Agent iteration limit reached',
+  'Repeated identical tool failure',
+  'Invalid or repeated tool call ID; the rejected batch was not executed',
+  'Required tool did not complete successfully; no answer was accepted',
+  'Model response did not complete',
+  'Model request timed out',
+  'Client disconnected',
+  'Model response could not be decoded; completed output has been preserved',
+  'Model stream interrupted after retry limit; completed output has been preserved',
+  'Agent execution failed; completed output has been preserved',
+]);
+
+function publicStreamErrorMessage(jobId: string, error: unknown): string {
+  if (error instanceof PublicJobError || error instanceof ApiRouteError) {
+    return error.message;
+  }
+  logger.error(`Job ${jobId}: Stream reader failed`, error);
+  return STREAM_INTERNAL_FAILURE_MESSAGE;
 }
 
 /**
@@ -196,6 +232,54 @@ export async function startBackgroundStreamReader(
   const userId = jobRequest.userId;
   const conversationId = jobRequest.conversationId;
   const statusKey = sessionKey(['async-job-status', jobId]);
+  const tokenChannel = conversationId
+    ? `user:${userId}:chat:${conversationId}:tokens`
+    : null;
+  // Contiguous token deltas within one publish interval share a message. The
+  // first delta after a quiet interval goes out at once, so time to first
+  // token is unchanged; each message carries its first character's offset.
+  // Every other event on the token channel flushes the buffer first, keeping
+  // tokens and steps in their original order.
+  let pendingToken: { content: string; responseStart: number } | null = null;
+  let lastTokenPublishAt = 0;
+  let tokenFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushTokens = (): void => {
+    if (tokenFlushTimer) {
+      clearTimeout(tokenFlushTimer);
+      tokenFlushTimer = null;
+    }
+    const token = pendingToken;
+    pendingToken = null;
+    if (!token || !tokenChannel) return;
+    lastTokenPublishAt = Date.now();
+    getPublisher()
+      .publish(
+        tokenChannel,
+        JSON.stringify({
+          type: 'chat_token',
+          conversationId,
+          jobId,
+          turnId: jobRequest.turnId,
+          assistantMessageId: jobRequest.assistantMessageId,
+          content: token.content,
+          responseStart: token.responseStart,
+        }),
+      )
+      .catch(() => {});
+  };
+  const publishToken = (content: string, responseStart: number): void => {
+    if (!tokenChannel) return;
+    if (pendingToken) pendingToken.content += content;
+    else pendingToken = { content, responseStart };
+    const wait =
+      lastTokenPublishAt + STREAM_TOKEN_PUBLISH_INTERVAL_MS - Date.now();
+    if (wait <= 0) {
+      flushTokens();
+    } else if (!tokenFlushTimer) {
+      tokenFlushTimer = setTimeout(flushTokens, wait);
+      tokenFlushTimer.unref?.();
+    }
+  };
   let accumulatedStepCount = 0;
   let pendingSteps: any[] = [];
   let partialResponse = '';
@@ -302,7 +386,7 @@ export async function startBackgroundStreamReader(
     // worker slot open at the OS socket default.
     const connectTimer = setTimeout(() => {
       abortController.abort(
-        new Error(
+        new PublicJobError(
           `Backend did not return response headers within ${STREAM_CONNECT_TIMEOUT_MS}ms`,
         ),
       );
@@ -322,6 +406,11 @@ export async function startBackgroundStreamReader(
         body: JSON.stringify(payload),
         signal: abortController.signal,
       });
+    } catch (error) {
+      if (abortController.signal.aborted) throw error;
+      // Network failures name pod addresses; keep those in the log.
+      logger.error(`Job ${jobId}: Backend request failed`, error);
+      throw new PublicJobError(BACKEND_UNREACHABLE_MESSAGE);
     } finally {
       clearTimeout(connectTimer);
     }
@@ -348,9 +437,6 @@ export async function startBackgroundStreamReader(
     let skipLeadingLineFeed = false;
     let currentSseEvent: string | null = null;
     const publisher = getPublisher();
-    const tokenChannel = conversationId
-      ? `user:${userId}:chat:${conversationId}:tokens`
-      : null;
 
     let streamingStatusRecorded = false;
     let lastResponseFlushMs = 0;
@@ -466,6 +552,7 @@ export async function startBackgroundStreamReader(
               await flushStreamingStatus();
 
               if (tokenChannel) {
+                flushTokens();
                 publisher
                   .publish(
                     tokenChannel,
@@ -501,7 +588,7 @@ export async function startBackgroundStreamReader(
                     const recoveryMessage =
                       googleWorkspaceAuthRecoveryMessage(lastToolOutput);
                     if (recoveryMessage) {
-                      throw new Error(recoveryMessage);
+                      throw new PublicJobError(recoveryMessage);
                     }
                   }
                 }
@@ -536,7 +623,9 @@ export async function startBackgroundStreamReader(
               ) ||
               !['received', 'applied', 'cancelled'].includes(status)
             ) {
-              throw new Error('Backend sent an invalid steering event');
+              throw new PublicJobError(
+                'Backend sent an invalid steering event',
+              );
             }
             const existing = jobRequest.messages.find(
               (message: any) =>
@@ -547,7 +636,7 @@ export async function startBackgroundStreamReader(
                 typeof parsed.instruction !== 'string' ||
                 new TextEncoder().encode(parsed.instruction).length > 16_000
               ) {
-                throw new Error('Backend sent an invalid direction');
+                throw new PublicJobError('Backend sent an invalid direction');
               }
               if (!existing)
                 jobRequest.messages.push({
@@ -568,7 +657,8 @@ export async function startBackgroundStreamReader(
               jobRequest,
               JOB_EXPIRY_SECONDS,
             );
-            if (tokenChannel)
+            if (tokenChannel) {
+              flushTokens();
               await publisher.publish(
                 tokenChannel,
                 JSON.stringify({
@@ -581,12 +671,15 @@ export async function startBackgroundStreamReader(
                   instruction: parsed.instruction || existing?.content,
                 }),
               );
+            }
             continue;
           }
           if (currentSseEvent === 'mcp_approval_required') {
             const marker = extractMcpApprovalMarkerText(parsed?.marker);
             if (!marker || !parseMcpApprovalMarker(marker)) {
-              throw new Error('Backend sent an invalid MCP approval event');
+              throw new PublicJobError(
+                'Backend sent an invalid MCP approval event',
+              );
             }
             pendingApprovalMarker = marker;
             lastToolOutput = '';
@@ -619,7 +712,9 @@ export async function startBackgroundStreamReader(
                 `Job ${jobId}: Failed to persist OAuth authorization prompt`,
                 error,
               );
-              throw new Error('Authentication prompt could not be delivered');
+              throw new PublicJobError(
+                'Authentication prompt could not be delivered',
+              );
             }
             oauthPromptSeen = true;
             logger.info(`Job ${jobId}: OAuth authorization prompt persisted`, {
@@ -640,11 +735,17 @@ export async function startBackgroundStreamReader(
                 : typeof parsed.message === 'string'
                 ? parsed.message.trim()
                 : '';
-            throw new Error(
-              backendMessage
-                ? `Backend stream failed: ${backendMessage}`
-                : 'Backend stream reported an error',
-            );
+            if (PUBLIC_BACKEND_RUN_ERRORS.has(backendMessage)) {
+              throw new PublicJobError(
+                `Backend stream failed: ${backendMessage}`,
+              );
+            }
+            if (backendMessage) {
+              logger.error(`Job ${jobId}: Backend stream error event`, {
+                message: backendMessage.slice(0, 2000),
+              });
+            }
+            throw new PublicJobError('Backend stream reported an error');
           }
           const content = extractAsyncStreamContentDelta(
             parsed,
@@ -666,23 +767,8 @@ export async function startBackgroundStreamReader(
                 });
               }
             }
-            // Publish content token for real-time streaming in PWA
-            if (tokenChannel) {
-              publisher
-                .publish(
-                  tokenChannel,
-                  JSON.stringify({
-                    type: 'chat_token',
-                    conversationId,
-                    jobId,
-                    turnId: jobRequest.turnId,
-                    assistantMessageId: jobRequest.assistantMessageId,
-                    content,
-                    responseStart,
-                  }),
-                )
-                .catch(() => {});
-            }
+            // Publish content for real-time streaming in the PWA.
+            publishToken(content, responseStart);
             await flushStreamingStatus();
           }
 
@@ -718,7 +804,9 @@ export async function startBackgroundStreamReader(
     // That includes a pending OAuth prompt: the backend waits for its callback
     // inside the run, and a closed stream ends that run and its pending state.
     if (!streamDone) {
-      throw new Error('Backend response stream ended before completion');
+      throw new PublicJobError(
+        'Backend response stream ended before completion',
+      );
     }
 
     // The gate owns the approval prompt. Discard any model prose produced
@@ -726,7 +814,9 @@ export async function startBackgroundStreamReader(
     if (pendingApprovalMarker) {
       partialResponse = pendingApprovalMarker;
       pendingResponseDelta = pendingApprovalMarker;
+      pendingToken = null;
     }
+    flushTokens();
 
     // A cleanly completed tool-only workflow may intentionally return its final
     // tool output without content tokens; promote that output as the answer.
@@ -757,6 +847,7 @@ export async function startBackgroundStreamReader(
       partialResponseLength: partialResponse.length,
     });
   } catch (err: any) {
+    flushTokens();
     if (control.signal?.aborted) {
       // Only an external abort delegates finalization to the worker. Our own
       // connection/idle deadlines must persist their error and release slots.
@@ -792,7 +883,8 @@ export async function startBackgroundStreamReader(
       );
       if (cancelled)
         logger.info(`Job ${jobId}: Backend acknowledged cancellation`);
-      else logger.error(`Job ${jobId}: Stream reader error: ${error.message}`);
+      else if (error instanceof PublicJobError)
+        logger.error(`Job ${jobId}: Stream reader error: ${error.message}`);
       // A tool result is intermediate data, not an assistant answer. Preserve
       // any actual content tokens, but never promote lastToolOutput when the
       // backend reports an error.
@@ -802,7 +894,7 @@ export async function startBackgroundStreamReader(
         jobRequest,
         cancelled
           ? 'Job canceled by user'
-          : error.message || 'Backend stream reader failed',
+          : publicStreamErrorMessage(jobId, error),
         {
           response: partialResponse,
           pendingSteps,
@@ -816,6 +908,7 @@ export async function startBackgroundStreamReader(
       });
     }
   } finally {
+    if (tokenFlushTimer) clearTimeout(tokenFlushTimer);
     control.signal?.removeEventListener('abort', handleExternalAbort);
     if (!abortController.signal.aborted) {
       abortController.abort();

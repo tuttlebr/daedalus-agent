@@ -1,9 +1,11 @@
 import { JOB_EXPIRY_SECONDS } from './constants';
 
 import { getRedis, sessionKey } from '@/server/session/redis';
+import { evalScript, redisScript } from '@/server/session/redisScript';
 import { isDeepStrictEqual } from 'node:util';
 
-const APPEND_WITH_EXPIRY_LUA = `
+// Both run on every stream flush; evalScript sends their bodies only once.
+const APPEND_WITH_EXPIRY = redisScript(`
 local offset = tonumber(ARGV[3])
 local length = redis.call('STRLEN', KEYS[1])
 if length < offset then return redis.error_reply('stream response offset gap') end
@@ -16,9 +18,9 @@ if overlap < string.len(ARGV[1]) then
 end
 redis.call('EXPIRE', KEYS[1], ARGV[2])
 return offset + string.len(ARGV[1])
-`;
+`);
 
-const RPUSH_WITH_EXPIRY_LUA = `
+const RPUSH_WITH_EXPIRY = redisScript(`
 local offset = tonumber(ARGV[2])
 local length = redis.call('LLEN', KEYS[1])
 if length < offset then return redis.error_reply('stream steps offset gap') end
@@ -37,7 +39,7 @@ if overlap < #ARGV - 2 then
 end
 redis.call('EXPIRE', KEYS[1], ARGV[1])
 return offset + #ARGV - 2
-`;
+`);
 
 function validateOffset(offset: number): void {
   if (!Number.isSafeInteger(offset) || offset < 0) {
@@ -63,8 +65,9 @@ export async function appendStreamResponseDelta(
 ): Promise<void> {
   validateOffset(byteOffset);
   if (!delta) return;
-  await getRedis().eval(
-    APPEND_WITH_EXPIRY_LUA,
+  await evalScript(
+    getRedis(),
+    APPEND_WITH_EXPIRY,
     1,
     streamResponseKey(jobId),
     delta,
@@ -85,8 +88,9 @@ export async function appendStreamSteps(
   const key = streamStepsKey(jobId);
   const serialized = steps.map((step) => JSON.stringify(step));
   const append = (values: string[]) =>
-    client.eval(
-      RPUSH_WITH_EXPIRY_LUA,
+    evalScript(
+      client,
+      RPUSH_WITH_EXPIRY,
       1,
       key,
       JOB_EXPIRY_SECONDS,

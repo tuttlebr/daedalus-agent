@@ -1551,7 +1551,8 @@ def test_redis_workloads_use_distinct_scoped_principals():
     assert "~auth-session:*" not in acl
     assert "~auth-user:*" not in acl
     assert "~auth-login-attempts:*" not in acl
-    assert "~nat:* ~nat/*" in acl
+    assert "~nat/* ~approval:*" in acl
+    assert "~nat:*" not in acl
     assert "~async-*" in acl
     assert "~autonomy:*" in acl
     assert "~autonomy:* ~autonomous:*:workspace:*" in acl

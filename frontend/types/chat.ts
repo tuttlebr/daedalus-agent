@@ -78,4 +78,9 @@ export interface Conversation {
   isPartial?: boolean;
   error?: string;
   completedAt?: number;
+  /**
+   * The server revision this copy was derived from: an opaque concurrency
+   * token that clients compare for equality and send back unchanged.
+   */
+  revision?: string;
 }

@@ -1865,16 +1865,6 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             ).status_code
                             == 409
                         )
-                        receipt_key = (
-                            "approval-receipt:"
-                            + hashlib.sha256(credential.encode()).hexdigest()
-                        )
-                        assert (
-                            json.loads(redis_command("GET", receipt_key))[
-                                "arguments_sha256"
-                            ]
-                            == body["arguments_sha256"]
-                        )
                         execution_id = executed.json()["executionId"]
                         assert (
                             client.get(

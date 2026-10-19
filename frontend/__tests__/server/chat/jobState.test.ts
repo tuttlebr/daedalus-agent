@@ -5,6 +5,10 @@ import {
 } from '@/server/chat/jobState';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const claimTerminal = async (
+  ...args: Parameters<typeof claimTerminalJobStatus>
+) => (await claimTerminalJobStatus(...args)).claimed;
+
 const mocks = vi.hoisted(() => ({
   store: new Map<string, any>(),
   locked: false,
@@ -121,7 +125,7 @@ describe('terminal job state', () => {
     });
 
     const [successClaimed, cancelClaimed] = await Promise.all([
-      claimTerminalJobStatus(
+      claimTerminal(
         'job-1',
         {
           status: 'completed',
@@ -131,7 +135,7 @@ describe('terminal job state', () => {
         },
         journal('job-1', 'completed'),
       ),
-      claimTerminalJobStatus(
+      claimTerminal(
         'job-1',
         {
           status: 'error',
@@ -186,7 +190,7 @@ describe('terminal job state', () => {
     });
 
     await expect(
-      claimTerminalJobStatus(
+      claimTerminal(
         'job-cleanup',
         {
           status: 'completed',
@@ -220,14 +224,14 @@ describe('terminal job state', () => {
       createdAt: 1000,
       updatedAt: 2000,
     });
-    await claimTerminalJobStatus(
+    await claimTerminal(
       'timed-job',
       { status: 'completed', finalizedAt: 6500 },
       journal('timed-job', 'completed', 6500),
     );
     expect(mocks.store.get(key).generationDurationMs).toBe(5500);
     await expect(
-      claimTerminalJobStatus(
+      claimTerminal(
         'timed-job',
         { status: 'completed', finalizedAt: 9000 },
         journal('timed-job', 'completed', 9000),
@@ -238,7 +242,7 @@ describe('terminal job state', () => {
 
   it('does not create terminal state for a missing job', async () => {
     await expect(
-      claimTerminalJobStatus(
+      claimTerminal(
         'missing',
         {
           status: 'error',

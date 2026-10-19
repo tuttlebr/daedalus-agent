@@ -26,7 +26,6 @@ import {
 } from '@/utils/app/conversation';
 import {
   conversationRevision,
-  type RevisionedConversation,
   withConversationRevision,
 } from '@/utils/app/conversationRevision';
 import { getWorkflowName } from '@/utils/app/helper';
@@ -146,7 +145,7 @@ const Home = () => {
         if (store.streamingConversationIds.has(conversationId)) return;
         const current = store.conversations.find(
           (conversation) => conversation.id === conversationId,
-        ) as RevisionedConversation | undefined;
+        );
         const incoming = event.conversation
           ? conversationRevision(event.conversation)
           : event.revision;

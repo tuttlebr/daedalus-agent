@@ -54,11 +54,17 @@ The normal chat path is:
 
 1. `POST /api/chat/async` authenticates the caller, validates and bounds the
    request, probes and selects a backend pod (`GET /health`), writes job state
-   including the selected pod, and appends the job ID to a Redis Stream.
-2. The dedicated worker claims the entry, acquires a per-job lease, and opens
-   `/v1/chat/completions` or the document-ingest stream against the pod the
-   submit route selected; it re-selects a pod only when reclaiming a job.
-3. The worker persists status and publishes live events. The browser consumes
+   including the selected pod, then stores the model payload and appends the
+   job ID to a Redis Stream in one Redis commit.
+2. The dedicated worker claims the entry, acquires a per-job lease together
+   with the job's status, request, start evidence, stop signal and payload in
+   one Redis call, and opens `/v1/chat/completions` or the document-ingest
+   stream against the pod the submit route selected; it re-selects a pod only
+   when reclaiming a job.
+3. The worker persists status and publishes live events; token deltas that
+   arrive within 25 ms share one event. Finalization saves the answer, then
+   releases the conversation and chat slot, publishes completion and queues
+   the turn for memory retention in one Redis commit. The browser consumes
    WebSocket events as the primary channel and also polls
    `GET /api/chat/async?jobId=...` — once at submit for immediate status, then
    on a slow safety-net interval in case push delivery is lost.

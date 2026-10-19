@@ -120,6 +120,10 @@ class ExtractResult(TypedDict):
     truncated: bool
     original_chars: int
     error: str
+    # Typed failure class for HTTP status mapping, matching Rust's
+    # document_store::StorageError: "forbidden" (another user's document) or
+    # "unavailable" (Redis or object storage outage); empty otherwise.
+    error_kind: Literal["", "forbidden", "unavailable"]
 
 
 INLINE_MARKDOWN_CHAR_LIMIT = 50_000
@@ -209,6 +213,10 @@ class DocumentStorageError(ValueError):
     """Safe error raised when an upload reference can't be loaded."""
 
 
+class DocumentStorageUnavailableError(DocumentStorageError):
+    """Object storage could not serve an otherwise valid document reference."""
+
+
 class UncertainVectorWriteError(RuntimeError):
     """The SDK's Milvus write failed after it may have committed rows."""
 
@@ -284,7 +292,7 @@ def _make_document_minio_client(
     secure: bool,
     region: str,
 ) -> Any:
-    # Import lazily so NAT configuration and pure helper tests don't require the
+    # Import lazily so configuration and pure helper tests don't require the
     # optional client until an object-backed upload is actually read.
     from minio import Minio
 
@@ -380,7 +388,7 @@ def _read_document_object(
         raise
     except Exception as exc:
         logger.error("Object storage error retrieving %s: %s", document_id, exc)
-        raise DocumentStorageError(
+        raise DocumentStorageUnavailableError(
             "Error accessing document object storage. Please upload the document again."
         ) from exc
     finally:
@@ -1532,7 +1540,11 @@ async def _extract_document_to_markdown(
         documentRef.get("filename", "") if isinstance(documentRef, dict) else ""
     )
 
-    def _failure(error: str, filename: str = "") -> ExtractResult:
+    def _failure(
+        error: str,
+        filename: str = "",
+        kind: Literal["", "forbidden", "unavailable"] = "",
+    ) -> ExtractResult:
         return ExtractResult(
             status="failure",
             filename=filename or initial_filename,
@@ -1541,6 +1553,7 @@ async def _extract_document_to_markdown(
             truncated=False,
             original_chars=0,
             error=error,
+            error_kind=kind,
         )
 
     try:
@@ -1582,7 +1595,8 @@ async def _extract_document_to_markdown(
                 )
                 return _failure(
                     "Error: You do not have access to this document. "
-                    "Please upload the document again from your account."
+                    "Please upload the document again from your account.",
+                    kind="forbidden",
                 )
 
             try:
@@ -1598,10 +1612,17 @@ async def _extract_document_to_markdown(
                     filename=str(
                         document_record.get("filename") or f"{document_id}.bin"
                     ),
+                    kind=(
+                        "unavailable"
+                        if isinstance(exc, DocumentStorageUnavailableError)
+                        else ""
+                    ),
                 )
         except redis.RedisError as e:
             logger.error("Redis error retrieving document: %s", e)
-            return _failure(f"Error accessing document storage: {str(e)}")
+            return _failure(
+                f"Error accessing document storage: {str(e)}", kind="unavailable"
+            )
 
         logger.info(
             "Extracting %s for user %s (size=%d bytes)",
@@ -1675,6 +1696,7 @@ async def _extract_document_to_markdown(
             truncated=truncated,
             original_chars=original_chars,
             error="",
+            error_kind="",
         )
 
     except Exception as e:
@@ -2657,11 +2679,6 @@ async def nv_ingest_function(
                         client=milvus_client,
                         embedder=embedder,
                         content_field=config.content_field,
-                        database_name=(
-                            config.database_name
-                            if config.database_name != "default"
-                            else None
-                        ),
                         vector_field_name=config.vector_field,
                         reranker_config=reranker_config,
                     )
@@ -2844,8 +2861,15 @@ async def nv_ingest_function(
         result = await run()
         from nat_helpers.idempotency import complete_operation
 
-        if not await complete_operation(reservation, result):
-            logger.error(
+        # Rows are already written. A receipt that can't be published leaves an
+        # in_progress record, which fails closed on replay; reporting this
+        # ingest as failed would invite a duplicate write instead.
+        try:
+            finalized = await complete_operation(reservation, result)
+        except Exception:
+            finalized = False
+        if not finalized:
+            logger.warning(
                 "Document ingest finished but its idempotency result couldn't be finalized"
             )
         return result

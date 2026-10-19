@@ -237,15 +237,20 @@ def _markdown_filename(source_filename: str | None) -> str:
     return f"{safe[:128]}.md"
 
 
-def _raise_for_extract_failure(message: str) -> None:
-    """Map an extract/markdown failure string to an HTTP error.
+def _raise_for_extract_failure(message: str, kind: str = "") -> None:
+    """Map an extract/markdown failure to an HTTP error.
 
     Shared by ``/extract`` and ``/markdown`` so both surface ownership, missing,
     oversized, and timeout failures as the right 4xx/5xx instead of generic 500s.
+    Ownership and storage outages are typed by ``kind``, as in the Rust route:
+    an unavailable Redis or object store is not an authorization failure,
+    although its message says "accessing".
     """
-    lower = message.lower()
-    if "access" in lower:
+    if kind == "forbidden":
         raise HTTPException(status_code=403, detail=message)
+    if kind == "unavailable":
+        raise HTTPException(status_code=503, detail=message)
+    lower = message.lower()
     if "not found" in lower or "expired" in lower:
         raise HTTPException(status_code=404, detail=message)
     if "exceeds the maximum allowed size" in lower:
@@ -454,7 +459,7 @@ async def extract(
     if result["status"] == "failure":
         # Map ownership/missing-doc failures to 4xx so the frontend can
         # surface them cleanly instead of generic 500s.
-        _raise_for_extract_failure(result["error"])
+        _raise_for_extract_failure(result["error"], result.get("error_kind", ""))
 
     return ExtractResponse(
         status=result["status"],
@@ -488,7 +493,7 @@ async def _create_markdown_download_response(
         raise HTTPException(status_code=500, detail=_DOCUMENT_OPERATION_ERROR) from e
 
     if result["status"] == "failure":
-        _raise_for_extract_failure(result["error"])
+        _raise_for_extract_failure(result["error"], result.get("error_kind", ""))
 
     if result["truncated"] or len(result["markdown"]) != result["original_chars"]:
         # Never return a partial file from the endpoint advertised as the full

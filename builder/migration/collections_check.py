@@ -206,7 +206,8 @@ def exercise(
         "MILVUS_URI": f"http://127.0.0.1:{peer['port']}",
         "MILVUS_USERNAME": "synthetic-user",
         "MILVUS_PASSWORD": "synthetic-password",
-        "MILVUS_DATABASE": "synthetic-database",
+        # The backend accepts only the database document ingestion writes.
+        "MILVUS_DATABASE": "default",
         "MILVUS_METADATA_TIMEOUT_SECONDS": "0.5",
     }
     if transport == "tls":

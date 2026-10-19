@@ -481,7 +481,7 @@ def test_user_document_tool_lists_only_callers_collection_and_shared_allowlist(
         monkeypatch.setattr(
             mod,
             "resolve_authenticated_user_id",
-            lambda _asserted="": "alice",
+            lambda: "alice",
         )
         generator = nv_ingest_function(NvIngestFunctionConfig(), MagicMock())
         function_info = await generator.__anext__()
@@ -513,7 +513,7 @@ def test_user_document_tool_rejects_shared_ingest_before_storage(monkeypatch):
         monkeypatch.setattr(
             mod,
             "resolve_authenticated_user_id",
-            lambda _asserted="": "alice",
+            lambda: "alice",
         )
         generator = nv_ingest_function(NvIngestFunctionConfig(), MagicMock())
         tool = await generator.__anext__()
@@ -578,7 +578,7 @@ def test_user_document_tool_delegates_ingestion_to_one_processor(monkeypatch):
         monkeypatch.setattr(
             mod,
             "resolve_authenticated_user_id",
-            lambda _asserted="": "alice",
+            lambda: "alice",
         )
 
         config = NvIngestFunctionConfig()
@@ -673,9 +673,7 @@ def test_autonomous_document_ingest_fails_closed_on_ambiguous_reservation(
             return Reservation("key", None, "in_progress")
 
         monkeypatch.setattr(mod, "NvIngestDocumentProcessor", FakeProcessor)
-        monkeypatch.setattr(
-            mod, "resolve_authenticated_user_id", lambda _asserted="": "alice"
-        )
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
         monkeypatch.setattr(
             mod, "execution_id_from_context_or_none", lambda: "execution-1"
         )
@@ -709,6 +707,101 @@ def test_autonomous_document_ingest_fails_closed_on_ambiguous_reservation(
     assert captured["arguments"]["documents"][0]["objectKey"].endswith(
         "/session-1/doc-1"
     )
+
+
+def test_autonomous_document_ingest_reports_written_rows_when_receipt_fails(
+    monkeypatch,
+):
+    """Rows are written: a receipt outage is a warning, as in Rust."""
+    monkeypatch.setenv("DOCUMENT_OBJECT_ENDPOINT", "minio:9000")
+    monkeypatch.setenv("DOCUMENT_OBJECT_ACCESS_KEY", "access")
+    monkeypatch.setenv("DOCUMENT_OBJECT_SECRET_KEY", "secret")
+    monkeypatch.setenv("DOCUMENT_OBJECT_BUCKET", "nv-ingest")
+
+    async def _run():
+        import json
+
+        import nat_nv_ingest.nat_nv_ingest as mod
+        from nat_helpers import idempotency
+        from nat_helpers.idempotency import Reservation
+
+        record = json.dumps(
+            {
+                "id": "doc-1",
+                "sessionId": "session-1",
+                "userId": "alice",
+                "storage": "object-v1",
+                "objectKey": _expected_document_object_key(
+                    prefix=DEFAULT_DOCUMENT_OBJECT_PREFIX,
+                    username="alice",
+                    session_id="session-1",
+                    document_id="doc-1",
+                ),
+                "objectBucket": "nv-ingest",
+                "etag": "etag-1",
+                "size": 12,
+            }
+        )
+        writes = []
+
+        class FakeProcessor:
+            def __init__(self, config):
+                self.config = config
+
+            async def _get_redis(self):
+                redis_client = MagicMock()
+                redis_client.execute_command.return_value = record
+                return redis_client
+
+            async def process_document(self, **kwargs):
+                writes.append(kwargs)
+                return IngestResult(
+                    status="success",
+                    filename="a.pdf",
+                    chunks=3,
+                    failures=0,
+                    pages=1,
+                    collection="c",
+                    markdown="",
+                    error="",
+                )
+
+        async def reserve_operation(**_kwargs):
+            return Reservation("key", "owner", "in_progress")
+
+        async def complete_operation(_reservation, _result):
+            raise ConnectionError("Redis connection lost")
+
+        monkeypatch.setattr(mod, "NvIngestDocumentProcessor", FakeProcessor)
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
+        monkeypatch.setattr(
+            mod, "execution_id_from_context_or_none", lambda: "execution-1"
+        )
+        monkeypatch.setattr(idempotency, "reserve_operation", reserve_operation)
+        monkeypatch.setattr(idempotency, "complete_operation", complete_operation)
+
+        generator = nv_ingest_function(
+            NvIngestFunctionConfig(
+                minio_endpoint="minio:9000",
+                minio_access_key="access",
+                minio_secret_key="secret",
+            ),
+            MagicMock(),
+        )
+        function_info = await generator.__anext__()
+        try:
+            result = await function_info.fn(
+                operation="ingest",
+                documentRef={"documentId": "doc-1", "sessionId": "session-1"},
+            )
+        finally:
+            await generator.aclose()
+        return result, writes
+
+    result, writes = asyncio.run(_run())
+
+    assert len(writes) == 1
+    assert "Successfully processed" in result
 
 
 class TestStoredDocumentAccess:

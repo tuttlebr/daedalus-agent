@@ -1,31 +1,28 @@
-import {
-  buildBackendBaseUrlForMode,
-  buildBackendUrlFromBase,
-} from '@/utils/app/backendApi';
-import { isMcpApprovalMarkerMessage } from '@/utils/app/mcpApproval';
-import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
 
 import type { Conversation, Message } from '@/types/chat';
 
 import { JOB_EXPIRY_SECONDS } from './constants';
-import { releaseConversationJobGuard } from './conversationJobGuard';
+import { conversationJobGuardKey } from './conversationJobGuard';
 import {
   abortKey,
+  acquireFinalization,
   claimTerminalJobStatus,
   clearOAuthStatusFields,
-  getFinalizationJournal,
-  markFinalizationPhases,
-  publishFinalizationEvents,
-  setMemoryRetentionReceipt,
-  withFinalizationLock,
+  readLiveJobStatusSnapshot,
+  releaseFinalizationLock,
+  updateFinalizationJournal,
+  type FinalizationEffect,
   type FinalizationEvent,
   type FinalizationJournalPhase,
+  type FinalizationJournalUpdate,
   type JobFinalizationJournal,
   type NewJobFinalizationJournal,
 } from './jobState';
-import { enqueueMemoryRetention } from './memoryRetention';
-import { buildNatRequestHeaders } from './natMessages';
+import {
+  buildMemoryRetentionSubmission,
+  enqueueMemoryRetention,
+} from './memoryRetention';
 import {
   attachSandboxArtifacts,
   sandboxArtifactsFromSteps,
@@ -34,15 +31,16 @@ import {
   clearStreamState,
   getStreamResponse,
   getStreamSteps,
+  streamResponseKey,
+  streamStepsKey,
 } from './streamState';
 import type {
   AsyncJobRequest,
   AsyncJobStatus,
   StreamFailureSnapshot,
 } from './types';
-import { releaseUserJobGuard } from './userJobGuard';
+import { userJobGuardKey } from './userJobGuard';
 
-import { updateJsonAtomically } from '@/server/atomicJson';
 import {
   ConversationWriteError,
   readConversationForUser,
@@ -50,17 +48,12 @@ import {
 } from '@/server/session/conversationStore';
 import {
   channels,
-  clearStreamingState,
-  jsonGet,
   jsonSetWithExpiry,
-  sessionKey,
+  streamingStateKey,
 } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
-const CONVERSATION_EXPIRY_SECONDS = 60 * 60 * 24 * 7;
-const MEMORY_RETAIN_TIMEOUT_MS = 20_000;
-const MEMORY_RETAIN_MAX_PART_CHARS = 5_500;
 
 export type FinalizationResumeResult = 'none' | 'pending' | 'completed';
 
@@ -160,26 +153,8 @@ async function applyConversationState(
     );
     return false;
   }
-
-  const selectedConversationKey = sessionKey([
-    'user',
-    journal.userId,
-    'selectedConversation',
-  ]);
-  await updateJsonAtomically<Conversation>(
-    selectedConversationKey,
-    (selectedConversation) => {
-      if (selectedConversation?.id !== applied.id) return null;
-      return {
-        ...selectedConversation,
-        messages: applied.messages,
-        name: applied.name,
-        folderId: applied.folderId,
-        updatedAt: journal.finalizedAt,
-      };
-    },
-    CONVERSATION_EXPIRY_SECONDS,
-  );
+  // The selected-conversation pointer holds only an id; a finished turn never
+  // changes which conversation is selected, so it is not written here.
   return applied;
 }
 
@@ -246,96 +221,167 @@ function buildFinalizationEvents(
   return events;
 }
 
-async function requirePhase(
-  journal: JobFinalizationJournal,
-  ...phases: FinalizationJournalPhase[]
-): Promise<JobFinalizationJournal> {
-  const updated = await markFinalizationPhases(
-    journal.jobId,
-    journal.finalizationId,
-    phases,
+/**
+ * Every remaining phase of a journal, its owner-checked cleanup, its
+ * completion events and the memory retention submission, as one write.
+ * Planned against the committed journal so a retry records only what it does.
+ */
+function planCompletion(
+  current: JobFinalizationJournal,
+  conversation: Conversation | null,
+  suppressed: boolean,
+): FinalizationJournalUpdate {
+  const phases: FinalizationJournalPhase[] = [];
+  const effects: FinalizationEffect[] = [];
+  let events: FinalizationEvent[] = [];
+  const conversationId = current.conversation?.id;
+  // The caller applied (or confirmed) the conversation before this write. Its
+  // receipt commits before the guards below are released, so a later turn
+  // that acquires the guard can never be overwritten by a re-applied journal.
+  if (current.conversationAppliedAt === undefined) {
+    phases.push('conversationAppliedAt');
+  }
+  if (suppressed && current.conversationSuppressedAt === undefined) {
+    phases.push('conversationSuppressedAt');
+  }
+  if (current.eventsPublishedAt === undefined) {
+    if (current.streamingStateClearedAt === undefined) {
+      phases.push('streamingStateClearedAt');
+      if (conversationId)
+        effects.push({
+          kind: 'streaming_state',
+          key: streamingStateKey(current.userId, conversationId),
+        });
+    }
+    if (current.streamStateClearedAt === undefined) {
+      phases.push('streamStateClearedAt');
+      effects.push(
+        { kind: 'delete', key: streamResponseKey(current.jobId) },
+        { kind: 'delete', key: streamStepsKey(current.jobId) },
+      );
+    }
+    if (current.conversationGuardReleasedAt === undefined) {
+      phases.push('conversationGuardReleasedAt');
+      effects.push({
+        kind: 'user_guard',
+        key: userJobGuardKey(current.userId),
+      });
+      if (conversationId)
+        effects.push({
+          kind: 'conversation_guard',
+          key: conversationJobGuardKey(current.userId, conversationId),
+        });
+    }
+    events = buildFinalizationEvents(current, conversation);
+  }
+  if (current.memoryRetentionAttemptedAt === undefined) {
+    // Journals from earlier versions may already hold an accepted receipt;
+    // the caller enqueued its polling before this write.
+    const submission =
+      !current.memoryRetention &&
+      !suppressed &&
+      current.outcome === 'completed' &&
+      current.conversation
+        ? buildMemoryRetentionSubmission({
+            jobId: current.jobId,
+            userId: current.userId,
+            conversationId: current.conversation.id,
+            assistantMessageId: current.conversation.assistantMessageId,
+            messages: current.conversation.messages,
+            content: current.conversation.content,
+            createdAt: Date.now(),
+          })
+        : null;
+    if (submission) effects.push({ kind: 'retention', ...submission });
+    phases.push('memoryRetentionAttemptedAt');
+  }
+  phases.push('completedAt');
+  return { phases, effects, events };
+}
+
+/** Finish a journal whose finalizer lock this caller holds. */
+async function completeLockedFinalization(
+  initial: JobFinalizationJournal,
+): Promise<'completed' | 'pending'> {
+  const { jobId } = initial;
+  if (initial.state === 'completed' && initial.completedAt) return 'completed';
+
+  let conversation = initial.conversationSuppressedAt
+    ? null
+    : conversationFromJournal(initial);
+  let suppressed = Boolean(initial.conversationSuppressedAt);
+  if (!initial.conversationAppliedAt) {
+    const applied = await applyConversationState(initial, conversation);
+    if (applied === false) {
+      suppressed = true;
+      conversation = null;
+    } else {
+      conversation = applied;
+    }
+  } else if (conversation) {
+    // The journal keeps the submitted name. A crash after the save must not
+    // publish it over a newer rename, or republish a deleted conversation.
+    try {
+      const current = await readConversationForUser(
+        initial.userId,
+        conversation.id,
+      );
+      conversation = current
+        ? withSavedMetadata(
+            current,
+            conversation,
+            initial.terminalStatus?.createdAt,
+          )
+        : null;
+    } catch (error) {
+      if (!(error instanceof ConversationWriteError)) throw error;
+      conversation = null;
+    }
+    if (!conversation) suppressed = true;
+  }
+
+  if (!initial.memoryRetentionAttemptedAt && initial.memoryRetention) {
+    try {
+      await enqueueMemoryRetention({
+        jobId,
+        userId: initial.userId,
+        operationId: initial.memoryRetention.operationId,
+        acceptedAt: initial.memoryRetention.acceptedAt,
+      });
+    } catch (error) {
+      logger.warn(`Job ${jobId}: Automatic memory retention failed`, error);
+    }
+  }
+
+  // One write records every remaining phase, releases the guards, publishes
+  // completion and queues memory retention. Optional retention work never
+  // extends the browser's "Generating response" state or holds the slot.
+  const journal = await updateFinalizationJournal(
+    jobId,
+    initial.finalizationId,
+    (current) => planCompletion(current, conversation, suppressed),
     Date.now(),
+    initial,
   );
-  if (!updated) {
-    const marked = phases.join(', ');
+  if (!journal) {
     throw new Error(
-      `Job ${journal.jobId}: finalization journal changed while marking ${marked}`,
+      `Job ${jobId}: finalization journal changed while completing`,
     );
   }
-  return updated;
+  return journal.state === 'completed' ? 'completed' : 'pending';
 }
 
-function latestUserText(journal: JobFinalizationJournal): string {
-  const messages = journal.conversation?.messages;
-  if (!Array.isArray(messages)) return '';
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== 'user' || typeof message?.content !== 'string') {
-      continue;
-    }
-    return message.content.trim();
-  }
-  return '';
-}
-
-function sanitizeRetentionText(value: string): string {
-  return value
-    .replace(
-      /\[(?:IDENTITY|MEMORY_CONTEXT|SOURCE_POLICY)\][\s\S]*?(?=\n\[[A-Z_]+\]|$)/gi,
-      '',
-    )
-    .replace(/data:[^\s)\]]+/gi, '[embedded data omitted]')
-    .replace(/redis(?:s)?:\/\/[^\s)\]]+/gi, '[internal reference omitted]')
-    .trim()
-    .slice(0, MEMORY_RETAIN_MAX_PART_CHARS);
-}
-
-async function retainSuccessfulUserTurn(
+async function completeWithLock(
   journal: JobFinalizationJournal,
-): Promise<{ operationId: string; acceptedAt: number } | null> {
-  if (journal.outcome !== 'completed' || !journal.conversation) return null;
-  if (isMcpApprovalMarkerMessage(journal.conversation.content)) return null;
-  const userContent = sanitizeRetentionText(latestUserText(journal));
-  const assistantContent = sanitizeRetentionText(journal.conversation.content);
-  if (!userContent) return null;
-
-  const url = buildBackendUrlFromBase(
-    buildBackendBaseUrlForMode(),
-    '/v1/memory/retain-turn',
-  );
-  const response = await fetchWithTimeout(
-    url,
-    {
-      method: 'POST',
-      headers: buildNatRequestHeaders(
-        journal.userId,
-        { 'Content-Type': 'application/json' },
-        undefined,
-        undefined,
-        journal.conversation.id,
-        journal.jobId,
-      ),
-      body: JSON.stringify({
-        request_id: journal.jobId,
-        conversation_id: journal.conversation.id,
-        assistant_message_id: journal.conversation.assistantMessageId,
-        user_content: userContent,
-        assistant_content: assistantContent,
-      }),
-    },
-    MEMORY_RETAIN_TIMEOUT_MS,
-  );
-  if (!response.ok) {
-    // Release the connection and deadline timer instead of leaving an unread
-    // diagnostic body open until fetchWithTimeout aborts it.
-    await response.body?.cancel().catch(() => undefined);
-    throw new Error(`memory retention returned HTTP ${response.status}`);
+  lockToken: string,
+): Promise<'completed' | 'pending'> {
+  try {
+    return await completeLockedFinalization(journal);
+  } finally {
+    await releaseFinalizationLock(journal.jobId, lockToken).catch(() => {
+      // The lock's TTL still bounds a failed release.
+    });
   }
-  const body = (await response.json()) as { operation_id?: string };
-  if (!body.operation_id) {
-    throw new Error('memory retention returned no operation ID');
-  }
-  return { operationId: body.operation_id, acceptedAt: Date.now() };
 }
 
 /**
@@ -348,156 +394,39 @@ async function retainSuccessfulUserTurn(
 export async function resumePendingFinalization(
   jobId: string,
 ): Promise<FinalizationResumeResult> {
-  const initial = await getFinalizationJournal(jobId);
-  if (!initial) return 'none';
-  if (initial.state === 'completed' && initial.completedAt) return 'completed';
-
-  const result = await withFinalizationLock(jobId, async () => {
-    let journal = await getFinalizationJournal(jobId);
-    if (!journal) return 'none' as const;
-    if (journal.state === 'completed' && journal.completedAt) {
-      return 'completed' as const;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const lockToken = uuidv4();
+    const acquired = await acquireFinalization(jobId, lockToken);
+    if (acquired.state === 'missing') return 'none';
+    if (acquired.state === 'completed') return 'completed';
+    if (acquired.state === 'locked') {
+      return completeWithLock(acquired.journal, lockToken);
     }
+    if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return 'pending';
+}
 
-    let conversation = journal.conversationSuppressedAt
-      ? null
-      : conversationFromJournal(journal);
-    if (!journal.conversationAppliedAt) {
-      const applied = await applyConversationState(journal, conversation);
-      if (applied === false) {
-        journal = await requirePhase(journal, 'conversationSuppressedAt');
-        conversation = null;
-      } else {
-        conversation = applied;
-      }
-      journal = await requirePhase(journal, 'conversationAppliedAt');
-    } else if (conversation) {
-      // The journal keeps the submitted name. A crash after the save must not
-      // publish it over a newer rename, or republish a deleted conversation.
-      try {
-        const current = await readConversationForUser(
-          journal.userId,
-          conversation.id,
-        );
-        conversation = current
-          ? withSavedMetadata(
-              current,
-              conversation,
-              journal.terminalStatus?.createdAt,
-            )
-          : null;
-      } catch (error) {
-        if (!(error instanceof ConversationWriteError)) throw error;
-        conversation = null;
-      }
-      if (!conversation) {
-        journal = await requirePhase(journal, 'conversationSuppressedAt');
-      }
-    }
-
-    // Everything the browser needs is now durable, and a follow-up turn can
-    // safely acquire the conversation guard. Publish completion before optional
-    // retention work so a slow or unavailable memory service never extends the
-    // UI's "Generating response" state.
-    if (!journal.eventsPublishedAt) {
-      // Each cleanup is an owner-checked delete that is safe to repeat after a
-      // crash. Recording them with the publication avoids rewriting the whole
-      // journal, which carries the conversation history, once per cleanup.
-      const cleanup: FinalizationJournalPhase[] = [];
-      const pending: Promise<unknown>[] = [];
-      if (!journal.streamingStateClearedAt) {
-        cleanup.push('streamingStateClearedAt');
-        if (journal.conversation)
-          pending.push(
-            clearStreamingState(journal.userId, journal.conversation.id, jobId),
-          );
-      }
-      if (!journal.streamStateClearedAt) {
-        cleanup.push('streamStateClearedAt');
-        pending.push(clearStreamState(jobId));
-      }
-      if (!journal.conversationGuardReleasedAt) {
-        cleanup.push('conversationGuardReleasedAt');
-        pending.push(releaseUserJobGuard(journal.userId, journal.jobId));
-        if (journal.conversation)
-          pending.push(
-            releaseConversationJobGuard(
-              journal.userId,
-              journal.conversation.id,
-              journal.jobId,
-            ),
-          );
-      }
-      for (const result of await Promise.allSettled(pending)) {
-        if (result.status === 'rejected') throw result.reason;
-      }
-      const updated = await publishFinalizationEvents(
-        journal.jobId,
-        journal.finalizationId,
-        buildFinalizationEvents(journal, conversation),
-        Date.now(),
-        cleanup,
-      );
-      if (!updated) {
-        throw new Error(
-          `Job ${jobId}: finalization journal changed while publishing events`,
-        );
-      }
-      journal = updated;
-    }
-
-    if (!journal.memoryRetentionAttemptedAt) {
-      try {
-        let receipt:
-          | { operationId: string; acceptedAt: number }
-          | null
-          | undefined = journal.memoryRetention;
-        if (!receipt && !journal.conversationSuppressedAt) {
-          receipt = await retainSuccessfulUserTurn(journal);
-          if (receipt) {
-            const updated = await setMemoryRetentionReceipt(
-              journal.jobId,
-              journal.finalizationId,
-              receipt,
-            );
-            if (!updated) {
-              throw new Error(
-                `Job ${jobId}: finalization journal changed while storing memory receipt`,
-              );
-            }
-            journal = updated;
-          }
-        }
-        if (receipt) {
-          await enqueueMemoryRetention({
-            jobId: journal.jobId,
-            userId: journal.userId,
-            operationId: receipt.operationId,
-            acceptedAt: receipt.acceptedAt,
-          });
-        }
-      } catch (error) {
-        // Chat completion remains available when the optional memory service
-        // is unhealthy. The failed attempt is observable and is not retried in
-        // a tight finalization loop.
-        logger.warn(`Job ${jobId}: Automatic memory retention failed`, error);
-      }
-      journal = await requirePhase(
-        journal,
-        'memoryRetentionAttemptedAt',
-        'completedAt',
-      );
-    }
-
-    if (!journal.completedAt) {
-      journal = await requirePhase(journal, 'completedAt');
-    }
-    return journal.state === 'completed'
-      ? ('completed' as const)
-      : ('pending' as const);
+/**
+ * Claim the terminal outcome and, when this caller wins, finish the journal it
+ * wrote under the lock taken in the same commit. A loser (or a winner whose
+ * lock was busy) resumes whatever journal won.
+ */
+async function claimAndComplete(
+  jobId: string,
+  updates: Parameters<typeof claimTerminalJobStatus>[1],
+  journal: NewJobFinalizationJournal,
+  snapshot: string | null,
+): Promise<{ claimed: boolean; resumed: FinalizationResumeResult }> {
+  const lockToken = uuidv4();
+  const claim = await claimTerminalJobStatus(jobId, updates, journal, {
+    snapshot,
+    lockToken,
   });
-
-  return result ?? 'pending';
+  const resumed = claim.lockedJournal
+    ? await completeWithLock(claim.lockedJournal, lockToken)
+    : await resumePendingFinalization(jobId);
+  return { claimed: claim.claimed, resumed };
 }
 
 export async function finalizeSuccess(
@@ -505,7 +434,12 @@ export async function finalizeSuccess(
   jobRequest: AsyncJobRequest,
   rawOutput: string,
 ): Promise<boolean> {
-  const accumulatedSteps = await getStreamSteps(jobId);
+  // Independent reads: the steps for the journal and the live status the
+  // terminal claim compares.
+  const [accumulatedSteps, statusSnapshot] = await Promise.all([
+    getStreamSteps(jobId),
+    readLiveJobStatusSnapshot(jobId),
+  ]);
   const outputWithArtifacts = attachSandboxArtifacts(
     rawOutput,
     sandboxArtifactsFromSteps(accumulatedSteps),
@@ -555,7 +489,7 @@ export async function finalizeSuccess(
       : {}),
   };
 
-  const claimed = await claimTerminalJobStatus(
+  const { claimed, resumed } = await claimAndComplete(
     jobId,
     {
       status: 'completed',
@@ -571,9 +505,8 @@ export async function finalizeSuccess(
       finalizedAt,
     },
     journal,
+    statusSnapshot,
   );
-
-  const resumed = await resumePendingFinalization(jobId);
   if (!claimed) {
     logger.info(`Job ${jobId}: Success finalizer lost terminal-state race`);
     if (resumed === 'none') await clearStreamState(jobId).catch(() => {});
@@ -601,19 +534,25 @@ export async function finalizeError(
   errorMessage: string,
   streamSnapshot?: StreamFailureSnapshot,
 ): Promise<boolean> {
-  await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
-    () => {},
-  );
-
-  const statusKey = sessionKey(['async-job-status', jobId]);
-  const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
+  // The stop signal and the reads are independent; none waits for another.
+  const [, statusSnapshot, storedResponse, storedSteps] = await Promise.all([
+    jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS).catch(
+      () => {},
+    ),
+    readLiveJobStatusSnapshot(jobId),
+    streamSnapshot ? null : getStreamResponse(jobId, ''),
+    getStreamSteps(jobId),
+  ]);
+  const currentStatus = statusSnapshot
+    ? (JSON.parse(statusSnapshot) as AsyncJobStatus)
+    : null;
+  // Jobs from earlier versions kept their output in the status snapshot.
   const partialResponse =
     streamSnapshot?.response ??
-    (await getStreamResponse(jobId, currentStatus?.partialResponse || ''));
-  let intermediateSteps = await getStreamSteps(
-    jobId,
-    currentStatus?.intermediateSteps || [],
-  );
+    (storedResponse || currentStatus?.partialResponse || '');
+  let intermediateSteps = storedSteps.length
+    ? storedSteps
+    : currentStatus?.intermediateSteps || [];
   if (streamSnapshot?.pendingSteps.length) {
     if (intermediateSteps.length < streamSnapshot.persistedStepCount) {
       throw new Error(
@@ -679,7 +618,7 @@ export async function finalizeError(
       : {}),
   };
 
-  const claimed = await claimTerminalJobStatus(
+  const { claimed, resumed } = await claimAndComplete(
     jobId,
     {
       status: 'error',
@@ -698,9 +637,8 @@ export async function finalizeError(
       finalizedAt,
     },
     journal,
+    statusSnapshot,
   );
-
-  const resumed = await resumePendingFinalization(jobId);
   if (!claimed) {
     logger.info(`Job ${jobId}: Error finalizer lost terminal-state race`);
     if (resumed === 'none') await clearStreamState(jobId).catch(() => {});

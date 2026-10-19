@@ -609,15 +609,22 @@ test('HTML source images survive saving, reload and fullscreen', async ({
       photo().evaluate((image: HTMLImageElement) => image.naturalWidth),
     )
     .toBe(2);
+  // The selection is an id pointer; the saved conversation holds the content.
   await expect
     .poll(async () => {
-      const response = await page.request.get(
+      // These reads are safe to retry when the disposable TLS connection resets.
+      const selection = await page.request.get(
         '/api/session/selectedConversation',
-        // This read is safe to retry when the disposable TLS connection resets.
         { maxRetries: 2 },
       );
-      expect(response.ok()).toBeTruthy();
-      return JSON.stringify(await response.json());
+      expect(selection.ok()).toBeTruthy();
+      const id = (await selection.json())?.id;
+      if (typeof id !== 'string' || !id) return '';
+      const saved = await page.request.get(
+        `/api/conversations/${encodeURIComponent(id)}`,
+        { maxRetries: 2 },
+      );
+      return saved.ok() ? JSON.stringify(await saved.json()) : '';
     })
     .toContain('data:image/png;base64,');
   await page.reload();

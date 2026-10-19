@@ -10,6 +10,15 @@ describe.skipIf(!RUN_REAL_REDIS)(
     let subscriber: any;
     let redis: typeof import('@/server/session/redis');
     let state: typeof import('@/server/chat/jobState');
+
+    // Durable journal contents, as written.
+    const journalOf = async (job: string) => {
+      const raw = await client.get(state.finalizationJournalKey(job));
+      return raw ? JSON.parse(raw) : null;
+    };
+    const claimTerminal = async (
+      ...args: Parameters<typeof state.claimTerminalJobStatus>
+    ) => (await state.claimTerminalJobStatus(...args)).claimed;
     let streamState: typeof import('@/server/chat/streamState');
     let conversationGuard: typeof import('@/server/chat/conversationJobGuard');
     let finalization: typeof import('@/server/chat/finalization');
@@ -43,7 +52,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
         if (memoryUnavailable) {
           // A failing gateway that never finishes its diagnostic body.
           res.on('close', () => memoryResponseClosed?.());
-          res.writeHead(503, { 'Content-Type': 'text/html' });
+          res.writeHead(502, { 'Content-Type': 'text/html' });
           res.write('<html>unavailable');
           return;
         }
@@ -112,11 +121,16 @@ describe.skipIf(!RUN_REAL_REDIS)(
             streamState.streamStepsKey(jobId),
             conversationGuard.conversationJobGuardKey(userId, conversationId),
             redis.sessionKey(['memory-retention', 'record', 'v1', jobId]),
+            redis.sessionKey(['memory-retention', 'submission', 'v1', jobId]),
             redis.sessionKey(['memory-retention', 'user', userId, 'v1']),
           )
           .catch(() => 0);
         await client.zrem(
           redis.sessionKey(['memory-retention', 'queue', 'v1']),
+          jobId,
+        );
+        await client.zrem(
+          redis.sessionKey(['memory-retention', 'submission-queue', 'v1']),
           jobId,
         );
         client.disconnect();
@@ -177,7 +191,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
       };
 
       const [successClaimed, cancelClaimed] = await Promise.all([
-        state.claimTerminalJobStatus(
+        claimTerminal(
           jobId,
           {
             status: 'completed',
@@ -206,7 +220,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
             },
           },
         ),
-        state.claimTerminalJobStatus(
+        claimTerminal(
           jobId,
           {
             status: 'error',
@@ -238,7 +252,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
       ]);
 
       expect([successClaimed, cancelClaimed].filter(Boolean)).toHaveLength(1);
-      const pending = await state.getFinalizationJournal(jobId);
+      const pending = await journalOf(jobId);
       expect(pending).toEqual(
         expect.objectContaining({
           state: 'pending',
@@ -258,7 +272,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
       ]);
       expect(recoveryResults).toContain('completed');
 
-      const completed = await state.getFinalizationJournal(jobId);
+      const completed = await journalOf(jobId);
       expect(completed).toEqual(
         expect.objectContaining({
           state: 'completed',
@@ -321,17 +335,32 @@ describe.skipIf(!RUN_REAL_REDIS)(
           ({ payload }) => payload.type === 'chat_complete',
         ),
       ).toHaveLength(1);
-      expect(
-        (await state.getFinalizationJournal(jobId))?.eventsPublishedAt,
-      ).toBe(eventsPublishedAt);
+      expect((await journalOf(jobId))?.eventsPublishedAt).toBe(
+        eventsPublishedAt,
+      );
+      // Finalization only queues retention; the worker's poll sends it once.
+      expect(memoryRequests).toHaveLength(0);
+      // Other test files share this Redis and its retention queue, so process
+      // only this job.
+      const { processMemoryRetention } = await import(
+        '@/server/chat/memoryRetention'
+      );
+      await processMemoryRetention(jobId);
       expect(memoryRequests).toHaveLength(successClaimed ? 1 : 0);
       if (successClaimed) expect(memoryRequests[0].request_id).toBe(jobId);
+      // The accepted turn's text is gone, so nothing can send it again.
+      expect(
+        await client.exists(
+          redis.sessionKey(['memory-retention', 'submission', 'v1', jobId]),
+        ),
+      ).toBe(0);
     });
 
-    // The journal carries the whole conversation history. Each cleanup used to
-    // rewrite it before completion was published, delaying the browser's
-    // completion event in proportion to the history size.
-    it('publishes completion with its cleanup in one journal write and repeats cleanup after a failure', async () => {
+    // The journal carries the whole conversation history. The conversation
+    // receipt, guard releases, cleanup, completion and retention queueing are
+    // one journal write, so a failure leaves all of them for a retry and a
+    // guard is never released before the receipt is durable.
+    it('commits the receipt with guard release, cleanup and completion in one journal write', async () => {
       const batchedJob = `${jobId}-batched`;
       const batchedConversation = `${conversationId}-batched`;
       const tokens = `user:${userId}:chat:${batchedConversation}:tokens`;
@@ -346,12 +375,28 @@ describe.skipIf(!RUN_REAL_REDIS)(
         'conversation',
         batchedConversation,
       ]);
-      const del = vi.spyOn(client, 'del');
-      const evaluate = vi.spyOn(client, 'eval');
-      const journalWrites = () =>
-        evaluate.mock.calls.filter(([script]) =>
-          String(script).includes('UPDATE_FINALIZATION_JOURNAL'),
-        ).length;
+      const guardKey = conversationGuard.conversationJobGuardKey(
+        userId,
+        batchedConversation,
+      );
+      const evaluate = client.eval.bind(client);
+      const isJournalWrite = (script: unknown) =>
+        String(script).includes('UPDATE_FINALIZATION_JOURNAL');
+      let journalWrites = 0;
+      let fault: 'before' | 'after' | null = 'before';
+      const evalSpy = vi
+        .spyOn(client, 'eval')
+        .mockImplementation(async (...args: any[]) => {
+          if (!isJournalWrite(args[0])) return evaluate(...args);
+          journalWrites += 1;
+          const injected = fault;
+          fault = null;
+          if (injected === 'before') throw new Error('journal write failed');
+          const result = await evaluate(...args);
+          if (injected === 'after')
+            throw new Error('Response lost after Redis committed');
+          return result;
+        });
       const completions = () =>
         observedMessages.filter(
           ({ payload }) =>
@@ -375,7 +420,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
         await userGuard.acquireUserJobGuard(userId, batchedJob, client);
         await streamState.appendStreamResponseDelta(batchedJob, 'partial', 0);
         expect(
-          await state.claimTerminalJobStatus(
+          await claimTerminal(
             batchedJob,
             { status: 'error', error: 'Stopped', finalizedAt: 2 },
             {
@@ -400,38 +445,50 @@ describe.skipIf(!RUN_REAL_REDIS)(
           ),
         ).toBe(true);
 
-        del.mockRejectedValueOnce(new Error('transient cleanup failure'));
+        // The conversation is saved, but the write recording it fails: no
+        // receipt, so the guard and slot stay held and nothing is published.
         await expect(
           finalization.resumePendingFinalization(batchedJob),
-        ).rejects.toThrow('transient cleanup failure');
-        const interrupted = await state.getFinalizationJournal(batchedJob);
-        expect(interrupted?.conversationAppliedAt).toEqual(expect.any(Number));
+        ).rejects.toThrow('journal write failed');
+        const interrupted = await journalOf(batchedJob);
+        expect(interrupted?.conversationAppliedAt).toBeUndefined();
         expect(interrupted?.eventsPublishedAt).toBeUndefined();
-        expect(interrupted?.streamStateClearedAt).toBeUndefined();
-        expect(interrupted?.conversationGuardReleasedAt).toBeUndefined();
+        expect(await client.exists(guardKey, streamingKey)).toBe(2);
+        expect(
+          await client.zscore(userGuard.userJobGuardKey(userId), batchedJob),
+        ).not.toBeNull();
+        expect(
+          (
+            await redis.jsonGet(
+              redis.sessionKey(['conversation', batchedConversation]),
+            )
+          ).messages.at(-1).content,
+        ).toBe('partial');
 
-        const writesBeforeRecovery = journalWrites();
+        // The retry commits but its reply is lost; the next resume sees the
+        // completed journal and publishes nothing again.
+        fault = 'after';
+        await expect(
+          finalization.resumePendingFinalization(batchedJob),
+        ).rejects.toThrow('Response lost');
         await expect(
           finalization.resumePendingFinalization(batchedJob),
         ).resolves.toBe('completed');
-        // One write publishes completion with the cleanup phases; one more
-        // records the memory attempt and completion.
-        expect(journalWrites() - writesBeforeRecovery).toBe(2);
-        const completed = await state.getFinalizationJournal(batchedJob);
+        expect(journalWrites).toBe(2);
+        const completed = await journalOf(batchedJob);
         expect(completed).toMatchObject({
           state: 'completed',
+          conversationAppliedAt: completed?.eventsPublishedAt,
           streamingStateClearedAt: completed?.eventsPublishedAt,
           streamStateClearedAt: completed?.eventsPublishedAt,
           conversationGuardReleasedAt: completed?.eventsPublishedAt,
+          completedAt: completed?.eventsPublishedAt,
         });
         expect(
           await client.exists(
             streamingKey,
             streamState.streamResponseKey(batchedJob),
-            conversationGuard.conversationJobGuardKey(
-              userId,
-              batchedConversation,
-            ),
+            guardKey,
           ),
         ).toBe(0);
         expect(
@@ -440,20 +497,17 @@ describe.skipIf(!RUN_REAL_REDIS)(
         await subscriber.ping();
         expect(completions()).toHaveLength(1);
       } finally {
-        del.mockRestore();
-        evaluate.mockRestore();
+        evalSpy.mockRestore();
         await subscriber.unsubscribe(tokens);
         await client.del(
           redis.sessionKey(['async-job-status', batchedJob]),
           state.finalizationJournalKey(batchedJob),
+          state.finalizerLockKey(batchedJob),
           state.abortKey(batchedJob),
           redis.sessionKey(['conversation', batchedConversation]),
           streamingKey,
           streamState.streamResponseKey(batchedJob),
-          conversationGuard.conversationJobGuardKey(
-            userId,
-            batchedConversation,
-          ),
+          guardKey,
           userGuard.userJobGuardKey(userId),
         );
       }
@@ -534,19 +588,21 @@ describe.skipIf(!RUN_REAL_REDIS)(
         );
 
         try {
-          // Fail after the conversation and its phase marker are durable, but
-          // before completion is published. Recovery must use saved metadata.
-          const originalDel = client.del.bind(client);
-          const delSpy = vi
-            .spyOn(client, 'del')
-            .mockImplementation(async (...keys: any[]) => {
+          // Fail after the conversation is saved, but before the journal write
+          // that records it and publishes completion. Recovery must use the
+          // saved metadata.
+          const evaluate = client.eval.bind(client);
+          const faultSpy = vi
+            .spyOn(client, 'eval')
+            .mockImplementation(async (...args: any[]) => {
               if (
                 mode !== 'normal' &&
-                keys.includes(streamState.streamResponseKey(renameJob))
+                String(args[0]).includes('UPDATE_FINALIZATION_JOURNAL') &&
+                args.includes(renameJob)
               ) {
                 throw new Error('Injected cleanup outage');
               }
-              return originalDel(...keys);
+              return evaluate(...args);
             });
           const finish = finalization.finalizeSuccess(
             renameJob,
@@ -566,15 +622,18 @@ describe.skipIf(!RUN_REAL_REDIS)(
             if (mode !== 'normal') {
               await expect(finish).rejects.toThrow('Injected cleanup outage');
               expect(
-                await state.getFinalizationJournal(renameJob),
-              ).toMatchObject({
-                conversationAppliedAt: expect.any(Number),
-              });
+                (await journalOf(renameJob))?.conversationAppliedAt,
+              ).toBeUndefined();
+              expect(
+                (await redis.jsonGet(conversationKey)).messages.map(
+                  (message: any) => message.id,
+                ),
+              ).toEqual(['rename-user', 'rename-assistant']);
             } else {
               await expect(finish).resolves.toBe(true);
             }
           } finally {
-            delSpy.mockRestore();
+            faultSpy.mockRestore();
           }
           if (mode === 'deleted') {
             const { deleteConversationForUser } = await import(
@@ -606,12 +665,10 @@ describe.skipIf(!RUN_REAL_REDIS)(
                 (request) => request.request_id === renameJob,
               ),
             ).toEqual([]);
-            expect(await state.getFinalizationJournal(renameJob)).toMatchObject(
-              {
-                state: 'completed',
-                conversationSuppressedAt: expect.any(Number),
-              },
-            );
+            expect(await journalOf(renameJob)).toMatchObject({
+              state: 'completed',
+              conversationSuppressedAt: expect.any(Number),
+            });
             return;
           }
           expect(saved.name).toBe('Trip plan for March');
@@ -620,9 +677,12 @@ describe.skipIf(!RUN_REAL_REDIS)(
             'rename-user',
             'rename-assistant',
           ]);
-          expect(await redis.jsonGet(selectedKey)).toMatchObject({
+          // A finished turn never rewrites the selection pointer.
+          expect(await redis.jsonGet(selectedKey)).toEqual({
+            id: renamedConversation,
             name: 'Trip plan for March',
             folderId: 'travel',
+            messages: [userMessage],
           });
           await subscriber.ping();
           const updates = observedMessages.filter(
@@ -644,16 +704,26 @@ describe.skipIf(!RUN_REAL_REDIS)(
             state.finalizerLockKey(renameJob),
             state.abortKey(renameJob),
             redis.sessionKey(['memory-retention', 'record', 'v1', renameJob]),
+            redis.sessionKey([
+              'memory-retention',
+              'submission',
+              'v1',
+              renameJob,
+            ]),
           );
           await client.zrem(
             redis.sessionKey(['memory-retention', 'queue', 'v1']),
+            renameJob,
+          );
+          await client.zrem(
+            redis.sessionKey(['memory-retention', 'submission-queue', 'v1']),
             renameJob,
           );
         }
       },
     );
 
-    it('completes when memory retention fails and releases its unread response', async () => {
+    it('completes without the memory service and releases an unread failure response when retention runs', async () => {
       const retainJob = `${jobId}-retain-failure`;
       const retainConversation = `${conversationId}-retain-failure`;
       const statusKey = redis.sessionKey(['async-job-status', retainJob]);
@@ -661,8 +731,17 @@ describe.skipIf(!RUN_REAL_REDIS)(
         'conversation',
         retainConversation,
       ]);
+      const submissionKey = redis.sessionKey([
+        'memory-retention',
+        'submission',
+        'v1',
+        retainJob,
+      ]);
       const { reserveConversationForUser } = await import(
         '@/server/session/conversationStore'
+      );
+      const { processMemoryRetention } = await import(
+        '@/server/chat/memoryRetention'
       );
       await reserveConversationForUser(userId, retainConversation);
       await redis.jsonSetWithExpiry(
@@ -674,6 +753,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
         memoryResponseClosed = () => resolve('closed');
       });
       memoryUnavailable = true;
+      const before = memoryRequests.length;
       try {
         await expect(
           finalization.finalizeSuccess(
@@ -689,27 +769,142 @@ describe.skipIf(!RUN_REAL_REDIS)(
             'Hello.',
           ),
         ).resolves.toBe(true);
-        expect(await state.getFinalizationJournal(retainJob)).toMatchObject({
+        // Completion never waited for the (unavailable) memory service.
+        expect(memoryRequests.length).toBe(before);
+        expect(await journalOf(retainJob)).toMatchObject({
           state: 'completed',
           memoryRetentionAttemptedAt: expect.any(Number),
         });
+        expect(JSON.parse(await client.get(submissionKey))).toMatchObject({
+          jobId: retainJob,
+          userContent: 'Hi',
+          assistantContent: 'Hello.',
+          attempts: 0,
+        });
+        expect(await client.ttl(submissionKey)).toBeGreaterThan(0);
+
+        await processMemoryRetention(retainJob);
+        expect(memoryRequests.slice(before)).toEqual([
+          expect.objectContaining({ request_id: retainJob }),
+        ]);
         await expect(
           Promise.race([
             closed,
             new Promise((resolve) => setTimeout(() => resolve('open'), 1_000)),
           ]),
         ).resolves.toBe('closed');
+        // Kept for a later attempt with backoff.
+        expect(JSON.parse(await client.get(submissionKey))).toMatchObject({
+          attempts: 1,
+        });
       } finally {
         memoryUnavailable = false;
         memoryResponseClosed = undefined;
         await client.del(
           statusKey,
           conversationKey,
+          submissionKey,
           state.finalizationJournalKey(retainJob),
           state.finalizerLockKey(retainJob),
           state.abortKey(retainJob),
+          redis.sessionKey(['memory-retention', 'lock', 'v1', retainJob]),
+        );
+        await client.zrem(
+          redis.sessionKey(['memory-retention', 'queue', 'v1']),
+          retainJob,
+        );
+        await client.zrem(
+          redis.sessionKey(['memory-retention', 'submission-queue', 'v1']),
+          retainJob,
         );
       }
+    });
+
+    it('finalizes a turn in six serial round trips without reading back the journal or selection', async () => {
+      const { recordRedisLayers } = await import('../../fixtures/redisLayers');
+      const { reserveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      const fastJob = `${jobId}-round-trips`;
+      const fastConversation = `${conversationId}-round-trips`;
+      const statusKey = redis.sessionKey(['async-job-status', fastJob]);
+      const selectedKey = redis.sessionKey([
+        'user',
+        userId,
+        'selectedConversation',
+      ]);
+      await reserveConversationForUser(userId, fastConversation);
+      await redis.jsonSetWithExpiry(
+        statusKey,
+        { jobId: fastJob, status: 'streaming', createdAt: Date.now() },
+        120,
+      );
+      await redis.jsonSetWithExpiry(selectedKey, { id: fastConversation }, 120);
+      await streamState.appendStreamSteps(
+        fastJob,
+        [{ id: 'step', payload: { event_type: 'TOOL_END' } }],
+        0,
+      );
+      const recorder = recordRedisLayers(client);
+      try {
+        await expect(
+          finalization.finalizeSuccess(
+            fastJob,
+            {
+              jobId: fastJob,
+              natBaseUrl: 'http://127.0.0.1:1',
+              executionMode: 'stream',
+              messages: [{ id: 'fast-user', role: 'user', content: 'Hi' }],
+              userId,
+              conversationId: fastConversation,
+              assistantMessageId: 'fast-answer',
+            },
+            'Hello.',
+          ),
+        ).resolves.toBe(true);
+      } finally {
+        recorder.stop();
+      }
+      const byLayer = new Map<number, string[]>();
+      for (const command of recorder.steady())
+        byLayer.set(command.layer, [
+          ...(byLayer.get(command.layer) ?? []),
+          command.name === 'EVAL' || command.name === 'EVALSHA'
+            ? command.tag
+            : command.name,
+        ]);
+      expect([...byLayer.values()].map((layer) => layer.sort())).toEqual([
+        ['LRANGE', 'READ_JOB_STATUS_SNAPSHOT'],
+        // The winning claim takes the finalizer lock in the same commit.
+        ['CLAIM_TERMINAL_FINALIZATION'],
+        ['READ_OWNED_CONVERSATION'],
+        ['SAVE_OWNED_CONVERSATION'],
+        // Receipt, cleanup, guard release, completion, retention queueing.
+        ['UPDATE_FINALIZATION_JOURNAL'],
+        // The lock release follows chat_complete.
+        ['RELEASE_FINALIZATION_LOCK'],
+      ]);
+      expect(
+        recorder.commands.some((command) => command.args.includes(selectedKey)),
+      ).toBe(false);
+      expect(await journalOf(fastJob)).toMatchObject({
+        state: 'completed',
+      });
+      await client.del(
+        statusKey,
+        redis.sessionKey(['conversation', fastConversation]),
+        redis.sessionKey(['memory-retention', 'submission', 'v1', fastJob]),
+        state.finalizationJournalKey(fastJob),
+        state.finalizerLockKey(fastJob),
+      );
+      await client.zrem(
+        redis.sessionKey(['memory-retention', 'queue', 'v1']),
+        fastJob,
+      );
+      await client.zrem(
+        redis.sessionKey(['memory-retention', 'submission-queue', 'v1']),
+        fastJob,
+      );
     });
 
     it('applies the submitted name when no newer rename was saved', async () => {
@@ -766,104 +961,81 @@ describe.skipIf(!RUN_REAL_REDIS)(
       }
     });
 
-    it.each(['switch', 'delete'])(
-      'preserves a concurrent selection %s while applying a terminal conversation',
-      async (action) => {
-        const selectedKey = redis.sessionKey([
-          'user',
+    it('leaves the selection pointer untouched while applying a terminal conversation', async () => {
+      const selectedKey = redis.sessionKey([
+        'user',
+        userId,
+        'selectedConversation',
+      ]);
+      const raceJob = `${jobId}-selection`;
+      const statusKey = redis.sessionKey(['async-job-status', raceJob]);
+      // An older pointer that still carries a conversation copy.
+      const pointer = { id: conversationId, name: 'Old', messages: [] };
+      await redis.jsonSetWithExpiry(selectedKey, pointer, 120);
+      await redis.jsonSetWithExpiry(
+        statusKey,
+        { jobId: raceJob, status: 'streaming', createdAt: 1 },
+        120,
+      );
+      await claimTerminal(
+        raceJob,
+        { status: 'error', finalizedAt: 2 },
+        {
+          version: 1,
+          state: 'pending',
+          jobId: raceJob,
+          finalizationId: raceJob,
+          outcome: 'error',
           userId,
-          'selectedConversation',
-        ]);
-        const raceJob = `${jobId}-${action}`;
-        const statusKey = redis.sessionKey(['async-job-status', raceJob]);
-        const replacement = {
-          id: 'another-conversation',
-          name: 'Chosen elsewhere',
-          messages: [],
-        };
-        await redis.jsonSetWithExpiry(
-          selectedKey,
-          { id: conversationId, messages: [] },
-          120,
-        );
-        await redis.jsonSetWithExpiry(
-          statusKey,
-          { jobId: raceJob, status: 'streaming', createdAt: 1 },
-          120,
-        );
-        await state.claimTerminalJobStatus(
-          raceJob,
-          { status: 'error', finalizedAt: 2 },
-          {
-            version: 1,
-            state: 'pending',
-            jobId: raceJob,
-            finalizationId: raceJob,
-            outcome: 'error',
-            userId,
-            finalizedAt: 2,
-            conversation: {
-              id: conversationId,
-              name: 'Finished',
-              messages: [],
-              assistantMessageId: raceJob,
-              content: 'Partial response',
-              intermediateSteps: [],
-              isPartial: true,
-            },
+          finalizedAt: 2,
+          conversation: {
+            id: conversationId,
+            name: 'Finished',
+            messages: [],
+            assistantMessageId: raceJob,
+            content: 'Partial response',
+            intermediateSteps: [],
+            isPartial: true,
           },
+        },
+      );
+      const touched: unknown[][] = [];
+      const call = client.call.bind(client);
+      const evaluate = client.eval.bind(client);
+      const callSpy = vi
+        .spyOn(client, 'call')
+        .mockImplementation(async (...args: any[]) => {
+          if (args.includes(selectedKey)) touched.push(args);
+          return call(...args);
+        });
+      const evalSpy = vi
+        .spyOn(client, 'eval')
+        .mockImplementation(async (...args: any[]) => {
+          if (args.includes(selectedKey)) touched.push(args);
+          return evaluate(...args);
+        });
+      try {
+        expect(await finalization.resumePendingFinalization(raceJob)).toBe(
+          'completed',
         );
-        let injected = false;
-        const changeSelection = async () => {
-          injected = true;
-          if (action === 'delete') await client.del(selectedKey);
-          else await redis.jsonSetWithExpiry(selectedKey, replacement, 120);
-        };
-        const call = client.call.bind(client);
-        const evaluate = client.eval.bind(client);
-        // Inject at the Redis read boundary, after returning its old snapshot.
-        // Cover the former JSON.GET and the atomic helper's snapshot read.
-        const callSpy = vi
-          .spyOn(client, 'call')
-          .mockImplementation(async (...args: any[]) => {
-            const result = await call(...args);
-            if (!injected && args[0] === 'JSON.GET' && args[1] === selectedKey)
-              await changeSelection();
-            return result;
-          });
-        const evalSpy = vi
-          .spyOn(client, 'eval')
-          .mockImplementation(async (...args: any[]) => {
-            const result = await evaluate(...args);
-            if (!injected && args[2] === selectedKey && Array.isArray(result))
-              await changeSelection();
-            return result;
-          });
-        try {
-          expect(await finalization.resumePendingFinalization(raceJob)).toBe(
-            'completed',
-          );
-          expect(injected).toBe(true);
-          expect(await redis.jsonGet(selectedKey)).toEqual(
-            action === 'delete' ? null : replacement,
-          );
-          expect(
-            (
-              await redis.jsonGet(
-                redis.sessionKey(['conversation', conversationId]),
-              )
-            ).messages[0].content,
-          ).toBe('Partial response');
-        } finally {
-          callSpy.mockRestore();
-          evalSpy.mockRestore();
-          await client.del(
-            statusKey,
-            state.finalizationJournalKey(raceJob),
-            state.finalizerLockKey(raceJob),
-          );
-        }
-      },
-    );
+        expect(touched).toEqual([]);
+        expect(await redis.jsonGet(selectedKey)).toEqual(pointer);
+        expect(
+          (
+            await redis.jsonGet(
+              redis.sessionKey(['conversation', conversationId]),
+            )
+          ).messages[0].content,
+        ).toBe('Partial response');
+      } finally {
+        callSpy.mockRestore();
+        evalSpy.mockRestore();
+        await client.del(
+          statusKey,
+          state.finalizationJournalKey(raceJob),
+          state.finalizerLockKey(raceJob),
+        );
+      }
+    });
   },
 );

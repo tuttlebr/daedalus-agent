@@ -44,7 +44,7 @@ def test_chat_reuses_identical_decoded_inputs(monkeypatch):
     )
     monkeypatch.setattr(mod, "store_image_in_redis", AsyncMock(return_value="result"))
     monkeypatch.setattr(mod, "edit_images", edit)
-    monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
+    monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
     monkeypatch.setattr(mod.AsyncOpenAI.return_value, "close", AsyncMock())
     # Hermetic: never depend on a developer/CI OPENAI_API_KEY. The synthetic
     # configured key exercises the real client-construction path.

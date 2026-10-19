@@ -19,6 +19,10 @@ export const DOCUMENT_INGEST_TIMEOUT_MS = Number(
 );
 export const NAT_BACKEND_CACHE_TTL_MS = 30_000;
 export const STREAM_STATUS_FLUSH_INTERVAL_MS = 750;
+// Live token deltas within this window share one pub/sub message. The first
+// delta after a quiet window is sent at once; the browser renders at most
+// every 120 ms, so the wait is not visible.
+export const STREAM_TOKEN_PUBLISH_INTERVAL_MS = 25;
 export const STREAM_STEPS_FLUSH_INTERVAL_MS = 750;
 export const STREAM_READ_IDLE_TIMEOUT_MS = Number(
   process.env.STREAM_READ_IDLE_TIMEOUT_MS || 5 * 60 * 1000,

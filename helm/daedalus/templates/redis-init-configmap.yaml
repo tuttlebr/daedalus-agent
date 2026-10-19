@@ -73,9 +73,11 @@ data:
         # The backend can access tool/runtime state but cannot read sessions,
         # login counters, conversations, autonomy state, or general user keys.
         # Visual media analysis reads frontend-stored images and videos.
+        # nat/ is the retained OAuth grant prefix; daedalus: holds memory
+        # caches, tool output and idempotency records.
         write_acl_user "$REDIS_BACKEND_USERNAME" "$REDIS_BACKEND_PASSWORD" \
           "${REDIS_BACKEND_PREVIOUS_PASSWORD:-}" \
-          '~nat:* ~nat/* ~approval:* ~approval-pending:* ~approval-receipt:* ~document:* ~generated:* ~image:* ~user:*:image:* ~video:* ~user:*:video:* ~rss_feed:* ~daedalus:*' ''
+          '~nat/* ~approval:* ~approval-pending:* ~document:* ~generated:* ~image:* ~user:*:image:* ~video:* ~user:*:video:* ~daedalus:*' ''
         # The stream worker receives only async execution/finalization state and
         # its exact realtime channels; authentication keyspaces stay excluded.
         write_acl_user "$REDIS_STREAM_WORKER_USERNAME" "$REDIS_STREAM_WORKER_PASSWORD" \

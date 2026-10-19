@@ -70,9 +70,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       );
       const { claimTerminalJobStatus } = await import('@/server/chat/jobState');
       const { finalizeError } = await import('@/server/chat/finalization');
-      const { loadStreamQueuePayload } = await import(
-        '@/server/chat/streamQueue'
-      );
+      const { streamPayloadKey } = await import('@/server/chat/streamQueue');
       const handler = (await import('@/pages/api/chat/async')).default;
       const previousJob = `${prefix}-previous`;
       const conversationId = `${prefix}-conversation`;
@@ -92,28 +90,30 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       };
       // Simulate a crash after claiming the outcome but before saving it.
       expect(
-        await claimTerminalJobStatus(
-          previousJob,
-          { status: 'error', finalizedAt: 2 },
-          {
-            version: 1,
-            state: 'pending',
-            jobId: previousJob,
-            finalizationId: previousJob,
-            outcome: 'error',
-            userId: prefix,
-            finalizedAt: 2,
-            conversation: {
-              id: conversationId,
-              name: 'Recovery',
-              messages: [firstQuestion],
-              assistantMessageId: 'a1',
-              content: 'Recovered first answer',
-              intermediateSteps: [],
-              isPartial: true,
+        (
+          await claimTerminalJobStatus(
+            previousJob,
+            { status: 'error', finalizedAt: 2 },
+            {
+              version: 1,
+              state: 'pending',
+              jobId: previousJob,
+              finalizationId: previousJob,
+              outcome: 'error',
+              userId: prefix,
+              finalizedAt: 2,
+              conversation: {
+                id: conversationId,
+                name: 'Recovery',
+                messages: [firstQuestion],
+                assistantMessageId: 'a1',
+                content: 'Recovered first answer',
+                intermediateSteps: [],
+                isPartial: true,
+              },
             },
-          },
-        ),
+          )
+        ).claimed,
       ).toBe(true);
 
       const followUp = { id: 'u2', role: 'user', content: 'Follow up' };
@@ -145,7 +145,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         'a1',
         'u2',
       ]);
-      const payload = await loadStreamQueuePayload(nextJob);
+      const payload = await redis.jsonGet(streamPayloadKey(nextJob));
       expect(
         payload?.messagesForNat.map((message: any) => message.content),
       ).toEqual([
@@ -250,6 +250,164 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       expect(
         await client.ttl(redis.sessionKey(['async-job-status', nextJob])),
       ).toBeGreaterThan(3000);
+    });
+
+    it('queues a turn with its payload, entry and streaming notice in one commit', async () => {
+      const { recordRedisLayers } = await import(
+        '../../../fixtures/redisLayers'
+      );
+      const { reserveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      const { streamPayloadKey } = await import('@/server/chat/streamQueue');
+      const handler = (await import('@/pages/api/chat/async')).default;
+      const conversationId = `${prefix}-one-commit`;
+      await reserveConversationForUser(prefix, conversationId);
+      const notices: any[] = [];
+      const observer = client.duplicate();
+      observer.on('message', (_channel: string, payload: string) =>
+        notices.push(JSON.parse(payload)),
+      );
+      await observer.subscribe(redis.channels.userUpdates(prefix));
+      const recorder = recordRedisLayers(client);
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+        setHeader: vi.fn(),
+      };
+      try {
+        await handler(
+          {
+            method: 'POST',
+            headers: { cookie: 'sid=admission-test-session' },
+            body: {
+              conversationId,
+              messages: [{ id: 'u1', role: 'user', content: 'Hello' }],
+            },
+          } as any,
+          res as any,
+        );
+      } finally {
+        recorder.stop();
+      }
+      expect(res.status).toHaveBeenCalledWith(200);
+      const jobId = res.json.mock.calls[0][0].jobId;
+      jobs.add(jobId);
+      const names = recorder
+        .steady()
+        .map((command) =>
+          command.name === 'EVAL' || command.name === 'EVALSHA'
+            ? command.tag
+            : command.name,
+        );
+      // State is written before the job is queued; the queue entry, payload
+      // and notice are one script, not separate XADD/SET/PUBLISH commands.
+      expect(
+        names.filter((name) => name === 'ENQUEUE_STREAM_JOB'),
+      ).toHaveLength(1);
+      expect(names).not.toContain('XADD');
+      expect(names).not.toContain('PUBLISH');
+      const enqueue = recorder
+        .steady()
+        .find((command) => command.tag === 'ENQUEUE_STREAM_JOB')!;
+      expect(
+        recorder
+          .steady()
+          .filter((command) =>
+            command.args.some((arg) =>
+              String(arg).includes(`async-job-request:${jobId}`),
+            ),
+          )
+          .every((command) => command.layer < enqueue.layer),
+      ).toBe(true);
+      expect(enqueue.layer).toBe(recorder.steady().at(-1)!.layer);
+      expect(
+        JSON.parse((await client.get(streamPayloadKey(jobId)))!),
+      ).toMatchObject({ verifiedUsername: prefix });
+      await observer.ping();
+      expect(notices).toContainEqual(
+        expect.objectContaining({
+          type: 'streaming_started',
+          data: { conversationId, sessionId: jobId, isStreaming: true },
+        }),
+      );
+      observer.disconnect();
+    });
+
+    it('answers a status poll in one round trip without reading the request history', async () => {
+      const { recordRedisLayers } = await import(
+        '../../../fixtures/redisLayers'
+      );
+      const handler = (await import('@/pages/api/chat/async')).default;
+      const jobId = `${prefix}-poll`;
+      jobs.add(jobId);
+      const history = Array.from({ length: 100 }, (_, index) => ({
+        id: `m${index}`,
+        role: 'user',
+        content: 'history '.repeat(100),
+      }));
+      await redis.jsonSetWithExpiry(
+        redis.sessionKey(['async-job-request', jobId]),
+        { jobId, executionMode: 'stream', userId: prefix, messages: history },
+        120,
+      );
+      await redis.jsonSetWithExpiry(
+        redis.sessionKey(['async-job-status', jobId]),
+        { jobId, status: 'streaming', createdAt: 1, updatedAt: 2 },
+        120,
+      );
+      await client.set(
+        redis.sessionKey(['async-job-response', jobId]),
+        'Live text',
+        'EX',
+        120,
+      );
+      // Warm the RedisJSON capability check and the script cache: a steady
+      // stream of polls sends only script digests.
+      await handler(
+        { method: 'GET', query: { jobId } } as any,
+        { status: () => ({ json: () => undefined }), setHeader() {} } as any,
+      );
+      const recorder = recordRedisLayers(client);
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+        setHeader: vi.fn(),
+      };
+      try {
+        await handler({ method: 'GET', query: { jobId } } as any, res as any);
+      } finally {
+        recorder.stop();
+      }
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json.mock.calls[0][0]).toMatchObject({
+        status: 'streaming',
+        partialResponse: 'Live text',
+      });
+      expect(recorder.layers()).toBe(1);
+      const ownership = recorder.commands.find(
+        (command) => command.tag === 'READ_JSON_FIELDS',
+      )!;
+      expect(ownership.replyBytes).toBeLessThan(200);
+      expect(JSON.stringify(history).length).toBeGreaterThan(50_000);
+
+      // Another user's poll learns nothing.
+      session.username = `${prefix}-other`;
+      const denied = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+        setHeader: vi.fn(),
+      };
+      try {
+        await handler(
+          { method: 'GET', query: { jobId } } as any,
+          denied as any,
+        );
+      } finally {
+        session.username = prefix;
+      }
+      expect(denied.status).toHaveBeenCalledWith(404);
+      expect(denied.json).toHaveBeenCalledWith({ error: 'Job not found' });
     });
   },
 );

@@ -58,31 +58,21 @@ export async function publishConversationUpdate(
   );
 }
 
-// Publish streaming state change to all user sessions
-export async function publishStreamingState(
-  userId: string,
+/** A streaming state change for the user's other sessions. */
+export function streamingStateEvent(
   conversationId: string,
   isStreaming: boolean,
   sessionId: string = '',
-): Promise<void> {
-  try {
-    const publisher = getPublisher();
-    const channel = channels.userUpdates(userId);
-
-    const event: StreamingStateEvent = {
-      type: isStreaming ? 'streaming_started' : 'streaming_ended',
-      timestamp: Date.now(),
-      data: {
-        conversationId,
-        sessionId,
-        isStreaming,
-      },
-    };
-
-    await publisher.publish(channel, JSON.stringify(event));
-  } catch (error) {
-    console.error('Failed to publish streaming state:', error);
-  }
+): StreamingStateEvent {
+  return {
+    type: isStreaming ? 'streaming_started' : 'streaming_ended',
+    timestamp: Date.now(),
+    data: {
+      conversationId,
+      sessionId,
+      isStreaming,
+    },
+  };
 }
 
 // Publish a generic sync event

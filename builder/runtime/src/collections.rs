@@ -40,11 +40,15 @@ pub fn private_part(user: Option<&str>) -> String {
     format!("{readable}_{:x}", Sha256::digest(user.as_bytes()))
 }
 pub fn user_name(user: Option<&str>, base: Option<&str>) -> String {
-    format!(
-        "{}_{}",
-        normalize(base, "user_uploads", 64),
-        private_part(user)
-    )
+    format!("{}_{}", upload_base(base), private_part(user))
+}
+/// The private-collection prefix a configured upload base resolves to.
+pub fn upload_base(base: Option<&str>) -> String {
+    normalize(base, "user_uploads", 64)
+}
+/// Whether a Milvus database setting selects Milvus's default database.
+pub fn default_database(value: &str) -> bool {
+    matches!(trim(value), "" | "default")
 }
 // Ingestion and metadata share the retained collection naming rules.
 pub(super) fn resolve(collection: Option<&str>, user: Option<&str>, base: Option<&str>) -> String {

@@ -547,9 +547,7 @@ impl Mcp {
             .iter()
             .find(|tool| tool.name == tool_name)
             .unwrap();
-        let validator = jsonschema::options()
-            .should_validate_formats(false)
-            .build(&json!(&*tool.input_schema))
+        let validator = crate::tool_contracts::validator(&json!(&*tool.input_schema))
             .map_err(|_| anyhow!(FailureClass::Schema))?;
         if !validator.is_valid(args) {
             bail!(FailureClass::Validation);
@@ -565,18 +563,15 @@ impl Mcp {
                 .gate(user, token, name, tool_name, args, &annotations)
                 .await
         };
-        let binding = match gate {
-            Gate::Allowed(binding) => binding,
-            Gate::Denied(reason, terminal) => {
-                return Ok(ToolOutcome {
-                    content: reason,
-                    is_error: true,
-                    terminal,
-                    terminal_reason: "mcp_approval_required".into(),
-                    ..Default::default()
-                });
-            }
-        };
+        if let Gate::Denied(reason, terminal) = gate {
+            return Ok(ToolOutcome {
+                content: reason,
+                is_error: true,
+                terminal,
+                terminal_reason: "mcp_approval_required".into(),
+                ..Default::default()
+            });
+        }
         let timeout = number(
             self.config.raw["function_groups"][name]
                 .get("tool_call_timeout")
@@ -604,7 +599,7 @@ impl Mcp {
                     .unwrap_or(serde_json::to_value(&result)?);
                 // rmcp accepts absent/null content and a null error flag. The
                 // retained Python client rejects these incomplete results; they
-                // must never produce a confirmed mutation receipt.
+                // must never be reported as a confirmed mutation.
                 let complete = raw.get("content").is_some_and(Value::is_array)
                     && raw.get("isError").is_none_or(Value::is_boolean);
                 let value = crate::mcp_http::result_envelope(raw);
@@ -612,9 +607,7 @@ impl Mcp {
                     && (value["isError"] == true
                         || tool.output_schema.as_ref().is_none_or(|schema| {
                             value.get("structuredContent").is_some_and(|content| {
-                                jsonschema::options()
-                                    .should_validate_formats(false)
-                                    .build(&json!(&**schema))
+                                crate::tool_contracts::validator(&json!(&**schema))
                                     .is_ok_and(|v| v.is_valid(content))
                             })
                         }));
@@ -640,9 +633,6 @@ impl Mcp {
             });
         };
         let failed = value["isError"] == true;
-        if !failed && let Some(binding) = binding {
-            self.approvals.receipt(token, &binding).await;
-        }
         guard.0 = None;
         let content = crate::output::compact(&value);
         Ok(ToolOutcome {

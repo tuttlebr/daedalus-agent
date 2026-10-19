@@ -156,7 +156,7 @@ def test_visual_media_chat_forwards_transparent_background_for_generation(
 
         monkeypatch.setattr(mod, "generate_images", _generate_images)
         monkeypatch.setattr(mod, "store_image_in_redis", _store_image)
-        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
 
         generator = visual_media_function(
             VisualMediaFunctionConfig(generation_api_key="test-key"), MagicMock()
@@ -200,7 +200,7 @@ def test_visual_media_chat_forwards_transparent_background_for_edits(monkeypatch
         monkeypatch.setattr(mod, "fetch_image_context", AsyncMock(return_value=None))
         monkeypatch.setattr(mod, "edit_images", _edit_images)
         monkeypatch.setattr(mod, "store_image_in_redis", _store_image)
-        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
 
         generator = visual_media_function(
             VisualMediaFunctionConfig(edit_api_key="test-key"), MagicMock()
@@ -235,7 +235,7 @@ def test_visual_media_failure_does_not_expose_exception_detail(monkeypatch):
             "generate_images",
             AsyncMock(side_effect=RuntimeError(private_error)),
         )
-        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda _="": "alice")
+        monkeypatch.setattr(mod, "resolve_authenticated_user_id", lambda: "alice")
 
         generator = visual_media_function(
             VisualMediaFunctionConfig(generation_api_key="test-key"), MagicMock()
