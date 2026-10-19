@@ -398,6 +398,13 @@ async def _load_document_bytes(
         if size_error is not None:
             raise DocumentStorageError(size_error)
         try:
+            # Older Python releases accepted trailing padding after complete
+            # quartets. Preserve those stored documents across Python patch
+            # upgrades, as the native loader does, without relaxing validation
+            # of incomplete quartets, internal padding, or non-base64 data.
+            unpadded = document_base64.rstrip("=")
+            if unpadded and len(unpadded) % 4 == 0:
+                document_base64 = unpadded
             document_bytes = base64.b64decode(document_base64, validate=True)
         except (ValueError, TypeError) as exc:
             raise DocumentStorageError(

@@ -307,6 +307,22 @@ def test_legacy_document_size_cap_counts_data_not_redundant_padding(
     ) == (raw, "legacy.txt")
 
 
+@pytest.mark.parametrize("encoded", ["====", "QQ===", "QUI==", "QU=J====", "!!!!===="])
+def test_legacy_document_padding_compatibility_rejects_invalid_data(
+    monkeypatch, encoded
+):
+    monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", "100")
+    with pytest.raises(DocumentStorageError, match="data is invalid"):
+        asyncio.run(
+            _load_document_bytes(
+                document_record={"data": encoded, "filename": "legacy.txt"},
+                document_id="document",
+                session_id="session",
+                username="alice",
+            )
+        )
+
+
 class TestCollectionResolution:
     def test_normalizes_collection_parts(self):
         assert normalize_collection_part("Brandon Smith@example.com") == (
