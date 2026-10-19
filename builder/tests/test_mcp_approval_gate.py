@@ -415,7 +415,6 @@ def test_blocked_workspace_write_creates_compact_gate_owned_approval(monkeypatch
 
     assert ok is False
     assert reason == marker
-    assert "user_interaction_tool" not in reason
     assert "doc-123" not in reason
 
 

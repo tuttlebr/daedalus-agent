@@ -260,8 +260,8 @@ fn http_error(error: reqwest::Error) -> Failure {
     Failure::new(class, format!("Public HTTP request failed ({class})"))
 }
 
-/// The image-owned certifi bundle shared by public and default private HTTP clients.
-pub(crate) fn pinned_certificates() -> Result<Vec<reqwest::Certificate>> {
+/// The image-owned certifi bundle that public HTTP clients trust.
+fn pinned_certificates() -> Result<Vec<reqwest::Certificate>> {
     // Use the same pinned certifi roots as trust_env=False. Deployment CA and
     // proxy environment variables must not expand the public-fetch boundary.
     // The image owns this file beside the executable, like Python's certifi.
@@ -296,7 +296,7 @@ pub struct Client {
     pool: Mutex<Pool>,
     configuration: Configuration,
     permits: Arc<tokio::sync::Semaphore>,
-    timeout: Option<Duration>,
+    timeout: Duration,
     limit: usize,
 }
 struct Pool {
@@ -306,12 +306,12 @@ struct Pool {
 struct Configuration {
     certificates: Vec<reqwest::Certificate>,
     headers: HeaderMap,
-    timeout: Option<Duration>,
-    connect_timeout: Option<Duration>,
+    timeout: Duration,
+    connect_timeout: Duration,
 }
 impl Configuration {
     fn build(&self) -> Result<reqwest::Client> {
-        let mut builder = reqwest::Client::builder()
+        reqwest::Client::builder()
             .http1_only()
             .no_proxy()
             .cookie_store(false)
@@ -322,14 +322,11 @@ impl Configuration {
             .dns_resolver(PublicResolver)
             .default_headers(self.headers.clone())
             .pool_max_idle_per_host(20)
-            .pool_idle_timeout(Duration::from_secs(5));
-        if let Some(timeout) = self.connect_timeout {
-            builder = builder.connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.timeout {
-            builder = builder.read_timeout(timeout);
-        }
-        builder.build().map_err(http_error)
+            .pool_idle_timeout(Duration::from_secs(5))
+            .connect_timeout(self.connect_timeout)
+            .read_timeout(self.timeout)
+            .build()
+            .map_err(http_error)
     }
 }
 impl Client {
@@ -337,27 +334,13 @@ impl Client {
         timeout: f64,
         connect_timeout: f64,
         limit: usize,
-        headers: HeaderMap,
+        mut headers: HeaderMap,
     ) -> Result<Self> {
         let duration = |seconds| {
             Duration::try_from_secs_f64(seconds)
-                .map(Some)
                 .map_err(|_| Failure::new("ValueError", "Invalid public HTTP timeout"))
         };
-        Self::with_timeouts(
-            duration(timeout)?,
-            duration(connect_timeout)?,
-            limit,
-            headers,
-        )
-    }
-
-    pub(crate) fn with_timeouts(
-        timeout: Option<Duration>,
-        connect_timeout: Option<Duration>,
-        limit: usize,
-        mut headers: HeaderMap,
-    ) -> Result<Self> {
+        let (timeout, connect_timeout) = (duration(timeout)?, duration(connect_timeout)?);
         if limit == 0 {
             return Err(Failure::new(
                 "ValueError",
@@ -437,13 +420,10 @@ impl Client {
         // Preflight also checks literal IPs (which reqwest never sends through
         // its resolver), plus each request that reuses a pooled connection.
         resolve(host).await?;
-        let permit = match self.timeout {
-            Some(timeout) => tokio::time::timeout(timeout, self.permits.acquire())
-                .await
-                .map_err(|_| Failure::new("PoolTimeout", "Public HTTP pool timed out"))?,
-            None => self.permits.acquire().await,
-        };
-        let _permit = permit.map_err(|_| Failure::new("PoolTimeout", "Public HTTP pool closed"))?;
+        let _permit = tokio::time::timeout(self.timeout, self.permits.acquire())
+            .await
+            .map_err(|_| Failure::new("PoolTimeout", "Public HTTP pool timed out"))?
+            .map_err(|_| Failure::new("PoolTimeout", "Public HTTP pool closed"))?;
         let (http, generation) = self.connection_pool()?;
         let response = http.get(url).send().await.map_err(http_error)?;
         let status = response.status().as_u16();
@@ -512,8 +492,9 @@ mod tests {
         });
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let client = Client::anonymous(1., 1., 1024, HeaderMap::new()).unwrap();
-        // reqwest never resolves literal IPs, including WHATWG-normalized
-        // decimal and IPv4-mapped forms; hostnames pass the pinned resolver.
+        // The preflight refuses each of these: literal IPs (including
+        // WHATWG-normalized decimal and IPv4-mapped forms), which reqwest
+        // never resolves, and a hostname with a non-public address.
         for url in [
             format!("http://127.0.0.1:{port}/"),
             format!("http://2130706433:{port}/"),
@@ -523,6 +504,32 @@ mod tests {
             let error = client.get(&url, &["http"]).await.err().expect(&url);
             assert_eq!(error.class, "UnsafeURLError", "{url}: {}", error.message);
         }
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn pooled_connections_resolve_through_the_public_resolver() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let hits = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = hits.clone();
+        let router = axum::Router::new().fallback(move || {
+            seen.fetch_add(1, Ordering::SeqCst);
+            async { "reachable" }
+        });
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = Client::anonymous(1., 1., 1024, HeaderMap::new()).unwrap();
+        // Skip the preflight, as a hostname whose answer changes after it
+        // would: only the connection pool's resolver can refuse this request.
+        let (http, _) = client.connection_pool().unwrap();
+        let error = http
+            .get(format!("http://localhost:{port}/"))
+            .send()
+            .await
+            .unwrap_err();
+        assert_eq!(http_error(error).class, "UnsafeURLError");
         assert_eq!(hits.load(Ordering::SeqCst), 0);
         server.abort();
     }

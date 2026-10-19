@@ -249,10 +249,20 @@ impl Client {
     }
 }
 
+/// Rankings are small; this bounds a decompression bomb in the response.
+const MAX_DECODED: usize = 16 * 1024 * 1024;
+fn too_large() -> std::io::Error {
+    std::io::Error::other("decoded response exceeds its limit")
+}
 fn decompress(encoding: &str, mut body: Vec<u8>) -> Option<Vec<u8>> {
-    fn read(mut decoder: impl Read) -> std::io::Result<Vec<u8>> {
+    fn read(decoder: impl Read) -> std::io::Result<Vec<u8>> {
         let mut output = Vec::new();
-        decoder.read_to_end(&mut output)?;
+        decoder
+            .take(MAX_DECODED as u64 + 1)
+            .read_to_end(&mut output)?;
+        if output.len() > MAX_DECODED {
+            return Err(too_large());
+        }
         Ok(output)
     }
     fn gzip(mut input: &[u8]) -> std::io::Result<Vec<u8>> {
@@ -261,7 +271,12 @@ fn decompress(encoding: &str, mut body: Vec<u8>) -> Option<Vec<u8>> {
         while !input.is_empty() {
             let mut decoder = flate2::bufread::GzDecoder::new(input);
             let mut member = Vec::new();
-            match decoder.read_to_end(&mut member) {
+            let remaining = (MAX_DECODED - output.len()) as u64 + 1;
+            let read = (&mut decoder).take(remaining).read_to_end(&mut member);
+            if output.len() + member.len() > MAX_DECODED {
+                return Err(too_large());
+            }
+            match read {
                 Ok(_) => {
                     output.extend(member);
                     completed = true;

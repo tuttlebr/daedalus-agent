@@ -13,6 +13,8 @@ import os
 import socket
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -28,8 +30,13 @@ def run(coro):
 # ---------------------------------------------------------------------------
 
 
-class TestConvertFetchedResource:
-    """Fetched bytes are converted locally; converters never receive a URL."""
+class TestConvertPublicResource:
+    """Fetched bytes are converted locally; converters never receive a URL.
+
+    ``PublicContentSession`` passes every fetched article through
+    ``_convert_article`` with webscrape's converter, for webscrape and source
+    verification alike.
+    """
 
     def _mock_md(self, title="Page Title", text_content="Article body"):
         mock_result = MagicMock()
@@ -45,22 +52,26 @@ class TestConvertFetchedResource:
         mock_md_instance.convert.side_effect = convert
         return mock_md_instance
 
-    def _convert(self, mock_md, content, **kwargs):
+    def _convert(self, mock_md, content, content_type, html_article=None):
+        import nat_helpers.public_content as public_content
         import webscrape.webscrape_function as wsmod
 
-        kwargs.setdefault("content_type", "text/html")
-        kwargs.setdefault("html", True)
         with (
-            patch.object(wsmod, "_convert_html_article", return_value=None),
+            patch.object(
+                public_content, "_convert_html_article", return_value=html_article
+            ),
             patch.object(wsmod, "MarkItDown", return_value=mock_md),
         ):
-            return wsmod._convert_fetched_resource(
-                content, "https://example.com", kwargs.pop("content_type"), **kwargs
+            return public_content._convert_article(
+                content,
+                "https://example.com",
+                content_type,
+                wsmod._convert_public_resource,
             )
 
     def test_html_fallback_converts_a_removed_local_html_file(self):
         mock_md = self._mock_md()
-        result = self._convert(mock_md, b"<html>content</html>", content_type="")
+        result = self._convert(mock_md, b"<html>content</html>", "text/html")
         converted_path = mock_md.convert.call_args.args[0]
         assert converted_path != "https://example.com"
         assert converted_path.endswith(".html")
@@ -74,29 +85,38 @@ class TestConvertFetchedResource:
             "<body><p>Müller: Résumé — £42</p></body></html>"
         ).encode("cp1252")
         mock_md = self._mock_md()
-        self._convert(mock_md, legacy, content_type="text/html")
+        self._convert(mock_md, legacy, "text/html")
         assert mock_md.converted_bytes == legacy
 
     def test_documents_keep_their_media_type_and_generic_converter(self):
-        import webscrape.webscrape_function as wsmod
+        import nat_helpers.public_content as public_content
 
         mock_md = self._mock_md(title=None, text_content="PDF body")
-        with (
-            patch.object(
-                wsmod,
-                "_convert_html_article",
-                side_effect=AssertionError("documents must not use the HTML path"),
-            ),
-            patch.object(wsmod, "MarkItDown", return_value=mock_md),
+        with patch.object(
+            public_content,
+            "_convert_html_article",
+            side_effect=AssertionError("documents must not use the HTML path"),
         ):
-            result = wsmod._convert_fetched_resource(
-                b"%PDF-1.7", "https://example.com", "application/pdf", html=False
+            result = self._convert_without_html_patch(
+                mock_md, b"%PDF-1.7", "application/pdf"
             )
         assert mock_md.convert.call_args.args[0].endswith(".pdf")
         assert (
             result
             == "# https://example.com\n\n_Source: https://example.com_\n\nPDF body"
         )
+
+    def _convert_without_html_patch(self, mock_md, content, content_type):
+        import nat_helpers.public_content as public_content
+        import webscrape.webscrape_function as wsmod
+
+        with patch.object(wsmod, "MarkItDown", return_value=mock_md):
+            return public_content._convert_article(
+                content,
+                "https://example.com",
+                content_type,
+                wsmod._convert_public_resource,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +218,111 @@ class TestWebscrapeFunctionResponseFn:
         monkeypatch.setattr(PublicContentSession, "article", article)
         result = run(self._call("https://example.com"))
         assert result.startswith("Error: ")
+        # Only an unclassified failure keeps the generic explanation.
+        assert "may require JavaScript" in result
         article.assert_awaited_once()
+
+    def _fetch_with(self, monkeypatch, respond):
+        """Replace only the public HTTP exchange; the shared session still runs."""
+        import nat_helpers.public_content as public_content
+
+        async def fetch(_client, url, **_kwargs):
+            return respond(url)
+
+        monkeypatch.setattr(public_content, "get_public_response_async", fetch)
+        return run(self._call("https://sources.test/page"))
+
+    @pytest.mark.parametrize(
+        "status,expected", [(404, "HTTP 404 (Not Found)"), (410, "HTTP 410 (Gone)")]
+    )
+    def test_http_status_failure_names_the_status(self, monkeypatch, status, expected):
+        import httpx
+
+        result = self._fetch_with(
+            monkeypatch,
+            lambda url: httpx.Response(status, request=httpx.Request("GET", url)),
+        )
+        assert result.startswith("Error: ")
+        assert expected in result
+        assert "blocking automated access" not in result
+        assert "JavaScript" not in result
+
+    def test_access_denied_status_is_reported_as_blocking(self, monkeypatch):
+        import httpx
+
+        result = self._fetch_with(
+            monkeypatch,
+            lambda url: httpx.Response(403, request=httpx.Request("GET", url)),
+        )
+        assert "HTTP 403 (Forbidden)" in result
+        assert "blocking automated access" in result
+
+    def test_raw_challenge_page_is_reported_as_blocking(self, monkeypatch):
+        import httpx
+
+        challenge = (
+            b"<html><title>Just a moment...</title>"
+            b"<p>Checking your browser before accessing.</p></html>"
+        )
+        result = self._fetch_with(
+            monkeypatch,
+            lambda url: httpx.Response(
+                200,
+                content=challenge,
+                headers={"content-type": "text/html"},
+                request=httpx.Request("GET", url),
+            ),
+        )
+        assert result == "Error: The site is blocking automated access."
+
+    def test_page_without_extractable_content_is_reported(self, monkeypatch):
+        import httpx
+        import webscrape.webscrape_function as wsmod
+
+        monkeypatch.setattr(
+            wsmod,
+            "_bytes_to_markdown",
+            lambda content, url, content_type="": (
+                f"# Empty\n\n_Source: {url}_\n\n{content.decode()}"
+            ),
+        )
+        result = self._fetch_with(
+            monkeypatch,
+            lambda url: httpx.Response(
+                200,
+                content=b"   ",
+                headers={"content-type": "text/plain"},
+                request=httpx.Request("GET", url),
+            ),
+        )
+        assert result == "Error: The page returned no extractable content."
+
+    @pytest.mark.parametrize(
+        "error_name,expected",
+        [
+            ("TimeoutError", "did not respond in time (timeout 30s)"),
+            ("ReadTimeout", "did not respond in time (timeout 30s)"),
+            ("ConnectError", "Could not connect to the site (ConnectError)"),
+        ],
+    )
+    def test_transport_failures_report_their_cause(
+        self, monkeypatch, error_name, expected
+    ):
+        import httpx
+        from nat_helpers.public_content import PublicContentSession
+
+        error = (
+            TimeoutError()
+            if error_name == "TimeoutError"
+            else getattr(httpx, error_name)("synthetic failure")
+        )
+        monkeypatch.setattr(
+            PublicContentSession, "article", AsyncMock(side_effect=error)
+        )
+        result = run(self._call("https://sources.test/page"))
+        assert result.startswith("Error: ")
+        assert expected in result
+        assert "blocking automated access" not in result
 
     def test_robots_denial_prevents_even_cached_article_access(self, monkeypatch):
         import webscrape.webscrape_function as wsmod

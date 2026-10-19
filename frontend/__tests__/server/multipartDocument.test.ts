@@ -121,3 +121,66 @@ describe('multipart document streaming into object storage', () => {
     expect((error as Error).message).toContain('invalid trailer');
   });
 });
+
+describe('multipart document type allowlist', () => {
+  function upload(file: Buffer, filename: string, mimeType: string) {
+    const head = Buffer.from(
+      `--${BOUNDARY}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+        `Content-Type: ${mimeType}\r\n\r\n`,
+    );
+    const tail = Buffer.from(`\r\n--${BOUNDARY}--\r\n`);
+    const req = Readable.from([Buffer.concat([head, file, tail])]) as any;
+    req.headers = {
+      'content-length': String(head.length + file.length + tail.length),
+      'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
+      'x-document-size': String(file.length),
+    };
+    return parseMultipartDocument(req, 1024 * 1024);
+  }
+
+  it.each([
+    // Each body is valid for its claimed type, so only the allowlist stops it.
+    [
+      'drawing.svg',
+      'image/svg+xml',
+      '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    ],
+    ['setup.exe', 'application/x-msdownload', 'MZ\x90\x00'],
+    ['setup.exe', 'application/octet-stream', 'MZ\x90\x00'],
+    [
+      'sheet.xlsx',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'PK\x03\x04',
+    ],
+  ])(
+    'rejects %s (%s) as an unsupported document with 415',
+    async (filename, mimeType, body) => {
+      const error = await upload(
+        Buffer.from(body, 'latin1'),
+        filename,
+        mimeType,
+      ).then(
+        () => null,
+        (reason: unknown) => reason,
+      );
+
+      expect(error).toBeInstanceOf(MultipartDocumentError);
+      expect((error as MultipartDocumentError).status).toBe(415);
+      expect((error as Error).message).toBe('Unsupported document MIME type');
+    },
+  );
+
+  it('infers an allowed type for a generic upload with a known extension', async () => {
+    const parsed = await upload(
+      Buffer.from('%PDF-1.7 body'),
+      'paper.pdf',
+      'application/octet-stream',
+    );
+
+    expect(parsed.mimeType).toBe('application/pdf');
+    for await (const _chunk of parsed.stream) {
+      // Drain so the trailer is validated.
+    }
+  });
+});

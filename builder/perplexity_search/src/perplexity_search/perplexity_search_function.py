@@ -167,7 +167,11 @@ def _split_filter_values(value: str, *, lowercase: bool = False) -> list[str]:
 
 
 def _display_link(url: str) -> str:
-    host = urlparse(url).netloc
+    try:
+        host = urlparse(url).netloc
+    except ValueError:
+        # One malformed provider URL must not fail the whole search.
+        return url
     return host.removeprefix("www.") if host else url
 
 

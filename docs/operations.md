@@ -196,10 +196,19 @@ refresh locks and receipt formats remain compatible with the rollback image.
 
 ## Timeouts and tool concurrency
 
-`DAEDALUS_LLM_TIMEOUT` sets the model request timeout in seconds, from 1 to 3600.
-The runtime also enforces a separate 30-minute deadline for the entire agent
-run, including model and tool calls. Invalid configuration logs identify fields
-and validation categories while omitting configured values and credentials.
+`DAEDALUS_LLM_TIMEOUT` sets the model inactivity timeout in seconds, from 1 to
+3600. A model call times out when no stream event arrives within that time,
+counted from the request until the first event and then between events; every
+received event, including private reasoning and tool-argument fragments, resets
+it. A response that keeps streaming is not cut off. A silent attempt is retried
+like a transport failure within the model's `max_retries`: visible text is kept,
+the model is asked to continue without repeating it, and tool calls from the
+failed attempt never run. The daily-briefing text-only synthesis attempt also has
+a total cap, `workflow.daily_summary_synthesis_retry_timeout_seconds`, and is not
+retried. The runtime enforces a separate 30-minute deadline for the entire agent
+run, including model and tool calls; that deadline bounds total model time.
+Invalid configuration logs identify fields and validation categories while
+omitting configured values and credentials.
 
 `functions.source_verifier_tool.max_concurrency` and
 `functions.webscrape_tool.max_concurrency` control independent claim checks and

@@ -27,7 +27,6 @@ describe.skipIf(!RUN_REAL_REDIS)(
         statusKey,
         state.streamResponseKey(jobId),
         state.streamStepsKey(jobId),
-        state.legacyStreamStepsKey(jobId),
       );
     });
 
@@ -38,7 +37,6 @@ describe.skipIf(!RUN_REAL_REDIS)(
             statusKey,
             state.streamResponseKey(jobId),
             state.streamStepsKey(jobId),
-            state.legacyStreamStepsKey(jobId),
           )
           .catch(() => 0);
         client.disconnect();

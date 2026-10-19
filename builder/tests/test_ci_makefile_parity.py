@@ -19,6 +19,7 @@ _CI = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
 _MIGRATION = _REPO_ROOT / ".github" / "workflows" / "rust-migration.yml"
 _RELEASE = _REPO_ROOT / ".github" / "workflows" / "release.yml"
 _FRONTEND_PACKAGE = _REPO_ROOT / "frontend" / "package.json"
+_PRE_COMMIT = _REPO_ROOT / ".pre-commit-config.yaml"
 _FRONTEND_LOCK = _REPO_ROOT / "frontend" / "package-lock.json"
 
 
@@ -81,6 +82,48 @@ def test_local_runtime_http_checks_provision_the_same_dependencies_as_ci():
         )
 
 
+def test_local_pod_security_check_provisions_the_same_dependency_as_ci():
+    # The rendered-manifest checker imports PyYAML; system python3 need not
+    # have it. CI pins the version in its Helm job.
+    steps = yaml.safe_load(_CI.read_text())["jobs"]["helm"]["steps"]
+    commands = "\n".join(step.get("run", "") or "" for step in steps)
+    assert "pip install PyYAML==6.0.3" in commands
+    assert "scripts/check_rendered_pod_security.py" in commands
+    local = [
+        line.strip()
+        for line in _MAKEFILE.read_text().splitlines()
+        if "scripts/check_rendered_pod_security.py" in line
+    ]
+    assert local == [
+        "uv run --no-project --python 3.12 --with pyyaml==6.0.3 python "
+        "scripts/check_rendered_pod_security.py /tmp/daedalus-rendered.yaml "
+        "/tmp/daedalus-rendered-custom.yaml"
+    ]
+
+
+def test_migration_python_documents_the_manual_workflow_dependencies():
+    # E2E_PYTHON is spawned as one executable, so MIGRATION_PYTHON stays an
+    # interpreter path; the Makefile records what it must provide.
+    migration = yaml.load(_MIGRATION.read_text(), Loader=yaml.BaseLoader)
+    install = next(
+        line.strip()
+        for step in migration["jobs"]["rust-migration"]["steps"]
+        for line in step.get("run", "").splitlines()
+        if line.strip().startswith("pip install ")
+    )
+    packages = install.removeprefix("pip install ").split()
+    setup_python = next(
+        step
+        for step in migration["jobs"]["rust-migration"]["steps"]
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    assert setup_python["with"]["python-version"] == "3.12"
+    makefile = _MAKEFILE.read_text()
+    comment = makefile[: makefile.index("MIGRATION_PYTHON ?=")].rsplit("\n\n", 1)[-1]
+    assert "Python 3.12" in comment
+    assert f"#   {' '.join(packages)}" in comment
+
+
 def test_pre_commit_hooks_run_in_ci_and_local_gate():
     ci = yaml.safe_load(_CI.read_text())
     steps = ci["jobs"]["hooks"]["steps"]
@@ -91,9 +134,75 @@ def test_pre_commit_hooks_run_in_ci_and_local_gate():
     assert "pre-commit==3.6.2" in commands
     makefile = _MAKEFILE.read_text()
     assert command in makefile
-    assert "uvx --from pre-commit==3.6.2" in makefile
     ci_target = next(line for line in makefile.splitlines() if line.startswith("ci:"))
     assert "hooks" in ci_target.split()
+
+    # Python hook environments are built with pre-commit's own interpreter,
+    # which changes check-ast, pyupgrade, isort and Bandit results. CI runs
+    # pre-commit on Python 3.12; the local gate must select the same.
+    setup_python = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    assert setup_python["with"]["python-version"] == "3.12"
+    assert f"uvx --from pre-commit==3.6.2 --python 3.12 {command}" in makefile
+    for guide in (_REPO_ROOT / "AGENTS.md", _REPO_ROOT / "CONTRIBUTING.md"):
+        assert (
+            "uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files"
+            in guide.read_text()
+        ), guide
+
+
+def _local_hook(hook_id):
+    config = yaml.safe_load(_PRE_COMMIT.read_text())
+    return next(
+        hook
+        for repo in config["repos"]
+        if repo["repo"] == "local"
+        for hook in repo["hooks"]
+        if hook["id"] == hook_id
+    )
+
+
+def test_bash_syntax_hook_selects_scripts_by_type_not_extension():
+    # `files` is ANDed with `types_or`; an extension filter skipped executable
+    # shell scripts without a suffix.
+    hook = _local_hook("bash-syntax-check")
+    assert "files" not in hook
+    assert set(hook["types_or"]) == {"bash", "shell"}
+
+
+def test_helm_is_pinned_to_the_documented_major_everywhere():
+    # setup-helm defaults to the latest release (Helm 4). The chart, its hook,
+    # deploy.sh and the Redis upgrade test assume Helm 3 behavior.
+    versions = []
+    for workflow in sorted((_REPO_ROOT / ".github" / "workflows").glob("*.yml")):
+        for job in yaml.safe_load(workflow.read_text())["jobs"].values():
+            for step in job.get("steps", []):
+                if str(step.get("uses", "")).startswith("azure/setup-helm@"):
+                    versions.append(
+                        (workflow.name, (step.get("with") or {}).get("version"))
+                    )
+    assert len(versions) >= 6
+    pinned = {version for _, version in versions}
+    assert len(pinned) == 1, versions
+    version = pinned.pop()
+    assert version and version.startswith("v3."), versions
+    for guide in (
+        _REPO_ROOT / "AGENTS.md",
+        _REPO_ROOT / "CONTRIBUTING.md",
+        _REPO_ROOT
+        / ".agents/skills/daedalus-review-and-remediate/references/repository-guide.md",
+    ):
+        text = guide.read_text()
+        assert "Helm 3" in text and version in text, guide
+    tools_check = _MAKEFILE.read_text().split("\ntools-check:", 1)[1].split("\n\n")[0]
+    assert "helm version --short" in tools_check
+    assert "v3.*)" in tools_check
+    # Recipes run Python checks through uv; no recipe invokes python3.12.
+    assert "python3.12" not in tools_check
+    assert "uv python find 3.12" in tools_check
 
 
 def test_rust_gates_keep_expensive_migration_contracts_manual():
@@ -173,9 +282,12 @@ def test_builder_ci_provisions_helm_before_rendered_chart_tests():
     assert " helm " in tools_line
 
 
-def test_python_coverage_measures_every_shipped_runtime_module():
-    # `source` limits what coverage measures. A shipped module missing here
-    # keeps its tests running but hides its coverage from the 65% floor.
+def test_python_coverage_measures_every_workspace_runtime_module():
+    # `source` limits what coverage measures. A first-party module shipped in
+    # /workspace but missing here keeps its tests running while hiding its
+    # coverage from the 65% floor. Build-time *_check.py scripts (removed
+    # before the runtime stage) and Python shipped under /skills from the
+    # skills/ build context are outside this list.
     builder = _REPO_ROOT / "builder"
     shipped = set()
     for line in (builder / "Dockerfile").read_text().splitlines():
@@ -317,6 +429,12 @@ def test_bandit_production_scan_fails_closed_in_ci_and_local_gate():
         assert "grep -Ev '(^|/)tests/'" in command
         assert "xargs -r" not in command and "rg -v" not in command
         assert "bandit==1.8.6" in command and "-ll -c pyproject.toml" in command
+    # The hook uses the same release and pyproject.toml policy (B101 skipped),
+    # so no `# nosec B101` annotations are needed to satisfy only the hook.
+    hooks = yaml.safe_load(_PRE_COMMIT.read_text())["repos"]
+    bandit = next(repo for repo in hooks if repo["repo"].endswith("/bandit"))
+    assert bandit["rev"] == "1.8.6"
+    assert bandit["hooks"][0]["args"] == ["-c", "pyproject.toml"]
     assert ci["shell"] == "bash"
     assert 'test -n "$files"' in ci["run"]
     assert "set -euo pipefail" in recipe and 'test -n "$$files"' in recipe

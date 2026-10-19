@@ -29,6 +29,23 @@ def fixture_strings(value):
     return value
 
 
+def failure(exc):
+    output = {"error": type(exc).__name__}
+    if hasattr(exc, "errors"):
+        output["validation"] = [
+            {
+                **{key: item[key] for key in ["type", "loc", "msg"]},
+                **(
+                    {"ctx": {key: str(value) for key, value in item["ctx"].items()}}
+                    if "ctx" in item
+                    else {}
+                ),
+            }
+            for item in exc.errors()
+        ]
+    return output
+
+
 def export():
     from daedalus_runtime import approval, oauth
     from mcp.types import CallToolResult

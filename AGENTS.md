@@ -18,8 +18,8 @@ agent runtime, and a Python tool service.
 
 ## Build, Test, and Development Commands
 
-Use Node.js 22, Python 3.12 with `uv`, and Rust 1.95, matching CI. Run from the
-repository root unless shown otherwise.
+Use Node.js 22, Python 3.12 with `uv`, Rust 1.95, and Helm 3 (CI pins v3.22.1),
+matching CI. Run from the repository root unless shown otherwise.
 
 - `uv venv builder/.venv --python 3.12`: initialize the Python test environment.
 - `make builder`: install test dependencies and run pytest with coverage.
@@ -29,7 +29,7 @@ repository root unless shown otherwise.
 - `make frontend`: install dependencies, lint, typecheck, run coverage, and build.
 - `make test-integration`: exercise Python/frontend persistence against disposable Redis.
 - `make frontend-e2e`: run Playwright browser workflows.
-- `make helm`: lint and render Helm manifests.
+- `make helm`: lint and render Helm manifests, then check rendered pod security.
 - `make help`: list checks; `make ci` runs the automatic CI suite, including infrastructure checks.
 
 ## Coding Style & Naming Conventions
@@ -38,7 +38,9 @@ Use four-space Python indentation, `snake_case` functions/modules, and `PascalCa
 classes. Follow Ruff formatting/linting and isort hooks. TypeScript uses two-space
 indentation, single quotes, trailing commas, `PascalCase` components, and
 `useSomething` hooks. ESLint and Prettier enforce frontend conventions.
-Run `pre-commit run --files <changed-files>` before submitting.
+Before submitting, run the hooks on Python 3.12 as CI does:
+`uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <changed-files>`.
+Python hook results depend on the interpreter that runs pre-commit.
 
 ## Testing Guidelines
 

@@ -24,7 +24,7 @@ def check_executor():
     async def leaf(fail: bool = False):
         assert trace.get_current_span().get_span_context().trace_id == int(
             "1234567890abcdef1234567890abcdef", 16
-        )  # nosec B101
+        )
         identities.append(authenticated_user_id_from_context())
         run = current_agent_run()
         run.attempts["briefing"] += 1
@@ -34,7 +34,7 @@ def check_executor():
 
     class Registry:
         async def get_function(self, name):
-            assert name == "fixture_tool"  # nosec B101
+            assert name == "fixture_tool"
             return ToolDefinition.from_fn(leaf)
 
     async def check():
@@ -63,33 +63,33 @@ def check_executor():
 
             body = copy.deepcopy(fixture["request"])
             response = await call(body)
-            assert response.status_code == 200  # nosec B101
+            assert response.status_code == 200
             result = json.loads(response.text.splitlines()[-1])["data"]
-            assert result == fixture["result"]  # nosec B101
-            assert "PRIVATE_ERROR_CONTENT" not in response.text  # nosec B101
-            assert not service.runs  # nosec B101
+            assert result == fixture["result"]
+            assert "PRIVATE_ERROR_CONTENT" not in response.text
+            assert not service.runs
             body["arguments"]["fail"] = False
             body["context"]["executor_state"] = result["executor_state"]
             assert (
                 json.loads((await call(body)).text.splitlines()[-1])["data"]["content"]
                 == "3"
-            )  # nosec B101
+            )
             body["context"]["executor_state"] = {}
             assert (
                 json.loads((await call(body, "synthetic-bob")).text.splitlines()[-1])[
                     "data"
                 ]["content"]
                 == "1"
-            )  # nosec B101
+            )
             body["context"]["available_tools"] = []
-            assert (await call(body)).status_code == 400  # nosec B101
+            assert (await call(body)).status_code == 400
             body["context"]["version"] = 2
-            assert (await call(body)).status_code == 422  # nosec B101
+            assert (await call(body)).status_code == 422
             assert (
                 await client.post("/runtime/v1/tools/call", json=fixture["request"])
-            ).status_code == 401  # nosec B101
-            assert identities == ["synthetic-alice", "synthetic-alice", "synthetic-bob"]  # nosec B101
-            assert not service.runs  # nosec B101
+            ).status_code == 401
+            assert identities == ["synthetic-alice", "synthetic-alice", "synthetic-bob"]
+            assert not service.runs
         await service.outputs.close()
 
     asyncio.run(check())

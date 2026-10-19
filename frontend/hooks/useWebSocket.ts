@@ -23,15 +23,19 @@ export interface StreamingStateInfo {
   isStreaming: boolean;
 }
 
+/**
+ * A saved conversation changed. Browser saves name only the conversation and
+ * its committed revision; worker finalization also includes the record.
+ */
+export interface ConversationUpdatedEvent {
+  conversationId?: string;
+  revision?: string;
+  conversation?: Conversation;
+}
+
 export interface UseWebSocketCallbacks {
-  onConversationUpdated?: (conversation: Conversation) => void;
+  onConversationUpdated?: (event: ConversationUpdatedEvent) => void;
   onConversationDeleted?: (conversationId: string) => void;
-  onConversationListChanged?: () => void;
-  onSelectedConversationChanged?: (conversationId: string) => void;
-  onStreamingStateChanged?: (
-    conversationId: string,
-    isStreaming: boolean,
-  ) => void;
   onAutonomyStatus?: (data: any) => void;
   onAutonomyRunEvent?: (data: any) => void;
   onAutonomyFeedUpdated?: (data: any) => void;
@@ -48,10 +52,6 @@ export interface UseWebSocketReturn {
   connect: () => void;
   disconnect: () => void;
   streamingStates: Record<string, boolean>;
-  subscribeToJob: (jobId: string) => void;
-  unsubscribeFromJob: (jobId: string) => void;
-  subscribeToChat: (conversationId: string) => void;
-  unsubscribeFromChat: (conversationId: string) => void;
 }
 
 export const useWebSocket = (
@@ -91,26 +91,6 @@ export const useWebSocket = (
       }
       manager.disconnect();
     }
-  }, []);
-
-  const subscribeToJob = useCallback((jobId: string) => {
-    const manager = managerRef.current || getWebSocketManager();
-    manager.subscribeToJob(jobId);
-  }, []);
-
-  const unsubscribeFromJob = useCallback((jobId: string) => {
-    const manager = managerRef.current || getWebSocketManager();
-    manager.unsubscribeFromJob(jobId);
-  }, []);
-
-  const subscribeToChat = useCallback((conversationId: string) => {
-    const manager = managerRef.current || getWebSocketManager();
-    manager.subscribeToChat(conversationId);
-  }, []);
-
-  const unsubscribeFromChat = useCallback((conversationId: string) => {
-    const manager = managerRef.current || getWebSocketManager();
-    manager.unsubscribeFromChat(conversationId);
   }, []);
 
   // Set up WebSocket connection and handlers
@@ -157,8 +137,8 @@ export const useWebSocket = (
           conversationId: data?.conversationId,
         });
 
-        if (data?.conversation) {
-          callbacksRef.current.onConversationUpdated?.(data.conversation);
+        if (data?.conversationId || data?.conversation) {
+          callbacksRef.current.onConversationUpdated?.(data);
         }
       }),
     );
@@ -175,28 +155,6 @@ export const useWebSocket = (
       }),
     );
 
-    // Conversation list changed
-    unsubs.push(
-      manager.on('conversation_list_changed', () => {
-        logger.debug('Conversation list changed');
-        callbacksRef.current.onConversationListChanged?.();
-      }),
-    );
-
-    // Selected conversation changed (cross-device sync)
-    unsubs.push(
-      manager.on('selected_conversation_changed', (data: any) => {
-        logger.debug('Selected conversation changed', {
-          conversationId: data?.conversationId,
-        });
-        if (data?.conversationId) {
-          callbacksRef.current.onSelectedConversationChanged?.(
-            data.conversationId,
-          );
-        }
-      }),
-    );
-
     // Streaming started
     unsubs.push(
       manager.on('streaming_started', (data: any) => {
@@ -207,10 +165,6 @@ export const useWebSocket = (
           ...prev,
           [data.conversationId]: true,
         }));
-        callbacksRef.current.onStreamingStateChanged?.(
-          data.conversationId,
-          true,
-        );
       }),
     );
 
@@ -225,10 +179,6 @@ export const useWebSocket = (
           delete next[data.conversationId];
           return next;
         });
-        callbacksRef.current.onStreamingStateChanged?.(
-          data.conversationId,
-          false,
-        );
       }),
     );
 
@@ -314,9 +264,5 @@ export const useWebSocket = (
     connect,
     disconnect,
     streamingStates,
-    subscribeToJob,
-    unsubscribeFromJob,
-    subscribeToChat,
-    unsubscribeFromChat,
   };
 };

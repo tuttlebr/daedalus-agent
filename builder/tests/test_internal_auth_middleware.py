@@ -162,7 +162,6 @@ def test_request_headers_are_isolated_across_concurrent_calls_and_reset(monkeypa
     from nat_helpers.identity import (
         _http_request_headers,
         execution_id_from_context_or_none,
-        execution_scope_from_context_or_none,
         trusted_request_header_from_context,
     )
 
@@ -173,7 +172,10 @@ def test_request_headers_are_isolated_across_concurrent_calls_and_reset(monkeypa
         for _ in range(3):
             await asyncio.sleep(0)
             assert trusted_request_header_from_context("x-user-id") == "same-user"
-            assert execution_scope_from_context_or_none() == expected_scope
+            assert (
+                trusted_request_header_from_context("x-daedalus-execution-scope")
+                == expected_scope
+            )
             assert execution_id_from_context_or_none() == (
                 "autonomy-run" if expected_scope == "autonomy" else None
             )
@@ -216,37 +218,33 @@ def test_request_headers_are_isolated_across_concurrent_calls_and_reset(monkeypa
 def test_request_context_is_isolated_and_restored_after_failure(fails):
     from nat_helpers.identity import (
         _http_request_headers,
-        approval_token_from_context,
         authenticated_request_headers_scope,
-        execution_scope_from_context_or_none,
+        execution_id_from_context_or_none,
     )
 
-    async def request(user, scope, token):
+    async def request(user, execution_id):
         with authenticated_request_headers_scope(
             {
                 "x-user-id": user,
-                "x-daedalus-execution-scope": scope,
-                "x-daedalus-approval-token": token,
+                "x-daedalus-execution-scope": "autonomy",
+                "x-daedalus-execution-id": execution_id,
             }
         ):
             await asyncio.sleep(0)
-            assert execution_scope_from_context_or_none() == scope
-            assert approval_token_from_context() == token
+            assert execution_id_from_context_or_none() == execution_id
             try:
                 with authenticated_request_headers_scope({"x-user-id": "nested"}):
                     await asyncio.sleep(0)
-                    assert approval_token_from_context() == ""
+                    assert execution_id_from_context_or_none() is None
                     if fails:
                         raise RuntimeError("fixture")
             except RuntimeError:
                 pass
-            assert approval_token_from_context() == token
+            assert execution_id_from_context_or_none() == execution_id
         assert _http_request_headers.get() is None
 
     async def scenario():
-        await asyncio.gather(
-            request("alice", "autonomy", "first"), request("bob", "", "second")
-        )
+        await asyncio.gather(request("alice", "first"), request("bob", "second"))
 
     asyncio.run(scenario())
 
@@ -282,3 +280,57 @@ def test_websocket_routes_are_protected_by_default(monkeypatch):
             "reason": "Internal API token is required",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "token,insecure,allowed",
+    [
+        ("", "1", True),
+        ("", " TRUE ", True),
+        ("", "Yes", True),
+        ("", "0", False),
+        ("", "", False),
+        ("", "on", False),
+        (" trusted-secret ", "", True),
+    ],
+)
+def test_router_and_tool_identity_share_one_internal_auth_policy(
+    monkeypatch, token, insecure, allowed
+):
+    """The ASGI gate and tool identity helpers must accept the same requests."""
+    from nat_helpers.identity import authenticated_user_id_from_headers
+
+    monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", token)
+    monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", insecure)
+    headers = {"x-user-id": "alice", "x-daedalus-internal-token": "trusted-secret"}
+
+    app_calls, _ = _run_request(
+        "/v1/chat/completions", [(k.encode(), v.encode()) for k, v in headers.items()]
+    )
+    try:
+        identity_allowed = authenticated_user_id_from_headers(headers) == "alice"
+    except ValueError:
+        identity_allowed = False
+
+    assert (app_calls == ["/v1/chat/completions"]) is allowed
+    assert identity_allowed is allowed
+
+
+def test_tool_identity_reads_the_router_internal_auth_settings(monkeypatch):
+    """identity.py has no second parser for the internal-token settings."""
+    from nat_helpers.identity import authenticated_user_id_from_headers
+
+    monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+    monkeypatch.delenv("ALLOW_INSECURE_INTERNAL", raising=False)
+    monkeypatch.setattr(internal_auth, "allow_insecure_internal", lambda: True)
+    assert authenticated_user_id_from_headers({"x-user-id": "alice"}) == "alice"
+
+    monkeypatch.setattr(internal_auth, "configured_internal_token", lambda: "rotated")
+    with pytest.raises(ValueError, match="x-daedalus-internal-token"):
+        authenticated_user_id_from_headers({"x-user-id": "alice"})
+    assert (
+        authenticated_user_id_from_headers(
+            {"x-user-id": "alice", "x-daedalus-internal-token": "rotated"}
+        )
+        == "alice"
+    )

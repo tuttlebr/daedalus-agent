@@ -26,6 +26,10 @@ use std::{
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub const UNCONFIRMED: &str = "MCP call did not return a confirmed result. Its remote outcome may be unknown; check the current state before repeating a change.";
+/// Run preparation waits at most this long for a session another run holds
+/// (an in-flight call or connection) before using its open session's
+/// catalogue, or the `__connect` schema when there is none.
+const DISCOVERY_WAIT: Duration = Duration::from_secs(2);
 #[derive(Debug)]
 enum FailureClass {
     Value,
@@ -322,6 +326,43 @@ impl Mcp {
             .insert(key, connection.clone());
         Ok(connection)
     }
+    fn open(&self, key: &str) -> Option<Arc<Connection>> {
+        self.connections
+            .lock()
+            .unwrap()
+            .get(key)
+            .filter(|connection| !connection.session.is_closed())
+            .cloned()
+    }
+    /// Discovery for run preparation. It never prompts for authorization and
+    /// never queues behind another run's tool call: exposure only reads the
+    /// catalogue, while each call revalidates under the session lock.
+    async fn discover(&self, name: &str, user: &str) -> Result<Vec<Value>> {
+        let key = Self::key(name, user);
+        let lock = self.locks.get(&key);
+        let _lock = match lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                if let Some(connection) = self.open(&key) {
+                    return self.schemas(name, &connection);
+                }
+                match tokio::time::timeout(DISCOVERY_WAIT, lock.lock()).await {
+                    Ok(guard) => guard,
+                    Err(_) => {
+                        let connection = self
+                            .open(&key)
+                            .ok_or_else(|| anyhow!("MCP session is busy"))?;
+                        return self.schemas(name, &connection);
+                    }
+                }
+            }
+        };
+        let Some(headers) = self.headers(name, user, None).await? else {
+            bail!("Authorization required");
+        };
+        let connection = self.connection(name, user, headers).await?;
+        self.schemas(name, &connection)
+    }
     fn schemas(&self, name: &str, connection: &Connection) -> Result<Vec<Value>> {
         let group = &self.config.raw["function_groups"][name];
         let include = names(group.get("include")).unwrap_or_default();
@@ -362,13 +403,7 @@ impl Mcp {
                 crate::config::names(group.get("initial_tools")).unwrap_or_default();
             if !deferred || !initial_tools.is_empty() {
                 let discover = async {
-                    let lock = self.locks.get(&Self::key(name, user));
-                    let _lock = lock.lock().await;
-                    let Some(headers) = self.headers(name, user, None).await? else {
-                        bail!("Authorization required");
-                    };
-                    let connection = self.connection(name, user, headers).await?;
-                    let mut schemas = self.schemas(name, &connection)?;
+                    let mut schemas = self.discover(name, user).await?;
                     if deferred {
                         let exposed: HashSet<_> = initial_tools
                             .iter()
@@ -464,11 +499,25 @@ impl Mcp {
             .ok_or_else(|| anyhow!(FailureClass::Value))?;
         let key = Self::key(name, user);
         let lock = self.locks.get(&key);
-        let _lock = lock.lock().await;
+        // Interactive consent can wait minutes for the user. Never hold the
+        // session across it: other runs' preparation discovers through it.
         let headers = self
             .headers(name, user, Some(emit))
             .await?
             .ok_or_else(|| anyhow!("Authorization required"))?;
+        let (_lock, headers) = match lock.try_lock() {
+            Ok(guard) => (guard, headers),
+            Err(_) => {
+                let guard = lock.lock().await;
+                // Another call held the session; its wait may have outlived
+                // this token. Read the current one without prompting again.
+                let headers = self
+                    .headers(name, user, None)
+                    .await?
+                    .ok_or_else(|| anyhow!("Authorization required"))?;
+                (guard, headers)
+            }
+        };
         let rejected = headers
             .get(&http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())

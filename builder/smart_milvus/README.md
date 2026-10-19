@@ -1,8 +1,15 @@
 # Smart Milvus Retriever
 
-This package provides Milvus-backed retrieval for NeMo Agent workflows used by
-Daedalus. It registers a `domain_retriever` function that maps named domains to
-curated collections and reuses the `MilvusRetriever` search implementation.
+This package provides Daedalus's Python Milvus retrieval. It registers a
+`domain_retriever` tool that maps named domains to curated collections and
+reuses the `MilvusRetriever` search implementation.
+
+The Rust runtime owns `domain_retriever` in the default deployment
+(`builder/runtime/src/domain_retriever.rs`). This package is the
+`DAEDALUS_PREPARATION=python` rollback implementation; its registered schema
+and configuration defaults are exported to
+`builder/runtime/resources/domain-retriever.json`, which
+`builder/tests/test_rust_tool_resource_parity.py` keeps in sync.
 
 ## What It Does
 
@@ -48,7 +55,9 @@ separate `daedalus-context/url-ingest` jobs, not by this retriever.
 
 ## Configuration
 
-Default example config lives in [`src/smart_milvus/configs/config.yml`](src/smart_milvus/configs/config.yml).
+The deployed `domain_retriever_tool` block is in
+[`backend/tool-calling-config.yaml`](../../backend/tool-calling-config.yaml).
+A minimal block:
 
 ```yaml
 functions:

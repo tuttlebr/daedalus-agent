@@ -22,9 +22,11 @@ fixes and documentation improvements can go straight to a pull request.
 
 ## Development and checks
 
-Use Node.js 22 for the frontend, Python 3.12 with `uv` for Python work, and Rust
-1.95 for the agent runtime, matching CI. Run commands from the repository root
-unless a command changes directory.
+Use Node.js 22 for the frontend, Python 3.12 with `uv` for Python work, Rust
+1.95 for the agent runtime, and Helm 3 for the chart (CI pins v3.22.1), matching
+CI. The chart, `deploy.sh` and the Redis upgrade test rely on Helm 3 behavior;
+`make tools-check` reports the installed Helm major. Run commands from the
+repository root unless a command changes directory.
 
 For the Python test environment:
 
@@ -49,8 +51,8 @@ cd frontend
 npm ci --legacy-peer-deps
 npm run lint
 npx tsc --noEmit --incremental false
-SESSION_SECRET=local-test-session-secret npm test -- --run
-SESSION_SECRET=local-test-session-secret npm run build
+npm test -- --run
+npm run build
 ```
 
 For development server wiring, see the [frontend guide](frontend/README.md).
@@ -73,18 +75,29 @@ need every infrastructure tool to improve a README or work on a frontend unit
 test. The pull request still runs the repository's CI checks.
 
 `make runtime` and `make docker` use `uv` to provision Python 3.12 with the
-HTTP checker's `httpx` and `PyYAML` dependencies. Their first run may download
-those packages; they do not require installation into the system Python.
+HTTP checker's `httpx` and `PyYAML` dependencies, and `make helm` provisions
+PyYAML for the rendered pod-security check the same way. Their first run may
+download those packages; they do not require installation into the system Python.
 
 The longer Rust migration and candidate-image browser contracts are opt-in.
 Run the **Rust Migration Contracts** workflow manually in GitHub Actions, or run
-`make migration` followed by `make candidate-browser` locally. Rust formatting,
-Clippy, unit tests, protocol drift, and coverage still run on every push and pull
-request.
+`make migration` followed by `make candidate-browser` locally, with
+`MIGRATION_PYTHON` set to a Python 3.12 interpreter that has the packages listed
+beside that variable in the `Makefile`. Rust formatting, Clippy, unit tests,
+protocol drift, and coverage still run on every push and pull request.
 
-Install `pre-commit` and run `pre-commit run --files <changed-files>` before
-submitting, with frontend dependencies installed for the formatting hook.
-`pre-commit install` optionally runs these hooks automatically on each commit.
+Before submitting, run the hooks with frontend dependencies installed for the
+formatting hook:
+
+```bash
+uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <changed-files>
+```
+
+This is the release and interpreter that CI and `make hooks` use. Python hook
+environments are built with the interpreter running pre-commit, so another
+installation can report different check-ast, pyupgrade, isort or Bandit results.
+To run the hooks on each commit, install that release with
+`uv tool install --python 3.12 pre-commit==3.6.2`, then run `pre-commit install`.
 
 ## Style and regression coverage
 

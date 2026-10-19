@@ -2,6 +2,8 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { appendIntermediateStep } from '@/utils/app/intermediateSteps';
+
 import { ChatView } from '@/components/chat/ChatView';
 
 import { useConversationStore } from '@/state';
@@ -82,6 +84,31 @@ vi.mock('@/components/chat/MessageBubble', () => ({
   },
 }));
 
+// useAsyncChat reports each live step through onIntermediateStep and then
+// through onProgress with the run's reconciled step list.
+const runSteps = new Map<string, any[]>();
+function deliverStep(
+  event: { conversationId: string; assistantMessageId: string; step: any },
+  status: Record<string, any> = {},
+) {
+  const steps = appendIntermediateStep(
+    runSteps.get(event.conversationId) ?? [],
+    event.step,
+  );
+  runSteps.set(event.conversationId, steps);
+  mocks.asyncOptions.onIntermediateStep(event);
+  mocks.asyncOptions.onProgress({
+    jobId: `job-${event.conversationId}`,
+    status: 'streaming',
+    conversationId: event.conversationId,
+    assistantMessageId: event.assistantMessageId,
+    createdAt: 1,
+    updatedAt: 1,
+    ...status,
+    intermediateSteps: steps,
+  });
+}
+
 function renderChatView(): { root: Root; container: HTMLDivElement } {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -98,6 +125,8 @@ describe('ChatView OAuth banner', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mocks.saveConversation.mockResolvedValue(undefined);
+    runSteps.clear();
     mocks.messageRenders = 0;
     mocks.inputRenders = 0;
     localStorage.clear();
@@ -108,8 +137,12 @@ describe('ChatView OAuth banner', () => {
     });
     vi.spyOn(window, 'open').mockImplementation(() => null);
 
+    useConversationStore.setState({
+      conversations: [],
+      selectedConversationId: null,
+      streamingConversationIds: new Set(),
+    });
     const store = useConversationStore.getState();
-    store.clearConversations();
     store.addConversation({
       id: 'conv-1',
       name: 'OAuth test',
@@ -147,7 +180,7 @@ describe('ChatView OAuth banner', () => {
         ?.textContent;
 
     act(() => {
-      mocks.asyncOptions.onIntermediateStep({
+      deliverStep({
         conversationId: 'conv-1',
         assistantMessageId: 'assistant-1',
         step: {
@@ -167,7 +200,7 @@ describe('ChatView OAuth banner', () => {
       container.querySelector('[data-testid="heartbeat"]')?.textContent,
     ).toBe('Thinking...');
     act(() => {
-      mocks.asyncOptions.onIntermediateStep({
+      deliverStep({
         conversationId: 'conv-1',
         assistantMessageId: 'assistant-1',
         step: {
@@ -181,7 +214,7 @@ describe('ChatView OAuth banner', () => {
     });
     expect(categories()).toBe('');
     act(() => {
-      mocks.asyncOptions.onIntermediateStep({
+      deliverStep({
         conversationId: 'conv-2',
         assistantMessageId: 'assistant-2',
         step: { payload: { event_type: 'LLM_START', UUID: 'model-2' } },
@@ -246,12 +279,10 @@ describe('ChatView OAuth banner', () => {
     }));
     await act(async () => {
       for (const step of phases) {
-        mocks.asyncOptions.onIntermediateStep({
-          conversationId: 'conv-1',
-          assistantMessageId: 'assistant-1',
-          step,
-        });
-        mocks.asyncOptions.onProgress(oauthWait);
+        deliverStep(
+          { conversationId: 'conv-1', assistantMessageId: 'assistant-1', step },
+          oauthWait,
+        );
       }
     });
 
@@ -417,7 +448,7 @@ describe('ChatView OAuth banner', () => {
       },
     };
     await act(async () => {
-      mocks.asyncOptions.onIntermediateStep({
+      deliverStep({
         conversationId: 'conv-1',
         assistantMessageId: 'assistant-1',
         step,
@@ -453,7 +484,7 @@ describe('ChatView OAuth banner', () => {
     }));
     await act(async () => {
       for (const step of steps) {
-        mocks.asyncOptions.onIntermediateStep({
+        deliverStep({
           conversationId: 'conv-1',
           assistantMessageId: 'assistant-1',
           step,
@@ -635,8 +666,12 @@ describe('ChatView OAuth banner', () => {
 
     beforeEach(() => {
       // Another tab or device started this turn; this copy predates it.
+      useConversationStore.setState({
+        conversations: [],
+        selectedConversationId: null,
+        streamingConversationIds: new Set(),
+      });
       const store = useConversationStore.getState();
-      store.clearConversations();
       store.addConversation({
         id: 'conv-1',
         name: 'Stale copy',
@@ -777,8 +812,8 @@ describe('ChatView OAuth banner', () => {
     });
     expect(document.body.textContent).toContain('Hello world');
 
-    // STREAM_RENDER_INTERVAL_MS in ChatView. Each flush re-parses the whole
-    // answer through remark/rehype, so later updates wait for the interval.
+    // STREAM_RENDER_INTERVAL_MS in ChatView: later updates wait for the
+    // interval, so one render covers every token received in it.
     await act(async () => {
       vi.advanceTimersByTime(20);
       token('!', 11);
@@ -833,9 +868,13 @@ describe('ChatView OAuth banner', () => {
     },
   );
 
-  it.each(['completed', 'error'] as const)(
-    'saves a %s turn once when its terminal status precedes the outcome callback',
-    async (outcome) => {
+  it.each([
+    ['completed', true],
+    ['error', true],
+    ['error', false],
+  ] as const)(
+    'finishes a %s turn once when its terminal status precedes the outcome callback (worker saved it: %s)',
+    async (outcome, persisted) => {
       const { root } = renderChatView();
       const status = {
         jobId: 'job-1',
@@ -845,7 +884,7 @@ describe('ChatView OAuth banner', () => {
         fullResponse: outcome === 'completed' ? 'Done.' : undefined,
         partialResponse: 'Done.',
         error: outcome === 'error' ? 'Backend disconnected' : undefined,
-        finalizedAt: 2,
+        finalizedAt: persisted ? 2 : undefined,
         createdAt: 1,
         updatedAt: 2,
       };
@@ -857,6 +896,7 @@ describe('ChatView OAuth banner', () => {
           mocks.asyncOptions.onComplete('Done.', [], 2, 'conv-1', {
             assistantMessageId: 'assistant-1',
             jobId: 'job-1',
+            persisted,
           });
         } else {
           mocks.asyncOptions.onError('Backend disconnected', {
@@ -865,20 +905,28 @@ describe('ChatView OAuth banner', () => {
             jobId: 'job-1',
             partialResponse: 'Done.',
             generationDurationMs: 4200,
+            persisted,
           });
         }
       });
 
-      expect(mocks.saveConversation).toHaveBeenCalledOnce();
-      const saved = mocks.saveConversation.mock.calls[0][0];
-      expect(saved.messages[1].content).toBe('Done.');
-      expect(Boolean(saved.messages[1].errorMessages)).toBe(
-        outcome === 'error',
-      );
-      expect(saved.messages[1].metadata?.jobId).toBe('job-1');
-      if (outcome === 'error') {
-        // The worker records the duration of a failed turn too.
-        expect(saved.messages[1].generationDurationMs).toBe(4200);
+      const assistant =
+        useConversationStore.getState().conversations[0].messages[1];
+      expect(assistant.content).toBe('Done.');
+      expect(Boolean(assistant.errorMessages)).toBe(outcome === 'error');
+      expect(assistant.metadata?.jobId).toBe('job-1');
+      // The worker already saved its own outcome; uploading the copy again
+      // would only repeat it. An outcome it did not save is saved once.
+      expect(mocks.saveConversation).toHaveBeenCalledTimes(persisted ? 0 : 1);
+      if (!persisted) {
+        const [saved, change] = mocks.saveConversation.mock.calls[0];
+        expect(saved.messages[1]).toMatchObject({
+          content: 'Done.',
+          // The worker records the duration of a failed turn too.
+          generationDurationMs: 4200,
+          metadata: { jobId: 'job-1' },
+        });
+        expect(change).toEqual({ updatedMessageIds: ['assistant-1'] });
       }
       expect(
         useConversationStore.getState().streamingConversationIds.has('conv-1'),

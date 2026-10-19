@@ -2,8 +2,9 @@
 
 These are application skills loaded by the Daedalus runtime,
 not a collection of installed CLI plugins. Keep all skills compatible with
-`backend/tool-calling-config.yaml`, the parser and dispatcher in
-`builder/agent_skills`, and the actual leaf-tool schemas.
+`backend/tool-calling-config.yaml`, the production parser and dispatcher in
+`builder/runtime/src/agent_skills.rs` (`builder/agent_skills` is the Python
+rollback implementation), and the actual leaf-tool schemas.
 
 - Keep `name` identical to the directory. Discovery sees only name and
   description; metadata, `allowed-tools`, and `agents/openai.yaml` do not grant
@@ -23,9 +24,12 @@ not a collection of installed CLI plugins. Keep all skills compatible with
 - Tool descriptions must survive configuration and runtime registration. An
   individual Python tool factory yields exactly one callable; dispatch related
   operations through its typed schema. Test all enabled operations together.
-- Keep source IDs aligned across the verifier registry, chat source policy,
-  and autonomous worker. Planning, public claim verification, numbered Markdown
-  auditing, and briefing HTML validation have distinct contracts.
+- Source IDs a skill passes to `source_verifier_tool` (`selected_sources_json`,
+  `disabled_sources_json`) must exist in its configured source registry. They
+  are the shared contract in `protocol/source-policy.schema.json`, also used by
+  the frontend source-policy sanitizer and the autonomous worker prompt; change
+  them there, not in a skill. Planning, public claim verification, numbered
+  Markdown auditing, and briefing HTML validation have distinct contracts.
 - Use connected MCP tools for live systems and `llm_sandbox_tool` for bounded
   isolated work. A loaded script is text, not an executed program. The sandbox
   does not inherit `/skills`, repositories, kubeconfig, credentials, or GPUs.

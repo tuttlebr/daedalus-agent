@@ -31,6 +31,10 @@ MIGRATION_BASELINE_SHA := 7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b
 MIGRATION_BASELINE_IMAGE ?= daedalus:migration-baseline-7dc4e1d
 MIGRATION_MINIMAL_IMAGE ?= daedalus:rust-minimal-check
 MIGRATION_REDIS_IMAGE ?= daedalus:redis-migration-check
+# Migration runners and the candidate browser backend (E2E_PYTHON, spawned as
+# one executable) need a Python 3.12 interpreter with the packages that
+# .github/workflows/rust-migration.yml installs:
+#   httpx PyYAML redis opentelemetry-proto==1.44.0
 MIGRATION_PYTHON ?= python3
 MIGRATION_REPORT_DIR ?= /tmp/daedalus-migration-reports
 DEPLOY_ARGS ?=
@@ -54,7 +58,7 @@ ci: tools-check hooks builder test-integration frontend frontend-e2e rust-check 
 
 hooks: ## run every pre-commit hook  (CI job: hooks)
 	cd frontend && npm ci --legacy-peer-deps
-	uvx --from pre-commit==3.6.2 pre-commit run --all-files --show-diff-on-failure
+	uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --all-files --show-diff-on-failure
 
 rust-check: ## Rust formatting, lint, unit and frozen contract tests
 	cargo fmt --manifest-path builder/runtime/Cargo.toml --check
@@ -113,8 +117,6 @@ migration: migration-baseline ## differential, Python-free MCP/OAuth, TLS/ACL an
 	$(MIGRATION_PYTHON) builder/migration/nvidia_docs_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/nvidia-docs-http.json
 	$(MIGRATION_PYTHON) builder/migration/perplexity_search_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/perplexity-search-services.json
 	$(MIGRATION_PYTHON) builder/migration/perplexity_search_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/perplexity-search-http.json
-	$(MIGRATION_PYTHON) builder/migration/user_interaction_check.py --python-image $(RUNTIME_IMAGE) --fixture-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/user-interaction-services.json
-	$(MIGRATION_PYTHON) builder/migration/user_interaction_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/user-interaction-http.json
 	$(MIGRATION_PYTHON) builder/migration/agent_skills_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/agent-skills-processes.json
 	$(MIGRATION_PYTHON) builder/migration/agent_skills_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/agent-skills-http.json
 	$(MIGRATION_PYTHON) builder/migration/llm_sandbox_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/llm-sandbox-services.json
@@ -155,15 +157,14 @@ test-integration: ## Python + frontend persistence tests vs real Redis  (CI job:
 		cd ../frontend; \
 		npm ci --legacy-peer-deps; \
 		REDIS_URL=redis://default:e2e-redis-password@localhost:16379 \
-		SESSION_SECRET=ci-session-secret-for-build-only \
 		npm run test:integration
 
 frontend: ## frontend lint, typecheck, test, build  (CI job: frontend)
 	cd frontend && npm ci --legacy-peer-deps
 	cd frontend && npm run lint
 	cd frontend && npx tsc --noEmit --incremental false
-	cd frontend && SESSION_SECRET=ci-session-secret-for-build-only npm run coverage
-	cd frontend && SESSION_SECRET=ci-session-secret-for-build-only npm run build
+	cd frontend && npm run coverage
+	cd frontend && npm run build
 
 frontend-e2e: ## real-browser frontend workflows  (CI job: frontend-e2e)
 	cd frontend && npm ci --legacy-peer-deps
@@ -174,7 +175,7 @@ helm: ## helm lint + template render  (CI job: helm)
 	helm lint helm/daedalus
 	helm template daedalus helm/daedalus >/tmp/daedalus-rendered.yaml
 	helm template daedalus helm/daedalus -f custom-values.yaml >/tmp/daedalus-rendered-custom.yaml
-	python3 scripts/check_rendered_pod_security.py /tmp/daedalus-rendered.yaml /tmp/daedalus-rendered-custom.yaml
+	uv run --no-project --python 3.12 --with pyyaml==6.0.3 python scripts/check_rendered_pod_security.py /tmp/daedalus-rendered.yaml /tmp/daedalus-rendered-custom.yaml
 
 redis-upgrade: ## persisted Redis Helm upgrade, ACL, and TLS rotation  (CI job: redis-upgrade)
 	bash scripts/test_redis_helm_upgrade.sh
@@ -211,14 +212,26 @@ security: ## secret, production dependency, and filesystem vulnerability scans  
 	$(TRIVY) fs --scanners vuln --severity CRITICAL,HIGH --exit-code 1 --format sarif . >$(TRIVY_RESULTS)
 	test -s $(TRIVY_RESULTS)
 
-tools-check: ## verify required binaries are present
+tools-check: ## verify required binaries, uv's Python 3.12 and Helm 3
 	@missing=0; \
-	for t in uv helm kind kubectl openssl docker gitleaks trivy jq node npm python3.12 cargo rustup rg; do \
+	for t in uv helm kind kubectl openssl docker gitleaks trivy jq node npm python3 cargo rustup rg; do \
 		if ! command -v $$t >/dev/null 2>&1; then \
 			echo "  missing: $$t"; \
 			missing=$$((missing+1)); \
 		fi; \
 	done; \
+	if command -v uv >/dev/null 2>&1 && ! uv python find 3.12 >/dev/null 2>&1; then \
+		echo "  missing: Python 3.12 for uv-run checks and hooks (uv python install 3.12)"; \
+		missing=$$((missing+1)); \
+	fi; \
+	if command -v helm >/dev/null 2>&1; then \
+		helm_version=$$(helm version --short 2>/dev/null); \
+		case "$$helm_version" in \
+			v3.*) echo "  helm: $$helm_version (Helm 3)";; \
+			*) echo "  unsupported: helm $${helm_version:-unknown}; the chart and deploy.sh require Helm 3"; \
+				missing=$$((missing+1));; \
+		esac; \
+	fi; \
 	if command -v docker >/dev/null 2>&1 && ! docker buildx inspect | rg -q '^Platforms:.*linux/arm64'; then \
 		echo "  missing: ARM binfmt for vendor image scans (see vendor-images/README.md)"; \
 		missing=$$((missing+1)); \

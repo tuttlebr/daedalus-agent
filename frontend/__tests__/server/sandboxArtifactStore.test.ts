@@ -95,21 +95,54 @@ describe('sandbox artifact object storage', () => {
     );
   });
 
-  it('reuses matching deterministic metadata without uploading twice', async () => {
+  it('restarts object and metadata expiry when identical content is republished later', async () => {
     const input = {
       ownerId: 'alice',
       conversationId: 'conversation-1',
       filePath: 'report.txt',
       content: Buffer.from('ready'),
     };
-    const first = await storeSandboxArtifact(input);
-    const stored = mocks.jsonSetWithExpiry.mock.calls[0][1];
-    mocks.jsonGet.mockResolvedValue(stored);
+    const week = 7 * 24 * 60 * 60;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+      const first = await storeSandboxArtifact(input);
+      const stored = mocks.jsonSetWithExpiry.mock.calls[0][1];
+      mocks.jsonGet.mockResolvedValue(stored);
 
-    const second = await storeSandboxArtifact(input);
+      // A later turn produces a new link to the same content-addressed file.
+      vi.setSystemTime(new Date('2026-10-06T00:00:00Z'));
+      const second = await storeSandboxArtifact(input);
+      const republishedAt = Date.parse('2026-10-06T00:00:00Z');
 
-    expect(second).toEqual(first);
-    expect(mocks.putDocumentObject).toHaveBeenCalledOnce();
+      expect(second).toEqual(first);
+      expect(mocks.putDocumentObject).toHaveBeenCalledTimes(2);
+      // Bucket lifecycle ages objects from their last write.
+      expect(mocks.putDocumentObject.mock.calls[1][0]).toMatchObject({
+        objectKey: mocks.putDocumentObject.mock.calls[0][0].objectKey,
+        expiresAt: republishedAt + week * 1000,
+      });
+      const [key, metadata, ttl] = mocks.jsonSetWithExpiry.mock.calls[1];
+      expect(key).toBe(mocks.jsonSetWithExpiry.mock.calls[0][0]);
+      expect(metadata).toMatchObject({
+        expiresAt: republishedAt + week * 1000,
+      });
+      expect(ttl).toBe(week);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('writes no unread session document index', async () => {
+    await storeSandboxArtifact({
+      ownerId: 'alice',
+      conversationId: 'conversation-1',
+      filePath: 'report.txt',
+      content: Buffer.from('ready'),
+    });
+
+    expect(mocks.sadd).not.toHaveBeenCalled();
+    expect(mocks.expire).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -149,14 +182,12 @@ describe('sandbox artifact object storage', () => {
       }),
     ).rejects.toThrow('redis failed');
 
-    expect(mocks.srem).not.toHaveBeenCalled();
     expect(mocks.deleteDocumentObject).not.toHaveBeenCalled();
   });
   it.each([false, true])(
     'preserves committed bytes when a metadata reply fails (concurrent=%s)',
     async (concurrent) => {
       const objects = new Map<string, Buffer>();
-      const documents = new Set<string>();
       const metadata = new Map<string, unknown>();
       const input = {
         ownerId: 'alice',
@@ -183,8 +214,6 @@ describe('sandbox artifact object storage', () => {
       mocks.deleteDocumentObject.mockImplementation(async (key) =>
         objects.delete(key),
       );
-      mocks.sadd.mockImplementation(async (_key, id) => documents.add(id));
-      mocks.srem.mockImplementation(async (_key, id) => documents.delete(id));
       mocks.jsonGet.mockImplementation(
         async (key) => metadata.get(key) ?? null,
       );
@@ -207,7 +236,9 @@ describe('sandbox artifact object storage', () => {
 
       const retry = await storeSandboxArtifact(input);
       if (committed) expect(retry).toEqual(committed);
-      expect(documents.has(retry.documentId)).toBe(true);
+      expect(
+        metadata.get(`document:${retry.sessionId}:${retry.documentId}`),
+      ).toMatchObject({ id: retry.documentId });
       expect([...objects.values()]).toEqual([input.content]);
     },
   );

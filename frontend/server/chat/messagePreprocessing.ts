@@ -131,6 +131,9 @@ export function appendDocumentAttachmentContext(
   verifiedUsername: string,
   privateCollectionName?: string,
   databaseName?: string,
+  {
+    resolveCollectionTarget = true,
+  }: { resolveCollectionTarget?: boolean } = {},
 ): any {
   if (!message.attachments || !Array.isArray(message.attachments)) {
     return message;
@@ -156,16 +159,21 @@ export function appendDocumentAttachmentContext(
     message.metadata.targetCollection.trim()
       ? message.metadata.targetCollection.trim()
       : undefined;
-  const collectionTarget = targetCollection
-    ? resolveDocumentCollectionTarget({
-        targetCollection,
-        username: verifiedUsername,
-        privateCollectionName,
-        databaseName,
-        requestedScope: message.metadata?.collectionScope,
-        source: 'chat.attachment_context',
-      })
-    : undefined;
+  // A collection target always makes the message an ingestion message, whose
+  // content is compacted afterwards. Replayed history therefore needs no
+  // target: resolving it would require collection metadata on every later
+  // turn and reject unrelated follow-ups when that metadata is unavailable.
+  const collectionTarget =
+    targetCollection && resolveCollectionTarget
+      ? resolveDocumentCollectionTarget({
+          targetCollection,
+          username: verifiedUsername,
+          privateCollectionName,
+          databaseName,
+          requestedScope: message.metadata?.collectionScope,
+          source: 'chat.attachment_context',
+        })
+      : undefined;
 
   const refArg =
     documentRefs.length === 1
@@ -218,6 +226,16 @@ function getLastUserMessage(messages: any[]): any | null {
     if (messages[i]?.role === 'user') return messages[i];
   }
   return null;
+}
+
+/**
+ * Only an ingestion turn writes to a collection, and only it needs the
+ * authoritative private collection name from backend metadata. Attachments in
+ * replayed history and attachments the model merely reads do not.
+ */
+export function requiresCollectionMetadata(messages: any[]): boolean {
+  const currentTurn = getLastUserMessage(messages);
+  return Boolean(currentTurn && isDocumentIngestionMessage(currentTurn));
 }
 
 export function compactDocumentIngestionMessage(
@@ -389,6 +407,7 @@ export async function processMessages(
           verifiedUsername,
           privateCollectionName,
           databaseName,
+          { resolveCollectionTarget: message === currentTurn },
         ),
         verifiedUsername,
       );

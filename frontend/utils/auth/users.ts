@@ -2,6 +2,10 @@ import { getAuthConfig, isConfiguredUsername } from './config';
 
 import { getRedis, sessionKey, jsonGet, jsonSet } from '@/server/session/redis';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'node:crypto';
+
+// Configured hashes must use at least this cost (see config.ts).
+const MINIMUM_DECOY_ROUNDS = 12;
 
 export interface User {
   id: string;
@@ -76,18 +80,46 @@ async function getUserByUsername(username: string): Promise<User | null> {
   return (await jsonGet(userKey)) as User | null;
 }
 
+// An unknown username must cost the same bcrypt work as a wrong password.
+// Returning early answered in about 1 ms instead of about 250 ms, revealing
+// which accounts exist and so which ones to lock out. The decoy is fixed for
+// the process, at the highest configured cost, and matches no real password.
+let decoyPasswordHash: Promise<string> | null = null;
+
+function getDecoyPasswordHash(): Promise<string> {
+  if (!decoyPasswordHash) {
+    const rounds = Math.max(
+      MINIMUM_DECOY_ROUNDS,
+      ...getAuthConfig().users.map((user) =>
+        bcrypt.getRounds(user.passwordHash),
+      ),
+    );
+    decoyPasswordHash = bcrypt
+      .hash(randomBytes(32).toString('hex'), rounds)
+      .catch((error) => {
+        decoyPasswordHash = null;
+        throw error;
+      });
+  }
+  return decoyPasswordHash;
+}
+
 // Verify user credentials
 export async function verifyCredentials(
   username: string,
   password: string,
 ): Promise<Omit<User, 'passwordHash'> | null> {
   await initializeUsers();
-  if (!isConfiguredUsername(username)) return null;
-  const user = await getUserByUsername(username);
-  if (!user) return null;
+  const decoyHash = await getDecoyPasswordHash();
+  const user = isConfiguredUsername(username)
+    ? await getUserByUsername(username)
+    : null;
 
-  const isValid = await bcrypt.compare(password, user.passwordHash);
-  if (!isValid) return null;
+  const isValid = await bcrypt.compare(
+    password,
+    user?.passwordHash ?? decoyHash,
+  );
+  if (!user || !isValid) return null;
 
   // Return user without password hash
   const { passwordHash, ...userWithoutPassword } = user;

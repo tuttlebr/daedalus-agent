@@ -469,7 +469,10 @@ def test_real_html_converter_preserves_full_markdown_without_classifier(tmp_path
     try:
         importlib.metadata.version("markitdown")
     except importlib.metadata.PackageNotFoundError:
-        pytest.skip("Real MarkItDown contract also runs in the built backend image")
+        pytest.skip(
+            "MarkItDown is not installed; real HTML conversion runs only in the "
+            "opt-in `make migration` checks against the built image"
+        )
 
     fixture = """<!doctype html><html><head><title>Full article</title>
     <meta charset="utf-8"><style>.hidden {display:none}</style></head><body>

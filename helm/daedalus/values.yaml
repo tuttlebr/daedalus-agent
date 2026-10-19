@@ -284,13 +284,6 @@ frontend:
     # Owns durable backend SSE execution outside the request-serving process.
     enabled: true
     replicas: 1
-    # Enable only with VAPID keys in the stream-worker Secret. The application
-    # accepts only FCM, Mozilla and Apple Web Push destinations.
-    pushNotifications:
-      enabled: false
-      # Standard NetworkPolicy cannot resolve provider names. Supply reviewed
-      # provider IP ranges; Cilium instead uses the fixed provider FQDN rules.
-      cidrs: []
     # Keep worker-only runtime secrets separate from the request-serving
     # frontend Secret. Backend model, Milvus, Phoenix, and MinIO credentials
     # must never be placed here.

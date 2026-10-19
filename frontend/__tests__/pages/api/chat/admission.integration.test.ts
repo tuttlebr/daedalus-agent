@@ -170,5 +170,86 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       ]);
       expect(saved.messages[1].content).toBe('Recovered first answer');
     });
+
+    it('recovers a conversation and slot from a submission that died before queueing', async () => {
+      const { reserveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      const { conversationJobGuardKey } = await import(
+        '@/server/chat/conversationJobGuard'
+      );
+      const { acquireUserJobGuard, userJobGuardKey } = await import(
+        '@/server/chat/userJobGuard'
+      );
+      const handler = (await import('@/pages/api/chat/async')).default;
+      const deadJob = `${prefix}-dead-submission`;
+      const conversationId = `${prefix}-dead-conversation`;
+      jobs.add(deadJob);
+      await reserveConversationForUser(prefix, conversationId);
+      const acquiredAt = Date.now() - 10 * 60 * 1000;
+      // What the submitting process wrote before it died: the guard, a
+      // provisional slot and a provisional status, but no request or payload.
+      await client.set(
+        conversationJobGuardKey(prefix, conversationId),
+        JSON.stringify({
+          version: 1,
+          userId: prefix,
+          conversationId,
+          jobId: deadJob,
+          acquiredAt,
+        }),
+        'EX',
+        7200,
+      );
+      expect(await acquireUserJobGuard(prefix, deadJob, client, 120)).toBe(
+        true,
+      );
+      const deadStatusKey = redis.sessionKey(['async-job-status', deadJob]);
+      await redis.jsonSetWithExpiry(
+        deadStatusKey,
+        {
+          jobId: deadJob,
+          status: 'pending',
+          createdAt: acquiredAt,
+          updatedAt: acquiredAt,
+          conversationId,
+        },
+        120,
+      );
+
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+        setHeader: vi.fn(),
+      };
+      await handler(
+        {
+          method: 'POST',
+          headers: { cookie: 'sid=admission-test-session' },
+          body: {
+            conversationId,
+            messages: [{ id: 'u1', role: 'user', content: 'Try again' }],
+          },
+        } as any,
+        res as any,
+      );
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const nextJob = res.json.mock.calls[0][0].jobId;
+      jobs.add(nextJob);
+      expect(
+        JSON.parse(
+          (await client.get(conversationJobGuardKey(prefix, conversationId)))!,
+        ).jobId,
+      ).toBe(nextJob);
+      expect(await client.exists(deadStatusKey)).toBe(0);
+      const slots = userJobGuardKey(prefix);
+      expect(await client.zscore(slots, deadJob)).toBeNull();
+      expect(await client.zscore(slots, nextJob)).not.toBeNull();
+      // The new job is queued with its full lifetime.
+      expect(
+        await client.ttl(redis.sessionKey(['async-job-status', nextJob])),
+      ).toBeGreaterThan(3000);
+    });
   },
 );

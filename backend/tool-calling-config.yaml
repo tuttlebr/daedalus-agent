@@ -3,37 +3,31 @@
 authentication:
   hue_mcp_server:
     _type: api_key
-    auth_scheme: Custom
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${HUE_MCP_TOKEN}
   espn_mcp_server:
     _type: api_key
-    auth_scheme: Custom
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${ESPN_MCP_TOKEN}
   x_mcp_server:
     _type: api_key
-    auth_scheme: Custom
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${X_MCP_BEARER_TOKEN}
   github_mcp_server:
     _type: api_key
-    auth_scheme: Custom
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${GITHUB_PAT}
   k8s_mcp_server:
     _type: api_key
-    auth_scheme: Custom
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${KUBERNETES_MCP_TOKEN}
   unifi_mcp_server:
     _type: api_key
-    auth_scheme: Custom
     custom_header_name: Authorization
     custom_header_prefix: Bearer
     raw_key: ${UNIFI_MCP_TOKEN}
@@ -45,15 +39,9 @@ authentication:
     server_url: https://gmailmcp.googleapis.com/mcp
     client_id: ${GOOGLE_MCP_CLIENT_ID}
     client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
-    enable_dynamic_registration: false
-    client_name: Daedalus Gmail MCP
     redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
-    token_endpoint_auth_method: client_secret_post
     scopes:
       - https://www.googleapis.com/auth/gmail.readonly
-    use_pkce: true
-    allow_default_user_id_for_tool_calls: false
-    token_storage_object_store: gmail_mcp_oauth_tokens
   calendar_mcp_server:
     _type: mcp_oauth2
     # Calendar advertises /mcp as its OAuth resource even though calls use
@@ -61,54 +49,19 @@ authentication:
     server_url: https://calendarmcp.googleapis.com/mcp
     client_id: ${GOOGLE_MCP_CLIENT_ID}
     client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
-    enable_dynamic_registration: false
-    client_name: Daedalus Calendar MCP
     redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
-    token_endpoint_auth_method: client_secret_post
     scopes:
       - https://www.googleapis.com/auth/calendar
-    use_pkce: true
-    allow_default_user_id_for_tool_calls: false
-    token_storage_object_store: calendar_mcp_oauth_tokens
   docs_mcp_server:
     _type: mcp_oauth2
     server_url: https://docsmcp.googleapis.com/mcp/v1
     client_id: ${GOOGLE_MCP_CLIENT_ID}
     client_secret: ${GOOGLE_MCP_CLIENT_SECRET}
-    enable_dynamic_registration: false
-    client_name: Daedalus Docs MCP
     redirect_uri: ${GOOGLE_MCP_REDIRECT_URI}
-    token_endpoint_auth_method: client_secret_post
     # Keep this request aligned with the authoritative Google Auth Platform
     # consent configuration. The drive scope covers both hosted MCP tools.
     scopes:
       - https://www.googleapis.com/auth/drive
-    use_pkce: true
-    allow_default_user_id_for_tool_calls: false
-    token_storage_object_store: docs_mcp_oauth_tokens
-object_stores:
-  # OAuth access and refresh tokens are user-isolated by the application and durable across
-  # backend restarts and replicas. Separate buckets prevent provider collisions
-  # because the persisted key derives only from the authenticated user id.
-  gmail_mcp_oauth_tokens:
-    _type: daedalus_redis_object_store
-    redis_url: ${REDIS_URL}
-    # The previous bucket can contain grants with gmail.compose. Use a new
-    # bucket so Gmail reconnects once with the read-only scope above.
-    bucket_name: gmail-mcp-oauth-ro
-  calendar_mcp_oauth_tokens:
-    _type: daedalus_redis_object_store
-    redis_url: ${REDIS_URL}
-    # The previous bucket contains read-only grants. Use a new bucket so the
-    # first Calendar write requests fresh consent for the full calendar scope
-    # instead of repeatedly presenting a valid but under-scoped cached token.
-    bucket_name: calendar-mcp-oauth-rw
-  docs_mcp_oauth_tokens:
-    _type: daedalus_redis_object_store
-    redis_url: ${REDIS_URL}
-    # The previous bucket can contain a different four-scope grant. Use a new
-    # bucket so Docs reconnects once with the authoritative drive scope above.
-    bucket_name: docs-mcp-oauth-drive
 embedders:
   milvus_embedder:
     _type: daedalus_vllm
@@ -132,8 +85,6 @@ function_groups:
       tools when a task needs Philips Hue; resource-specific operations and
       argument schemas are available after connecting.
     tool_call_timeout: 15
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
     # Authorize all Hue tools without per-call UI approval after discovery.
     approval_policy: auto_approve
     tool_overrides:
@@ -154,8 +105,6 @@ function_groups:
       Read ESPN fantasy football leagues, teams, rosters, matchups, players,
       free agents, drafts, transactions, and account status.
     tool_call_timeout: 120
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
     include:
       - account_status
       - get_league
@@ -255,13 +204,6 @@ function_groups:
       get_users_posts:
         approval_policy: read_only
     tool_call_timeout: 120
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
     server:
       transport: streamable-http
       url: https://api.x.com/mcp
@@ -311,13 +253,6 @@ function_groups:
       search_repositories:
         approval_policy: read_only
     tool_call_timeout: 120
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
     server:
       transport: streamable-http
       url: https://api.githubcopilot.com/mcp/
@@ -334,12 +269,6 @@ function_groups:
       - list_labels
       - list_drafts
     tool_call_timeout: 120
-    auth_flow_timeout: 600
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    use_native_tool_calling: true
     tool_overrides:
       search_threads:
         approval_policy: read_only
@@ -374,12 +303,6 @@ function_groups:
       - delete_event
       - respond_to_event
     tool_call_timeout: 120
-    auth_flow_timeout: 600
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    use_native_tool_calling: true
     tool_overrides:
       list_events:
         approval_policy: read_only
@@ -410,12 +333,6 @@ function_groups:
       - read_doc
       - update_doc
     tool_call_timeout: 120
-    auth_flow_timeout: 600
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    use_native_tool_calling: true
     tool_overrides:
       read_doc:
         approval_policy: read_only
@@ -453,13 +370,6 @@ function_groups:
       getClusterSummary: *k8s_read_only
       listContexts: *k8s_read_only
     tool_call_timeout: 120
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
     server:
       transport: streamable-http
       url: ${KUBERNETES_MCP_SERVER}
@@ -496,13 +406,6 @@ function_groups:
       listWifiBroadcasts: *unifi_read_only
       listWanInterfaces: *unifi_read_only
     tool_call_timeout: 120
-    auth_flow_timeout: 30
-    reconnect_enabled: true
-    reconnect_max_attempts: 3
-    reconnect_initial_backoff: 5.0
-    reconnect_max_backoff: 60.0
-    max_sessions: 8
-    session_idle_timeout: 600
     server:
       transport: streamable-http
       url: ${UNIFI_MCP_SERVER}
@@ -788,23 +691,6 @@ functions:
       unless complete enumeration or exact formatting is required. Results are
       user-isolated, bounded, and short-lived; an expired reference requires a
       fresh source-tool call.
-  user_interaction_tool:
-    _type: user_interaction
-    redis_url: ${REDIS_URL}
-    # Credentials are minted only after an authenticated UI approval, so a short
-    # execution window is sufficient and no usable token exists while pending.
-    enabled_operations:
-      - confirm_action
-      - delete_memory_guarded
-    description: >-
-      Request confirmation and execute deletion of the authenticated caller's
-      durable memory. confirm_action requires action and reason; it returns a
-      pending request, never an execution credential. delete_memory_guarded
-      requires a single-use approval_token minted by the authenticated approval
-      route after approval. No caller identity or action target may be supplied.
-      MCP mutations use their own execution gate. Ask ordinary clarification
-      questions and present research plans directly in chat.
-    verbose: false
   perplexity_search_tool:
     _type: perplexity_search
     default_max_results: 5
@@ -1115,6 +1001,8 @@ workflow:
 
     Approval: Never request or reconfirm approval in prose for a runtime-gated action. Honor the execution gate. For required research-plan approval, present the plan and stop before research.
 
+    Memory: Users delete durable memory in the Memory Center; you cannot.
+
     Communication Style: ASD-STE100 (Simplified Technical English)
 
     Output: Do not reveal hidden reasoning or narrate routine calls. Stop when complete.
@@ -1145,7 +1033,6 @@ workflow:
     - tool_output_retriever_tool
     - unifi_mcp_server
     - user_document_tool
-    - user_interaction_tool
     - visual_media_tool
     - webscrape_tool
     - x_mcp_server

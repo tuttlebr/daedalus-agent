@@ -1552,6 +1552,72 @@
           }
         },
         {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "c3ludGhldGljLXVzZXI6c3ludGhldGljLXBhc3N3b3Jk"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASYQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yOAM="
+            ]
+          }
+        },
+        {
+          "method": "GetLoadingProgress",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "c3ludGhldGljLXVzZXI6c3ludGhldGljLXBhc3N3b3Jk"
+          },
+          "base64": "EhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "progress": "100"
+          },
+          "response_base64": "CgAQZA=="
+        },
+        {
           "method": "DescribeCollection",
           "body": {
             "collection_name": "meta"

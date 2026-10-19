@@ -170,7 +170,7 @@ def test_registered_native_factories_have_exactly_one_yield():
             assert visitor.count == 1, (path, node.name, visitor.count)
             checked.append(node.name)
     assert "source_verifier_function" in checked
-    assert len(checked) >= 16
+    assert len(checked) >= 15
 
 
 def test_verifier_combined_registration_executes_all_operations(monkeypatch):

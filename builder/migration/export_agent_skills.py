@@ -15,8 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from export_authorization import fixture_strings
-from export_user_interaction import failure
+from export_authorization import failure, fixture_strings
 
 OPERATIONS = ["list_skills", "load_skill", "run_skill_script"]
 

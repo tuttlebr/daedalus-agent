@@ -190,6 +190,15 @@ return {1, KEYS[1], ''}
 
 /// Publish every handled result, including failure receipts, while still owner.
 /// Lost replies leave the stored receipt untouched; callers must not re-ingest.
+/// Publish a finished ingest's receipt. Its rows are already written: an
+/// unavailable receipt store must not turn that success into a tool error.
+/// The reservation then stays in progress, which still blocks blind replays.
+pub async fn finalize(config: &Config, reservation: &Reservation, result: &Text) {
+    if !matches!(complete(config, reservation, result).await, Ok(true)) {
+        tracing::warn!("Document ingest finished but its idempotency result couldn't be finalized");
+    }
+}
+
 pub async fn complete(config: &Config, reservation: &Reservation, result: &Text) -> Result<bool> {
     if !reservation.acquired() || reservation.owner_token.as_deref() == Some("") {
         return Ok(false);
@@ -316,6 +325,34 @@ where
 mod tests {
     use super::*;
     use std::{collections::HashMap, sync::Mutex};
+
+    #[tokio::test]
+    async fn unavailable_receipt_store_never_fails_a_finished_ingest() {
+        let config = Config {
+            raw: json!({}),
+            policy_raw: json!({}),
+            python_tools: false,
+            env: [("REDIS_URL".to_string(), "redis://127.0.0.1:1".to_string())].into(),
+        };
+        let reservation = Reservation {
+            key: "synthetic-key".into(),
+            owner_token: Some("synthetic-owner".into()),
+            state: "in_progress".into(),
+            stored_result: None,
+            contract: None,
+            surrogates: Surrogates::new(),
+        };
+        let result = Text::from("Successfully ingested 1 chunk.");
+        // The receipt write itself fails; the tool previously returned that
+        // error instead of the ingest's result.
+        assert!(complete(&config, &reservation, &result).await.is_err());
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            finalize(&config, &reservation, &result),
+        )
+        .await
+        .unwrap();
+    }
 
     #[test]
     fn retained_receipt_replay_decisions() {

@@ -659,8 +659,7 @@ async fn dispatch(app: &App, request: Request) -> ApiResult<Value> {
         if data["confirmation"] != "DELETE ALL MY MEMORIES" {
             return Err(detail(400, "confirmation phrase does not match"));
         }
-        // The approved deletion tool and this API share one lifecycle, as the
-        // retained Python memory_lifecycle.clear_user_memory does.
+        // Same lifecycle as the retained Python memory_lifecycle.clear_user_memory.
         let result = client.clear_user_memory(&user, memory).await.map_err(|_| {
             detail(
                 503,
@@ -898,9 +897,7 @@ pub(crate) mod tests {
             .unwrap();
             let http = reqwest::Client::new();
             crate::router(crate::App {
-                preparation: Some(
-                    crate::preparation::Preparation::new(config, http.clone()).unwrap(),
-                ),
+                preparation: Some(crate::preparation::Preparation::new(config).unwrap()),
                 http,
                 tools_url: "http://127.0.0.1:1".into(),
                 internal_token: Arc::new("synthetic-internal".into()),

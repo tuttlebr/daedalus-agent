@@ -15,6 +15,12 @@ from nat_helpers.content_credentials import sign_final_image
 
 logger = logging.getLogger(__name__)
 
+# Completed generated images remain reusable for a week.
+GENERATED_IMAGE_TTL_SECONDS = 7 * 24 * 60 * 60
+# Streamed preview frames are referenced only by their image job, which the
+# frontend keeps for IMAGE_JOB_TTL_SECONDS (frontend/server/images/jobRecovery.ts).
+PARTIAL_IMAGE_TTL_SECONDS = 60 * 60
+
 
 def parse_ref(ref: str | dict | None) -> dict | None:
     """Parse a media reference that may be a JSON string or dict."""
@@ -45,6 +51,52 @@ def _resolve_user_scope(
         )
 
     return (expected or ref_user_id or None, None)
+
+
+def _storage_error(media: str, exc: Exception) -> str:
+    """Describe a storage read failure without calling the media missing."""
+    no_permission = getattr(
+        getattr(redis_lib, "exceptions", None), "NoPermissionError", None
+    )
+    if isinstance(no_permission, type) and isinstance(exc, no_permission):
+        return (
+            f"Error: {media.capitalize()} storage denied this read (Redis NOPERM). "
+            f"The backend Redis ACL must allow {media} keys."
+        )
+    return (
+        f"Error: {media.capitalize()} storage is unavailable "
+        f"({type(exc).__name__}). Try again later."
+    )
+
+
+async def _read_media_record(
+    redis_client: redis_lib.Redis, redis_keys: list[str], media: str
+) -> tuple[str | None, str, str | None]:
+    """Return ``(record, matched_key, storage_error)`` for the first stored key.
+
+    A later readable key still wins over an earlier read error. Only when no
+    key yields a record does a read error replace "not found": a permission or
+    connection failure says nothing about whether the media exists.
+    """
+    storage_error = None
+    for redis_key in redis_keys:
+        try:
+            record = await asyncio.to_thread(
+                redis_client.execute_command, "JSON.GET", redis_key
+            )
+        except redis_lib.RedisError as exc:
+            logger.error(
+                "Failed to read %s record %s from Redis (%s): %s",
+                media,
+                redis_key,
+                type(exc).__name__,
+                exc,
+            )
+            storage_error = _storage_error(media, exc)
+            continue
+        if record:
+            return record, redis_key, None
+    return None, "", storage_error
 
 
 async def fetch_image_from_redis(
@@ -100,19 +152,11 @@ async def fetch_image_from_redis(
     # this key last so generated images can be reused as edit inputs.
     redis_keys.append(f"generated:image:{image_id}")
 
-    image_data_json = None
-    matched_key = ""
-    for redis_key in redis_keys:
-        try:
-            image_data_json = await asyncio.to_thread(
-                redis_client.execute_command, "JSON.GET", redis_key
-            )
-            if image_data_json:
-                matched_key = redis_key
-                break
-        except redis_lib.RedisError:
-            continue
-
+    image_data_json, matched_key, storage_error = await _read_media_record(
+        redis_client, redis_keys, "image"
+    )
+    if storage_error:
+        return (None, storage_error)
     if not image_data_json:
         return (
             None,
@@ -202,17 +246,11 @@ async def fetch_video_from_redis(
     if not user_id and session_id:
         redis_keys.append(f"video:{session_id}:{video_id}")
 
-    video_data_json = None
-    for redis_key in redis_keys:
-        try:
-            video_data_json = await asyncio.to_thread(
-                redis_client.execute_command, "JSON.GET", redis_key
-            )
-            if video_data_json:
-                break
-        except redis_lib.RedisError:
-            continue
-
+    video_data_json, _, storage_error = await _read_media_record(
+        redis_client, redis_keys, "video"
+    )
+    if storage_error:
+        return (None, storage_error)
     if not video_data_json:
         return (
             None,
@@ -222,8 +260,10 @@ async def fetch_video_from_redis(
     try:
         video_record = json.loads(video_data_json)
         video_base64 = video_record.get("data")
+        # As for images, the stored record is authoritative; the caller's
+        # reference only labels legacy records that lack a stored MIME type.
         mime_type = (
-            video_ref.get("mimeType") or video_record.get("mimeType") or "video/mp4"
+            video_record.get("mimeType") or video_ref.get("mimeType") or "video/mp4"
         )
         if not video_base64:
             return (None, "Error: Retrieved video data is empty.")
@@ -270,6 +310,10 @@ async def store_image_in_redis(
     if image_context is not None:
         image_record["imageContext"] = image_context
 
+    ttl_seconds = (
+        PARTIAL_IMAGE_TTL_SECONDS if is_partial else GENERATED_IMAGE_TTL_SECONDS
+    )
+
     def write() -> None:
         # One MULTI/EXEC: an interruption between the record and its expiry
         # must not leave image data stored without a TTL.
@@ -277,7 +321,7 @@ async def store_image_in_redis(
         transaction.execute_command(
             "JSON.SET", redis_key, "$", json.dumps(image_record)
         )
-        transaction.expire(redis_key, 604800)
+        transaction.expire(redis_key, ttl_seconds)
         transaction.execute()
 
     try:

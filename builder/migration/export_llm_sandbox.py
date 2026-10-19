@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
-from export_user_interaction import failure
+from export_authorization import failure
 
 
 def fixture_strings(value):

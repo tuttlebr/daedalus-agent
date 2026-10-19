@@ -1,27 +1,32 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { getSession } from '@/utils/auth/session';
-import {
-  publishConversationUpdate,
-  publishSyncEvent,
-} from '@/utils/sync/publish';
+import { publishConversationUpdate } from '@/utils/sync/publish';
 
-import { Conversation } from '@/types/chat';
-
+// The notification names a conversation; receivers fetch its record.
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '5mb',
+      sizeLimit: '16kb',
     },
   },
 };
 
+const MAX_ID_LENGTH = 512;
+
+function boundedString(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_ID_LENGTH
+  );
+}
+
 /**
- * Notify other sessions/devices about conversation changes via Redis pub/sub.
- * Accepts:
- *   - type: 'conversation_updated' | 'conversation_deleted' | 'conversation_list_changed'
- *   - conversationId: string (required for conversation_updated/deleted)
- *   - conversation: Conversation (optional, for conversation_updated)
+ * Notify the user's other sessions that a conversation was saved.
+ * Accepts `{ type: 'conversation_updated', conversationId, revision? }`.
+ * The event carries only the id and committed revision: a receiver that does
+ * not already hold that revision reads the record itself.
  */
 export default async function handler(
   req: NextApiRequest,
@@ -42,29 +47,23 @@ export default async function handler(
     return res.status(400).json({ error: 'Invalid user' });
   }
 
-  const { type, conversationId, conversation } = req.body;
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ error: 'Expected a notification object' });
+  }
+  const { type, conversationId, revision } = body as Record<string, unknown>;
+  if (type !== 'conversation_updated') {
+    return res.status(400).json({ error: `Unknown event type: ${type}` });
+  }
+  if (!boundedString(conversationId)) {
+    return res.status(400).json({ error: 'Invalid conversation ID' });
+  }
+  if (revision !== undefined && !boundedString(revision)) {
+    return res.status(400).json({ error: 'Invalid revision' });
+  }
 
   try {
-    switch (type) {
-      case 'conversation_updated':
-        if (conversation) {
-          await publishConversationUpdate(userId, conversation as Conversation);
-        }
-        break;
-
-      case 'conversation_deleted':
-      case 'conversation_list_changed':
-        await publishSyncEvent(userId, {
-          type: type as 'conversation_updated',
-          timestamp: Date.now(),
-          data: { conversationId },
-        });
-        break;
-
-      default:
-        return res.status(400).json({ error: `Unknown event type: ${type}` });
-    }
-
+    await publishConversationUpdate(userId, conversationId, revision);
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Failed to publish sync notification:', error);

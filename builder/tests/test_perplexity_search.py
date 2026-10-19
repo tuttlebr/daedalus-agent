@@ -479,3 +479,22 @@ def test_provider_error_body_is_not_logged(caplog):
     assert "provider status 503" in output
     assert private_body not in output
     assert private_body not in caplog.text
+
+
+def test_one_malformed_result_url_does_not_fail_the_search():
+    from perplexity_search import perplexity_search_function as mod
+
+    payload = mod._build_payload(
+        {
+            "results": [
+                {"title": "Malformed", "url": "http://[broken"},
+                {"title": "Valid", "url": "https://www.example.test/a"},
+            ]
+        },
+        "synthetic query",
+        5,
+    )
+    assert [r["displayed_link"] for r in payload["organic_results"]] == [
+        "http://[broken",
+        "example.test",
+    ]

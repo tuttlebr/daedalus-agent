@@ -45,11 +45,9 @@ export type ServerMessage =
   | { type: 'connected'; userId: string; streamingStates: Record<string, any> }
   | {
       type: 'conversation_updated';
-      data: { conversationId: string; conversation: any };
+      data: { conversationId: string; revision?: string; conversation?: any };
     }
   | { type: 'conversation_deleted'; data: { conversationId: string } }
-  | { type: 'conversation_list_changed' }
-  | { type: 'selected_conversation_changed'; data: { conversationId: string } }
   | {
       type: 'streaming_started';
       data: { conversationId: string; sessionId: string };
@@ -102,7 +100,6 @@ const BASE_RECONNECT_DELAY = 1_000; // 1s initial
 const MAX_RECONNECT_DELAY = 30_000; // 30s cap
 const LOW_BATTERY_RECONNECT_DELAY = 60_000; // 60s when battery < 20%
 const JITTER_FACTOR = 0.2; // 20% jitter on reconnect delay
-const MAX_RECONNECT_ATTEMPTS = 20; // Stop after 20 attempts (~10 min at max delay)
 const DEFAULT_WEBSOCKET_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '/ws';
 
 export class WebSocketManager {
@@ -115,13 +112,28 @@ export class WebSocketManager {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  // A caller wants a connection: set by connect(), cleared by disconnect().
+  private wanted = false;
   private _isConnected = false;
   private subscribedJobs = new Set<string>();
   private subscribedChats = new Set<string>();
 
   constructor(url: string = DEFAULT_WEBSOCKET_URL) {
     this.url = url;
+    if (typeof window !== 'undefined') {
+      // Backoff can reach its slowest interval during a long outage. Coming
+      // back online or to the app is a strong signal to retry immediately.
+      window.addEventListener('online', this.reconnectNow);
+      window.addEventListener('focus', this.reconnectNow);
+    }
   }
+
+  /** Retry now with a fresh backoff when a wanted connection is down. */
+  private reconnectNow = (): void => {
+    if (!this.wanted || this.intentionalClose || this.ws) return;
+    this.reconnectAttempts = 0;
+    this.connect();
+  };
 
   get isConnected(): boolean {
     return this._isConnected;
@@ -136,6 +148,7 @@ export class WebSocketManager {
     }
 
     this.intentionalClose = false;
+    this.wanted = true;
     this.cancelReconnect();
 
     try {
@@ -205,6 +218,7 @@ export class WebSocketManager {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.wanted = false;
     this.stopPing();
     this.cancelReconnect();
 
@@ -408,17 +422,10 @@ export class WebSocketManager {
     this.cancelReconnect();
     const generation = this.reconnectGeneration;
 
-    // Stop after max attempts
-    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      logger.warn(
-        `Max reconnection attempts reached (${MAX_RECONNECT_ATTEMPTS}) - stopping auto-reconnect`,
-      );
-      return;
-    }
-
-    // Battery-aware delay
+    // Exponential backoff that keeps retrying at its slowest interval: a tab
+    // left open through a long outage must still recover on its own.
     let delay = Math.min(
-      BASE_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts),
+      BASE_RECONNECT_DELAY * Math.pow(2, Math.min(this.reconnectAttempts, 16)),
       MAX_RECONNECT_DELAY,
     );
 

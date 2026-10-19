@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import type { AsyncJobRequest } from '@/server/chat/types';
+import { saveOAuthCallbackTarget } from '@/server/mcpOAuth';
 import { jsonGet } from '@/server/session/redis';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -296,6 +297,13 @@ describe('backend stream reader persistence', () => {
       body.push(null);
       await reading;
 
+      // The callback route binds the browser session to this owner.
+      expect(saveOAuthCallbackTarget).toHaveBeenCalledWith(
+        'state-1',
+        'http://backend.test:8000',
+        'job-1',
+        'alice',
+      );
       if (terminal) {
         expect(mocks.finalizeSuccess).toHaveBeenCalledWith(
           'job-1',

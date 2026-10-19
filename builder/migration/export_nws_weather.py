@@ -16,9 +16,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
+from export_authorization import failure
 from export_llm_sandbox import fixture_strings
 from export_perplexity_search import canonical, observation
-from export_user_interaction import failure
 
 
 def period(start, end, **fields):

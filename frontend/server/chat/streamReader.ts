@@ -38,6 +38,7 @@ import {
   clearStreamState,
 } from './streamState';
 import {
+  ApiRouteError,
   StreamUserCancellationError,
   type AsyncJobRequest,
   type AsyncJobStatus,
@@ -176,7 +177,8 @@ export async function startBackgroundStreamReader(
   control: BackgroundExecutionControl = {},
 ): Promise<void> {
   const profileError = validateModelProfile(jobRequest.additionalProps);
-  if (profileError) throw new Error(profileError);
+  if (profileError)
+    throw new ApiRouteError(400, profileError, 'invalid_model_profile');
   const streamUrl = buildBackendUrlFromBase(
     getNatBaseUrl(jobRequest),
     '/v1/chat/completions',
@@ -316,7 +318,6 @@ export async function startBackgroundStreamReader(
           jobRequest.timezone,
           jobRequest.conversationId,
           jobId,
-          control.approvalToken,
         ),
         body: JSON.stringify(payload),
         signal: abortController.signal,
@@ -351,7 +352,7 @@ export async function startBackgroundStreamReader(
       ? `user:${userId}:chat:${conversationId}:tokens`
       : null;
 
-    let lastStatusFlushMs = 0;
+    let streamingStatusRecorded = false;
     let lastResponseFlushMs = 0;
     let lastStepsFlushMs = 0;
     let debugDeltaCounter = 0;
@@ -378,13 +379,15 @@ export async function startBackgroundStreamReader(
       await persistSteps();
     };
 
+    // Output lives in the append-only keys, so the status document needs only
+    // the pending -> streaming transition. Rewriting it on every flush cost
+    // two serial Redis round trips per interval inside the read loop. OAuth
+    // prompts and callbacks make their own atomic status transitions.
     const flushStreamingStatus = async (force = false): Promise<void> => {
       await flushResponse(force);
-      const now = Date.now();
-      if (!force && now - lastStatusFlushMs < STREAM_STATUS_FLUSH_INTERVAL_MS)
-        return;
-      lastStatusFlushMs = now;
-      await markJobStreaming(jobId, now);
+      if (streamingStatusRecorded) return;
+      await markJobStreaming(jobId, Date.now());
+      streamingStatusRecorded = true;
     };
 
     while (true) {
@@ -602,6 +605,7 @@ export async function startBackgroundStreamReader(
                   oauthPayload.oauthState,
                   getNatBaseUrl(jobRequest),
                   jobId,
+                  jobRequest.userId,
                 );
               }
               // The atomic write is the persistence receipt. A callback may

@@ -1,6 +1,9 @@
 [run]
-# Every Python module or package that builder/Dockerfile copies into the
-# runtime image. test_ci_makefile_parity enforces this list.
+# Every first-party Python module or package that builder/Dockerfile ships in
+# the backend image's /workspace (its build-time *_check.py scripts are removed
+# before the runtime stage). The image also ships Python under /skills from the
+# skills/ build context, such as skill scripts the briefing renderer runs; this
+# list does not measure it. test_ci_makefile_parity enforces this list.
 source =
     collection_metadata_api
     document_ingest_api

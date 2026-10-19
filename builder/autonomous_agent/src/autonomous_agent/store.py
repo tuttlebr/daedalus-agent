@@ -557,6 +557,11 @@ class RedisStore:
                 raise RuntimeError(
                     "cannot reclaim processing work after losing the lease"
                 ) from None
+        # dequeue() consumes the queue's RIGHT end and pushes each claim onto
+        # the processing list's LEFT end, so processing holds the newest claim
+        # on the left. Moving LEFT -> RIGHT returns every interrupted request
+        # to the consumption end with the oldest claim next, ahead of requests
+        # queued behind it (RPOPLPUSH sent them to the back of the queue).
         moved = self.redis.eval(
             """
             if redis.call("GET", KEYS[1]) ~= ARGV[1] then
@@ -564,7 +569,7 @@ class RedisStore:
             end
             local moved = {}
             while true do
-                local value = redis.call("RPOPLPUSH", KEYS[2], KEYS[3])
+                local value = redis.call("LMOVE", KEYS[2], KEYS[3], "LEFT", "RIGHT")
                 if not value then
                     break
                 end

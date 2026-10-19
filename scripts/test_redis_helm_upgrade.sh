@@ -331,6 +331,17 @@ assert_workload_acls() {
   local autonomous_password="autonomous-$application_password"
 
   redis_cli_as daedalus-backend "$backend_password" SET nat:acl-fixture ok >/dev/null
+  # Visual media analysis reads the frontend's user-scoped and anonymous
+  # session video records.
+  local video='{"data":"Zml4dHVyZQ==","mimeType":"video/mp4"}'
+  redis_cli "$application_password" JSON.SET user:acl-fixture:video:fixture '$' \
+    "$video" >/dev/null
+  redis_cli "$application_password" JSON.SET video:acl-fixture:fixture '$' \
+    "$video" >/dev/null
+  assert_acl_value daedalus-backend "$backend_password" "$video" \
+    JSON.GET user:acl-fixture:video:fixture
+  assert_acl_value daedalus-backend "$backend_password" "$video" \
+    JSON.GET video:acl-fixture:fixture
   assert_acl_denied daedalus-backend "$backend_password" GET session:fixture
   assert_acl_denied daedalus-backend "$backend_password" GET auth-session:fixture
 
@@ -356,6 +367,7 @@ assert_workload_acls() {
   assert_acl_denied daedalus-autonomous "$autonomous_password" GET session:fixture
   assert_acl_denied daedalus-autonomous "$autonomous_password" GET autonomous:acl-fixture:unrelated
   redis_cli "$application_password" DEL nat:acl-fixture \
+    user:acl-fixture:video:fixture video:acl-fixture:fixture \
     autonomy:acl-fixture:config autonomous:acl-fixture:workspace:identity >/dev/null
 }
 

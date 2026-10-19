@@ -1,6 +1,6 @@
 import { JOB_EXPIRY_SECONDS } from './constants';
 
-import { getRedis, jsonDel, jsonGet, sessionKey } from '@/server/session/redis';
+import { getRedis, sessionKey } from '@/server/session/redis';
 import { isDeepStrictEqual } from 'node:util';
 
 const APPEND_WITH_EXPIRY_LUA = `
@@ -50,9 +50,6 @@ export const streamResponseKey = (jobId: string): string =>
 
 export const streamStepsKey = (jobId: string): string =>
   sessionKey(['async-job-steps-v2', jobId]);
-
-export const legacyStreamStepsKey = (jobId: string): string =>
-  sessionKey(['async-job-steps', jobId]);
 
 /**
  * Append at the acknowledged UTF-8 byte offset. Matching overlap is a retry
@@ -138,10 +135,7 @@ export async function getStreamResponse(
   return response === null ? fallback : response;
 }
 
-/**
- * Read the normalized step list. The old JSON array remains a read fallback so
- * rolling upgrades don't discard progress from already-running jobs.
- */
+/** Read the normalized step list, or the caller's snapshot when it is empty. */
 export async function getStreamSteps(
   jobId: string,
   fallback: any[] = [],
@@ -149,26 +143,17 @@ export async function getStreamSteps(
   // A failed read is not empty history. Let callers retry instead of taking
   // an empty terminal snapshot and deleting the durable stream evidence.
   const serialized = await getRedis().lrange(streamStepsKey(jobId), 0, -1);
-  if (serialized.length > 0) {
-    const parsed: any[] = [];
-    for (const entry of serialized) {
-      try {
-        parsed.push(JSON.parse(entry));
-      } catch {
-        // Ignore a corrupt individual event instead of hiding valid events.
-      }
+  const parsed: any[] = [];
+  for (const entry of serialized) {
+    try {
+      parsed.push(JSON.parse(entry));
+    } catch {
+      // Ignore a corrupt individual event instead of hiding valid events.
     }
-    if (parsed.length > 0) return parsed;
   }
-
-  const legacy = (await jsonGet(legacyStreamStepsKey(jobId))) as any[] | null;
-  return Array.isArray(legacy) && legacy.length > 0 ? legacy : fallback;
+  return parsed.length > 0 ? parsed : fallback;
 }
 
-/** Remove both normalized state and the rolling-upgrade compatibility key. */
 export async function clearStreamState(jobId: string): Promise<void> {
-  await Promise.all([
-    getRedis().del(streamResponseKey(jobId), streamStepsKey(jobId)),
-    jsonDel(legacyStreamStepsKey(jobId)),
-  ]);
+  await getRedis().del(streamResponseKey(jobId), streamStepsKey(jobId));
 }

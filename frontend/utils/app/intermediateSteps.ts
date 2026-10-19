@@ -165,6 +165,77 @@ function extractOutput(step: IntermediateStep): any {
   );
 }
 
+/**
+ * Identity of one delivered step event. A call can use one UUID for both START
+ * and END, so the phase is part of the identity (as in normalizeSteps). Steps
+ * without a UUID compare by content.
+ */
+function stepEventKey(step: any): string {
+  const uuid = step?.payload?.UUID;
+  return uuid
+    ? JSON.stringify([uuid, step.payload.event_type])
+    : JSON.stringify(step);
+}
+
+function redeliveredStep<T>(previous: T, incoming: T): T {
+  const older = previous as any;
+  const newer = incoming as any;
+  return {
+    ...older,
+    ...newer,
+    payload: { ...older?.payload, ...newer?.payload },
+  };
+}
+
+/**
+ * Add one live step. A redelivery of the same event replaces its earlier copy
+ * in place, so a tool call keeps its position, input and start time.
+ */
+export function appendIntermediateStep<T>(steps: T[] = [], step?: T): T[] {
+  if (!step) return steps;
+  const key = stepEventKey(step);
+  const index = steps.findIndex((existing) => stepEventKey(existing) === key);
+  if (index === -1) return [...steps, step];
+  const next = [...steps];
+  next[index] = redeliveredStep(steps[index], step);
+  return next;
+}
+
+/**
+ * Reconcile known steps with a snapshot of the same run.
+ *
+ * A snapshot without a step list (for example a pushed OAuth status record)
+ * says nothing about the steps and keeps the known list. Otherwise the result
+ * follows the snapshot's order, then adds known steps it does not contain:
+ * live events that are newer than the snapshot, or events it omitted. No
+ * event is duplicated and none is dropped.
+ */
+export function mergeIntermediateStepSnapshot<T>(
+  known: T[] | undefined,
+  snapshot: T[] | undefined,
+): T[] | undefined {
+  if (!Array.isArray(snapshot)) return known;
+  if (!known?.length) return snapshot;
+  const knownByKey = new Map<string, T>();
+  for (const step of known) knownByKey.set(stepEventKey(step), step);
+  const merged: T[] = [];
+  const included = new Set<string>();
+  for (const step of snapshot) {
+    const key = stepEventKey(step);
+    if (included.has(key)) continue;
+    included.add(key);
+    const previous = knownByKey.get(key);
+    merged.push(previous ? redeliveredStep(previous, step) : step);
+  }
+  for (const step of known) {
+    const key = stepEventKey(step);
+    if (included.has(key)) continue;
+    included.add(key);
+    merged.push(step);
+  }
+  return merged;
+}
+
 /** Normalize once at the UI boundary; messages remain the source of truth per turn. */
 export function normalizeSteps(steps: any[]): IntermediateStep[] {
   const byEvent = new Map<string, IntermediateStep>();

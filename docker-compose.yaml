@@ -29,8 +29,8 @@ services:
       - ${DAEDALUS_COMPOSE_ENV_FILE:-.env}
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # The port mapping, health check, nginx upstream, and peer services all
-      # target container port 8000; env_file values must not move the listener.
+      # The port mapping, health check, and peer services all target
+      # container port 8000; env_file values must not move the listener.
       - DAEDALUS_PORT=8000
       # Explicit local-development opt-out. Non-Compose deployments fail closed
       # unless DAEDALUS_INTERNAL_API_TOKEN is configured.
@@ -165,10 +165,10 @@ services:
   stream-worker:
     image: ${DOCKER_REGISTRY:-docker.io/library}/daedalus:frontend-${DAEDALUS_VERSION:-0.1.0}
     command: ['node', 'stream-worker.js']
-    # The worker owns finalization, push notifications, and memory retention, so
-    # it needs the same .env the frontend gets. Without this it silently runs
-    # without VAPID keys and without the backend retry/abort tuning, which is
-    # exactly the code path least likely to be exercised before production.
+    # The worker owns finalization and memory retention, so it needs the same
+    # .env the frontend gets. Without this it silently runs without the backend
+    # retry/abort tuning, which is exactly the code path least likely to be
+    # exercised before production.
     env_file:
       - ${DAEDALUS_COMPOSE_ENV_FILE:-.env}
     environment:

@@ -49,9 +49,6 @@ collection and independent read timestamp, and verifies persistence after reload
 The Perplexity workflow sends two related queries to a local provider, renders
 the returned rich search cards, checks source URLs and snippets, and reloads the
 conversation to verify those cards persist.
-The user-interaction workflow renders the native memory-deletion confirmation,
-checks that it reports no executable credential, and verifies persistence after
-reload before continuing the memory save/recall and Memory Center workflows.
 The skill workflow loads native instructions and resources, checks the promoted
 model at the fixture provider, and verifies rendered Unicode instructions survive
 a conversation reload.

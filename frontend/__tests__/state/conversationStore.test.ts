@@ -3,7 +3,39 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 describe('conversationStore history reconciliation', () => {
   beforeEach(() => {
-    useConversationStore.getState().reset();
+    useConversationStore.setState({
+      conversations: [],
+      selectedConversationId: null,
+      streamingConversationIds: new Set(),
+    });
+  });
+
+  it('records a committed revision only on a copy derived from the replaced one', () => {
+    const store = useConversationStore.getState();
+    store.addConversation({
+      id: 'saved',
+      name: 'Saved',
+      messages: [],
+      folderId: null,
+      revision: 'r1',
+    } as any);
+    store.addConversation({
+      id: 'adopted',
+      name: 'Adopted',
+      messages: [],
+      folderId: null,
+      revision: 'server-newer',
+    } as any);
+
+    store.applySavedRevision('saved', ['r1'], 'r2');
+    store.applySavedRevision('adopted', ['r1'], 'r2');
+
+    const revisions = Object.fromEntries(
+      useConversationStore
+        .getState()
+        .conversations.map((c: any) => [c.id, c.revision]),
+    );
+    expect(revisions).toEqual({ saved: 'r2', adopted: 'server-newer' });
   });
 
   it('keeps the selected local draft when a server refresh returns no history', () => {

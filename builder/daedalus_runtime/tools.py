@@ -260,7 +260,6 @@ def load_tool_factories():
         "rss_feed.rss_feed_function",
         "smart_milvus.register",
         "source_verifier.source_verifier_function",
-        "user_interaction.user_interaction_function",
         "visual_media.visual_media_function",
         "webscrape.nws_weather_function",
         "webscrape.webscrape_function",

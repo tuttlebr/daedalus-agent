@@ -292,8 +292,6 @@ def configure(config, port, *_, skills_root):
     config["workflow"]["tools"].append("llm_sandbox_tool")
     config["functions"]["nws_weather_tool"] = {"_type": "nws_weather"}
     config["workflow"]["tools"].append("nws_weather_tool")
-    config["functions"]["user_interaction"] = {"_type": "user_interaction"}
-    config["workflow"]["tools"].append("user_interaction")
     config["functions"]["tool_output_retriever_tool"] = {
         "_type": "tool_output_retriever"
     }

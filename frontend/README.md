@@ -34,8 +34,9 @@ truncation. Storage failures return an error rather than acknowledging an unsave
 history. Existing Redis persistence must be retained across deployments; this
 migration cannot recreate records whose contents have already expired. Recover
 those only from preserved backups after checking current ownership and explicit
-deletions. Browser caches, selection snapshots, jobs and uploaded media retain
-their separate cache/retention policies.
+deletions. Browser caches, the selected-conversation pointer, jobs and uploaded
+media retain their separate cache/retention policies. Saves are checked against
+a server-issued revision; see [RELIABILITY.md](RELIABILITY.md).
 
 ## Runtime Model
 
@@ -77,7 +78,9 @@ The Create image path is independently job-based:
   and errors
 - `/api/images/history` persists restorable jobs and can purge unreferenced
   generated assets when requested
-- `/api/generated-image/:id?download=1` streams an authorized original asset
+- `/api/generated-image/:id?download=1` streams an authorized original asset;
+  `?thumbnail=1` serves a 400-pixel JPEG that the first request stores on the
+  image record, so later thumbnail reads skip the original
 
 ## Development
 
@@ -149,7 +152,6 @@ Secrets. Browser-visible `NEXT_PUBLIC_*` limits are compiled into the bundle.
 | `DOCUMENT_OBJECT_*`                                     | S3-compatible endpoint, credentials, bucket, prefix, and retention contract       |
 | `STREAM_WORKER_*`                                       | Worker concurrency, lease, heartbeat, reclaim, drain, and probe tuning            |
 | `NEXT_PUBLIC_WEBSOCKET_URL`, `WS_*`                     | Browser WebSocket endpoint and sidecar bounds                                     |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`     | Optional browser push notifications                                               |
 
 Default browser file bounds are 30 MiB per image, 75 MiB per video, and 200 MiB
 per document. Image limits use the actual raw file
@@ -190,6 +192,7 @@ the [operations reference](../docs/operations.md) for the complete deployment se
 | `server/autonomy/store.ts`             | Redis-backed autonomous-agent state                                 |
 | `ws-server.ts`                         | Authenticated Redis Pub/Sub to WebSocket sidecar                    |
 | `hooks/useAsyncChat.ts`                | Browser job lifecycle, live subscription, polling, and recovery     |
+| `utils/app/conversation.ts`            | Revision-checked saves, selection pointer, cross-device notices     |
 | `e2e/`                                 | Production-build browser harness with real Redis and object storage |
 
 ## Testing And Verification

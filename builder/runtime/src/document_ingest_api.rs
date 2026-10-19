@@ -195,8 +195,8 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         references: resolved[1].clone(),
         username: user,
         collection_name: Some(collection.clone()),
+        // Provenance is validated for wire compatibility; ingestion does not use it.
         collection_scope: resolved[3].as_str().map(str::to_owned),
-        provenance: resolved[4].as_object().map(|_| resolved[4].clone()),
         chunk_size: input.get("chunk_size").cloned(),
         chunk_overlap: input.get("chunk_overlap").cloned(),
     };

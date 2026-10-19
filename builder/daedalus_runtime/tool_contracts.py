@@ -60,10 +60,6 @@ OPERATIONS = {
         "read_file": operation(("file_path",)),
         "publish_file": operation(("file_path",)),
     },
-    "user_interaction": {
-        "confirm_action": operation(("action", "reason"), ("risks", "alternatives")),
-        "delete_memory_guarded": operation(("approval_token",)),
-    },
 }
 
 

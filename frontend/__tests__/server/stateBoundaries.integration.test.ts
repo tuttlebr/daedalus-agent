@@ -140,12 +140,12 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
     );
     expect(
       await queue.markBackendRequestStarted(jobId, 'old-owner', client),
-    ).toBe(false);
+    ).toBe('lease_lost');
     expect(await client.exists(startedKey)).toBe(0);
     expect(await client.get(leaseKey)).toBe('replacement');
     expect(
       await queue.markBackendRequestStarted(jobId, 'replacement', client),
-    ).toBe(true);
+    ).toBe('started');
     expect(await queue.releaseStreamLease(jobId, 'replacement', client)).toBe(
       true,
     );
@@ -240,16 +240,16 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
     };
     await client.set(key, JSON.stringify(initial), 'EX', 120);
     await Promise.all([
-      jobs.markFinalizationPhase(
+      jobs.markFinalizationPhases(
         jobId,
         initial.finalizationId,
-        'conversationAppliedAt',
+        ['conversationAppliedAt'],
         0,
       ),
-      jobs.markFinalizationPhase(
+      jobs.markFinalizationPhases(
         jobId,
         initial.finalizationId,
-        'streamingStateClearedAt',
+        ['streamingStateClearedAt'],
         5,
       ),
       jobs.setMemoryRetentionReceipt(jobId, initial.finalizationId, {
@@ -257,10 +257,10 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
         acceptedAt: 7,
       }),
     ]);
-    await jobs.markFinalizationPhase(
+    await jobs.markFinalizationPhases(
       jobId,
       initial.finalizationId,
-      'conversationAppliedAt',
+      ['conversationAppliedAt'],
       99,
     );
     await jobs.setMemoryRetentionReceipt(jobId, initial.finalizationId, {
@@ -275,7 +275,12 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
       memoryRetention: { operationId: 'first', acceptedAt: 7 },
     });
     expect(
-      await jobs.markFinalizationPhase(jobId, 'stale-owner', 'completedAt', 11),
+      await jobs.markFinalizationPhases(
+        jobId,
+        'stale-owner',
+        ['completedAt'],
+        11,
+      ),
     ).toBeNull();
     expect(await jobs.getFinalizationJournal(jobId)).toEqual(before);
 
@@ -381,10 +386,10 @@ describe.skipIf(!RUN_REAL_REDIS)('state boundaries in real Redis', () => {
               120,
             );
             if (operation === 'phase')
-              await jobs.markFinalizationPhase(
+              await jobs.markFinalizationPhases(
                 jobId,
                 journal.finalizationId,
-                'conversationAppliedAt',
+                ['conversationAppliedAt'],
                 7,
               );
             if (operation === 'receipt')

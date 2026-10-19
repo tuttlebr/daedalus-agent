@@ -77,32 +77,6 @@ impl Store {
         self.command_with_timeout(command, Duration::from_secs(2))
             .await
     }
-    /// Retain Redis's error class and caller-owned cancellation for the
-    /// single-use approval consumer. No command replay or imposed timeout.
-    pub async fn command_raw<T: redis::FromRedisValue>(
-        &self,
-        command: &mut redis::Cmd,
-        config: &redis::AsyncConnectionConfig,
-    ) -> Result<T> {
-        let result: Result<T, redis::RedisError> = async {
-            let mut cached = self.connection.lock().await;
-            if cached.is_none() {
-                *cached = Some(
-                    self.client
-                        .get_multiplexed_async_connection_with_config(config)
-                        .await?,
-                );
-            }
-            let mut connection = cached.as_ref().unwrap().clone();
-            drop(cached);
-            command.query_async(&mut connection).await
-        }
-        .await;
-        if result.is_err() {
-            *self.connection.lock().await = None;
-        }
-        result.map_err(Into::into)
-    }
     pub async fn command_with_timeout<T: redis::FromRedisValue>(
         &self,
         command: &mut redis::Cmd,

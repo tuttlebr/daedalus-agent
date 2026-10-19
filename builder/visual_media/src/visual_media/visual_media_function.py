@@ -594,7 +594,6 @@ async def visual_media_function(
         video_url: str | None = None,
         question: str = "",
         background: Literal["auto", "transparent", "opaque"] | None = None,
-        user_id: str = "",
         brief: ImageBrief | None = None,
         options: ImageOptions | None = None,
         guidance: Literal["auto", "exact"] = "auto",
@@ -613,8 +612,8 @@ async def visual_media_function(
             question: Analysis question. Falls back to prompt.
             background: Optional generate/edit output background. Use
                 "transparent" for an alpha-channel PNG asset.
-            user_id: Deprecated direct-call identity assertion. The LLM-facing
-                schema omits it; HTTP requests use the trusted NAT context.
+
+        Media ownership comes only from the authenticated request context.
         """
         op = (operation or "").strip().lower()
         try:
@@ -628,14 +627,12 @@ async def visual_media_function(
                     imageRef = _generated_image_ref(imageRef) or imageRef
 
             effective_user_id: str | None = None
-            needs_identity = (
-                bool(user_id)
-                or op in {"generate", "edit"}
-                or (op == "analyze" and bool(imageRef or videoRef))
+            needs_identity = op in {"generate", "edit"} or (
+                op == "analyze" and bool(imageRef or videoRef)
             )
             if needs_identity:
                 try:
-                    effective_user_id = resolve_authenticated_user_id(user_id)
+                    effective_user_id = resolve_authenticated_user_id()
                 except ValueError as exc:
                     logger.warning(
                         "Denied visual media request without trusted identity: %s",

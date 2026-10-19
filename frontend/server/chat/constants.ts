@@ -1,4 +1,10 @@
 export const JOB_EXPIRY_SECONDS = 60 * 60; // 1 hour
+// Records a submission writes before its job is queued (the provisional status
+// and the user's chat slot) expire after this unless queueing extends them, so
+// a submitting process that dies first cannot block the conversation or hold
+// a slot for long. It exceeds the conversation guard's 60 s initialization
+// grace and the bounded backend probe, metadata and history reads.
+export const JOB_INITIALIZATION_TTL_SECONDS = 120;
 export const NAT_SUBMIT_MAX_RETRIES = Number(
   process.env.NAT_SUBMIT_MAX_RETRIES || 2,
 );

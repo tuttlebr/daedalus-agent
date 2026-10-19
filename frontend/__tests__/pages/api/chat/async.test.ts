@@ -39,7 +39,7 @@ import {
   jsonGet,
   jsonSetWithExpiry,
 } from '@/server/session/redis';
-import { createECDH, createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -74,10 +74,9 @@ const mocks = vi.hoisted(() => {
     redisGet: vi.fn().mockResolvedValue(null),
     redisSet: vi.fn().mockResolvedValue('OK'),
     redisLrange: vi.fn().mockResolvedValue([]),
+    redisExists: vi.fn().mockResolvedValue(0),
     redisXadd: vi.fn().mockResolvedValue('1-0'),
     processMarkdownImages: vi.fn(async (s: string) => s),
-    setVapidDetails: vi.fn(),
-    sendNotification: vi.fn().mockResolvedValue(undefined),
     getMilvusMetadata: vi.fn().mockResolvedValue({
       databaseName: 'default',
       userCollection: {
@@ -112,6 +111,7 @@ vi.mock('@/server/session/redis', () => ({
     eval: mocks.redisEval,
     get: mocks.redisGet,
     lrange: mocks.redisLrange,
+    exists: mocks.redisExists,
     sismember: vi.fn().mockResolvedValue(1),
     xadd: mocks.redisXadd,
     incr: vi.fn().mockResolvedValue(1),
@@ -147,20 +147,10 @@ vi.mock('@/server/milvusMetadata', () => ({
   getMilvusMetadata: mocks.getMilvusMetadata,
 }));
 
-// finalizeSuccess/finalizeError dynamically import these. Identity passthrough
-// for image processing so output is asserted unchanged; web-push is stubbed so
-// the (always-executed) dynamic import doesn't load the real native module.
+// finalizeSuccess/finalizeError dynamically import this. Identity passthrough
+// for image processing so output is asserted unchanged.
 vi.mock('@/utils/app/imageHandler', () => ({
   processMarkdownImages: mocks.processMarkdownImages,
-}));
-
-vi.mock('web-push', () => ({
-  default: {
-    setVapidDetails: mocks.setVapidDetails,
-    sendNotification: mocks.sendNotification,
-  },
-  setVapidDetails: mocks.setVapidDetails,
-  sendNotification: mocks.sendNotification,
 }));
 
 describe('chat/async backend pinning helpers', () => {
@@ -203,6 +193,7 @@ describe('chat/async backend pinning helpers', () => {
     mocks.redisGet.mockResolvedValue(null);
     mocks.redisSet.mockResolvedValue('OK');
     mocks.redisLrange.mockResolvedValue([]);
+    mocks.redisExists.mockResolvedValue(0);
     mocks.redisXadd.mockResolvedValue('1-0');
   });
 
@@ -891,6 +882,8 @@ describe('chat/async backend pinning helpers', () => {
       expect.any(String),
       5,
       7200,
+      // Provisional until the job's records are written.
+      120,
     );
     expect(mocks.redisEval).toHaveBeenCalledWith(
       expect.stringContaining('RELEASE_CONVERSATION_JOB_GUARD'),
@@ -987,6 +980,10 @@ describe('chat/async backend pinning helpers', () => {
         // Past the initialization grace: only the live status keeps the lock.
         acquiredAt: Date.now() - 10 * 60 * 1000,
       }),
+    );
+    // A worker holds the running job's lease.
+    mocks.redisExists.mockImplementation(async (key: string) =>
+      key === 'daedalus:async-stream-lease:job-active' ? 1 : 0,
     );
     // Key-aware: the conversation read must not consume the job status.
     (jsonGet as any).mockImplementation(async (key: string) =>
@@ -1786,8 +1783,7 @@ describe('chat/async backend pinning helpers', () => {
     };
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
-      .mockResolvedValueOnce(jobRequest)
-      .mockResolvedValueOnce(null);
+      .mockResolvedValueOnce(jobRequest);
     (jsonSetWithExpiry as any).mockResolvedValue(undefined);
     const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
     const res = {
@@ -1828,8 +1824,7 @@ describe('chat/async backend pinning helpers', () => {
     };
     (jsonGet as any)
       .mockResolvedValueOnce(jobStatus)
-      .mockResolvedValueOnce(jobRequest)
-      .mockResolvedValueOnce(null);
+      .mockResolvedValueOnce(jobRequest);
     (jsonSetWithExpiry as any).mockResolvedValue(undefined);
     const req = { method: 'GET', query: { jobId: 'job-123' } } as any;
     const res = {
@@ -2013,6 +2008,9 @@ function wireRedisStore(initial: Record<string, any> = {}) {
     }
     return removed;
   });
+  mocks.redisExists.mockImplementation(
+    async (...keys: string[]) => keys.filter((key) => store.has(key)).length,
+  );
   (jsonGet as any).mockImplementation(async (key: string) =>
     store.has(key) ? structuredClone(store.get(key)) : null,
   );
@@ -2107,6 +2105,17 @@ function wireRedisStore(initial: Record<string, any> = {}) {
       const next = [...current, ...incoming.slice(overlap)];
       store.set(key, next);
       return next.length;
+    }
+    if (script.includes('DELETE_LIVE_JOB_STATUS')) {
+      const current = store.get(args[2]);
+      if (
+        !current ||
+        current.finalizedAt !== undefined ||
+        ['completed', 'error'].includes(current.status)
+      )
+        return null;
+      store.delete(args[2]);
+      return 1;
     }
     if (script.includes('CLAIM_TERMINAL_FINALIZATION')) {
       const statusKey = args[2] as string;
@@ -2226,7 +2235,6 @@ async function runStreamTurn(
     responseInit?: { ok?: boolean; status?: number };
     fetchImpl?: (...a: any[]) => any;
     expectNoFinalize?: boolean;
-    drainPredicate?: () => boolean;
     configureStore?: (store: Map<string, any>) => void;
   } = {},
 ) {
@@ -2254,9 +2262,7 @@ async function runStreamTurn(
     const jobId = res.json.mock.calls[0]?.[0]?.jobId as string;
     const statusKey = `daedalus:async-job-status:${jobId}`;
     await executeQueuedJob(store, jobId);
-    if (opts.drainPredicate) {
-      await drainUntil(opts.drainPredicate);
-    } else if (!opts.expectNoFinalize) {
+    if (!opts.expectNoFinalize) {
       await drainUntil(() => Boolean(store.get(statusKey)?.finalizedAt));
     }
     return { jobId, store, res, fetchSpy, statusKey };
@@ -2571,18 +2577,16 @@ describe('chat/async streaming + finalize (characterization)', () => {
     );
     mocks.processMarkdownImages.mockImplementation(async (s: string) => s);
     mocks.publisher.publish.mockResolvedValue(undefined);
-    mocks.sendNotification.mockResolvedValue(undefined);
     process.env.BACKEND_HOST = 'daedalus-backend';
     process.env.BACKEND_NAMESPACE = 'daedalus';
     process.env.BACKEND_PORT = '8000';
     process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1';
     delete process.env.DEPLOYMENT_MODE;
     delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
-    delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    delete process.env.VAPID_PRIVATE_KEY;
     mocks.redisDel.mockResolvedValue(0);
     mocks.redisGet.mockResolvedValue(null);
     mocks.redisLrange.mockResolvedValue([]);
+    mocks.redisExists.mockResolvedValue(0);
     mocks.redisXadd.mockResolvedValue('1-0');
   });
 
@@ -4017,35 +4021,6 @@ describe('chat/async streaming + finalize (characterization)', () => {
     );
   });
 
-  it('sends a push notification per subscription when VAPID keys are configured', async () => {
-    const keys = {
-      p256dh: createECDH('prime256v1').generateKeys().toString('base64url'),
-      auth: randomBytes(16).toString('base64url'),
-    };
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'pub';
-    process.env.VAPID_PRIVATE_KEY = 'priv';
-    await runStreamTurn(
-      ['data: {"choices":[{"delta":{"content":"Done"}}]}\n', 'data: [DONE]\n'],
-      {
-        conversationId: 'conv-1',
-        seedStore: {
-          'daedalus:user:testuser:push-subscriptions': [
-            { endpoint: 'https://fcm.googleapis.com/fcm/send/e1', keys },
-            {
-              endpoint: 'https://updates.push.services.mozilla.com/wpush/v2/e2',
-              keys,
-            },
-            { endpoint: 'https://127.0.0.1/private', keys },
-          ],
-        },
-        drainPredicate: () =>
-          (mocks.sendNotification as any).mock.calls.length >= 2,
-      },
-    );
-    expect(mocks.setVapidDetails).toHaveBeenCalledTimes(1);
-    expect(mocks.sendNotification).toHaveBeenCalledTimes(2);
-  });
-
   it('finalizeError saves a partial conversation with the error context', async () => {
     let n = 0;
     const { statusKey, store } = await runStreamTurn([], {
@@ -4263,8 +4238,8 @@ describe('chat/async streaming + finalize (characterization)', () => {
         userId: 'testuser',
         conversationId: 'conv-1',
       },
-      [`daedalus:async-job-steps:${jobId}`]: [
-        { payload: { event_type: 'TOOL_START' } },
+      [`daedalus:async-job-steps-v2:${jobId}`]: [
+        JSON.stringify({ payload: { event_type: 'TOOL_START' } }),
       ],
     });
     const req = { method: 'GET', query: { jobId } } as any;
@@ -4343,8 +4318,8 @@ describe('chat/async streaming + finalize (characterization)', () => {
         createdAt: 1,
         updatedAt: 2,
       },
-      [`daedalus:async-job-steps:${jobId}`]: [
-        { payload: { event_type: 'TOOL_END' } },
+      [`daedalus:async-job-steps-v2:${jobId}`]: [
+        JSON.stringify({ payload: { event_type: 'TOOL_END' } }),
       ],
     });
     const req = { method: 'DELETE', query: { jobId } } as any;
@@ -4358,7 +4333,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(typeof status?.finalizedAt).toBe('number');
     expect(status?.intermediateSteps).toHaveLength(1);
     expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
-    expect(store.has(`daedalus:async-job-steps:${jobId}`)).toBe(false);
+    expect(store.has(`daedalus:async-job-steps-v2:${jobId}`)).toBe(false);
     expect(clearStreamingState).toHaveBeenCalledWith(
       'testuser',
       'conv-1',
@@ -4510,6 +4485,543 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.status).toBe('completed');
     expect(status?.fullResponse).toBe('done');
     expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(true);
+  });
+});
+
+describe('chat/async submission recovery and validation', () => {
+  const OLD = () => Date.now() - 30 * 60 * 1000;
+  const guardKey = (conversationId: string) =>
+    `daedalus:async-conversation-job:testuser:${conversationId}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStreamBackendPin();
+    mocks.validateDocumentRefsForUser.mockImplementation(
+      async (refs: any[]) => refs,
+    );
+    mocks.processMarkdownImages.mockImplementation(async (s: string) => s);
+    mocks.publisher.publish.mockResolvedValue(undefined);
+    process.env.BACKEND_HOST = 'daedalus-backend';
+    process.env.BACKEND_NAMESPACE = 'daedalus';
+    process.env.BACKEND_PORT = '8000';
+    process.env.KUBERNETES_SERVICE_HOST = '10.0.0.1';
+    delete process.env.DEPLOYMENT_MODE;
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    mocks.getMilvusMetadata.mockResolvedValue({
+      databaseName: 'default',
+      userCollection: {
+        name: PRIVATE_COLLECTION,
+        displayName: 'My documents',
+        scope: 'user',
+        exists: true,
+        readable: true,
+        writable: true,
+      },
+      sharedCollections: [],
+      writableCollections: [],
+    });
+    mocks.redisXadd.mockResolvedValue('1-0');
+  });
+
+  // Conversation guards are plain strings: SET NX, GET and compare-and-set.
+  function wireGuardedStore(initial: Record<string, any> = {}) {
+    const store = wireRedisStore(initial);
+    mocks.redisSet.mockImplementation(
+      async (key: string, value: string, ...options: any[]) => {
+        if (options.includes('NX') && store.has(key)) return null;
+        store.set(key, value);
+        return 'OK';
+      },
+    );
+    const evaluate = mocks.redisEval.getMockImplementation()!;
+    mocks.redisEval.mockImplementation(async (...args: any[]) => {
+      const script = String(args[0]);
+      if (script.includes('REPLACE_CONVERSATION_JOB_GUARD')) {
+        if (store.get(args[2]) !== args[3]) return 0;
+        store.set(args[2], args[4]);
+        return 1;
+      }
+      if (script.includes('RELEASE_CONVERSATION_JOB_GUARD')) {
+        const guard = store.get(args[2]);
+        if (!guard || JSON.parse(guard).jobId !== args[5]) return 0;
+        store.delete(args[2]);
+        return 1;
+      }
+      return evaluate(...args);
+    });
+    return store;
+  }
+
+  function seedGuard(
+    store: Map<string, any>,
+    conversationId: string,
+    jobId: string,
+    acquiredAt: number,
+  ) {
+    store.set(
+      guardKey(conversationId),
+      JSON.stringify({
+        version: 1,
+        userId: 'testuser',
+        conversationId,
+        jobId,
+        acquiredAt,
+      }),
+    );
+  }
+
+  async function submit(
+    body: Record<string, any>,
+    cookie = 'sid=current-session',
+  ) {
+    const res = makeRes();
+    await handler(
+      { method: 'POST', headers: { cookie }, body } as any,
+      res as any,
+    );
+    return res;
+  }
+
+  function slotReleased(jobId: string): boolean {
+    return mocks.redisEval.mock.calls.some(
+      ([script, , key, member]) =>
+        String(script).includes("redis.call('ZREM'") &&
+        key === 'daedalus:async-user-jobs:testuser' &&
+        member === jobId,
+    );
+  }
+
+  it('recovers a conversation whose submitting process stopped before writing its request', async () => {
+    const at = OLD();
+    const store = wireGuardedStore({
+      'daedalus:async-job-status:job-orphan': {
+        jobId: 'job-orphan',
+        status: 'pending',
+        createdAt: at,
+        updatedAt: at,
+        conversationId: 'conv-orphan',
+      },
+    });
+    seedGuard(store, 'conv-orphan', 'job-orphan', at);
+
+    const res = await submit({
+      conversationId: 'conv-orphan',
+      messages: [{ role: 'user', content: 'retry' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const jobId = res.json.mock.calls[0][0].jobId;
+    expect(JSON.parse(store.get(guardKey('conv-orphan'))).jobId).toBe(jobId);
+    expect(store.has('daedalus:async-job-status:job-orphan')).toBe(false);
+    expect(slotReleased('job-orphan')).toBe(true);
+    expect(clearStreamingState).toHaveBeenCalledWith(
+      'testuser',
+      'conv-orphan',
+      'job-orphan',
+    );
+    expect(mocks.redisXadd).toHaveBeenCalledWith(
+      'daedalus:async-stream-queue',
+      '*',
+      'jobId',
+      jobId,
+    );
+  });
+
+  it('recovers a submission that wrote its request but never queued it', async () => {
+    const at = OLD();
+    const store = wireGuardedStore({
+      'daedalus:async-job-status:job-unqueued': {
+        jobId: 'job-unqueued',
+        status: 'pending',
+        createdAt: at,
+        updatedAt: at,
+        conversationId: 'conv-unqueued',
+      },
+      'daedalus:async-job-request:job-unqueued': {
+        jobId: 'job-unqueued',
+        executionMode: 'stream',
+        userId: 'testuser',
+        conversationId: 'conv-unqueued',
+        messages: [],
+      },
+    });
+    seedGuard(store, 'conv-unqueued', 'job-unqueued', at);
+
+    const res = await submit({
+      conversationId: 'conv-unqueued',
+      messages: [{ role: 'user', content: 'retry' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(store.has('daedalus:async-job-request:job-unqueued')).toBe(false);
+    expect(store.has('daedalus:async-job-status:job-unqueued')).toBe(false);
+    expect(slotReleased('job-unqueued')).toBe(true);
+  });
+
+  it('keeps a queued job that is waiting for a worker', async () => {
+    const at = OLD();
+    const store = wireGuardedStore({
+      'daedalus:async-job-status:job-queued': {
+        jobId: 'job-queued',
+        status: 'pending',
+        createdAt: at,
+        updatedAt: at,
+      },
+      'daedalus:async-job-request:job-queued': {
+        jobId: 'job-queued',
+        executionMode: 'stream',
+        userId: 'testuser',
+        messages: [],
+      },
+      'daedalus:async-stream-payload:job-queued': {
+        messagesForNat: [],
+        verifiedUsername: 'testuser',
+      },
+    });
+    seedGuard(store, 'conv-queued', 'job-queued', at);
+
+    const res = await submit({
+      conversationId: 'conv-queued',
+      messages: [{ role: 'user', content: 'second turn' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(JSON.parse(store.get(guardKey('conv-queued'))).jobId).toBe(
+      'job-queued',
+    );
+    expect(store.has('daedalus:async-job-status:job-queued')).toBe(true);
+    expect(slotReleased('job-queued')).toBe(false);
+  });
+
+  it('keeps a submission provisional until its records are written', async () => {
+    const store = wireGuardedStore();
+
+    const res = await submit({
+      conversationId: 'conv-new',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const jobId = res.json.mock.calls[0][0].jobId;
+    const statusTtls = (jsonSetWithExpiry as any).mock.calls
+      .filter(([key]: [string]) => key === `daedalus:async-job-status:${jobId}`)
+      .map(([, , ttl]: [string, any, number]) => ttl);
+    // A short-lived provisional status, then the job's full lifetime.
+    expect(statusTtls).toEqual([120, 3600]);
+    const confirm = mocks.redisEval.mock.calls.findIndex(([script]) =>
+      String(script).includes('CONFIRM_USER_JOB_GUARD'),
+    );
+    expect(confirm).toBeGreaterThan(-1);
+    expect(mocks.redisEval.mock.calls[confirm].slice(1)).toEqual([
+      1,
+      'daedalus:async-user-jobs:testuser',
+      jobId,
+      7200,
+    ]);
+    expect(mocks.redisEval.mock.invocationCallOrder[confirm]).toBeLessThan(
+      mocks.redisXadd.mock.invocationCallOrder[0],
+    );
+    expect(store.get(`daedalus:async-job-status:${jobId}`).status).toBe(
+      'pending',
+    );
+  });
+
+  it('abandons a submission whose provisional slot was released', async () => {
+    const store = wireGuardedStore();
+    const evaluate = mocks.redisEval.getMockImplementation()!;
+    mocks.redisEval.mockImplementation(async (...args: any[]) =>
+      String(args[0]).includes('CONFIRM_USER_JOB_GUARD')
+        ? 0
+        : evaluate(...args),
+    );
+
+    const res = await submit({
+      conversationId: 'conv-slow',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'This response took too long to start. Please try again.',
+      reason: 'submission_expired',
+    });
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+    expect(
+      [...store.keys()].filter((key) => key.startsWith('daedalus:async-job')),
+    ).toEqual([]);
+    expect(store.has(guardKey('conv-slow'))).toBe(false);
+  });
+
+  it('DELETE finishes a pending job that has no queue owner', async () => {
+    const jobId = 'del-unqueued';
+    const store = wireRedisStore({
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        executionMode: 'stream',
+        userId: 'testuser',
+        conversationId: 'conv-1',
+        messages: [{ role: 'user', content: 'hi' }],
+      },
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'pending',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    });
+    const res = makeRes();
+
+    await handler({ method: 'DELETE', query: { jobId } } as any, res);
+
+    expect(res.json).toHaveBeenCalledWith({ success: true, canceled: true });
+    expect(store.get(`daedalus:async-job-status:${jobId}`)).toMatchObject({
+      status: 'error',
+      error: 'Job canceled by user',
+      finalizedAt: expect.any(Number),
+    });
+    expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
+    expect(slotReleased(jobId)).toBe(true);
+  });
+
+  it('DELETE leaves a queued pending job to its worker', async () => {
+    const jobId = 'del-queued';
+    const store = wireRedisStore({
+      [`daedalus:async-job-request:${jobId}`]: {
+        jobId,
+        executionMode: 'stream',
+        userId: 'testuser',
+        natBaseUrl: 'http://127.0.0.1:1',
+        messages: [],
+      },
+      [`daedalus:async-job-status:${jobId}`]: {
+        jobId,
+        status: 'pending',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      [`daedalus:async-stream-payload:${jobId}`]: {
+        messagesForNat: [],
+        verifiedUsername: 'testuser',
+      },
+    });
+    stubFetch(async () => ({ ok: true, status: 200 }));
+    const res = makeRes();
+
+    try {
+      await handler({ method: 'DELETE', query: { jobId } } as any, res);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(res.json).toHaveBeenCalledWith({ success: true, canceled: true });
+    expect(store.get(`daedalus:async-job-status:${jobId}`).status).toBe(
+      'pending',
+    );
+    expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBe(true);
+    expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(true);
+  });
+
+  it.each(['not/a/scope', '-leading-dash', 'a'.repeat(129), ''])(
+    'rejects conversation ID %j before claiming anything',
+    async (conversationId) => {
+      wireGuardedStore();
+
+      const res = await submit({
+        conversationId,
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: expect.stringContaining('Invalid conversation ID'),
+        reason: 'invalid_conversation_id',
+      });
+      expect(mocks.redisSet).not.toHaveBeenCalled();
+      expect(mocks.redisEval).not.toHaveBeenCalledWith(
+        expect.stringContaining('ACQUIRE_USER_JOB_GUARD'),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+      );
+    },
+  );
+
+  it.each(['3f2b8c1e-7a4d-4e6f-9b1a-2c3d4e5f6a7b', 'imported:conv.1_a'])(
+    'accepts conversation ID %s and forwards it as the workspace scope',
+    async (conversationId) => {
+      const store = wireGuardedStore();
+
+      const res = await submit({
+        conversationId,
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const jobId = res.json.mock.calls[0][0].jobId;
+      const request = store.get(`daedalus:async-job-request:${jobId}`);
+      expect(
+        buildNatRequestHeaders(
+          'testuser',
+          {},
+          undefined,
+          undefined,
+          request.conversationId,
+        )['x-conversation-id'],
+      ).toBe(conversationId);
+    },
+  );
+
+  it('authorizes document attachments with the upload storage scope, not the session credential', async () => {
+    wireGuardedStore();
+
+    const res = await submit({
+      conversationId: 'conv-doc',
+      messages: [
+        {
+          role: 'user',
+          content: 'Summarize this',
+          attachments: [
+            {
+              type: 'document',
+              content: 'a.md',
+              documentRef: { documentId: 'doc-a', sessionId: 'scope-1' },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const storageScope = createHash('sha256')
+      .update('daedalus-storage-session-v1\0current-session')
+      .digest('hex')
+      .slice(0, 32);
+    expect(mocks.validateDocumentRefsForUser).toHaveBeenCalledWith(
+      [expect.objectContaining({ documentId: 'doc-a' })],
+      storageScope,
+      'testuser',
+    );
+    expect(mocks.validateDocumentRefsForUser).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'current-session',
+      expect.anything(),
+    );
+  });
+
+  it('does not fetch collection metadata for attachments only in history', async () => {
+    wireGuardedStore();
+    mocks.getMilvusMetadata.mockRejectedValue(new Error('Milvus unavailable'));
+
+    const res = await submit({
+      conversationId: 'conv-history-doc',
+      messages: [
+        {
+          role: 'user',
+          content: 'Ingest these docs',
+          metadata: { targetCollection: PRIVATE_COLLECTION },
+          attachments: [
+            {
+              type: 'document',
+              content: 'a.md',
+              documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+            },
+          ],
+        },
+        { role: 'assistant', content: 'Ingestion complete.' },
+        { role: 'user', content: 'What were the main themes?' },
+      ],
+    });
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mocks.getMilvusMetadata).not.toHaveBeenCalled();
+  });
+
+  it('still requires collection metadata for an ingestion turn', async () => {
+    wireGuardedStore();
+    mocks.getMilvusMetadata.mockRejectedValue(new Error('Milvus unavailable'));
+
+    const res = await submit({
+      conversationId: 'conv-ingest',
+      messages: [
+        {
+          role: 'user',
+          content: 'Ingest these docs',
+          metadata: { targetCollection: PRIVATE_COLLECTION },
+          attachments: [
+            {
+              type: 'document',
+              content: 'a.md',
+              documentRef: { documentId: 'doc-a', sessionId: 'sess-1' },
+            },
+          ],
+        },
+      ],
+    });
+
+    // The ingest target must be the backend's authoritative collection name.
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Document collection metadata is temporarily unavailable.',
+      reason: 'collection_metadata_unavailable',
+    });
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+  });
+
+  it('reports an unreachable backend without exposing pod addresses', async () => {
+    vi.useFakeTimers();
+    wireGuardedStore();
+    mocks.fetchWithTimeout.mockRejectedValue(
+      new Error('connect ECONNREFUSED 10.0.2.61:8000'),
+    );
+    try {
+      const pending = submit({
+        conversationId: 'conv-down',
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      const res = await pending;
+
+      expect(res.status).toHaveBeenCalledWith(502);
+      const body = res.json.mock.calls[0][0];
+      expect(body).toEqual({
+        error:
+          'The assistant backend is temporarily unavailable. Please try again shortly.',
+        reason: 'backend_unavailable',
+      });
+      expect(JSON.stringify(body)).not.toContain('10.0.2.61');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('records the streaming transition once instead of on every flush', async () => {
+    let now = 1_900_000_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => (now += 1000));
+    try {
+      const { statusKey, store } = await runStreamTurn([
+        'data: {"choices":[{"delta":{"content":"one "}}]}\n',
+        'data: {"choices":[{"delta":{"content":"two "}}]}\n',
+        'data: {"choices":[{"delta":{"content":"three"}}]}\n',
+        'data: [DONE]\n',
+      ]);
+      expect(store.get(statusKey)).toMatchObject({
+        status: 'completed',
+        fullResponse: 'one two three',
+      });
+    } finally {
+      clock.mockRestore();
+    }
+    // markJobStreaming is the only unpublished live status update.
+    const streamingWrites = mocks.redisEval.mock.calls.filter(
+      (args) =>
+        String(args[0]).includes('UPDATE_LIVE_JOB_STATUS') && args[6] === '',
+    );
+    expect(streamingWrites).toHaveLength(1);
+    expect(JSON.parse(streamingWrites[0][4]).status).toBe('streaming');
   });
 });
 

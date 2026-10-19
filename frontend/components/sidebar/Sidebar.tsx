@@ -18,7 +18,10 @@ import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useFileSave } from '@/hooks/useFileSave';
 
 import { apiDelete } from '@/utils/app/api';
-import { saveConversation } from '@/utils/app/conversation';
+import {
+  persistSelectedConversation,
+  saveConversation,
+} from '@/utils/app/conversation';
 import { downloadFilename } from '@/utils/app/sandboxArtifactDownload';
 
 import { Conversation } from '@/types/chat';
@@ -92,6 +95,7 @@ export const Sidebar = memo(() => {
     };
     addConversation(newConv);
     selectConversation(newConv.id);
+    void persistSelectedConversation(newConv.id);
     void saveConversation(newConv).catch(() =>
       setError(
         'Could not save the new chat. Your chat is still available here; try again when connected.',
@@ -111,6 +115,8 @@ export const Sidebar = memo(() => {
   const handleSelect = useCallback(
     (id: string) => {
       selectConversation(id);
+      // A reload, here or on another device, reopens the user's choice.
+      void persistSelectedConversation(id);
       setActiveView('chat');
       closeSidebarOnMobile();
     },
@@ -178,10 +184,11 @@ export const Sidebar = memo(() => {
     }
     setPending(renamingId);
     setError(null);
-    const updated = { ...conv, name, updatedAt: Date.now() };
     try {
-      await saveConversation(updated);
-      updateConversation(renamingId, { name, updatedAt: updated.updatedAt });
+      // If another device saved this conversation meanwhile, the rename is
+      // applied to its newer copy instead of reverting either change.
+      await saveConversation({ ...conv, name }, { fields: ['name'] });
+      updateConversation(renamingId, { name });
       cancelRename(renamingId);
     } catch {
       setError('Could not save the name. Your edit is still here. Try again.');

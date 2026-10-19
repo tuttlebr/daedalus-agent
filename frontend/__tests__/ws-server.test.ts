@@ -525,6 +525,53 @@ describe('authenticated WebSocket initialization', () => {
     },
   );
 
+  // Chat submission and backend workspace scoping use the same rule, so a
+  // conversation that can run a job can also receive its live events.
+  it.each([
+    ['3f2b8c1e-7a4d-4e6f-9b1a-2c3d4e5f6a7b', true],
+    ['imported:conv.1_a', true],
+    ['-leading-dash', false],
+    ['not/a/scope', false],
+    ['a'.repeat(129), false],
+  ])(
+    'applies the shared conversation ID rule to chat subscription %s',
+    async (conversationId, accepted) => {
+      const socket = new FakeWebSocket();
+      const canSubscribeToChat = vi.fn().mockResolvedValue(true);
+      const retainChannel = vi.fn().mockResolvedValue(undefined);
+      await initializeAuthenticatedConnection(
+        socket as unknown as WebSocket,
+        'alice',
+        'session-ids',
+        connectionDependencies({ canSubscribeToChat, retainChannel }),
+      );
+
+      socket.emit(
+        'message',
+        Buffer.from(JSON.stringify({ type: 'subscribe_chat', conversationId })),
+      );
+
+      if (accepted) {
+        await vi.waitFor(() =>
+          expect(retainChannel).toHaveBeenCalledWith(
+            `user:alice:chat:${conversationId}:tokens`,
+            expect.any(Function),
+          ),
+        );
+      } else {
+        await vi.waitFor(() =>
+          expect(socket.sent.map((raw) => JSON.parse(raw))).toContainEqual({
+            type: 'error',
+            message: 'Invalid chat subscription',
+          }),
+        );
+        expect(canSubscribeToChat).not.toHaveBeenCalled();
+        expect(retainChannel).not.toHaveBeenCalled();
+      }
+      socket.disconnect();
+    },
+  );
+
   it('coalesces duplicate chat subscriptions that validate concurrently', async () => {
     const socket = new FakeWebSocket();
     const validation = valueDeferred<boolean>();

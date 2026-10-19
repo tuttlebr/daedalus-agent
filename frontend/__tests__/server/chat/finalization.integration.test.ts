@@ -110,7 +110,6 @@ describe.skipIf(!RUN_REAL_REDIS)(
             ]),
             streamState.streamResponseKey(jobId),
             streamState.streamStepsKey(jobId),
-            streamState.legacyStreamStepsKey(jobId),
             conversationGuard.conversationJobGuardKey(userId, conversationId),
             redis.sessionKey(['memory-retention', 'record', 'v1', jobId]),
             redis.sessionKey(['memory-retention', 'user', userId, 'v1']),

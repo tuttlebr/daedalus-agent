@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   getOrSetSessionId: vi.fn(),
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
-  publishSyncEvent: vi.fn(),
 }));
 
 vi.mock('@/server/session/redis', () => ({
@@ -19,10 +18,6 @@ vi.mock('@/server/session/redis', () => ({
 vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
   getOrSetSessionId: mocks.getOrSetSessionId,
-}));
-
-vi.mock('@/utils/sync/publish', () => ({
-  publishSyncEvent: mocks.publishSyncEvent,
 }));
 
 function createMockReqRes(method: string, body: any = {}) {
@@ -41,7 +36,6 @@ describe('session/selectedConversation assistant content preservation', () => {
     vi.clearAllMocks();
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
     mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
-    mocks.publishSyncEvent.mockResolvedValue(undefined);
   });
 
   it('preserves repeated assistant text on GET without rewriting stored history', async () => {
@@ -69,4 +63,30 @@ describe('session/selectedConversation assistant content preservation', () => {
     expect(res.json).toHaveBeenCalledWith(expected);
     expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
   });
+
+  it('stores the selection as an id pointer, even from a full copy', async () => {
+    const { req, res } = createMockReqRes('PUT', {
+      id: 'conv-2',
+      name: 'Older clients send the whole conversation',
+      messages: [{ role: 'user', content: 'not stored here' }],
+    });
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(204);
+    expect(mocks.jsonSetWithExpiry).toHaveBeenCalledExactlyOnceWith(
+      'daedalus:user:testuser:selectedConversation',
+      { id: 'conv-2' },
+      60 * 60 * 24 * 7,
+    );
+  });
+
+  it.each([null, {}, { id: '' }, { id: 7 }, { id: 'x'.repeat(513) }])(
+    'rejects a selection without a usable id: %j',
+    async (body) => {
+      const { req, res } = createMockReqRes('PUT', body);
+      await handler(req, res);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+    },
+  );
 });

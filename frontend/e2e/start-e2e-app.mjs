@@ -39,7 +39,6 @@ const runtimeEnv = {
     '$2a$12$dcSap9jLj.Qneh0w6TYJsuYXiZJe/CE3b6cA8cwmpv29YHigOrrAK',
   AUTH_NAME: 'E2E User',
   AUTH_LOGIN_MAX_ATTEMPTS: '20',
-  SESSION_SECRET: 'e2e-session-secret-with-more-than-thirty-two-bytes',
   REDIS_URL: redisUrl,
   REDIS_TLS_ENABLED: 'false',
   BACKEND_HOST: '127.0.0.1',

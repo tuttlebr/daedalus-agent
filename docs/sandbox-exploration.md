@@ -104,9 +104,6 @@ signs a 120-second grant. The API verifies the audience, issuer, profile and
 scope. No identity or policy selector is exposed in model arguments.
 
 Normal [backend builds](../builder/Dockerfile) include both adapters.
-`builder/Dockerfile.exploration` is the pinned overlay used for the initial
-rollout to preserve the existing deployed Python application; it is not a
-replacement for normal full builds.
 
 Exercise the built backend with disposable local peers:
 

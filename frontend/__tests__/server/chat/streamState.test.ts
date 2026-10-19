@@ -4,11 +4,9 @@ import {
   clearStreamState,
   getStreamResponse,
   getStreamSteps,
-  legacyStreamStepsKey,
   streamResponseKey,
   streamStepsKey,
 } from '@/server/chat/streamState';
-import { jsonDel, jsonGet } from '@/server/session/redis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -20,8 +18,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/server/session/redis', () => ({
   getRedis: vi.fn(() => mocks),
-  jsonDel: vi.fn(),
-  jsonGet: vi.fn(),
   sessionKey: vi.fn((parts: string[]) => `daedalus:${parts.join(':')}`),
 }));
 
@@ -32,8 +28,6 @@ describe('normalized live stream state', () => {
     mocks.eval.mockResolvedValue(1);
     mocks.get.mockResolvedValue(null);
     mocks.lrange.mockResolvedValue([]);
-    (jsonDel as any).mockResolvedValue(0);
-    (jsonGet as any).mockResolvedValue(null);
   });
 
   it('appends only the new response delta and refreshes its TTL atomically', async () => {
@@ -83,25 +77,29 @@ describe('normalized live stream state', () => {
     ).resolves.toEqual([{ id: 1 }, { id: 2 }]);
   });
 
-  it('falls back to legacy snapshots during a rolling upgrade', async () => {
-    const legacySteps = [{ id: 'legacy' }];
-    (jsonGet as any).mockResolvedValue(legacySteps);
+  it('uses the status snapshot for empty normalized state with one read each', async () => {
+    const snapshotSteps = [{ id: 'snapshot' }];
 
-    await expect(getStreamResponse('job-4', 'legacy response')).resolves.toBe(
-      'legacy response',
+    await expect(getStreamResponse('job-4', 'snapshot response')).resolves.toBe(
+      'snapshot response',
     );
-    await expect(getStreamSteps('job-4', [])).resolves.toEqual(legacySteps);
-    expect(jsonGet).toHaveBeenCalledWith('daedalus:async-job-steps:job-4');
+    await expect(getStreamSteps('job-4', snapshotSteps)).resolves.toEqual(
+      snapshotSteps,
+    );
+    // No job writes the retired async-job-steps JSON array, so an empty step
+    // list costs no further Redis round trip.
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(mocks.lrange).toHaveBeenCalledTimes(1);
   });
 
-  it('cleans normalized and legacy keys together', async () => {
+  it('cleans the normalized keys in one delete', async () => {
     await clearStreamState('job-5');
 
+    expect(mocks.del).toHaveBeenCalledOnce();
     expect(mocks.del).toHaveBeenCalledWith(
       streamResponseKey('job-5'),
       streamStepsKey('job-5'),
     );
-    expect(jsonDel).toHaveBeenCalledWith(legacyStreamStepsKey('job-5'));
   });
 
   it('does not turn failed durability reads into empty response or tool history', async () => {
@@ -114,6 +112,5 @@ describe('normalized live stream state', () => {
     await expect(getStreamSteps('job-6')).rejects.toThrow(
       'Step read unavailable',
     );
-    expect(jsonGet).not.toHaveBeenCalled();
   });
 });

@@ -17,7 +17,6 @@ def schemas():
     from llm_sandbox.llm_sandbox_function import LlmSandboxInput
     from nat_nv_ingest.nat_nv_ingest import UserDocumentInput
     from source_verifier.source_verifier_function import SourceVerifierInput
-    from user_interaction.user_interaction_function import UserInteractionInput
     from visual_media.visual_media_function import VisualMediaInput
 
     return {
@@ -25,7 +24,6 @@ def schemas():
         "llm_sandbox": LlmSandboxInput,
         "nat_nv_ingest": UserDocumentInput,
         "source_verifier": SourceVerifierInput,
-        "user_interaction": UserInteractionInput,
         "visual_media": VisualMediaInput,
     }
 
@@ -83,11 +81,6 @@ def schemas():
         ),
         ("llm_sandbox", {"operation": "execute", "argv": [], "timeout_seconds": "30"}),
         ("llm_sandbox", {"operation": "write_file", "file_path": "x"}),
-        ("user_interaction", {"operation": "clarify", "question": "Proceed?"}),
-        (
-            "user_interaction",
-            {"operation": "delete_memory_guarded", "approval_token": " "},
-        ),
     ],
 )
 def test_invalid_calls_never_enter_leaf(kind, args):

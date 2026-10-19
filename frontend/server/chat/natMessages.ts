@@ -6,9 +6,10 @@ import {
   withTimezoneHeader,
 } from '@/utils/server/backendAuth';
 
+import { isValidConversationId } from './conversationId';
+
 import { createHash } from 'node:crypto';
 
-const CONVERSATION_SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const REQUEST_SCOPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const APPROVAL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{20,128}$/;
 
@@ -78,8 +79,7 @@ export function buildNatRequestHeaders(
   const resolvedTimezone = timezone || resolveTimezoneFromHeaders(headers);
   const conversationCandidate = conversationId?.trim();
   const trustedConversationId =
-    conversationCandidate &&
-    CONVERSATION_SCOPE_PATTERN.test(conversationCandidate)
+    conversationCandidate && isValidConversationId(conversationCandidate)
       ? conversationCandidate
       : undefined;
   const requestCandidate = requestId?.trim();

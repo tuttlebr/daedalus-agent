@@ -1,4 +1,4 @@
-"""Shared memory deletion lifecycle for authenticated APIs and approved tools."""
+"""Memory deletion lifecycle for the authenticated Memory Center clear API."""
 
 from nat_helpers.hindsight_memory_context import clear_user_memory_caches
 

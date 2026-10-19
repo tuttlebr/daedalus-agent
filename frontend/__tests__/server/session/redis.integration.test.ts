@@ -4,6 +4,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const session = vi.hoisted(() => ({ username: '' }));
 vi.mock('@/utils/auth/session', () => ({ getSession: async () => session }));
+vi.mock('@/server/session/_utils', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/server/session/_utils')>()),
+  getOrSetSessionId: () => 'integration-session',
+}));
 
 describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
   'mixed-format bulk conversation reads',
@@ -128,7 +132,8 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       const { reserveConversationForUser } = await import(
         '@/server/session/conversationStore'
       );
-      const handler = (await import('@/pages/api/conversations/index')).default;
+      const handler = (await import('@/pages/api/session/conversationHistory'))
+        .default;
       const plainId = `${prefix}-new`;
       const legacyId = `${prefix}-legacy`;
       key('conversation', plainId);
@@ -156,14 +161,19 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
       await handler({ method: 'GET' } as any, res as any);
       expect(res.status).toHaveBeenCalledWith(200);
+      // Neither record stores a revision; both are identified by updatedAt.
       expect(res.json.mock.calls[0][0]).toEqual(
-        expect.arrayContaining([plain, legacy]),
+        expect.arrayContaining([
+          { ...plain, revision: 't0' },
+          { ...legacy, revision: 't0' },
+        ]),
       );
       expect(res.json.mock.calls[0][0]).toHaveLength(2);
     });
 
     it('propagates unavailable data as a server error instead of an empty list', async () => {
-      const handler = (await import('@/pages/api/conversations/index')).default;
+      const handler = (await import('@/pages/api/session/conversationHistory'))
+        .default;
       await client.sadd(
         key('user', prefix, 'conversations'),
         `${prefix}-outage`,
@@ -180,7 +190,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         await handler({ method: 'GET' } as any, res as any);
         expect(res.status).toHaveBeenCalledWith(500);
         expect(res.json).toHaveBeenCalledWith({
-          error: 'Failed to fetch conversations',
+          error: 'Failed to load conversationHistory',
         });
       } finally {
         call.mockRestore();

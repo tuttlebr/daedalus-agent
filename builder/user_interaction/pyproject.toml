@@ -11,7 +11,7 @@ dependencies = [
   "redis>=4.3.6,<6",
 ]
 requires-python = ">=3.11,<3.14"
-description = "Structured user interaction tools for Daedalus. Provides frameworks for clarification, confirmation, and preference gathering."
+description = "Redis-backed approval tokens and execution receipts for the Daedalus MCP approval gate."
 classifiers = ["Programming Language :: Python"]
 
 [tool.setuptools]

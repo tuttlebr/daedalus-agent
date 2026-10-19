@@ -43,6 +43,14 @@ pub enum Command {
     },
 }
 
+/// Accepted direction awaiting the agent. Stop never enters the inbox: it
+/// wakes the run supervisor through the cancellation channel.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Steering {
+    pub command_id: Uuid,
+    pub instruction: String,
+}
+
 impl Command {
     pub fn id(&self) -> Uuid {
         match self {
@@ -66,7 +74,7 @@ pub struct RunHandle {
     pub conversation: String,
     /// Background autonomy run; admitted from its own per-user pool.
     pub autonomy: bool,
-    pub sender: mpsc::Sender<Command>,
+    pub sender: mpsc::Sender<Steering>,
     pub commands: Mutex<HashMap<Uuid, Command>>,
     pub finished: AtomicBool,
     pub cancellation: watch::Sender<bool>,
@@ -94,23 +102,32 @@ impl RunHandle {
         if self.finished.load(Ordering::Relaxed) {
             return Err(409);
         }
-        // Stop bypasses both steering limits and wakes the run supervisor,
-        // including when the agent is blocked sending output to a slow client.
-        if matches!(command, Command::Cancel { .. }) {
-            if *self.cancellation.borrow() {
-                return Ok(false);
+        let steering = match &command {
+            // Stop bypasses both steering limits and wakes the run supervisor,
+            // including when the agent is blocked sending output to a slow client.
+            Command::Cancel { .. } => {
+                if *self.cancellation.borrow() {
+                    return Ok(false);
+                }
+                self.cancellation.send_replace(true);
+                commands.insert(command.id(), command);
+                return Ok(true);
             }
-            self.cancellation.send_replace(true);
-            commands.insert(command.id(), command);
-            return Ok(true);
-        }
+            Command::Steer {
+                command_id,
+                instruction,
+            } => Steering {
+                command_id: *command_id,
+                instruction: instruction.clone(),
+            },
+        };
         if *self.cancellation.borrow() {
             return Err(409);
         }
         if commands.len() >= 256 {
             return Err(429);
         }
-        self.sender.try_send(command.clone()).map_err(|error| {
+        self.sender.try_send(steering).map_err(|error| {
             if matches!(error, mpsc::error::TrySendError::Closed(_)) {
                 409u16
             } else {
@@ -121,13 +138,20 @@ impl RunHandle {
         Ok(true)
     }
 
-    pub async fn finish_if_idle(&self, inbox: &mpsc::Receiver<Command>) -> bool {
+    pub async fn finish_if_idle(&self, inbox: &mpsc::Receiver<Steering>) -> bool {
         let _guard = self.commands.lock().await;
         if !inbox.is_empty() || *self.cancellation.borrow() {
             return false;
         }
         self.finished.store(true, Ordering::Relaxed);
         true
+    }
+
+    /// The run's outcome is known; later commands get the finished answer.
+    /// Uses the submit lock so no command is accepted after this returns.
+    pub async fn finish(&self) {
+        let _guard = self.commands.lock().await;
+        self.finished.store(true, Ordering::Relaxed);
     }
 }
 
@@ -239,7 +263,13 @@ mod tests {
             Ok(true)
         );
         assert!(*run.cancellation.borrow());
-        assert_eq!(receiver.recv().await, Some(command));
+        assert_eq!(
+            receiver.recv().await,
+            Some(Steering {
+                command_id: command.id(),
+                instruction: "Use source B".into()
+            })
+        );
     }
 
     #[tokio::test]

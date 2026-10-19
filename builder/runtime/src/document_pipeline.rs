@@ -136,10 +136,34 @@ impl document_process::Engine for Engine {
         })
     }
 }
+#[cfg(test)]
+impl Pipeline {
+    /// Extraction followed by its write, as the document runner performs them.
+    pub(crate) async fn ingest(self, progress: Stages) -> Result<Ingested> {
+        use document_process::{Extraction as _, Pipeline as _};
+        self.extract(progress.clone()).await?.write(progress).await
+    }
+}
+/// Completed NV-Ingest output awaiting its local Milvus write.
+pub struct Extraction {
+    engine: Engine,
+    collection: String,
+    ingested: nv_ingest::Ingestion,
+}
 impl document_process::Pipeline for Pipeline {
-    async fn ingest(self, progress: Stages) -> Result<Ingested> {
+    type Extraction = Extraction;
+    async fn extract(self, _progress: Stages) -> Result<Extraction> {
+        Ok(Extraction {
+            ingested: self.engine.client.ingest_submission(self.body).await,
+            engine: self.engine,
+            collection: self.collection,
+        })
+    }
+}
+impl document_process::Extraction for Extraction {
+    async fn write(self, progress: Stages) -> Result<Ingested> {
         let engine = self.engine;
-        let mut ingested = engine.client.ingest_submission(self.body).await;
+        let mut ingested = self.ingested;
         progress
             .emit(
                 "indexing",
@@ -181,7 +205,7 @@ impl document_process::Pipeline for Pipeline {
 mod tests {
     use super::*;
     use crate::{
-        document_process::{Engine as _, Pipeline as _, Services as _},
+        document_process::{Engine as _, Services as _},
         milvus_index_transport::tests::{configured, script},
     };
     use axum::{
@@ -309,7 +333,13 @@ mod tests {
         }
     }
     impl document_process::Pipeline for Runner {
-        async fn ingest(self, _progress: Stages) -> Result<Ingested> {
+        type Extraction = Self;
+        async fn extract(self, _progress: Stages) -> Result<Self> {
+            Ok(self)
+        }
+    }
+    impl document_process::Extraction for Runner {
+        async fn write(self, _progress: Stages) -> Result<Ingested> {
             *self.attempts.lock().unwrap() += 1;
             let mut io = Script(
                 self.case["calls"]

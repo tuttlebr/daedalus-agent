@@ -348,6 +348,8 @@ enum Reply {
     Pending,
     Failed,
 }
+/// Delay before re-polling a job that is still running (HTTP 202).
+const PENDING_POLL: Duration = Duration::from_millis(250);
 impl Client {
     pub fn new(host: &str, port: i64, workers: i64) -> Result<Self> {
         if workers <= 0 {
@@ -422,7 +424,9 @@ impl Client {
         }
         loop {
             match self.request(&format!("/v2/fetch_job/{id}"), None).await {
-                Reply::Pending => tokio::task::yield_now().await,
+                // The SDK re-polls a pending job immediately. Pace polls so a
+                // long extraction does not issue a continuous request stream.
+                Reply::Pending => tokio::time::sleep(PENDING_POLL).await,
                 Reply::Failed => return Extraction::default(),
                 Reply::Success(bytes) => {
                     // Large envelopes carry every chunk's embedding. Decode and
@@ -466,8 +470,8 @@ impl Client {
         // retained as one group, even when its data is empty or null. Omitted
         // jobs yield one (job_id, error) tuple, whose len() is the application's
         // failure count. Ingestor skips local upload when every job failed.
-        // The collection-owning worker, rather than this HTTP call, owns the
-        // deadline: a cancelled waiter must leave its started pipeline alive.
+        // The document runner's deadline bounds this extraction, including
+        // its transport retries; it runs before the collection is owned.
         let extraction = self.run(body, crate::document_json::decode_indexed).await;
         let upload = extraction.results.as_array().is_some_and(|r| !r.is_empty());
         Ingestion {

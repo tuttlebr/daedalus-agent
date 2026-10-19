@@ -29,10 +29,17 @@ pub fn routes() -> Router<App> {
 fn respond((status, body): (u16, Value)) -> Response {
     (StatusCode::from_u16(status).unwrap(), Json(body)).into_response()
 }
-fn failure(message: &str) -> (u16, Value) {
+fn failure(error: &anyhow::Error) -> (u16, Value) {
+    use crate::document_store::StorageError;
+    let message = error.to_string();
     let lower = message.to_lowercase();
-    let status = if lower.contains("access") {
-        403
+    // Ownership and storage outages are typed: an unavailable Redis or object
+    // store is not an authorization failure, though its message says "access".
+    let status = if let Some(storage) = error.downcast_ref::<StorageError>() {
+        match storage {
+            StorageError::Forbidden(_) => 403,
+            StorageError::Unavailable(_) => 503,
+        }
     } else if lower.contains("not found") || lower.contains("expired") {
         404
     } else if lower.contains("exceeds the maximum allowed size") {
@@ -47,7 +54,7 @@ fn failure(message: &str) -> (u16, Value) {
     } else {
         500
     };
-    detail(status, if status == 500 { FAILED } else { message })
+    detail(status, if status == 500 { FAILED } else { &message })
 }
 async fn handle(State(app): State<App>, request: Request) -> Response {
     let Some(preparation) = app.preparation.as_ref() else {
@@ -105,7 +112,7 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
     let limit = (!download).then(|| input["char_limit"].as_u64().unwrap_or(50_000) as usize);
     let result = match processor.extract(&input["documentRef"], &user, limit).await {
         Ok(result) => result,
-        Err(error) => return respond(failure(&error.to_string())),
+        Err(error) => return respond(failure(&error)),
     };
     if result.unencodable {
         return (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response();
@@ -318,6 +325,49 @@ pub fn validate(input: &Value, download: bool) -> ApiResult<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn storage_outages_are_unavailable_and_ownership_is_forbidden() {
+        let config = crate::config::Config {
+            raw: json!({}),
+            policy_raw: json!({}),
+            python_tools: false,
+            env: [("REDIS_URL".to_string(), "redis://127.0.0.1:1".to_string())].into(),
+        };
+        let processor = crate::document_processor::Processor::new(&config).unwrap();
+        // Redis cannot be reached.
+        let error = processor
+            .extract(&json!({"documentId":"d","sessionId":"s"}), "alice", None)
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            error
+                .to_string()
+                .starts_with("Error accessing document storage")
+        );
+        assert_eq!(failure(&error).0, 503);
+        // Object storage failures share the same storage classification.
+        let object = crate::document_store::unavailable(
+            "Error accessing document object storage. Please upload the document again.",
+        );
+        assert_eq!(failure(&object).0, 503);
+        // A record owned by someone else.
+        let record = json!({"userId":"bob","filename":"a.txt","data":"dGV4dA=="});
+        let error = crate::document_store::load_record(&config, &record, "d", "s", "alice")
+            .await
+            .unwrap_err();
+        let (status, body) = failure(&error);
+        assert_eq!(status, 403);
+        assert_eq!(body["detail"], error.to_string());
+        // Untyped messages keep their existing mapping.
+        assert_eq!(
+            failure(&anyhow::anyhow!("Error: Document not found")).0,
+            404
+        );
+        assert_eq!(failure(&anyhow::anyhow!("operation timed out")).0, 504);
+    }
+
     #[test]
     fn frozen_http_validation() {
         let fixture: Value =

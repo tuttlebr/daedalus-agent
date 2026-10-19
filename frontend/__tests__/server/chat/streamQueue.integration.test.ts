@@ -1,6 +1,33 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const RUN_REAL_REDIS = process.env.RUN_REDIS_STREAM_INTEGRATION === '1';
+
+/**
+ * The stream-worker ACL exactly as the Helm chart writes it: key patterns,
+ * channel patterns and command rules. Reading the chart keeps this test from
+ * drifting from the deployed user; a format change fails loudly here.
+ */
+function chartStreamWorkerAclRules(): string[] {
+  const chart = readFileSync(
+    path.resolve(
+      __dirname,
+      '../../../../helm/daedalus/templates/redis-init-configmap.yaml',
+    ),
+    'utf8',
+  );
+  const user = chart.match(
+    /write_acl_user "\$REDIS_STREAM_WORKER_USERNAME"[^\n]*\n[^\n]*\n\s*'([^']+)' \\\n\s*'([^']+)'/,
+  );
+  const commands = chart.match(/printf ' (\+@all[^'\\]*)\\n'/);
+  if (!user || !commands) {
+    throw new Error(
+      'Stream-worker ACL not found in the Helm Redis init script',
+    );
+  }
+  return [user[1], user[2], commands[1]].flatMap((rules) => rules.split(' '));
+}
 
 describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
   let client: any;
@@ -61,7 +88,7 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     ).toBe(true);
     expect(
       await queue.markBackendRequestStarted(jobId, 'dead-owner', client),
-    ).toBe(true);
+    ).toBe('started');
 
     await new Promise((resolve) => setTimeout(resolve, 80));
 
@@ -178,7 +205,7 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
       ).toBe(true);
       expect(
         await queue.markBackendRequestStarted(duplicateJob, 'original', client),
-      ).toBe(true);
+      ).toBe('started');
       await streamState.appendStreamResponseDelta(
         duplicateJob,
         'Already accepted output',
@@ -246,7 +273,6 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
       queue.streamBackendStartedKey(activeJobId),
       state.streamResponseKey(activeJobId),
       state.streamStepsKey(activeJobId),
-      state.legacyStreamStepsKey(activeJobId),
       sessionKey(['async-job-abort', activeJobId]),
       sessionKey(['async-job-finalization', activeJobId]),
     ];
@@ -313,27 +339,29 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     }
   });
 
-  it('renews a conversation-less job as the ACL-restricted stream worker', async () => {
+  it('renews and starts a conversation-less job as the ACL-restricted stream worker', async () => {
     // The Helm stream-worker user. An empty placeholder key in the renewal
-    // script made Redis reject every heartbeat for this user (NOPERM).
-    const { sessionKey } = await import('@/server/session/redis');
+    // script made Redis reject every heartbeat for this user (NOPERM). Use the
+    // real slot key: an invented key can match a pattern the real one misses.
+    const { userJobGuardKey } = await import('@/server/chat/userJobGuard');
+    const { abortKey } = await import('@/server/chat/jobState');
     const { default: Redis } = await import('ioredis');
     const username = `stream-worker-acl-${process.pid}`;
     const password = `acl-${Date.now()}`;
     const restrictedJobId = `${jobId}-acl`;
-    const userGuardKey = sessionKey(['user', 'acl-user', 'active-jobs']);
+    const userGuardKey = userJobGuardKey('acl-user');
+    const rules = chartStreamWorkerAclRules();
+    expect(rules).toEqual(
+      expect.arrayContaining(['~async-*', '&job:*:status', '+@all']),
+    );
     await client.call(
       'ACL',
       'SETUSER',
       username,
+      'reset',
       'on',
       `>${password}`,
-      ...'~async-* ~conversation:* ~conversation-job:* ~streaming:user:*:conversation:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~session-documents:* ~generated:* ~image:* ~image-job:*'.split(
-        ' ',
-      ),
-      '+@all',
-      '-@dangerous',
-      '+info',
+      ...rules,
     );
     const url = new URL(process.env.REDIS_URL as string);
     url.username = username;
@@ -353,10 +381,77 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
         ),
       ).toBe(true);
       expect(await client.ttl(userGuardKey)).toBeGreaterThan(1000);
+      // The start marker also reads the job's stop signal under this ACL.
+      expect(
+        await queue.markBackendRequestStarted(
+          restrictedJobId,
+          'owner',
+          restricted,
+        ),
+      ).toBe('started');
+      // Live status and token events use the chart's exact channels.
+      await expect(
+        restricted.publish(`job:${restrictedJobId}:status`, '{}'),
+      ).resolves.toBeGreaterThanOrEqual(0);
+      await expect(
+        restricted.publish('user:acl-user:chat:conv-1:tokens', '{}'),
+      ).resolves.toBeGreaterThanOrEqual(0);
+      await expect(restricted.publish('audit:other', '{}')).rejects.toThrow(
+        /NOPERM/,
+      );
     } finally {
       restricted.disconnect();
       await client.call('ACL', 'DELUSER', username);
-      await client.del(userGuardKey, queue.streamLeaseKey(restrictedJobId));
+      await client.del(
+        userGuardKey,
+        queue.streamLeaseKey(restrictedJobId),
+        queue.streamBackendStartedKey(restrictedJobId),
+        abortKey(restrictedJobId),
+      );
+    }
+  });
+
+  it('refuses to start a backend request after a recorded stop', async () => {
+    const { abortKey } = await import('@/server/chat/jobState');
+    const stoppedJobId = `${jobId}-stopped-before-start`;
+    try {
+      await queue.acquireStreamLease(stoppedJobId, 'owner', 30000, client);
+      await client.set(abortKey(stoppedJobId), 'true', 'EX', 60);
+      expect(
+        await queue.markBackendRequestStarted(stoppedJobId, 'owner', client),
+      ).toBe('canceled');
+      expect(
+        await client.exists(queue.streamBackendStartedKey(stoppedJobId)),
+      ).toBe(0);
+      // Lease ownership is still checked first: a non-owner learns nothing.
+      expect(
+        await queue.markBackendRequestStarted(stoppedJobId, 'other', client),
+      ).toBe('lease_lost');
+    } finally {
+      await client.del(
+        abortKey(stoppedJobId),
+        queue.streamLeaseKey(stoppedJobId),
+        queue.streamBackendStartedKey(stoppedJobId),
+      );
+    }
+  });
+
+  it('treats streamed output as start evidence when the marker is gone', async () => {
+    const streamState = await import('@/server/chat/streamState');
+    const evictedJobId = `${jobId}-evicted-marker`;
+    try {
+      expect(await queue.hasBackendRequestStarted(evictedJobId, client)).toBe(
+        false,
+      );
+      await streamState.appendStreamSteps(evictedJobId, [{ id: 1 }], 0);
+      expect(await queue.hasBackendRequestStarted(evictedJobId, client)).toBe(
+        true,
+      );
+    } finally {
+      await client.del(
+        streamState.streamStepsKey(evictedJobId),
+        streamState.streamResponseKey(evictedJobId),
+      );
     }
   });
 

@@ -18,6 +18,27 @@ const EMPTY: &str = "Error: Retrieved document data is empty.";
 const INVALID: &str = "Error: Retrieved document data is invalid.";
 const OBJECT_ACCESS: &str =
     "Error accessing document object storage. Please upload the document again.";
+
+/// Classifies a document read failure for HTTP status mapping. Its display is
+/// the unchanged user-facing message.
+#[derive(Debug)]
+pub enum StorageError {
+    /// The authenticated user does not own the stored document.
+    Forbidden(String),
+    /// Redis or object storage could not serve the document.
+    Unavailable(String),
+}
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Forbidden(message) | Self::Unavailable(message) => f.write_str(message),
+        }
+    }
+}
+impl std::error::Error for StorageError {}
+pub fn unavailable(message: impl Into<String>) -> anyhow::Error {
+    StorageError::Unavailable(message.into()).into()
+}
 const DEFAULT_MAX_BYTES: usize = 200 * 1024 * 1024;
 
 pub fn can_access(record: &Value, user: &str) -> Result<bool> {
@@ -376,9 +397,10 @@ pub async fn load_record(
     user: &str,
 ) -> Result<(Vec<u8>, String)> {
     if !can_access(record, user)? {
-        bail!(
-            "Error: You do not have access to this document. Please upload the document again from your account."
-        );
+        return Err(StorageError::Forbidden(
+            "Error: You do not have access to this document. Please upload the document again from your account.".into(),
+        )
+        .into());
     }
     let load = plan(
         config,
@@ -403,19 +425,22 @@ pub async fn load_record(
                 .connect_timeout(object.timeout.min(Duration::from_secs(10)))
                 .timeout(object.timeout)
                 .build()
-                .map_err(|_| anyhow!(OBJECT_ACCESS))?;
+                .map_err(|_| unavailable(OBJECT_ACCESS))?;
             let mut request = client.get(format!("{}{path}", object.settings.endpoint));
             for (key, value) in headers {
                 request = request.header(key, value);
             }
-            let response = request.send().await.map_err(|_| anyhow!(OBJECT_ACCESS))?;
+            let response = request
+                .send()
+                .await
+                .map_err(|_| unavailable(OBJECT_ACCESS))?;
             if !response.status().is_success() {
-                bail!(OBJECT_ACCESS);
+                return Err(unavailable(OBJECT_ACCESS));
             }
             let mut stream = response.bytes_stream();
             let mut bytes = Vec::new();
             while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|_| anyhow!(OBJECT_ACCESS))?;
+                let chunk = chunk.map_err(|_| unavailable(OBJECT_ACCESS))?;
                 if chunk.len() > object.maximum.saturating_sub(bytes.len()) {
                     return Err(size_error(object.maximum));
                 }

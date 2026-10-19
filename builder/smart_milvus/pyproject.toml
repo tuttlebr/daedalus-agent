@@ -20,8 +20,5 @@ classifiers = ["Programming Language :: Python"]
 packages = ["smart_milvus"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-smart_milvus = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

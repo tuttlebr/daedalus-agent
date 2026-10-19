@@ -14,11 +14,25 @@ import { createHash } from 'node:crypto';
 import { isIPv4 } from 'node:net';
 
 const OAUTH_CALLBACK_TARGET_TTL_SECONDS = 11 * 60;
+const MAX_OAUTH_OWNER_CHARS = 256;
 
 export interface OAuthCallbackTarget {
   backendBaseUrl: string;
   jobId: string;
+  /**
+   * Daedalus user that started the authorization. Targets written by older
+   * stream workers omit it; their job request record names the owner instead.
+   */
+  userId?: string;
   createdAt: number;
+}
+
+function isValidOwner(userId: unknown): userId is string {
+  return (
+    typeof userId === 'string' &&
+    userId.length > 0 &&
+    userId.length <= MAX_OAUTH_OWNER_CHARS
+  );
 }
 
 function callbackTargetKey(state: string): string {
@@ -69,12 +83,16 @@ export async function saveOAuthCallbackTarget(
   state: string,
   backendBaseUrl: string,
   jobId: string,
+  userId?: string,
 ): Promise<void> {
   if (!state || state.length > 512) {
     throw new Error('OAuth state is missing or too long');
   }
   if (!jobId || jobId.length > 128) {
     throw new Error('OAuth callback job is missing or too long');
+  }
+  if (userId !== undefined && !isValidOwner(userId)) {
+    throw new Error('OAuth callback owner is invalid');
   }
   if (!isAllowedOAuthBackendBaseUrl(backendBaseUrl)) {
     throw new Error('OAuth callback backend is not allowed');
@@ -84,6 +102,7 @@ export async function saveOAuthCallbackTarget(
     {
       backendBaseUrl,
       jobId,
+      ...(userId ? { userId } : {}),
       createdAt: Date.now(),
     } satisfies OAuthCallbackTarget,
     OAUTH_CALLBACK_TARGET_TTL_SECONDS,
@@ -104,11 +123,30 @@ export async function loadOAuthCallbackTarget(
     !target.jobId ||
     target.jobId.length > 128 ||
     typeof target.createdAt !== 'number' ||
+    (target.userId !== undefined && !isValidOwner(target.userId)) ||
     !isAllowedOAuthBackendBaseUrl(target.backendBaseUrl)
   ) {
     return null;
   }
   return target;
+}
+
+/**
+ * The backend stores a completed grant under the user who started the flow,
+ * whichever browser consents. Only that user's signed-in session may deliver
+ * the callback; otherwise a forwarded consent link would attach another
+ * person's Google account to the initiator.
+ */
+export async function isOAuthCallbackOwner(
+  target: OAuthCallbackTarget,
+  userId: string,
+): Promise<boolean> {
+  if (!userId) return false;
+  if (target.userId !== undefined) return target.userId === userId;
+  const job = (await jsonGet(
+    sessionKey(['async-job-request', target.jobId]),
+  )) as { userId?: unknown } | null;
+  return job?.userId === userId;
 }
 
 export async function deleteOAuthCallbackTarget(state: string): Promise<void> {

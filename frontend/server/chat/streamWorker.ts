@@ -26,6 +26,7 @@ import {
 } from '@/server/chat/streamQueue';
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import {
+  ApiRouteError,
   StreamUserCancellationError,
   type AsyncJobRequest,
   type AsyncJobStatus,
@@ -111,6 +112,28 @@ class StreamWorkerDrainError extends Error {
     super('Stream worker is draining');
     this.name = 'StreamWorkerDrainError';
   }
+}
+
+const USER_CANCELLATION_MESSAGE = new StreamUserCancellationError().message;
+const STARTED_BEFORE_RECLAIM_MESSAGE =
+  'The stream worker stopped after backend execution began. The request was not replayed because backend tool execution is not resumable. Please try again.';
+const WORKER_FAILURE_MESSAGE =
+  'The response could not be processed because of an internal error. Please try again.';
+
+/**
+ * Saved chats and job status reach the browser. Only errors written for users
+ * keep their message; anything else (Redis or network failures that can name
+ * internal hosts) is logged here and saved as a fixed explanation.
+ */
+function publicFailureMessage(jobId: string, error: unknown): string {
+  if (
+    error instanceof StreamUserCancellationError ||
+    error instanceof ApiRouteError
+  ) {
+    return error.message;
+  }
+  logger.error(`Job ${jobId}: stream worker failed`, error);
+  return WORKER_FAILURE_MESSAGE;
 }
 
 function isTerminal(status: AsyncJobStatus | null): boolean {
@@ -248,15 +271,23 @@ export async function processStreamQueueEntry(
       return 'missing';
     }
 
-    const backendStarted = await hasBackendRequestStarted(entry.jobId);
+    // A stream job's status leaves `pending` only after its backend request
+    // was sent, so it is start evidence that survives eviction of the marker.
+    // Document ingestion is queued as `streaming` and relies on the marker.
+    const backendStarted =
+      (jobRequest.executionMode === 'stream' && status.status !== 'pending') ||
+      (await hasBackendRequestStarted(entry.jobId));
     // Delivery history belongs to a stream entry, while execution belongs to
     // the job. A retried XADD can create a fresh entry for a started job after
     // its original worker loses the lease; that entry must not replay tools.
     if (backendStarted) {
+      // A user stop whose owner lost its lease before finalizing remains the
+      // outcome the user asked for, not an interruption.
+      const canceled = Boolean(await jsonGet(abortKey(entry.jobId)));
       await finalizeError(
         entry.jobId,
         jobRequest,
-        'The stream worker stopped after backend execution began. The request was not replayed because backend tool execution is not resumable. Please try again.',
+        canceled ? USER_CANCELLATION_MESSAGE : STARTED_BEFORE_RECLAIM_MESSAGE,
       );
       return (await acknowledgeTerminalEntry(entry))
         ? 'recovered_as_error'
@@ -265,7 +296,7 @@ export async function processStreamQueueEntry(
 
     const cancellationRequested = Boolean(await jsonGet(abortKey(entry.jobId)));
     if (cancellationRequested) {
-      await finalizeError(entry.jobId, jobRequest, 'Job canceled by user');
+      await finalizeError(entry.jobId, jobRequest, USER_CANCELLATION_MESSAGE);
       return (await acknowledgeTerminalEntry(entry))
         ? 'completed'
         : 'finalization_pending';
@@ -283,7 +314,7 @@ export async function processStreamQueueEntry(
         : 'finalization_pending';
     }
 
-    if (entry.reclaimed && !backendStarted) {
+    if (entry.reclaimed) {
       jobRequest = await refreshBackendForReclaim(entry.jobId, jobRequest);
     }
 
@@ -347,8 +378,17 @@ export async function processStreamQueueEntry(
       if (controller.signal.aborted) {
         throw controller.signal.reason;
       }
-      const marked = await markBackendRequestStarted(entry.jobId, ownerToken);
-      if (!marked) {
+      // The start marker and the stop check commit together. A stop recorded
+      // after the checks above (for example during reclaim's backend probe)
+      // still prevents the request; it is then finalized like any other stop.
+      const started = await markBackendRequestStarted(entry.jobId, ownerToken);
+      if (started === 'canceled') {
+        if (!controller.signal.aborted) {
+          controller.abort(new StreamUserCancellationError());
+        }
+        throw controller.signal.reason;
+      }
+      if (started !== 'started') {
         abortForLostLease();
         throw new StreamLeaseLostError(entry.jobId);
       }
@@ -367,11 +407,7 @@ export async function processStreamQueueEntry(
         jobRequest,
         payload!.messagesForNat,
         payload!.verifiedUsername,
-        {
-          signal: controller.signal,
-          beforeBackendRequest,
-          approvalToken: payload!.approvalToken,
-        },
+        { signal: controller.signal, beforeBackendRequest },
       );
     }
 
@@ -425,7 +461,7 @@ export async function processStreamQueueEntry(
       await finalizeError(
         entry.jobId,
         jobRequest,
-        error instanceof Error ? error.message : 'Stream worker failed',
+        publicFailureMessage(entry.jobId, error),
         ...(error instanceof StreamUserCancellationError && error.snapshot
           ? [error.snapshot]
           : []),

@@ -1,6 +1,6 @@
 # Tool execution contracts
 
-Daedalus exposes 17 native tools plus explicitly configured MCP capabilities.
+Daedalus exposes 16 native tools plus explicitly configured MCP capabilities.
 Every retained tool has a distinct execution or retrieval purpose. Shared
 execution guidance lives in `builder/runtime/resources/tool-policy.json`; both
 preparation modes use it in the Rust loop. Python and Rust also share the clock
@@ -20,7 +20,6 @@ description from that file.
 | `user_document_tool`         | Extract, ingest, or search uploaded documents                        | Ingest: one reference or a batch; extract: one documentRef; search: query; list: no document/search arguments             |
 | `curated_feed_search_tool`   | Discover recent source-specific feed entries or retrieve one article | Query, or discovery query batch with per-query scope; no mixed single/batch inputs                                        |
 | `tool_output_retriever_tool` | Recover original content behind a compacted result                   | Reference returned by compaction plus literal search or offset; required when omitted content could change an exact claim |
-| `user_interaction_tool`      | Request and execute approved deletion of the caller's durable memory | Confirm: action and reason; delete: single-use approval token; no model-supplied identity or target                       |
 | `perplexity_search_tool`     | Discover public web sources and candidate URLs                       | Standalone query or bounded related queries; snippets are discovery evidence                                              |
 | `webscrape_tool`             | Fetch source content from one known public URL                       | URL; read the page before treating its content as evidence                                                                |
 | `nws_weather_tool`           | Observe official US forecasts and active alerts                      | Coordinates and bounded days; unavailable data is not an all-clear                                                        |
@@ -147,7 +146,8 @@ delivery and incremental streaming.
 Use recoverable output previews and `tool_output_retriever_tool` to retrieve
 exact evidence before summarizing it. Ask necessary questions and present plans
 in chat; source policy that requires plan approval still waits for the user's
-response. Memory deletion operations require a scoped, single-use credential.
+response. No tool deletes durable memory; the user clears it in the Memory
+Center, which requires a typed confirmation.
 Unsupported tool names and legacy `max_options`, model identity/target, and MCP
 argument fields are rejected rather than reinterpreted.
 
@@ -159,7 +159,7 @@ so they can check compatibility independently of the current implementation.
 ## Validation and evaluation
 
 - Python regression tests check invalid calls before I/O, disabled capabilities,
-  timezone observations, authenticated ownership, and single-use memory deletion.
+  timezone observations, and authenticated ownership.
 - `tool_catalog_contract_check.py` checks every active native factory, schema,
   configured description, and lifecycle; it also runs in the image build.
 - `runtime_http_check.py --image ... --redis-image ...` exercises the actual

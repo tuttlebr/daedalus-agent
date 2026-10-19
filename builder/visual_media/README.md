@@ -80,9 +80,8 @@ visual_media(
 ) -> str
 ```
 
-The backend derives media ownership from the authenticated request context. A
-legacy direct caller may still supply `user_id`, but it is only an equality
-assertion and is intentionally absent from the LLM-facing schema.
+The backend derives media ownership from the authenticated request context.
+The tool accepts no identity argument; the LLM-facing schema rejects `user_id`.
 
 Examples:
 
@@ -112,7 +111,7 @@ Returns an `Error: ...` prefixed string when:
 - the model returns no image
 - Redis storage fails
 - a required field is missing for the chosen operation
-- trusted request identity is missing or a legacy identity assertion mismatches it
+- trusted request identity is missing
 
 ## Requirements
 

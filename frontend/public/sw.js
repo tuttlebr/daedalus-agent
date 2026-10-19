@@ -643,46 +643,6 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Push notifications
-self.addEventListener('push', (event) => {
-  if (!event.data) return;
-
-  const data = event.data.json();
-  const options = {
-    body: data.body,
-    icon: BRANDING.assets['/favicon.png'],
-    badge: BRANDING.assets['/favicon.png'],
-    vibrate: [100, 50, 100],
-    data: {
-      dateOfArrival: Date.now(),
-      primaryKey: 1,
-    },
-    actions: [
-      {
-        action: 'view',
-        title: 'View',
-      },
-      {
-        action: 'close',
-        title: 'Close',
-      },
-    ],
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'Daedalus', options),
-  );
-});
-
-// Handle notification clicks
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-
-  if (event.action === 'view') {
-    event.waitUntil(clients.openWindow('/'));
-  }
-});
-
 // Clear caches that may hold user-private data so one user's offline-cached
 // data is never served to the next user on a shared device. Private API
 // responses are no longer cached; the legacy cache is still deleted during

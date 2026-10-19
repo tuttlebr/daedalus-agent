@@ -240,18 +240,18 @@ describe('apiPost', () => {
     const responseBody = { id: 'new-id', success: true };
     mockFetch.mockResolvedValue(mockResponse(201, responseBody, true));
 
-    const result = await apiPost('/api/push/subscribe', {
-      endpoint: 'https://push.example.com',
+    const result = await apiPost('/api/chat/async', {
+      conversationId: 'conv-1',
     });
 
     expect(result).toEqual(responseBody);
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/api/push/subscribe'),
+      expect.stringContaining('/api/chat/async'),
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ endpoint: 'https://push.example.com' }),
+        body: JSON.stringify({ conversationId: 'conv-1' }),
       }),
     );
   });
@@ -260,7 +260,7 @@ describe('apiPost', () => {
     mockFetch.mockResolvedValue(mockResponse(400));
 
     try {
-      await apiPost('/api/push/subscribe', { invalid: true });
+      await apiPost('/api/chat/async', { invalid: true });
       expect.fail('Expected ApiError');
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);

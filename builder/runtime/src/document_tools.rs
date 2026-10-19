@@ -220,12 +220,8 @@ impl Adapter {
             surrogates.retain(|marker, _| outcome.markdown.contains(*marker));
             Text::new(single(&serde_json::to_value(outcome)?), surrogates)
         };
-        if let Some(reservation) = reservation
-            && !document_reservations::complete(&self.config, &reservation, &result).await?
-        {
-            tracing::warn!(
-                "Document ingest finished but its idempotency result couldn't be finalized"
-            );
+        if let Some(reservation) = reservation {
+            document_reservations::finalize(&self.config, &reservation, &result).await;
         }
         Ok(result)
     }

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
-use crate::control::{Command, RunHandle};
+use crate::control::{RunHandle, Steering};
 use crate::events::{Events, ResponseText};
 use crate::logging::{Phase, label};
 
@@ -102,7 +102,7 @@ pub struct Agent {
     pub tools_url: String,
     pub headers: HeaderMap,
     pub events: Events,
-    pub inbox: mpsc::Receiver<Command>,
+    pub inbox: mpsc::Receiver<Steering>,
     pub handle: std::sync::Arc<RunHandle>,
     pub pending: Vec<(String, String)>,
     pub revision: u64,
@@ -129,30 +129,17 @@ fn legacy_tool_event_size(value: &Value) -> usize {
 }
 
 impl Agent {
-    async fn accept(&mut self, command: Command) -> Result<()> {
-        match command {
-            Command::Steer {
-                command_id,
-                instruction,
-            } => {
-                self.revision += 1;
-                tracing::info!(event = "steering_received", %command_id, revision = self.revision);
-                self.events.event("steering", json!({
-                    "command_id":command_id,"status":"received","revision":self.revision,"instruction":instruction
-                })).await?;
-                self.pending.push((command_id.to_string(), instruction));
-            }
-            Command::Cancel { command_id } => {
-                tracing::info!(event = "cancellation_received", %command_id);
-                self.events
-                    .event(
-                        "steering",
-                        json!({"command_id":command_id,"status":"cancelled"}),
-                    )
-                    .await?;
-                bail!("Run cancelled by user");
-            }
-        }
+    async fn accept(&mut self, steering: Steering) -> Result<()> {
+        let Steering {
+            command_id,
+            instruction,
+        } = steering;
+        self.revision += 1;
+        tracing::info!(event = "steering_received", %command_id, revision = self.revision);
+        self.events.event("steering", json!({
+            "command_id":command_id,"status":"received","revision":self.revision,"instruction":instruction
+        })).await?;
+        self.pending.push((command_id.to_string(), instruction));
         Ok(())
     }
 
@@ -322,10 +309,18 @@ impl Agent {
             }
             // A retry continues already visible text, potentially mid-word.
             // Tool rounds and steering instead begin a new response block.
-            if !resume_text || !self.pending.is_empty() {
+            let steered = !self.pending.is_empty();
+            if !resume_text || steered {
                 response_text.begin_block();
             }
             self.apply(&mut history).await?;
+            if steered {
+                // New direction supersedes recovery of an interrupted attempt:
+                // its visible text stays in history, but the next response
+                // answers the steering rather than continuing that text.
+                resume_text = false;
+                retrying_decode = false;
+            }
             iterations += 1;
             let final_synthesis = briefing_text_fallback
                 || (prepared.daily_summary
@@ -423,16 +418,20 @@ impl Agent {
                 .fetch_add(1, Ordering::Relaxed)
                 + 1;
             let model_started = Instant::now();
-            let request_timeout = if briefing_text_fallback {
+            // request_timeout bounds inactivity: time to the first stream item
+            // and between items. A healthy long response keeps streaming; the
+            // whole-run deadline bounds total time.
+            let inactivity = Duration::from_secs_f64(prepared.model.request_timeout.max(1.0));
+            let total_timeout = if briefing_text_fallback {
                 briefing_fallback_started = true;
-                // Configured and validated alongside the research budget.
-                let synthesis = preparation.as_ref().map_or(75.0, |p| {
+                // Configured and validated alongside the research budget. The
+                // single text-only synthesis attempt keeps a total cap.
+                Some(preparation.as_ref().map_or(75.0, |p| {
                     p.config
                         .limit("daily_summary_synthesis_retry_timeout_seconds", 75.0)
-                });
-                prepared.model.request_timeout.min(synthesis)
+                }))
             } else {
-                prepared.model.request_timeout
+                None
             };
             tracing::info!(
                 event = "model_call_started",
@@ -443,7 +442,8 @@ impl Agent {
                 attempt = retry_attempt + 1,
                 model = label(&model_name),
                 tool_count,
-                timeout_seconds = request_timeout,
+                timeout_seconds = prepared.model.request_timeout,
+                total_timeout_seconds = total_timeout,
                 final_synthesis
             );
             let model = provider.completion(&model_name);
@@ -457,10 +457,20 @@ impl Agent {
                 model.transport,
             );
             let mut stream = model.stream(request).context(Phase("model_request"))?;
-            let deadline = tokio::time::sleep(Duration::from_secs_f64(request_timeout.max(1.0)));
-            tokio::pin!(deadline);
+            let idle = tokio::time::sleep(inactivity);
+            tokio::pin!(idle);
+            let total = async {
+                match total_timeout {
+                    Some(seconds) => {
+                        tokio::time::sleep(Duration::from_secs_f64(seconds.max(1.0))).await
+                    }
+                    None => std::future::pending().await,
+                }
+            };
+            tokio::pin!(total);
             let mut partial = String::new();
             let mut interrupted = false;
+            let mut inactive = false;
             let mut stream_error = None;
             let mut received_item = false;
             let mut last_activity = Instant::now();
@@ -476,6 +486,7 @@ impl Agent {
                         None => break,
                         Some(Err(error)) => { stream_error = Some(error); break; },
                         Some(Ok(item)) => {
+                            idle.as_mut().reset(tokio::time::Instant::now() + inactivity);
                             if !received_item {
                                 tracing::info!(event = "model_first_event", model_call,
                                     elapsed_ms = model_started.elapsed().as_millis() as u64);
@@ -502,7 +513,8 @@ impl Agent {
                             }
                         },
                     },
-                    _ = &mut deadline => return Err(anyhow::anyhow!("Model request timed out").context(Phase("model_stream"))),
+                    _ = &mut idle => { inactive = true; break; }
+                    _ = &mut total => return Err(anyhow::anyhow!("Model request timed out").context(Phase("model_stream"))),
                     _ = self.events.sender.closed() => bail!("Client disconnected"),
                 }
             }
@@ -523,20 +535,31 @@ impl Agent {
                 }
                 continue;
             }
+            // `None` is a silent provider: no stream item within the
+            // inactivity timeout. Like a transport failure it is retryable.
             let completion = match stream_error {
-                Some(error) => Err(error),
-                None => stream.finish().await,
+                Some(error) => Err(Some(error)),
+                None if inactive => {
+                    drop(stream);
+                    Err(None)
+                }
+                None => stream.finish().await.map_err(Some),
             };
             let completed = match completion {
                 Ok(completed) => completed,
                 Err(error)
                     if !briefing_text_fallback
-                        && (crate::provider::retryable(&error)
-                            || (crate::provider::stream_decode_error(&error)
-                                && decode_recoveries == 0))
+                        && error.as_ref().is_none_or(|error| {
+                            crate::provider::retryable(error)
+                                || (crate::provider::stream_decode_error(error)
+                                    && decode_recoveries == 0)
+                        })
                         && retry_attempt < prepared.model.max_retries =>
                 {
-                    if crate::provider::stream_decode_error(&error) {
+                    if error
+                        .as_ref()
+                        .is_some_and(crate::provider::stream_decode_error)
+                    {
                         decode_recoveries += 1;
                         retrying_decode = true;
                     }
@@ -557,13 +580,16 @@ impl Agent {
                         retry_attempt,
                         decode_recoveries,
                         delay_ms = delay.as_millis() as u64,
-                        error_kind = if crate::provider::is_gateway_transport_error(&error) {
-                            "upstream_transport"
-                        } else {
-                            error.kind().code()
+                        error_kind = match &error {
+                            None => "inactivity_timeout",
+                            Some(error) if crate::provider::is_gateway_transport_error(error) => {
+                                "upstream_transport"
+                            }
+                            Some(error) => error.kind().code(),
                         },
                         http_status = error
-                            .provider_response_status()
+                            .as_ref()
+                            .and_then(|error| error.provider_response_status())
                             .map(|status| status.as_u16()),
                         elapsed_ms = model_started.elapsed().as_millis() as u64,
                         received_item,
@@ -578,7 +604,22 @@ impl Agent {
                     }
                     continue;
                 }
-                Err(error) => {
+                Err(None) => {
+                    tracing::warn!(
+                        event = "model_call_failed",
+                        model_call,
+                        error_kind = "inactivity_timeout",
+                        retry_attempt,
+                        decode_recoveries,
+                        elapsed_ms = model_started.elapsed().as_millis() as u64,
+                        received_item,
+                        output_bytes = partial.len(),
+                    );
+                    return Err(
+                        anyhow::anyhow!("Model request timed out").context(Phase("model_stream"))
+                    );
+                }
+                Err(Some(error)) => {
                     tracing::warn!(
                         event = "model_call_failed",
                         model_call,
@@ -1005,7 +1046,6 @@ impl Agent {
             && (preparation.document_tools.contains_key(name)
                 || preparation.domain_tools.contains_key(name)
                 || preparation.search_tools.contains_key(name)
-                || preparation.user_tools.contains_key(name)
                 || preparation.skill_tools.contains_key(name)
                 || preparation.sandbox_tools.contains_key(name)
                 || preparation.exploration_tools.contains_key(name)
@@ -1027,15 +1067,6 @@ impl Agent {
                     tool.call(arguments, &headers).await
                 } else if let Some(tool) = preparation.weather_tools.get(name) {
                     tool.call(arguments).await
-                } else if let Some(tool) = preparation.user_tools.get(name) {
-                    tool.call(
-                        arguments,
-                        &headers,
-                        &preparation.memory,
-                        &preparation.memory_tools.hindsight,
-                    )
-                    .await
-                    .map(crate::document_json::Text::from)
                 } else if let Some(tool) = preparation.search_tools.get(name) {
                     tool.call(arguments)
                         .await
@@ -1362,6 +1393,31 @@ mod tests {
         let Some(Some(events)) = script else {
             return std::future::pending().await;
         };
+        // `__pause_ms` delays the next event; `__stall` keeps the body open.
+        if events
+            .iter()
+            .any(|event| event.get("__pause_ms").is_some() || event.get("__stall").is_some())
+        {
+            let (sender, receiver) = mpsc::channel::<Result<String, std::convert::Infallible>>(64);
+            tokio::spawn(async move {
+                for event in events {
+                    if let Some(pause) = event["__pause_ms"].as_u64() {
+                        tokio::time::sleep(Duration::from_millis(pause)).await;
+                    } else if event["__stall"] == true {
+                        std::future::pending::<()>().await;
+                    } else if sender.send(Ok(format!("data: {event}\n\n"))).await.is_err() {
+                        return;
+                    }
+                }
+            });
+            return (
+                [(http::header::CONTENT_TYPE, "text/event-stream")],
+                axum::body::Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(
+                    receiver,
+                )),
+            )
+                .into_response();
+        }
         let body: String = events
             .iter()
             .map(|event| format!("data: {event}\n\n"))
@@ -1425,6 +1481,23 @@ mod tests {
         Some(events)
     }
 
+    /// A healthy answer streamed as timed fragments; optionally the stream
+    /// then goes silent before its terminal events.
+    fn paced(parts: &[&str], pause_ms: u64, stall: bool) -> Option<Vec<Value>> {
+        let events = completed(vec![text(&parts.concat())]).unwrap();
+        let mut paced = events[..2].to_vec();
+        for part in parts {
+            paced.push(json!({ "__pause_ms": pause_ms }));
+            paced.push(json!({"type":"response.output_text.delta","output_index":0,
+                "content_index":0,"item_id":"msg_fixture","delta":part}));
+        }
+        if stall {
+            paced.push(json!({"__stall":true}));
+        }
+        paced.extend_from_slice(&events[3..]);
+        Some(paced)
+    }
+
     struct Outcome {
         requests: Vec<Value>,
         stream: String,
@@ -1447,6 +1520,27 @@ mod tests {
         scripts: Vec<Option<Vec<Value>>>,
         max_retries: usize,
     ) -> Outcome {
+        run_scripted(
+            functions,
+            workflow,
+            query,
+            scripts,
+            json!({ "max_retries": max_retries }),
+            None,
+        )
+        .await
+    }
+
+    /// `steer` submits one instruction once the peer has received that many
+    /// model requests.
+    async fn run_scripted(
+        functions: Value,
+        workflow: Value,
+        query: &str,
+        scripts: Vec<Option<Vec<Value>>>,
+        model_settings: Value,
+        steer: Option<(usize, &'static str)>,
+    ) -> Outcome {
         let model = Arc::new(Model::default());
         model.scripts.lock().unwrap().extend(scripts);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1458,11 +1552,12 @@ mod tests {
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let mut raw = json!({
             "llms":{"main":{"base_url":format!("{base}/v1"),"api_key":"synthetic",
-                "model_name":"fixture","api_type":"responses","max_retries":max_retries}},
+                "model_name":"fixture","api_type":"responses","max_retries":0}},
             "functions":functions,
             "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}
         });
         crate::config::merge(&mut raw["workflow"], workflow);
+        crate::config::merge(&mut raw["llms"]["main"], model_settings);
         let config = crate::config::Config::new(
             raw,
             [
@@ -1473,7 +1568,7 @@ mod tests {
         )
         .unwrap();
         let http = reqwest::Client::new();
-        let preparation = crate::preparation::Preparation::new(config, http.clone()).unwrap();
+        let preparation = crate::preparation::Preparation::new(config).unwrap();
         let (commands, inbox) = mpsc::channel(8);
         let (sender, mut receiver) = mpsc::channel::<bytes::Bytes>(128);
         let collector = tokio::spawn(async move {
@@ -1485,6 +1580,31 @@ mod tests {
         });
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "synthetic-user".parse().unwrap());
+        let handle = Arc::new(RunHandle {
+            telemetry: tokio::sync::Mutex::new(None),
+            user: "synthetic-user".into(),
+            conversation: "synthetic-conversation".into(),
+            autonomy: false,
+            sender: commands,
+            commands: tokio::sync::Mutex::new(HashMap::new()),
+            finished: std::sync::atomic::AtomicBool::new(false),
+            cancellation: tokio::sync::watch::channel(false).0,
+            metrics: crate::control::Metrics::default(),
+        });
+        if let Some((after, instruction)) = steer {
+            let handle = handle.clone();
+            let model = model.clone();
+            tokio::spawn(async move {
+                while model.requests.lock().unwrap().len() < after {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                let steering = crate::control::Command::Steer {
+                    command_id: uuid::Uuid::new_v4(),
+                    instruction: instruction.into(),
+                };
+                assert_eq!(handle.submit("synthetic-user", steering).await, Ok(true));
+            });
+        }
         let agent = Agent {
             http,
             tools_url: base,
@@ -1494,17 +1614,7 @@ mod tests {
                 sender,
             },
             inbox,
-            handle: Arc::new(RunHandle {
-                telemetry: tokio::sync::Mutex::new(None),
-                user: "synthetic-user".into(),
-                conversation: "synthetic-conversation".into(),
-                autonomy: false,
-                sender: commands,
-                commands: tokio::sync::Mutex::new(HashMap::new()),
-                finished: std::sync::atomic::AtomicBool::new(false),
-                cancellation: tokio::sync::watch::channel(false).0,
-                metrics: crate::control::Metrics::default(),
-            }),
+            handle,
             pending: Vec::new(),
             revision: 0,
             preparation: Some(preparation),
@@ -1671,5 +1781,96 @@ mod tests {
         assert_eq!(outcome.stream.matches("Complete answer.").count(), 1);
         assert!(outcome.stream.contains("\"finish_reason\":\"stop\""));
         assert!(!outcome.stream.contains("event: error"));
+    }
+
+    #[tokio::test]
+    async fn model_timeout_resets_while_the_response_keeps_streaming() {
+        let parts = [
+            "One ", "two ", "three ", "four ", "five ", "six ", "seven ", "eight.",
+        ];
+        let started = Instant::now();
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock"]}),
+            "Summarize the plan.",
+            vec![paced(&parts, 300, false)],
+            json!({"request_timeout":1}),
+            None,
+        )
+        .await;
+        outcome.result.unwrap();
+        // The healthy response streamed for longer than request_timeout.
+        assert!(started.elapsed() >= Duration::from_secs(2));
+        assert_eq!(outcome.requests.len(), 1);
+        assert!(outcome.stream.contains("eight."));
+        assert!(!outcome.stream.contains("event: error"));
+    }
+
+    #[tokio::test]
+    async fn stalled_model_stream_times_out_and_is_retried() {
+        let started = Instant::now();
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock"]}),
+            "Summarize the plan.",
+            vec![
+                // Text arrives, then the stream goes silent.
+                paced(&["Partial "], 0, true),
+                // No response headers or events at all.
+                None,
+                completed(vec![text("rest.")]),
+            ],
+            json!({"request_timeout":1, "max_retries":2}),
+            None,
+        )
+        .await;
+        let elapsed = started.elapsed();
+        outcome.result.unwrap();
+        assert_eq!(outcome.requests.len(), 3);
+        assert!(
+            outcome.requests[1]["input"]
+                .to_string()
+                .contains("previous model stream was interrupted")
+        );
+        assert_eq!(outcome.stream.matches("Partial ").count(), 1);
+        assert!(outcome.stream.contains("rest."));
+        assert!(
+            elapsed >= Duration::from_secs(2) && elapsed < Duration::from_secs(10),
+            "each silent attempt ends after its inactivity timeout: {elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn steering_during_a_retry_starts_a_fresh_response() {
+        let mut interrupted = completed(vec![text("Partial answer.")]).unwrap();
+        interrupted.truncate(3);
+        let outcome = run_scripted(
+            clocks(),
+            json!({"tools":["clock"]}),
+            "Summarize the plan.",
+            // The retry stalls until steering interrupts it; the steered
+            // response is empty.
+            vec![Some(interrupted), None, completed(vec![])],
+            json!({"max_retries":1}),
+            Some((2, "Use the other plan.")),
+        )
+        .await;
+        assert_eq!(outcome.requests.len(), 3);
+        assert!(
+            outcome.requests[1]["input"]
+                .to_string()
+                .contains("previous model stream was interrupted")
+        );
+        let steered = outcome.requests[2]["input"].to_string();
+        assert!(steered.contains("Use the other plan."));
+        assert!(
+            !steered.contains("previous model stream was interrupted"),
+            "new direction must not ask to continue the interrupted answer"
+        );
+        let error = outcome.result.unwrap_err();
+        assert_eq!(
+            error.root_cause().to_string(),
+            "Model completed without an answer"
+        );
     }
 }

@@ -3,6 +3,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getWebSocketManager } from '@/services/websocket';
 
 import {
+  appendIntermediateStep,
+  mergeIntermediateStepSnapshot,
+} from '@/utils/app/intermediateSteps';
+import {
   drainOffsetDeltas,
   isStaleCumulativeSnapshot,
   type OffsetDelta,
@@ -169,6 +173,12 @@ interface CompletionMeta {
   assistantMessageId?: string;
   jobId?: string;
   generationDurationMs?: number;
+  /**
+   * The worker owns this outcome: it saved the turn in the conversation (or
+   * deliberately suppressed the save for a deleted one). The browser need not
+   * upload the conversation again.
+   */
+  persisted?: boolean;
 }
 
 interface UseAsyncChatOptions {
@@ -194,6 +204,8 @@ interface UseAsyncChatOptions {
       turnId?: string;
       assistantMessageId?: string;
       generationDurationMs?: number;
+      /** See CompletionMeta.persisted. */
+      persisted?: boolean;
     },
   ) => void;
   userId?: string; // Add userId for localStorage key scoping
@@ -208,6 +220,8 @@ interface UseAsyncChatReturn {
     conversationName: string,
     turnId?: string,
     assistantMessageId?: string,
+    /** Runs once the server has accepted the job, before it is tracked. */
+    onAccepted?: (jobId: string) => void,
   ) => Promise<string>;
   jobStatusByConversationId: Record<string, AsyncJobStatus>;
   cancelJob: (conversationId?: string) => Promise<void>;
@@ -339,6 +353,9 @@ export const useAsyncChat = (
   const refreshJobStatusRef = useRef<((jobId: string) => Promise<void>) | null>(
     null,
   );
+  const subscribeJobToWsRef = useRef<
+    ((jobId: string, conversationId?: string) => void) | null
+  >(null);
   // Live tokens whose offset lies beyond the received text: earlier tokens
   // were lost, so these wait for a status snapshot to fill the hole.
   const heldTokensByJobRef = useRef<Record<string, OffsetDelta[]>>({});
@@ -512,7 +529,12 @@ export const useAsyncChat = (
           status: 'streaming',
           partialResponse,
           ...(event.intermediateSteps
-            ? { intermediateSteps: event.intermediateSteps }
+            ? {
+                intermediateSteps: mergeIntermediateStepSnapshot(
+                  current?.intermediateSteps,
+                  event.intermediateSteps,
+                ),
+              }
             : {}),
           turnId: event.turnId || current?.turnId,
           assistantMessageId:
@@ -539,9 +561,10 @@ export const useAsyncChat = (
       lastWsEventByJobRef.current[event.jobId] = Date.now();
 
       const current = jobStatusByJobIdRef.current[event.jobId];
-      const nextSteps = event.step
-        ? [...(current?.intermediateSteps || []), event.step]
-        : current?.intermediateSteps || [];
+      const nextSteps = appendIntermediateStep(
+        current?.intermediateSteps || [],
+        event.step,
+      );
       const status = updateLiveStatus(event.jobId, conversationId, {
         status: 'streaming',
         intermediateSteps: nextSteps,
@@ -570,6 +593,7 @@ export const useAsyncChat = (
       completedJobsRef.current.add(event.jobId);
 
       if (event.error) {
+        // Finalization publishes chat_complete only after saving the turn.
         onError?.(event.error, {
           partialResponse: event.fullResponse,
           intermediateSteps: event.intermediateSteps,
@@ -578,6 +602,7 @@ export const useAsyncChat = (
           turnId: event.turnId,
           assistantMessageId: event.assistantMessageId,
           generationDurationMs: event.generationDurationMs,
+          persisted: true,
         });
       } else {
         onComplete?.(
@@ -590,6 +615,7 @@ export const useAsyncChat = (
             assistantMessageId: event.assistantMessageId,
             jobId: event.jobId,
             generationDurationMs: event.generationDurationMs,
+            persisted: true,
           },
         );
       }
@@ -640,10 +666,18 @@ export const useAsyncChat = (
           delete heldTokensByJobRef.current[jobId];
         }
       }
-      const merged: AsyncJobStatus =
-        text === status.partialResponse || text === undefined
-          ? status
-          : { ...status, partialResponse: text };
+      // Tool steps follow the same rule. A record without a step list (an
+      // OAuth prompt, the stored status of a streaming job) keeps the steps
+      // already received, and a snapshot never drops or repeats a live step.
+      const steps = mergeIntermediateStepSnapshot(
+        jobStatusByJobIdRef.current[jobId]?.intermediateSteps,
+        status.intermediateSteps,
+      );
+      const merged: AsyncJobStatus = {
+        ...status,
+        ...(text !== undefined ? { partialResponse: text } : {}),
+        ...(steps !== undefined ? { intermediateSteps: steps } : {}),
+      };
 
       // Update state
       jobStatusByJobIdRef.current[jobId] = merged;
@@ -654,17 +688,11 @@ export const useAsyncChat = (
         }));
       }
 
-      const completionGraceMs = 8000;
-      const updatedAt = status.updatedAt || status.createdAt || Date.now();
-      const shouldFinalizeFallback =
-        status.status === 'completed' &&
-        !status.finalizedAt &&
-        Boolean(status.fullResponse) &&
-        Date.now() - updatedAt > completionGraceMs;
+      // Every terminal record is written with finalizedAt together with its
+      // durable finalization journal (finalizeSuccess/finalizeError).
       const isUiTerminalStatus =
         status.status === 'error' ||
-        (status.status === 'completed' &&
-          (Boolean(status.finalizedAt) || shouldFinalizeFallback));
+        (status.status === 'completed' && Boolean(status.finalizedAt));
 
       // Progress callback, including UI-terminal states so cleanup safety nets
       // run even when completion/error handlers do not render content.
@@ -678,15 +706,12 @@ export const useAsyncChat = (
         onProgress(merged);
       }
 
-      if (
-        (status.status === 'completed' && status.finalizedAt) ||
-        shouldFinalizeFallback
-      ) {
+      if (status.status === 'completed' && status.finalizedAt) {
         completedJobsRef.current.add(jobId);
         if (onComplete) {
           onComplete(
             status.fullResponse ?? status.partialResponse ?? '',
-            status.intermediateSteps,
+            merged.intermediateSteps,
             status.finalizedAt,
             conversationId,
             {
@@ -694,6 +719,7 @@ export const useAsyncChat = (
               assistantMessageId: status.assistantMessageId,
               jobId,
               generationDurationMs: status.generationDurationMs,
+              persisted: true,
             },
           );
         }
@@ -707,12 +733,13 @@ export const useAsyncChat = (
         if (onError) {
           onError(status.error || 'Unknown error', {
             partialResponse: merged.partialResponse,
-            intermediateSteps: status.intermediateSteps,
+            intermediateSteps: merged.intermediateSteps,
             jobId,
             conversationId,
             turnId: status.turnId,
             assistantMessageId: status.assistantMessageId,
             generationDurationMs: status.generationDurationMs,
+            persisted: Boolean(status.finalizedAt),
           });
         }
         if (conversationId) {
@@ -762,6 +789,7 @@ export const useAsyncChat = (
       // down, and a recent disconnection keeps the fallback poller quiet.
       // Read the status once the subscriptions are re-established, as when
       // tracking starts, so a missed completion does not wait for that poll.
+      // Live delivery is back, so the poller returns to its safety-net pace.
       unsubs.push(
         wsManager.on('connected', () => {
           if (
@@ -769,6 +797,12 @@ export const useAsyncChat = (
             !completedJobsRef.current.has(jobId)
           ) {
             void refreshJobStatusRef.current?.(jobId);
+            if (wsFallbackTimersRef.current[jobId]) {
+              startWsFallbackPollingRef.current?.(
+                jobId,
+                WS_FALLBACK_POLL_INTERVAL,
+              );
+            }
           }
         }),
       );
@@ -814,6 +848,7 @@ export const useAsyncChat = (
       handleWsChatComplete,
     ],
   );
+  subscribeJobToWsRef.current = subscribeJobToWs;
 
   const fetchJobStatus = useCallback(
     async (jobId: string): Promise<StatusReadResult> => {
@@ -876,6 +911,7 @@ export const useAsyncChat = (
           assistantMessageId: saved.id || job.assistantMessageId,
           jobId: job.jobId,
           generationDurationMs: saved.generationDurationMs,
+          persisted: true,
         },
       );
     },
@@ -917,6 +953,7 @@ export const useAsyncChat = (
             turnId: live?.turnId || job.turnId,
             assistantMessageId:
               live?.assistantMessageId || job.assistantMessageId,
+            persisted: false,
           });
         }
         clearPersistedJob(userId, jobId);
@@ -1087,17 +1124,12 @@ export const useAsyncChat = (
   startWsFallbackPollingRef.current = startWsFallbackPolling;
 
   // Read the current status once after subscribing, then keep the safety-net
-  // poller running until a terminal event arrives.
+  // poller running until a terminal event arrives. Live events can arrive
+  // while this first read is in flight, so it takes the same guarded path as
+  // every later read.
   const trackJobStatus = useCallback(
     async (jobId: string) => {
-      const initial = await fetchJobStatus(jobId);
-      if (activeJobsRef.current[jobId]) {
-        if (initial.kind === 'status') {
-          handleWsJobStatus(initial.status);
-        } else if (initial.kind === 'missing') {
-          await handleMissingJob(jobId);
-        }
-      }
+      await refreshJobStatus(jobId);
       if (
         activeJobsRef.current[jobId] &&
         !completedJobsRef.current.has(jobId)
@@ -1105,12 +1137,7 @@ export const useAsyncChat = (
         startWsFallbackPolling(jobId);
       }
     },
-    [
-      fetchJobStatus,
-      handleMissingJob,
-      handleWsJobStatus,
-      startWsFallbackPolling,
-    ],
+    [refreshJobStatus, startWsFallbackPolling],
   );
 
   const cancelJob = useCallback(
@@ -1205,6 +1232,7 @@ export const useAsyncChat = (
       conversationName: string,
       turnId?: string,
       assistantMessageId?: string,
+      onAccepted?: (jobId: string) => void,
     ): Promise<string> => {
       const submission = {
         submissionId: uuidv4(),
@@ -1286,6 +1314,12 @@ export const useAsyncChat = (
         ];
         persistJobs(nextPersistedJobs, userId);
 
+        try {
+          onAccepted?.(jobId);
+        } catch (error) {
+          logger.error('Accepted-job callback failed', error);
+        }
+
         // WebSocket push is primary; HTTP status reads cover subscription
         // latency and lost delivery.
         subscribeJobToWs(jobId, conversationId);
@@ -1300,6 +1334,7 @@ export const useAsyncChat = (
             conversationId,
             turnId,
             assistantMessageId,
+            persisted: false,
           });
         }
         throw error;
@@ -1310,10 +1345,22 @@ export const useAsyncChat = (
     [onError, userId, cancelJob, subscribeJobToWs, trackJobStatus],
   );
 
-  // Clean up on unmount. Strict Mode and Fast Refresh re-run this effect on
-  // the same instance, so the mounted flag is restored here as well.
+  // Clean up on unmount. Strict Mode and Fast Refresh run this cleanup and
+  // then the effect again on the same instance, with jobs still tracked: the
+  // mounted flag, their live subscriptions and their safety-net polls are
+  // restored here. The resume effect does not run again for them.
   useEffect(() => {
     isComponentMountedRef.current = true;
+    for (const job of Object.values(activeJobsRef.current)) {
+      if (
+        completedJobsRef.current.has(job.jobId) ||
+        wsJobUnsubsRef.current[job.jobId]
+      ) {
+        continue;
+      }
+      subscribeJobToWsRef.current?.(job.jobId, job.conversationId);
+      startWsFallbackPollingRef.current?.(job.jobId);
+    }
     const wsActiveJobs = wsActiveJobsRef.current;
     const activeJobs = activeJobsRef.current;
 
@@ -1413,6 +1460,7 @@ export const useAsyncChat = (
                       status.assistantMessageId || job.assistantMessageId,
                     jobId: job.jobId,
                     generationDurationMs: status.generationDurationMs,
+                    persisted: Boolean(status.finalizedAt),
                   },
                 );
               }
@@ -1434,6 +1482,7 @@ export const useAsyncChat = (
                 assistantMessageId:
                   status.assistantMessageId || job.assistantMessageId,
                 generationDurationMs: status.generationDurationMs,
+                persisted: Boolean(status.finalizedAt),
               });
               clearPersistedJobs(userId, job.conversationId);
               removeActiveJob(job.jobId, job.conversationId);

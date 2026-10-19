@@ -6,12 +6,7 @@ import {
   putDocumentObject,
   sha256,
 } from '@/server/documentObjectStore';
-import {
-  getRedis,
-  jsonGet,
-  jsonSetWithExpiry,
-  sessionKey,
-} from '@/server/session/redis';
+import { jsonSetWithExpiry, sessionKey } from '@/server/session/redis';
 import path from 'node:path';
 
 const SANDBOX_SERVICE_MAX_COLLECTED_BYTES = 6_291_456;
@@ -123,27 +118,6 @@ function artifactRef(
   };
 }
 
-function isMatchingExistingArtifact(
-  value: unknown,
-  expected: StoredSandboxArtifact,
-): value is StoredSandboxArtifact {
-  if (!value || typeof value !== 'object') return false;
-  const stored = value as Partial<StoredSandboxArtifact>;
-  return (
-    stored.id === expected.id &&
-    stored.storage === 'object-v1' &&
-    stored.objectKey === expected.objectKey &&
-    stored.objectBucket === expected.objectBucket &&
-    stored.mimeType === expected.mimeType &&
-    stored.filename === expected.filename &&
-    stored.size === expected.size &&
-    stored.sessionId === expected.sessionId &&
-    stored.userId === expected.userId &&
-    stored.source === 'sandbox' &&
-    stored.conversationIdHash === expected.conversationIdHash
-  );
-}
-
 export async function storeSandboxArtifact(input: {
   ownerId: string;
   conversationId: string;
@@ -194,7 +168,7 @@ export async function storeSandboxArtifact(input: {
   }
 
   const createdAt = Date.now();
-  const expected: StoredSandboxArtifact = {
+  const published: StoredSandboxArtifact = {
     id: documentId,
     storage: 'object-v1',
     objectKey,
@@ -210,17 +184,17 @@ export async function storeSandboxArtifact(input: {
     conversationIdHash,
   };
   const metadataKey = sessionKey(['document', sessionId, documentId]);
-  const existing = await jsonGet(metadataKey);
-  if (isMatchingExistingArtifact(existing, expected)) {
-    return artifactRef(existing);
-  }
 
+  // Identical content republished in a later turn reuses the same
+  // content-addressed keys. Rewrite both so the object's lifecycle age and the
+  // metadata TTL restart from this publication; returning the earlier record
+  // would let the newer link expire with the first one.
   const uploaded = await putDocumentObject(
     {
       objectKey,
-      contentType: expected.mimeType,
+      contentType: published.mimeType,
       contentLength: input.content.length,
-      expiresAt: expected.expiresAt,
+      expiresAt: published.expiresAt,
       ownerId: input.ownerId,
       sessionId,
       documentId,
@@ -231,18 +205,14 @@ export async function storeSandboxArtifact(input: {
     objectConfig,
   );
   const document: StoredSandboxArtifact = {
-    ...expected,
+    ...published,
     objectBucket: uploaded.bucket,
     ...(uploaded.etag ? { etag: uploaded.etag } : {}),
   };
-  const redis = getRedis();
-  const sessionDocumentsKey = sessionKey(['session-documents', sessionId]);
   // These content-addressed keys are shared by identical publications. A
   // failed reply can follow a committed write, including another publisher's
   // success. Destructive rollback would invalidate its durable download link.
   // Leave ambiguous uploads to the configured object expiry and allow retries.
-  await redis.sadd(sessionDocumentsKey, documentId);
-  await redis.expire(sessionDocumentsKey, DOCUMENT_EXPIRY_SECONDS);
   await jsonSetWithExpiry(metadataKey, document, DOCUMENT_EXPIRY_SECONDS);
   return artifactRef(document);
 }

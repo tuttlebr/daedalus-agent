@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+import weakref
 from collections.abc import Awaitable, Callable
 from io import BytesIO
 from typing import Any, Literal, TypedDict
@@ -1681,6 +1682,26 @@ async def _extract_document_to_markdown(
         return _failure(f"An unexpected error occurred: {str(e)}")
 
 
+# One write lock per collection for every processor in this process. The NAT
+# tool and the HTTP ingest route build separate processors, yet both write the
+# same user collections. asyncio locks belong to one event loop: key by loop.
+_COLLECTION_INGEST_LOCKS: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[str, asyncio.Lock]
+] = weakref.WeakKeyDictionary()
+_COLLECTION_INGEST_LOCKS_GUARD = threading.Lock()
+
+
+def collection_ingest_lock(collection_name: str) -> asyncio.Lock:
+    """Return the process-wide write lock for ``collection_name``."""
+    loop = asyncio.get_running_loop()
+    with _COLLECTION_INGEST_LOCKS_GUARD:
+        locks = _COLLECTION_INGEST_LOCKS.setdefault(loop, {})
+        lock = locks.get(collection_name)
+        if lock is None:
+            lock = locks[collection_name] = asyncio.Lock()
+        return lock
+
+
 class NvIngestDocumentProcessor:
     """Authoritative ingestion runner shared by NAT tools and HTTP routes."""
 
@@ -1688,8 +1709,6 @@ class NvIngestDocumentProcessor:
         self.config = config
         self._client_cache: dict[str, Any] = {}
         self._client_lock = asyncio.Lock()
-        self._ingest_locks: dict[str, asyncio.Lock] = {}
-        self._ingest_locks_guard = asyncio.Lock()
 
     async def _get_redis(self) -> redis.Redis:
         if "redis" not in self._client_cache:
@@ -1719,12 +1738,7 @@ class NvIngestDocumentProcessor:
         return self._client_cache["nv_ingest"]
 
     async def _get_collection_ingest_lock(self, collection_name: str) -> asyncio.Lock:
-        async with self._ingest_locks_guard:
-            lock = self._ingest_locks.get(collection_name)
-            if lock is None:
-                lock = asyncio.Lock()
-                self._ingest_locks[collection_name] = lock
-            return lock
+        return collection_ingest_lock(collection_name)
 
     async def process_document(
         self,

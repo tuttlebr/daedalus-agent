@@ -236,9 +236,10 @@ def test_verify_claim_returns_a_structured_error_for_bad_model_output(monkeypatc
 
 def test_verify_claim_rejects_malformed_url_before_fetching(monkeypatch):
     import source_verifier.source_verifier_function as mod
+    from nat_helpers.public_content import PublicContentSession
 
     http_fetch = AsyncMock(side_effect=AssertionError("Malformed URL was fetched"))
-    monkeypatch.setattr(mod, "_scrape_with_httpx_result", http_fetch)
+    monkeypatch.setattr(PublicContentSession, "article", http_fetch)
 
     async def scenario():
         async for item in mod.source_verifier_function(
@@ -262,12 +263,11 @@ def test_verify_claim_rejects_malformed_url_before_fetching(monkeypatch):
 def test_verify_claim_selects_evidence_from_the_whole_fetched_source(monkeypatch):
     """Claim evidence beyond the model token budget must still reach the critic.
 
-    Only the HTTP client, DNS answer and converter library are replaced; the
-    real controlled fetch, conversion wrapper, excerpt and token bound run.
+    Only the HTTP exchange and converter library are replaced; the real shared
+    article session, conversion wrapper, excerpt and token bound run.
     """
-    import socket
-
     import httpx
+    import nat_helpers.public_content as public_content
     import source_verifier.source_verifier_function as mod
     import webscrape.webscrape_function as scrape
 
@@ -280,23 +280,13 @@ def test_verify_claim_selects_evidence_from_the_whole_fetched_source(monkeypatch
         + "\nTAIL EVIDENCE"
     )
 
-    class Client:
-        def __init__(self, *args, **kwargs):
-            assert kwargs.get("follow_redirects") is False
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-        async def get(self, requested):
-            return httpx.Response(
-                200,
-                content=page.encode(),
-                headers={"content-type": "text/plain"},
-                request=httpx.Request("GET", requested),
-            )
+    async def fetch(_client, requested, **_kwargs):
+        return httpx.Response(
+            200,
+            content=page.encode(),
+            headers={"content-type": "text/plain"},
+            request=httpx.Request("GET", requested),
+        )
 
     def convert(path):
         with open(path, encoding="utf-8") as file_obj:
@@ -316,12 +306,7 @@ def test_verify_claim_selects_evidence_from_the_whole_fetched_source(monkeypatch
             }
         )
 
-    monkeypatch.setattr(
-        socket,
-        "getaddrinfo",
-        lambda *_a, **_k: [(socket.AF_INET, None, None, "", ("93.184.216.34", 0))],
-    )
-    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    monkeypatch.setattr(public_content, "get_public_response_async", fetch)
     monkeypatch.setattr(
         scrape, "MarkItDown", MagicMock(return_value=MagicMock(convert=convert))
     )

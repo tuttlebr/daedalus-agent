@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import { withConversationRevision } from '@/utils/app/conversationRevision';
+
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
@@ -31,7 +33,17 @@ export default async function handler(
 
   if (req.method === 'GET') {
     try {
-      return res.status(200).json(await listConversationHistoryForUser(userId));
+      // Each entry carries the concurrency token a later save sends back.
+      const history = await listConversationHistoryForUser(userId);
+      return res
+        .status(200)
+        .json(
+          history.map((conversation: any) =>
+            conversation && typeof conversation === 'object'
+              ? withConversationRevision(conversation)
+              : conversation,
+          ),
+        );
     } catch (e) {
       return res
         .status(500)

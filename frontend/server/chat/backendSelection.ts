@@ -22,6 +22,9 @@ import { resolve4 } from 'node:dns/promises';
 
 const logger = new Logger('AsyncJob');
 
+export const BACKEND_UNAVAILABLE_MESSAGE =
+  'The assistant backend is temporarily unavailable. Please try again shortly.';
+
 // Per-process stickiness cache for the pinned backend pod (one instance per
 // Node process via the module cache — same semantics as before extraction).
 let cachedStreamBackend: { baseUrl: string; expiresAt: number } | null = null;
@@ -174,9 +177,15 @@ export async function selectStreamBackendBaseUrl(
     }
   }
 
+  // The message reaches the browser and saved chats. Pod addresses and probe
+  // errors stay in the server log above.
+  logger.error(
+    `Job ${jobId}: no stream backend reachable after ${NAT_SUBMIT_MAX_RETRIES} attempts`,
+    { lastError },
+  );
   throw new ApiRouteError(
     502,
-    `Backend unavailable after ${NAT_SUBMIT_MAX_RETRIES} attempts: ${lastError}`,
+    BACKEND_UNAVAILABLE_MESSAGE,
     'backend_unavailable',
   );
 }

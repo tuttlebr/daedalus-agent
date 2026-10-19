@@ -5,7 +5,6 @@ import mimetypes
 import os
 import re
 import tempfile
-from collections.abc import Iterable
 from typing import Literal
 from urllib.parse import ParseResult, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -19,10 +18,14 @@ from daedalus_runtime.tools import (
 )
 from markitdown import MarkItDown
 from nat_helpers.phase_timing import phase_timing
-from nat_helpers.public_content import AnonymousPublicClient, _convert_html_article
+from nat_helpers.public_content import (
+    AnonymousPublicClient,
+    ArticleChallengeError,
+    EmptyArticleError,
+)
 from nat_helpers.public_content import is_challenge_page as _is_challenge_page
 from nat_helpers.public_content import public_content_session
-from nat_helpers.safe_http import PublicAsyncHTTPTransport
+from nat_helpers.safe_http import PublicAsyncHTTPTransport, ResponseSizeError
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field, StrictInt
 
@@ -35,31 +38,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-_HTTP_URL_RE = re.compile(r"https?://[^\s<>\]\)\"']+", re.IGNORECASE)
+# Embedded URLs may contain parentheses and apostrophes; _trim_embedded_url
+# removes only unbalanced closing parentheses and trailing prose punctuation.
+_HTTP_URL_RE = re.compile(r"https?://[^\s<>\]\"]+", re.IGNORECASE)
 _URL_FIELD_NAMES = ("url", "link", "href", "source_url", "input_message")
 _TRAILING_URL_PUNCTUATION = ".,;:"
-
-_BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
-
-_BROWSER_HEADERS = {
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;"
-        "q=0.9,image/avif,image/webp,*/*;q=0.8"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Cache-Control": "max-age=0",
-}
 
 # Cap on redirect hops we will manually follow while re-validating each target.
 _MAX_REDIRECTS = 10
@@ -67,23 +50,8 @@ _MAX_REDIRECTS = 10
 # Default schemes accepted for fetched (including redirected) URLs.
 _ALLOWED_FETCH_SCHEMES = ("https", "http")
 
-_HTTPX_TIMEOUT = httpx.Timeout(20.0, connect=5.0, read=15.0, write=5.0, pool=5.0)
-_HTTPX_RETRY_ATTEMPTS = 2
-_HTTPX_RETRY_BACKOFF_SECONDS = 0.35
-_HTTPX_RETRY_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
-_HTTPX_BLOCKED_STATUS_CODES = {401, 403, 407, 451}
-_HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
-_RETRYABLE_HTTPX_EXCEPTIONS = tuple(
-    exc_type
-    for exc_type in (
-        getattr(httpx, "TimeoutException", None),
-        getattr(httpx, "TransportError", None),
-        getattr(httpx, "NetworkError", None),
-        getattr(httpx, "RemoteProtocolError", None),
-        getattr(httpx, "ProxyError", None),
-    )
-    if isinstance(exc_type, type)
-)
+# Status codes reported as the site denying anonymous automated access.
+_ACCESS_DENIED_STATUS_CODES = frozenset({401, 403, 407, 451})
 
 
 class WebscrapeFunctionConfig(ToolConfig, name="webscrape"):
@@ -255,33 +223,19 @@ def _bytes_to_markdown(
             os.unlink(tmp_path)
 
 
-def _convert_fetched_resource(
-    content: bytes,
-    url: str,
-    content_type: str,
-    *,
-    html: bool,
-) -> str:
-    """Convert already-fetched bytes locally; converters never receive a URL.
+def _convert_public_resource(content: bytes, url: str, content_type: str) -> str:
+    """Convert an already-fetched non-HTML public resource from a local file.
 
-    HTML uses the shared article converter, as webscrape_tool does, so its
-    charset comes from the original bytes and HTML declarations. Decoding to
-    text first would replace legacy-encoded characters before conversion.
-    Callers apply their own bounds to the complete converted text.
+    ``PublicContentSession`` converts HTML with its shared article converter
+    and calls this for other media. Every tool sharing the session cache uses
+    this converter, so a cached article does not depend on which tool fetched
+    it first.
     """
-    markdown = _convert_html_article(content, url) if html else None
-    if markdown is None:
-        return _bytes_to_markdown(
-            content,
-            url,
-            # Sniffed HTML may lack a media type; keep an HTML local suffix.
-            content_type="text/html" if html else content_type,
-        )
-    return markdown
+    return _bytes_to_markdown(content, url, content_type=content_type)
 
 
 # ---------------------------------------------------------------------------
-# Redirect-safe fetch
+# Redirect-safe fetch (robots.txt)
 # ---------------------------------------------------------------------------
 
 
@@ -291,9 +245,6 @@ async def _get_following_safe_redirects(
     *,
     allowed_schemes: list[str] | None = None,
     max_redirects: int = _MAX_REDIRECTS,
-    retry_attempts: int = 0,
-    retry_backoff_seconds: float = _HTTPX_RETRY_BACKOFF_SECONDS,
-    retry_status_codes: Iterable[int] | None = None,
 ) -> httpx.Response:
     """GET *url*, manually following redirects after SSRF-validating each hop.
 
@@ -302,60 +253,30 @@ async def _get_following_safe_redirects(
     ``validate_public_url`` before it is fetched, closing the
     ``https://attacker.com -> http://169.254.169.254/`` bypass. Raises
     ``UnsafeURLError`` if any hop targets a non-public address or disallowed
-    scheme. Optional retries restart from the original URL and are limited to
-    transient transport failures or explicitly supplied HTTP status codes.
+    scheme.
     """
-    retry_status_set = set(retry_status_codes or ())
-    last_exc: Exception | None = None
+    current_url = url
+    for _ in range(max_redirects + 1):
+        response = await client.get(current_url)
+        if not response.is_redirect:
+            return response
 
-    for attempt in range(retry_attempts + 1):
-        try:
-            current_url = url
-            for _ in range(max_redirects + 1):
-                response = await client.get(current_url)
-                if not response.is_redirect:
-                    if (
-                        response.status_code in retry_status_set
-                        and attempt < retry_attempts
-                    ):
-                        await asyncio.sleep(retry_backoff_seconds * (2**attempt))
-                        break
-                    return response
+        location = response.headers.get("location")
+        if not location:
+            return response
 
-                location = response.headers.get("location")
-                if not location:
-                    return response
-
-                next_url = urljoin(current_url, location)
-                await asyncio.to_thread(
-                    validate_public_url,
-                    next_url,
-                    allowed_schemes=allowed_schemes or list(_ALLOWED_FETCH_SCHEMES),
-                    check_dns=True,
-                )
-                current_url = next_url
-            else:
-                raise UnsafeURLError(
-                    f"Exceeded maximum of {max_redirects} redirects while "
-                    f"fetching '{url}'."
-                )
-        except _RETRYABLE_HTTPX_EXCEPTIONS as exc:
-            last_exc = exc
-            if attempt >= retry_attempts:
-                raise
-            await asyncio.sleep(retry_backoff_seconds * (2**attempt))
-
-    if last_exc is not None:
-        raise last_exc
+        next_url = urljoin(current_url, location)
+        await asyncio.to_thread(
+            validate_public_url,
+            next_url,
+            allowed_schemes=allowed_schemes or list(_ALLOWED_FETCH_SCHEMES),
+            check_dns=True,
+        )
+        current_url = next_url
 
     raise UnsafeURLError(
         f"Exceeded maximum of {max_redirects} redirects while fetching '{url}'."
     )
-
-
-# ---------------------------------------------------------------------------
-# Controlled fetch used by source verification
-# ---------------------------------------------------------------------------
 
 
 def _httpx_timeout_from_seconds(timeout_seconds: float):
@@ -369,78 +290,64 @@ def _httpx_timeout_from_seconds(timeout_seconds: float):
     )
 
 
-def _response_looks_like_html(response: httpx.Response) -> bool:
-    content_type = response.headers.get("content-type", "")
-    media_type = content_type.split(";", 1)[0].strip().lower()
-    if media_type in _HTML_CONTENT_TYPES:
-        return True
-    if media_type:
-        return False
+# ---------------------------------------------------------------------------
+# Shared article retrieval failures
+# ---------------------------------------------------------------------------
 
-    content = getattr(response, "content", b"") or b""
-    if isinstance(content, bytes):
-        prefix = content[:512].lstrip().lower()
-        return prefix.startswith((b"<!doctype html", b"<html"))
-    return False
+RetrievalFailureKind = Literal[
+    "unsafe",
+    "too_large",
+    "blocked",
+    "http_status",
+    "timeout",
+    "connection",
+    "no_content",
+    "failed",
+]
 
 
-async def _scrape_with_httpx_result(
-    url: str,
-    *,
-    allowed_schemes: list[str] | None = None,
-    timeout=_HTTPX_TIMEOUT,
-) -> tuple[str | None, str]:
-    """Fetch and convert via httpx, returning ``(markdown, outcome)``.
+def _describe_retrieval_failure(
+    exc: BaseException, timeout: float
+) -> tuple[RetrievalFailureKind, str]:
+    """Classify a ``PublicContentSession.article`` failure for the caller.
 
-    Outcomes are intentionally simple strings so callers can choose a fallback
-    without parsing log messages: ``ok``, ``blocked``, ``http_error``, or
-    ``invalid``. The markdown is complete; callers select and bound it.
+    The generic JavaScript/blocking explanation is reserved for failures that
+    have no more specific cause; a 404, a timeout, or an empty document must
+    not be reported as the site blocking automated access.
     """
-    headers = {**_BROWSER_HEADERS, "User-Agent": _BROWSER_USER_AGENT}
-    # follow_redirects=False so _get_following_safe_redirects can SSRF-validate
-    # every hop before following it (F-002a).
-    async with httpx.AsyncClient(
-        headers=headers,
-        follow_redirects=False,
-        timeout=timeout,
-        transport=PublicAsyncHTTPTransport(),
-        trust_env=False,
-    ) as client:
-        response = await _get_following_safe_redirects(
-            client,
-            url,
-            allowed_schemes=allowed_schemes,
-            retry_attempts=_HTTPX_RETRY_ATTEMPTS,
-            retry_status_codes=_HTTPX_RETRY_STATUS_CODES,
+    if isinstance(exc, ResponseSizeError):
+        return "too_large", str(exc)
+    if isinstance(exc, UnsafeURLError):
+        return "unsafe", str(exc)
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        reason = exc.response.reason_phrase or "error"
+        if status in _ACCESS_DENIED_STATUS_CODES:
+            return (
+                "blocked",
+                f"The site returned HTTP {status} ({reason}) and is blocking "
+                "automated access.",
+            )
+        return "http_status", f"The site returned HTTP {status} ({reason})."
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+        return (
+            "timeout",
+            f"The site did not respond in time (timeout {timeout:g}s).",
         )
-
-    if response.status_code in _HTTPX_BLOCKED_STATUS_CODES:
-        logger.info(
-            "httpx returned blocked status %d for %s", response.status_code, url
+    if isinstance(exc, httpx.TransportError):
+        return (
+            "connection",
+            f"Could not connect to the site ({type(exc).__name__}).",
         )
-        return None, "blocked"
-
-    if not response.is_success:
-        logger.info("httpx returned status %d for %s", response.status_code, url)
-        return None, "http_error"
-
-    html = _response_looks_like_html(response)
-    # Challenge signatures are ASCII, so lossy decoding cannot hide them.
-    if html and _is_challenge_page(response.text):
-        logger.info("httpx response for %s is a challenge page", url)
-        return None, "blocked"
-
-    markdown = await asyncio.to_thread(
-        _convert_fetched_resource,
-        response.content,
-        url,
-        response.headers.get("content-type", ""),
-        html=html,
+    if isinstance(exc, ArticleChallengeError):
+        return "blocked", "The site is blocking automated access."
+    if isinstance(exc, EmptyArticleError):
+        return "no_content", "The page returned no extractable content."
+    return (
+        "failed",
+        "Unable to retrieve page content. The site may require JavaScript or "
+        "is blocking automated access.",
     )
-    if not _is_valid_content(markdown):
-        return markdown, "invalid"
-
-    return markdown, "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -499,10 +406,43 @@ async def _check_robots(
         )
 
 
+def _is_complete_http_url(candidate: str) -> bool:
+    """Return whether *candidate* is exactly one absolute HTTP(S) URL."""
+    if any(character.isspace() for character in candidate):
+        return False
+    try:
+        parsed = urlparse(candidate)
+    except ValueError:
+        return False
+    return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
+
+
+def _trim_embedded_url(url: str) -> str:
+    """Remove prose delimiters that follow a URL embedded in surrounding text.
+
+    Parentheses and apostrophes are valid URL characters (for example
+    ``/wiki/Python_(programming_language)``). Only a closing parenthesis
+    without a matching opening one, such as a Markdown link's ``)``, is
+    treated as a delimiter.
+    """
+    while True:
+        trimmed = url.rstrip(_TRAILING_URL_PUNCTUATION).rstrip("'")
+        if trimmed.endswith(")") and trimmed.count(")") > trimmed.count("("):
+            trimmed = trimmed[:-1]
+        if trimmed == url:
+            return url
+        url = trimmed
+
+
 def _extract_url_candidate(url_candidate: str) -> str:
     normalized_url = url_candidate.strip()
     if not normalized_url:
         raise ValueError("No URL supplied.")
+
+    # A model-supplied URL argument is used exactly as given. Text extraction
+    # below is only for URLs wrapped in prose, Markdown, JSON or angle brackets.
+    if _is_complete_http_url(normalized_url):
+        return normalized_url
 
     try:
         parsed_json = json.loads(normalized_url)
@@ -519,7 +459,7 @@ def _extract_url_candidate(url_candidate: str) -> str:
 
     match = _HTTP_URL_RE.search(normalized_url)
     if match:
-        return match.group(0).rstrip(_TRAILING_URL_PUNCTUATION)
+        return _trim_embedded_url(match.group(0))
 
     if normalized_url.startswith("<") and normalized_url.endswith(">"):
         normalized_url = normalized_url[1:-1].strip()
@@ -605,11 +545,7 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                 try:
                     article, cache_status = await content_session.article(
                         url,
-                        converter=lambda content, source, content_type: (
-                            _bytes_to_markdown(
-                                content, source, content_type=content_type
-                            )
-                        ),
+                        converter=_convert_public_resource,
                         timeout=config.timeout,
                         allowed_schemes=config.allowed_schemes,
                     )
@@ -647,16 +583,14 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                         config.truncation_message,
                     )
                     return truncated
-                except UnsafeURLError as exc:
-                    return _format_error(str(exc))
                 except Exception as exc:
+                    kind, message = _describe_retrieval_failure(exc, config.timeout)
                     logger.info(
-                        "Public article retrieval failed: %s", type(exc).__name__
+                        "Public article retrieval failed (%s): %s",
+                        kind,
+                        type(exc).__name__,
                     )
-                    return _format_error(
-                        "Unable to retrieve page content. The site may require "
-                        "JavaScript or is blocking automated access."
-                    )
+                    return _format_error(message)
 
             async def _research_response_fn(
                 url: str, output_mode: Literal["full", "research"] = "full"

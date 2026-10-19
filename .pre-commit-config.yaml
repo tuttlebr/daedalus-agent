@@ -1,9 +1,11 @@
-# Pre-commit hooks for fast, dependency-light checks
-# One-time setup:
-#   pipx install pre-commit  # or: pip install pre-commit
-#   pre-commit install
-# Run on all files:
-#   pre-commit run --all-files
+# Pre-commit hooks for fast, dependency-light checks.
+# Python hook environments are built with the interpreter that runs
+# pre-commit, which changes check-ast, pyupgrade, isort and Bandit results.
+# Run the CI release on Python 3.12, as CI and `make hooks` do:
+#   uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <files>
+#   uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --all-files
+# For the optional commit hook, install that release persistently first:
+#   uv tool install --python 3.12 pre-commit==3.6.2 && pre-commit install
 
 # Skip typical vendor/build artifacts
 exclude: |
@@ -84,7 +86,8 @@ repos:
         name: Bash syntax check
         entry: bash -c 'for path in "$@"; do bash -n "$path" || exit "$?"; done' --
         language: system
-        files: \.(sh|bash)$
+        # Select by identify type, not extension: executable scripts with a
+        # shell shebang and no suffix are checked as well as *.sh files.
         types_or: [bash, shell]
       - id: prettier
         name: Prettier
@@ -126,8 +129,11 @@ repos:
         args: [--py311-plus] # matches your requires-python
 
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.9
+    rev: 1.8.6
     hooks:
       - id: bandit
+        # Same release and pyproject.toml policy (B101 skipped) as
+        # `make security`; the hook additionally reports low severity.
+        args: [-c, pyproject.toml]
         additional_dependencies: ['bandit[toml]']
         exclude: ^builder/(.*/)?tests/

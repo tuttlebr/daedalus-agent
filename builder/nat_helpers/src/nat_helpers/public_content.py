@@ -62,6 +62,14 @@ def is_challenge_page(text: str) -> bool:
     return sum(signature in lower for signature in CHALLENGE_SIGNATURES) >= 2
 
 
+class ArticleChallengeError(ValueError):
+    """The response is an automated-access challenge, not article content."""
+
+
+class EmptyArticleError(ValueError):
+    """The response converted to no article content."""
+
+
 class AnonymousPublicClient(httpx.AsyncClient):
     """Keep pooled TLS connections without retaining ambient cookie identity."""
 
@@ -169,9 +177,9 @@ def _convert_article(
     source = f"_Source: {url}_"
     body = markdown.split(source, 1)[-1].strip()
     if not body or markdown.startswith("Error:"):
-        raise ValueError("Article conversion produced no content")
+        raise EmptyArticleError("Article conversion produced no content")
     if is_challenge_page(body):
-        raise ValueError("Article is an automated-access challenge")
+        raise ArticleChallengeError("Article is an automated-access challenge")
     return markdown
 
 
@@ -261,7 +269,9 @@ class PublicContentSession:
                 } and is_challenge_page(
                     response.content[:20000].decode("utf-8", errors="ignore")
                 ):
-                    raise ValueError("Article is an automated-access challenge")
+                    raise ArticleChallengeError(
+                        "Article is an automated-access challenge"
+                    )
                 with phase_timing("daedalus.public_content.convert"):
                     markdown = await asyncio.to_thread(
                         _convert_article,

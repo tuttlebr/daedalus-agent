@@ -35,17 +35,6 @@ DOCKERFILE = Path(__file__).resolve().parents[1] / "Dockerfile"
 DOCKERIGNORE = DOCKERFILE.parent / ".dockerignore"
 RUNTIME_REQUIREMENTS = DOCKERFILE.parent / "requirements-runtime.in"
 RUNTIME_OVERRIDES = DOCKERFILE.parent / "requirements-runtime-overrides.in"
-NAT_NV_INGEST_SAMPLE_CONFIG = (
-    DOCKERFILE.parent
-    / "nat_nv_ingest"
-    / "src"
-    / "nat_nv_ingest"
-    / "configs"
-    / "config.yml"
-)
-WEBSCRAPE_SAMPLE_CONFIG = (
-    DOCKERFILE.parent / "webscrape" / "src" / "webscrape" / "configs" / "config.yml"
-)
 RUNTIME_LOCKS = {
     "x86_64-unknown-linux-gnu": (DOCKERFILE.parent / "pylock.runtime-linux-amd64.toml"),
     "aarch64-unknown-linux-gnu": (
@@ -173,7 +162,6 @@ PROMPT_GUIDANCE_RUNTIME_PROMPTS = {
 PROMPT_GUIDANCE_CODE_SURFACES = (
     Path("builder/autonomous_agent/src/autonomous_agent/prompt.py"),
     Path("builder/source_verifier/src/source_verifier/critic.py"),
-    Path("builder/smart_milvus/src/smart_milvus/configs/config.yml"),
 )
 LEGACY_RERANKER_PREFIX = "REA" + "NKER_"
 LEGACY_CLUSTER_LOCAL_PORT = "cluster.local" + ".:"
@@ -183,10 +171,6 @@ MULTI_OPERATION_TYPES = {
         "verify_claim",
         "plan_sources",
         "audit_citations",
-    ],
-    "user_interaction": [
-        "confirm_action",
-        "delete_memory_guarded",
     ],
 }
 
@@ -718,7 +702,7 @@ def test_compose_frontend_forces_local_service_discovery():
 
 def test_compose_services_reach_the_backend_on_its_fixed_container_port():
     # BACKEND_PORT in .env selects only the host loopback port. The listener,
-    # health check, nginx upstream and in-network clients all use 8000.
+    # health check and in-network clients all use 8000.
     compose = yaml.safe_load(DOCKER_COMPOSE.read_text(encoding="utf-8"))
     services = compose["services"]
     backend = services["backend"]
@@ -727,9 +711,17 @@ def test_compose_services_reach_the_backend_on_its_fixed_container_port():
     assert "127.0.0.1:8000/health/ready" in " ".join(backend["healthcheck"]["test"])
     for name in ("frontend", "stream-worker"):
         environment = services[name]["environment"]
+        assert "BACKEND_HOST=${BACKEND_HOST:-backend}" in environment, name
         assert "BACKEND_PORT=8000" in environment, name
+        assert not any(
+            item.startswith("BACKEND_PORT=") and item != "BACKEND_PORT=8000"
+            for item in environment
+        ), name
+    # The public edge never proxies to the backend; the frontend owns the
+    # OAuth callback and every other route.
     nginx = (DOCKER_COMPOSE.parent / "nginx" / "conf.d" / "frontend.conf").read_text()
-    assert "backend:8000" in nginx
+    assert "backend:" not in nginx
+    assert "proxy_pass http://backend" not in nginx
     # Service network keys must name a declared network; interpolated keys
     # made any non-default value an invalid project.
     declared = set(compose["networks"])
@@ -760,10 +752,14 @@ def test_user_document_and_workspace_tools_are_direct_workflow_tools():
         assert tool_name in workflow_tools
 
 
-def test_top_level_workflow_does_not_expose_unguarded_delete_memory():
-    workflow_tools = _config()["workflow"]["tools"]
+def test_durable_memory_deletion_is_left_to_the_memory_center():
+    config = _config()
+    workflow_tools = config["workflow"]["tools"]
     assert "delete_memory" not in workflow_tools
-    assert "user_interaction_tool" in workflow_tools
+    assert (
+        "Users delete durable memory in the Memory Center; you cannot."
+        in config["workflow"]["instructions"]
+    )
 
 
 def test_deployed_tool_surface_is_optimized():
@@ -916,7 +912,6 @@ def test_workflow_exposes_one_routed_nvidia_docs_capability():
 
 def test_responses_api_workflow_exposes_required_leaf_tools():
     expected = [
-        "user_interaction_tool",
         "visual_media_tool",
         "current_datetime_tool",
         "source_verifier_tool",
@@ -1003,7 +998,6 @@ def test_daily_summary_uses_a_narrow_catalog_and_reserved_synthesis_phase():
         "docs_mcp_server",
         "llm_sandbox_tool",
         "user_document_tool",
-        "user_interaction_tool",
         "x_mcp_server",
         "visual_media_tool",
     }.isdisjoint(daily_tools)
@@ -1059,7 +1053,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
                 "list_labels",
                 "list_drafts",
             ],
-            "bucket_name": "gmail-mcp-oauth-ro",
         },
         "calendar_mcp_server": {
             "server_url": "https://calendarmcp.googleapis.com/mcp/v1",
@@ -1078,7 +1071,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
                 "delete_event",
                 "respond_to_event",
             ],
-            "bucket_name": "calendar-mcp-oauth-rw",
         },
         "docs_mcp_server": {
             "server_url": "https://docsmcp.googleapis.com/mcp/v1",
@@ -1087,7 +1079,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
                 "https://www.googleapis.com/auth/drive",
             },
             "include": ["read_doc", "update_doc"],
-            "bucket_name": "docs-mcp-oauth-drive",
         },
     }
 
@@ -1105,11 +1096,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             for name, group in function_groups.items()
             if group["_type"] == "per_user_mcp_client"
         } == set(expected), path
-        assert {
-            name
-            for name in config["object_stores"]
-            if name.endswith("_mcp_oauth_tokens")
-        } == {name.replace("_server", "_oauth_tokens") for name in expected}, path
         assert set(expected) <= set(workflow_tools), path
         workspace_source = next(
             source
@@ -1125,19 +1111,7 @@ def test_google_workspace_mcp_uses_per_user_oauth():
             assert provider["client_id"] == "${GOOGLE_MCP_CLIENT_ID}", path
             assert provider["client_secret"] == "${GOOGLE_MCP_CLIENT_SECRET}", path
             assert provider["redirect_uri"] == "${GOOGLE_MCP_REDIRECT_URI}", path
-            assert provider["enable_dynamic_registration"] is False, path
-            assert provider["allow_default_user_id_for_tool_calls"] is False, path
             assert set(provider["scopes"]) == values["scopes"], path
-
-            token_store_name = provider["token_storage_object_store"]
-            expected_store_name = name.replace("_server", "_oauth_tokens")
-            assert token_store_name == expected_store_name, path
-            token_store = config["object_stores"][token_store_name]
-            assert token_store == {
-                "_type": "daedalus_redis_object_store",
-                "redis_url": "${REDIS_URL}",
-                "bucket_name": values["bucket_name"],
-            }, path
 
             group = function_groups[name]
             assert group["_type"] == "per_user_mcp_client", path
@@ -1147,13 +1121,6 @@ def test_google_workspace_mcp_uses_per_user_oauth():
                 assert group["include"] == values["include"], path
             assert group["server"]["auth_provider"] == name, path
             assert group["server"]["url"] == values["server_url"], path
-            assert group["auth_flow_timeout"] >= 600, path
-
-        buckets = {
-            config["object_stores"][values["token_storage_object_store"]]["bucket_name"]
-            for values in (auth[name] for name in expected)
-        }
-        assert len(buckets) == len(expected), path
 
 
 def test_shared_api_key_mcp_auth_is_operator_managed():
@@ -1170,7 +1137,6 @@ def test_shared_api_key_mcp_auth_is_operator_managed():
             group = config["function_groups"][name]
 
             assert provider["_type"] == "api_key", path
-            assert provider["auth_scheme"] == "Custom", path
             assert provider["custom_header_name"] == "Authorization", path
             assert provider["custom_header_prefix"] == "Bearer", path
             assert provider["raw_key"] == f"${{{env_name}}}", path
@@ -1324,7 +1290,6 @@ def test_espn_mcp_uses_the_deployment_token_without_user_oauth():
         auth = config["authentication"][group["server"]["auth_provider"]]
         assert auth == {
             "_type": "api_key",
-            "auth_scheme": "Custom",
             "custom_header_name": "Authorization",
             "custom_header_prefix": "Bearer",
             "raw_key": "${ESPN_MCP_TOKEN}",
@@ -1435,9 +1400,8 @@ def test_hindsight_is_the_only_durable_memory_backend():
 
 
 def test_google_mcp_oauth_deadlines_are_ordered_across_workloads():
-    # The Rust authorization wait is the effective backend deadline. Neither
-    # DAEDALUS_MCP_OAUTH_TIMEOUT_SECONDS nor YAML auth_flow_timeout is read by
-    # the runtime, so they cannot establish this ordering.
+    # The Rust authorization wait is the effective backend deadline; no
+    # environment or YAML setting overrides it.
     oauth = (DOCKERFILE.parent / "runtime" / "src" / "oauth.rs").read_text()
     wait = re.findall(r"timeout\(Duration::from_secs\((\d+)\), receiver\)", oauth)
     expiry = re.findall(r"elapsed\(\) > Duration::from_secs\((\d+)\)", oauth)
@@ -1762,10 +1726,6 @@ def test_multi_operation_tools_are_filtered_in_production():
             "plan_sources",
             "audit_citations",
         ],
-        "user_interaction_tool": [
-            "confirm_action",
-            "delete_memory_guarded",
-        ],
     }
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
@@ -1926,22 +1886,6 @@ def test_runtime_omits_legacy_async_job_dependencies():
         project = manifest.read_text(encoding="utf-8")
         if "nvidia-nat[" in project:
             assert "async_endpoints" not in project, manifest
-
-
-def test_nv_ingest_sample_config_has_no_fallback_credentials_or_bind_addresses():
-    raw = NAT_NV_INGEST_SAMPLE_CONFIG.read_text(encoding="utf-8")
-    config = yaml.safe_load(raw)
-
-    assert "minioadmin" not in raw
-    assert "0.0.0.0" not in raw
-    assert set(config["functions"]) == {"user_document_tool"}
-    assert config["workflow"]["tool_names"] == ["user_document_tool"]
-
-
-def test_webscrape_sample_config_has_no_scaffold_placeholder():
-    config = yaml.safe_load(WEBSCRAPE_SAMPLE_CONFIG.read_text(encoding="utf-8"))
-
-    assert config["workflow"] == {"_type": "webscrape"}
 
 
 def test_top_level_workflow_exposes_source_verifier_when_add_memory_requires_it():
@@ -2199,34 +2143,9 @@ def test_workflow_prompt_limits_failed_retries():
         assert "Continue until complete" in prompt, path
 
 
-def test_workspace_writes_request_exact_approval_before_mutation():
+def test_runtime_gated_actions_are_not_reconfirmed_in_prose():
     for path in DEPLOYED_CONFIGS:
-        config = _config(path)
-        interaction_desc = config["functions"]["user_interaction_tool"]["description"]
-
-        assert "MCP mutations use their own execution gate" in interaction_desc, path
-        assert (
-            "No caller identity or action target may be supplied" in interaction_desc
-        ), path
-        assert (
-            "delete_memory_guarded"
-            in config["functions"]["user_interaction_tool"]["enabled_operations"]
-        ), path
-
-
-def test_approval_flow_cannot_loop_back_through_clarification():
-    for path in DEPLOYED_CONFIGS:
-        config = _config(path)
-        prompt = config["workflow"]["instructions"]
-
-        assert (
-            "clarify"
-            not in config["functions"]["user_interaction_tool"]["enabled_operations"]
-        ), path
-        assert (
-            "delete_memory_guarded"
-            in config["functions"]["user_interaction_tool"]["enabled_operations"]
-        ), path
+        prompt = _config(path)["workflow"]["instructions"]
         assert "Never request or reconfirm approval in prose" in prompt, path
 
 
@@ -2234,12 +2153,9 @@ def test_explicit_memory_writes_do_not_require_confirmation():
     for path in DEPLOYED_CONFIGS:
         config = _config(path)
         add_memory_desc = config["functions"]["add_memory"]["description"]
-        interaction_desc = config["functions"]["user_interaction_tool"]["description"]
 
         assert "explicit user requests" in add_memory_desc, path
         assert "without confirmation" in add_memory_desc, path
-        assert "requires a single-use approval_token" in interaction_desc
-        assert "pending request" in interaction_desc, path
 
 
 def test_backend_system_prompts_follow_prompt_guidance_shape():
@@ -2275,15 +2191,6 @@ def test_agents_preserve_their_configured_communication_style_guidance():
         else:
             assert expected in prompt, path
 
-    retrieval_config = (
-        Path(__file__).resolve().parents[1]
-        / "smart_milvus/src/smart_milvus/configs/config.yml"
-    )
-    retrieval_prompt = yaml.safe_load(retrieval_config.read_text())["workflow"][
-        "system_prompt"
-    ]
-    assert expected in " ".join(retrieval_prompt.split())
-
 
 def test_workflow_instructions_stay_focused_and_tool_schema_neutral():
     for path in DEPLOYED_CONFIGS:
@@ -2318,7 +2225,7 @@ def test_identity_control_messages_match_backend_memory_contract():
     for surface in surfaces:
         text = surface.read_text(encoding="utf-8")
         assert "[IDENTITY]" in text, surface
-        assert "delete_memory_guarded" in text, surface
+        assert "Memory Center" in text, surface
         assert 'explicit "remember" requests' in text, surface
-        assert "delete_memory)" not in text, surface
+        assert "delete_memory" not in text, surface
         assert "Do not echo this identity message" in text, surface

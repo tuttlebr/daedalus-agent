@@ -1,21 +1,21 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { publishSyncEvent } from '@/utils/sync/publish';
-
 import {
   getOrSetSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
 import { sessionKey, jsonGet, jsonSetWithExpiry } from '@/server/session/redis';
-import { stripBase64FromObject } from '@/server/session/sanitize';
 
+// The selection is an id pointer; conversation content is saved separately.
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '30mb', // Match global limit for consistency
+      sizeLimit: '16kb',
     },
   },
 };
+
+const MAX_ID_LENGTH = 512;
 
 export default async function handler(
   req: NextApiRequest,
@@ -31,6 +31,9 @@ export default async function handler(
 
   if (req.method === 'GET') {
     try {
+      // Older records hold a copy of the conversation, and finalization
+      // refreshes such a copy for the selected conversation. Clients read only
+      // its id.
       const data = await jsonGet(key);
       if (!data) return res.status(200).json(null);
       return res.status(200).json(data);
@@ -42,33 +45,21 @@ export default async function handler(
   }
 
   if (req.method === 'PUT') {
+    const id = req.body?.id;
+    if (typeof id !== 'string' || !id || id.length > MAX_ID_LENGTH) {
+      return res.status(400).json({ error: 'Expected a conversation id' });
+    }
     try {
-      let conversation = req.body;
-
-      // Trim messages length to avoid excessive storage
-      if (conversation?.messages?.length > 200) {
-        conversation.messages = conversation.messages.slice(-200);
-      }
-
-      // Strip attachment bytes while retaining bounded photos in HTML documents.
-      conversation = stripBase64FromObject(conversation);
-
-      await jsonSetWithExpiry(key, conversation, 60 * 60 * 24 * 7);
-
-      // Notify other sessions about the selection change
-      publishSyncEvent(userId, {
-        type: 'selected_conversation_changed',
-        timestamp: Date.now(),
-        data: { conversationId: conversation?.id },
-      }).catch(() => {}); // best-effort
-
+      // Deletion and history clearing remove this pointer when it names the
+      // deleted conversation (server/session/conversationDeletion.ts).
+      await jsonSetWithExpiry(key, { id }, 60 * 60 * 24 * 7);
       return res.status(204).end();
     } catch (err) {
       console.error('Failed to save selectedConversation to Redis', err);
       // Return error status so frontend knows the save failed
       return res
         .status(500)
-        .json({ error: 'Failed to save conversation to Redis' });
+        .json({ error: 'Failed to save the selected conversation' });
     }
   }
 

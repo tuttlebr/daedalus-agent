@@ -23,6 +23,9 @@ use tokio::sync::{oneshot, watch};
 
 pub const IN_USE: &str = "Authorization is in use; wait for the current operation to finish";
 pub const STATE_ERROR: &str = "OAuth state is missing, expired, or already used";
+/// A consent prompt holds its grant's lock while the user decides (up to ten
+/// minutes). Callers that never prompt wait at most this long for it.
+const NON_INTERACTIVE_WAIT: Duration = Duration::from_secs(2);
 #[derive(Clone)]
 pub enum Emitter {
     Chat(Events),
@@ -249,7 +252,13 @@ impl GoogleOAuth {
     ) -> Result<Option<String>> {
         let key = token_key(service(config)?, user)?;
         let lock = self.locks.get(&key);
-        let _lock = lock.lock().await;
+        let _lock = if emit.is_some() {
+            lock.lock().await
+        } else {
+            tokio::time::timeout(NON_INTERACTIVE_WAIT, lock.lock())
+                .await
+                .map_err(|_| anyhow!(IN_USE))?
+        };
         {
             let lease = self
                 .store
@@ -409,6 +418,11 @@ impl GoogleOAuth {
     }
     pub fn close(&self) {
         self.pending.lock().unwrap().clear();
+    }
+    /// The per-grant lock an interactive consent holds while the user decides.
+    #[cfg(test)]
+    pub(crate) fn grant_lock(&self, service: &str, user: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.locks.get(&token_key(service, user).unwrap())
     }
 }
 fn field(config: &Value, key: &str) -> String {

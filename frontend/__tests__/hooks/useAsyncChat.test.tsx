@@ -447,6 +447,240 @@ describe('useAsyncChat streaming callbacks', () => {
     act(() => root.unmount());
   });
 
+  it('keeps live delivery for a job already tracked when effects re-run', async () => {
+    // A job resumed from storage is tracked by the first effect pass. Strict
+    // Mode then runs the cleanup (which removes its live handlers) and the
+    // effects again; the job must be subscribed once more, exactly once.
+    localStorage.setItem(
+      'asyncJobs_alice',
+      JSON.stringify([
+        {
+          jobId: 'job-r',
+          conversationId: 'conv-1',
+          userId: 'alice',
+          timestamp: Date.now(),
+        },
+      ]),
+    );
+    mocks.fetchWithTimeoutMock.mockImplementation(async () =>
+      response({
+        jobId: 'job-r',
+        status: 'streaming',
+        conversationId: 'conv-1',
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+    );
+    const onToken = vi.fn();
+    const { root } = renderProbe(
+      { userId: 'alice', onToken },
+      { strict: true },
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-r',
+        conversationId: 'conv-1',
+        content: 'Live',
+        responseStart: 0,
+      });
+    });
+    expect(mocks.handlers.get('chat_token')?.size).toBe(1);
+    expect(onToken).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ jobId: 'job-r', partialResponse: 'Live' }),
+    );
+    expect(mocks.manager.subscribeToJob).toHaveBeenLastCalledWith('job-r');
+    act(() => root.unmount());
+  });
+
+  describe('tool steps across status snapshots', () => {
+    const step = (uuid: string, eventType = 'TOOL_START') => ({
+      jobId: 'job-1',
+      conversationId: 'conv-1',
+      step: { payload: { UUID: uuid, event_type: eventType, name: uuid } },
+    });
+    const ids = (status: any) =>
+      status.intermediateSteps.map(
+        (item: any) => `${item.payload.UUID}:${item.payload.event_type}`,
+      );
+
+    it('keeps earlier steps after a status push that carries none', async () => {
+      const onProgress = vi.fn();
+      const { root, api } = renderProbe({ userId: 'alice', onProgress });
+      await act(async () => {
+        await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+      });
+      await act(async () => {
+        emit('chat_intermediate_step', step('a'));
+        emit('chat_intermediate_step', step('b'));
+        // An OAuth callback publishes the stored status record, which has no
+        // step list while the job streams.
+        emit('job_status', {
+          jobId: 'job-1',
+          status: 'streaming',
+          conversationId: 'conv-1',
+          createdAt: 1,
+          updatedAt: 3,
+        });
+      });
+      expect(ids(onProgress.mock.calls.at(-1)![0])).toEqual([
+        'a:TOOL_START',
+        'b:TOOL_START',
+      ]);
+      await act(async () => {
+        emit('chat_intermediate_step', step('c'));
+      });
+      expect(ids(onProgress.mock.calls.at(-1)![0])).toEqual([
+        'a:TOOL_START',
+        'b:TOOL_START',
+        'c:TOOL_START',
+      ]);
+      act(() => root.unmount());
+    });
+
+    it('merges a snapshot with live steps without duplicating either', async () => {
+      const onProgress = vi.fn();
+      const { root, api } = renderProbe({ userId: 'alice', onProgress });
+      await act(async () => {
+        await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+      });
+      await act(async () => {
+        emit('chat_intermediate_step', step('a'));
+        emit('chat_intermediate_step', step('c'));
+        // The snapshot holds a step this tab missed and repeats one it has.
+        emit('job_status', {
+          jobId: 'job-1',
+          status: 'streaming',
+          conversationId: 'conv-1',
+          createdAt: 1,
+          updatedAt: 3,
+          intermediateSteps: [step('a').step, step('b').step],
+        });
+        // A redelivered phase replaces its earlier copy; END keeps START.
+        emit('chat_intermediate_step', step('b'));
+        emit('chat_intermediate_step', step('a', 'TOOL_END'));
+      });
+      expect(ids(onProgress.mock.calls.at(-1)![0])).toEqual([
+        'a:TOOL_START',
+        'b:TOOL_START',
+        'c:TOOL_START',
+        'a:TOOL_END',
+      ]);
+      act(() => root.unmount());
+    });
+
+    it('keeps live state that arrives while the first status read is in flight', async () => {
+      const onProgress = vi.fn();
+      let resolveInitial!: (value: any) => void;
+      mocks.fetchWithTimeoutMock.mockImplementation((url: string) => {
+        if (url === '/api/chat/async')
+          return Promise.resolve(
+            response({ jobId: 'job-1', status: 'pending' }),
+          );
+        return new Promise((resolve) => {
+          resolveInitial = resolve;
+        });
+      });
+      const probe = renderProbe({ userId: 'alice', onProgress });
+      let started!: Promise<string>;
+      await act(async () => {
+        started = probe.api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        emit('chat_token', {
+          jobId: 'job-1',
+          conversationId: 'conv-1',
+          content: 'Hi',
+          responseStart: 0,
+        });
+        emit('chat_intermediate_step', step('a'));
+      });
+      onProgress.mockClear();
+      await act(async () => {
+        // This snapshot was read before the token and the step were stored.
+        resolveInitial(
+          response({
+            jobId: 'job-1',
+            status: 'pending',
+            conversationId: 'conv-1',
+            createdAt: 1,
+            updatedAt: 1,
+          }),
+        );
+        await started;
+      });
+      // The older snapshot neither rewinds the status nor drops live state.
+      for (const [status] of onProgress.mock.calls)
+        expect(status.status).not.toBe('pending');
+      expect(probe.api.jobStatusByConversationId['conv-1']).toMatchObject({
+        status: 'streaming',
+        partialResponse: 'Hi',
+      });
+      await act(async () => {
+        emit('chat_intermediate_step', step('b'));
+      });
+      expect(ids(onProgress.mock.calls.at(-1)![0])).toEqual([
+        'a:TOOL_START',
+        'b:TOOL_START',
+      ]);
+      act(() => probe.root.unmount());
+    });
+  });
+
+  it('returns to the slow safety-net cadence once the socket reconnects', async () => {
+    mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) =>
+      response(
+        url === '/api/chat/async'
+          ? { jobId: 'job-1', status: 'pending' }
+          : {
+              jobId: 'job-1',
+              status: 'streaming',
+              conversationId: 'conv-1',
+              partialResponse: 'x',
+              createdAt: 1,
+              updatedAt: 1,
+            },
+      ),
+    );
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      pollingInterval: 3000,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    const reads = () =>
+      mocks.fetchWithTimeoutMock.mock.calls.filter(
+        ([url]) => url === '/api/chat/async?jobId=job-1',
+      ).length;
+    // A quiet job (for example a long tool call) on a healthy socket.
+    let before = reads();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+    const healthy = reads() - before;
+    mocks.manager.isConnected = false;
+    await act(async () => {
+      emit('disconnected', undefined);
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(reads() - before - healthy).toBeGreaterThanOrEqual(2);
+    mocks.manager.isConnected = true;
+    await act(async () => {
+      emit('connected', { userId: 'alice', streamingStates: {} });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    before = reads();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+    expect(reads() - before).toBe(healthy);
+    act(() => root.unmount());
+  });
+
   it('delivers same-length corrections and tool-only progress through polling', async () => {
     // WebSocket delivery is unavailable, so HTTP status reads carry progress.
     mocks.manager.isConnected = false;

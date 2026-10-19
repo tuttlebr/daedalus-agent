@@ -17,10 +17,17 @@ import { getWebSocketManager } from '@/services/websocket';
 
 import { apiGet } from '@/utils/app/api';
 import { cleanConversationHistory } from '@/utils/app/clean';
-import { saveConversation } from '@/utils/app/conversation';
+import {
+  persistSelectedConversation,
+  saveConversation,
+  type ConversationChange,
+} from '@/utils/app/conversation';
 import { buildMessageError } from '@/utils/app/errorCategory';
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
-import { getFriendlyName } from '@/utils/app/intermediateSteps';
+import {
+  getFriendlyName,
+  mergeIntermediateStepSnapshot,
+} from '@/utils/app/intermediateSteps';
 import {
   OAuthPrompt,
   oauthPromptConversationKeyPrefix,
@@ -52,12 +59,12 @@ const INITIAL_VISIBLE_MESSAGES = 80;
 const LOAD_OLDER_MESSAGES_STEP = 40;
 const OAUTH_SUCCESS_VISIBLE_MS = 3000;
 const AT_BOTTOM_THRESHOLD_PX = 32;
-// Each flush re-runs the whole remark/rehype pipeline over the entire answer
-// so far, which is O(n^2) across a turn. At 50ms that is up to 20 full parses
-// a second, and the cost grows with the response. 120ms reads identically for
-// streamed text and cuts the parse count by more than half. The throttle is
-// leading-edge: the first update after an idle interval (the first token, or
-// text after a tool call) renders on the next task instead of waiting.
+// Each flush re-renders the streaming answer. ResponseDocument re-parses only
+// its last Markdown block, but every flush still reconciles the message and
+// its activity. 120ms reads identically for streamed text and bounds that
+// work. The throttle is leading-edge: the first update after an idle interval
+// (the first token, or text after a tool call) renders on the next task
+// instead of waiting.
 const STREAM_RENDER_INTERVAL_MS = 120;
 // A copy that lacks a live job's assistant message predates that turn (for
 // example another tab or device started it). Reload it from the server at
@@ -100,36 +107,14 @@ function findAssistantMessage(
   return null;
 }
 
-function mergeIntermediateStep(
-  existingSteps: IntermediateStep[] = [],
-  incomingStep?: IntermediateStep,
-): IntermediateStep[] {
-  if (!incomingStep) return existingSteps;
-
-  const incomingId = incomingStep.payload?.UUID;
-  if (!incomingId) return [...existingSteps, incomingStep];
-
-  // A tool's START and END share one UUID. Like normalizeSteps, replace only a
-  // redelivery of the same phase so the call keeps its input and start time.
-  const existingIndex = existingSteps.findIndex(
-    (step) =>
-      step.payload?.UUID === incomingId &&
-      step.payload?.event_type === incomingStep.payload?.event_type,
-  );
-  if (existingIndex === -1) {
-    return [...existingSteps, incomingStep];
-  }
-
-  const nextSteps = [...existingSteps];
-  nextSteps[existingIndex] = {
-    ...nextSteps[existingIndex],
-    ...incomingStep,
-    payload: {
-      ...nextSteps[existingIndex].payload,
-      ...incomingStep.payload,
-    },
+function newConversation(): Conversation {
+  return {
+    id: uuidv4(),
+    name: 'New Conversation',
+    messages: [],
+    folderId: null,
+    updatedAt: Date.now(),
   };
-  return nextSteps;
 }
 
 function getCompactActivityText(step: IntermediateStep): string {
@@ -596,26 +581,40 @@ export const ChatView = memo(() => {
   /**
    * Save a finished turn only from a copy that contains it. A copy without the
    * job's message predates the turn; saving it would replace the record the
-   * worker has just finalized, so reload that record instead.
+   * worker has just finalized, so reload that record instead. An outcome the
+   * worker saved itself (`persisted`) is not uploaded again.
    */
   const persistFinishedTurn = useCallback(
-    (convId: string, updated: boolean, assistantMessageId?: string) => {
+    (
+      convId: string,
+      updated: boolean,
+      assistantMessageId?: string,
+      persisted = false,
+    ) => {
       if (!updated) {
         if (assistantMessageId) {
           resyncConversation(convId, assistantMessageId, true);
         }
         return;
       }
+      if (persisted) return;
       const conversation = useConversationStore
         .getState()
         .conversations.find((c) => c.id === convId);
       if (conversation) {
-        saveConversation({ ...conversation, updatedAt: Date.now() });
+        void saveConversation(conversation, {
+          updatedMessageIds: assistantMessageId ? [assistantMessageId] : [],
+        }).catch(() => undefined);
       }
     },
     [resyncConversation],
   );
 
+  /**
+   * The single path that puts a run's tool steps on its message. The hook
+   * supplies the run's reconciled list; a step the message already holds that
+   * the list lacks is kept rather than replaced away.
+   */
   const updateStreamingSteps = useCallback(
     (
       convId: string,
@@ -627,44 +626,19 @@ export const ChatView = memo(() => {
       const lastStep = steps[steps.length - 1];
       setActivityText(convId, getCompactActivityText(lastStep));
 
-      updateAssistantMessage(
-        convId,
-        {
-          intermediateSteps: steps,
-        },
-        assistantMessageId,
-      );
-    },
-    [updateAssistantMessage, setActivityText],
-  );
-
-  const appendStreamingStep = useCallback(
-    (
-      convId: string,
-      step: IntermediateStep | undefined,
-      assistantMessageId?: string,
-    ) => {
-      if (!step) return;
-
-      const conv = useConversationStore
+      const conversation = useConversationStore
         .getState()
         .conversations.find((c) => c.id === convId);
-      if (!conv) return;
-
-      const assistantMessage = findAssistantMessage(
-        conv.messages,
-        assistantMessageId,
-      );
-      const nextSteps = mergeIntermediateStep(
-        assistantMessage?.intermediateSteps || [],
-        step,
-      );
-
-      setActivityText(convId, getCompactActivityText(step));
+      const target = conversation
+        ? findAssistantMessage(conversation.messages, assistantMessageId)
+        : null;
       updateAssistantMessage(
         convId,
         {
-          intermediateSteps: nextSteps,
+          intermediateSteps: mergeIntermediateStepSnapshot(
+            target?.intermediateSteps,
+            steps,
+          ),
         },
         assistantMessageId,
       );
@@ -705,7 +679,12 @@ export const ChatView = memo(() => {
           {
             content: reduceStreamingUpdates(currentContent, batch.updates),
             ...(batch.intermediateSteps
-              ? { intermediateSteps: batch.intermediateSteps }
+              ? {
+                  intermediateSteps: mergeIntermediateStepSnapshot(
+                    assistantMessage?.intermediateSteps,
+                    batch.intermediateSteps,
+                  ),
+                }
               : {}),
           },
           batch.assistantMessageId,
@@ -848,29 +827,39 @@ export const ChatView = memo(() => {
         [finishOAuthPromptsForJob, queueStreamingUpdate, setActivityText],
       ),
 
+      // The step itself reaches the message through onProgress, which the
+      // hook calls next with the run's reconciled step list.
       onIntermediateStep: useCallback(
-        (event: {
-          conversationId?: string;
-          step?: IntermediateStep;
-          assistantMessageId?: string;
-        }) => {
+        (event: { conversationId?: string }) => {
           const convId = event.conversationId || selectedIdRef.current;
           if (!convId) return;
           markStreaming(convId);
-          appendStreamingStep(
-            convId,
-            event.step as IntermediateStep,
-            event.assistantMessageId,
-          );
           scrollToBottomSoon();
         },
-        [appendStreamingStep, markStreaming, scrollToBottomSoon],
+        [markStreaming, scrollToBottomSoon],
       ),
 
       onProgress: useCallback(
         (status: any) => {
           const convId = status.conversationId || selectedIdRef.current;
           if (!convId) return;
+
+          // useAsyncChat follows a terminal status with onComplete or onError
+          // in the same task (with an empty response too). Those callbacks
+          // finish and save the turn once.
+          if (status.status === 'completed' || status.status === 'error') {
+            return;
+          }
+
+          // Tool steps reach the message for every live status, including
+          // sibling work that continues while an authorization is pending.
+          if (status.intermediateSteps && status.intermediateSteps.length > 0) {
+            updateStreamingSteps(
+              convId,
+              status.intermediateSteps,
+              status.assistantMessageId,
+            );
+          }
 
           if (
             status.status === 'oauth_required' &&
@@ -919,26 +908,10 @@ export const ChatView = memo(() => {
             return;
           }
 
-          // useAsyncChat follows a terminal status with onComplete or onError
-          // in the same task (with an empty response too). Those callbacks
-          // finish and save the turn once.
-          if (status.status === 'completed' || status.status === 'error') {
-            return;
-          }
-
           // Mark conversation as streaming
           markStreaming(convId);
           if (status.status === 'streaming') {
             finishOAuthPromptsForJob(convId, status.jobId, true, true);
-          }
-
-          // Update activity text from intermediate steps
-          if (status.intermediateSteps && status.intermediateSteps.length > 0) {
-            updateStreamingSteps(
-              convId,
-              status.intermediateSteps,
-              status.assistantMessageId,
-            );
           }
 
           if (status.partialResponse) {
@@ -969,6 +942,7 @@ export const ChatView = memo(() => {
             assistantMessageId?: string;
             jobId?: string;
             generationDurationMs?: number;
+            persisted?: boolean;
           },
         ) => {
           const convId = conversationId || selectedIdRef.current;
@@ -995,7 +969,12 @@ export const ChatView = memo(() => {
           setStreamAnnouncement(convId, 'Response complete');
           finishOAuthPromptsForJob(convId, meta?.jobId, true);
 
-          persistFinishedTurn(convId, updated, meta?.assistantMessageId);
+          persistFinishedTurn(
+            convId,
+            updated,
+            meta?.assistantMessageId,
+            meta?.persisted,
+          );
         },
         [
           setStreaming,
@@ -1018,6 +997,7 @@ export const ChatView = memo(() => {
             conversationId?: string;
             assistantMessageId?: string;
             generationDurationMs?: number;
+            persisted?: boolean;
           },
         ) => {
           const convId = context?.conversationId || selectedIdRef.current;
@@ -1049,7 +1029,12 @@ export const ChatView = memo(() => {
               context?.assistantMessageId,
               context?.jobId,
             );
-            persistFinishedTurn(convId, updated, context?.assistantMessageId);
+            persistFinishedTurn(
+              convId,
+              updated,
+              context?.assistantMessageId,
+              context?.persisted,
+            );
           } else if (conv) {
             addMessage(convId, {
               role: 'assistant',
@@ -1118,14 +1103,22 @@ export const ChatView = memo(() => {
   // new callback for every streamed flush.
   const handleSend = useCallback(
     async (message: Message) => {
-      const selectedConversation = selectedConversationId
-        ? useConversationStore
-            .getState()
-            .conversations.find(
-              (conversation) => conversation.id === selectedConversationId,
-            )
+      const store = useConversationStore.getState();
+      let selectedConversation = selectedConversationId
+        ? store.conversations.find(
+            (conversation) => conversation.id === selectedConversationId,
+          )
         : undefined;
-      if (!selectedConversation) return;
+      if (!selectedConversation) {
+        // The selection can name a conversation that no longer exists (for
+        // example one deleted on another device). The composer has already
+        // cleared its input, so send to a new conversation instead of
+        // discarding the message.
+        selectedConversation = newConversation();
+        store.addConversation(selectedConversation);
+        store.selectConversation(selectedConversation.id);
+        void persistSelectedConversation(selectedConversation.id);
+      }
       const convId = selectedConversation.id;
       isFollowingRef.current = true;
       setShowScrollToBottom(false);
@@ -1139,7 +1132,8 @@ export const ChatView = memo(() => {
 
       // Auto-name conversation from first user message
       const isNewConversation = selectedConversation.messages.length === 0;
-      if (isNewConversation && message.content.trim()) {
+      const autoNamed = isNewConversation && Boolean(message.content.trim());
+      if (autoNamed) {
         const firstLine = message.content.trim().split('\n')[0];
         const name =
           firstLine.slice(0, 60) + (firstLine.length > 60 ? '...' : '');
@@ -1175,16 +1169,26 @@ export const ChatView = memo(() => {
         additionalProps.enableIntermediateSteps = true;
       }
 
-      // Persist conversation - read fresh state to capture the name update
-      const freshConv = useConversationStore
-        .getState()
-        .conversations.find((c) => c.id === convId);
-      const updatedConv = {
-        ...(freshConv || selectedConversation),
-        messages: [...allMessages, assistantMessage],
-        updatedAt: Date.now(),
+      // Read fresh state to capture the name update.
+      const conversationName =
+        useConversationStore
+          .getState()
+          .conversations.find((c) => c.id === convId)?.name ||
+        selectedConversation.name;
+      const turnChange: ConversationChange = {
+        fields: autoNamed ? ['name'] : [],
       };
-      saveConversation(updatedConv);
+      // Save the turn (so other devices and a reload show it while it runs)
+      // once the server has accepted the request: the upload then does not
+      // compete with the chat request itself. The worker saves the outcome.
+      const saveTurn = () => {
+        const current = useConversationStore
+          .getState()
+          .conversations.find((c) => c.id === convId);
+        if (current) {
+          void saveConversation(current, turnChange).catch(() => undefined);
+        }
+      };
 
       try {
         await startAsyncJob(
@@ -1192,11 +1196,14 @@ export const ChatView = memo(() => {
           additionalProps,
           userId,
           convId,
-          freshConv?.name || selectedConversation.name,
+          conversationName,
           turnId,
           assistantMessageId,
+          saveTurn,
         );
       } catch (err: any) {
+        // useAsyncChat has already reported this through onError, which saved
+        // the turn with its error: no server copy held it yet.
         console.error('Failed to start async job:', err);
         updateAssistantMessage(
           convId,
@@ -1262,18 +1269,13 @@ export const ChatView = memo(() => {
   }, [selectedConversation, handleSend]);
 
   const handleNewConversation = useCallback(() => {
-    const conversation = {
-      id: uuidv4(),
-      name: 'New Conversation',
-      messages: [],
-      folderId: null,
-      updatedAt: Date.now(),
-    };
+    const conversation = newConversation();
     const store = useConversationStore.getState();
     store.addConversation(conversation);
     store.selectConversation(conversation.id);
+    void persistSelectedConversation(conversation.id);
     setShowChatbar(false);
-    saveConversation(conversation);
+    void saveConversation(conversation).catch(() => undefined);
   }, [setShowChatbar]);
 
   const handleStop = useCallback(async () => {

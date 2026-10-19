@@ -46,7 +46,7 @@ Important review boundaries to confirm in source:
 Read `.github/workflows/ci.yml`, `Makefile`, `.pre-commit-config.yaml`,
 `pyproject.toml`, `builder/pyproject.toml`, `builder/pytest.ini`,
 `builder/.coveragerc`, `builder/conftest.py`, `builder/runtime/Cargo.toml`, `frontend/package.json`,
-`frontend/vitest.config.ts`, `frontend/playwright*.config.ts`, and
+`frontend/vitest.config.ts`, `frontend/playwright.config.ts`, and
 `frontend/e2e/README.md` for their relevant surfaces.
 
 Inventory `builder/tests/`, package-local tests, Rust inline/test modules and
@@ -61,13 +61,23 @@ The current hooks include secrets/syntax checks, Python lint/format/import/upgra
 checks, Bandit, Prettier, Bash syntax, skill links, maintenance skill references
 and Helm. Their precise selection and behavior live in the configuration. In particular:
 
+- Python hook environments are built with the interpreter that runs pre-commit,
+  which changes check-ast, pyupgrade, isort and Bandit results. CI, `make hooks`
+  and the documented command run pre-commit 3.6.2 on Python 3.12:
+  `uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <files>`.
+  The configuration does not pin `default_language_version`, because older
+  pre-commit installations whose virtualenv cannot discover uv-managed Python
+  would then fail to build any Python hook.
 - Prettier is a local hook that changes into `frontend/`, requires its installed
   dependencies and rewrites selected files. It and Ruff also format generated
   protocol outputs, so `scripts/generate_protocol_types.py` must emit their layout
   or the hook and `--check` disagree.
-- The Bandit hook scans Python outside `builder/` test directories at all
-  severities without `pyproject.toml`; `make security` scans only `builder/`
-  production files at medium severity with that configuration.
+- The Bandit hook uses the same release (1.8.6) and `pyproject.toml` policy,
+  which skips B101 assertions, as `make security`. The hook scans Python outside
+  `builder/` test directories at all severities; `make security` scans only
+  `builder/` production files at medium severity and above.
+- The Bash syntax hook selects files by identify type (`shell`/`bash`), not
+  extension, so executable shell scripts without a suffix are checked too.
 - `scripts/check_skill_links.py` checks Markdown links in runtime `skills/` and
   maintenance `.agents/skills/`; it always runs so deletion-only commits cannot
   bypass validation when a linked resource disappears.
@@ -75,21 +85,29 @@ and Helm. Their precise selection and behavior live in the configuration. In par
   can strand a path or `make` target named by a maintenance skill.
 - The Helm hook lints the chart and renders it with default and `custom-values.yaml`
   values, because `helm lint` only logs template `fail` errors; it fails when Helm
-  is missing. `make helm` also checks rendered pod security.
+  is missing. `make helm` also checks rendered pod security, provisioning
+  PyYAML through `uv run` as CI pins it.
 - Check hook filters at nested package paths and with multiple filenames; inspect
   handling of spaces, excluded generated files and nonzero child-process exits.
 
 ## Validation map
 
-The recorded toolchain is Node.js 22, Python 3.12 with `uv`, and Rust 1.95.
-Use current repository requirements if they change. Prepare Python with
+The recorded toolchain is Node.js 22, Python 3.12 with `uv`, Rust 1.95, and
+Helm 3; every setup-helm workflow step pins v3.22.1 because the action otherwise
+installs the latest (Helm 4) release. `make tools-check` reports the Helm major
+and checks that `uv` can find Python 3.12. Use current repository requirements
+if they change. Prepare Python with
 `uv venv builder/.venv --python 3.12` if absent; inspect the active environment
 before installing. Frontend installation uses `npm ci --legacy-peer-deps` from
 `frontend/`. Use synthetic local credentials and disposable test services.
 
 `make runtime` and `make docker` provision the HTTP checker's Python 3.12
-environment through `uv run --with httpx --with pyyaml`; those dependencies
-do not need to be installed into the system Python.
+environment through `uv run --with httpx --with pyyaml`, and `make helm` runs
+`scripts/check_rendered_pod_security.py` with `--with pyyaml==6.0.3`; those
+dependencies do not need to be installed into the system Python. The migration
+runners and `make candidate-browser` use `MIGRATION_PYTHON` as a single
+interpreter path; supply Python 3.12 with the packages listed beside it in the
+`Makefile`, which mirror `.github/workflows/rust-migration.yml`.
 
 Automatic push/pull-request CI and `make ci` retain Rust formatting, Clippy,
 unit tests, protocol drift, and coverage. The longer `make migration` and
@@ -97,18 +115,18 @@ unit tests, protocol drift, and coverage. The longer `make migration` and
 manual-only `.github/workflows/rust-migration.yml` workflow. Account for these
 separately when reviewing migration or compatibility behavior.
 
-| Scope                                   | Repository checks                                                                                                                                                                                                                                                                                                                               |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Python behavior and coverage            | `make builder`; use focused pytest runs during diagnosis. Preserve the Python coverage floor (currently 65%).                                                                                                                                                                                                                                   |
-| Rust and shared protocol                | `make rust-check`; it runs formatting, Clippy, locked tests and `python3 scripts/generate_protocol_types.py --check`. Regenerate with the same script without `--check` when source schemas change. `make rust-coverage` exercises the Rust coverage gate.                                                                                      |
-| Runtime, tool registration or providers | `make runtime` builds the deployable backend and exercises HTTP contracts; without `RUNTIME_REDIS_IMAGE` it prints that the approval and compaction contracts were skipped. Add the relevant `builder/migration/*_check.py` cases when the generic smoke test does not cover the changed behavior; get arguments from current scripts/Makefile. |
-| Frontend behavior                       | `make frontend` runs lint, TypeScript, coverage and a production build. Preserve global and per-area coverage gates in `frontend/vitest.config.ts`.                                                                                                                                                                                             |
-| Redis, persistence and job lifecycle    | `make test-integration` runs Python and frontend tests against disposable Redis. `pytest -m integration` is a usage error without `PYTEST_USE_REAL_REDIS=1`; frontend suites skip unless `RUN_REDIS_STREAM_INTEGRATION=1`, which `npm run test:integration` sets.                                                                               |
-| Browser flows                           | `make frontend-e2e`; distinguish mock-backend coverage from `make candidate-browser`, which uses the built candidate image and its prerequisites.                                                                                                                                                                                               |
-| Migration/compatibility                 | `make migration` covers differential/full/minimal image and service contracts. `make migration-benchmark` uses frozen synthetic workloads after migration setup; it does not establish live task latency.                                                                                                                                       |
-| Deployment/configuration                | `make helm`, and applicable `make redis-upgrade`, `make docker`, `make security` jobs. Inspect required tools and disposable infrastructure before execution.                                                                                                                                                                                   |
-| Hooks                                   | `pre-commit run --files <changed-files>`; `make hooks` installs frontend dependencies and runs the pinned all-files pre-commit checks.                                                                                                                                                                                                          |
-| Automatic CI gate                       | `make ci` runs the automatic CI counterparts sequentially. Inspect `make help` and current CI for prerequisites and coverage. Record every unavailable gate; do not relabel a partial run as full CI.                                                                                                                                           |
+| Scope                                   | Repository checks                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Python behavior and coverage            | `make builder`; use focused pytest runs during diagnosis. Preserve the Python coverage floor (currently 65%).                                                                                                                                                                                                                                                                               |
+| Rust and shared protocol                | `make rust-check`; it runs formatting, Clippy, locked tests and `python3 scripts/generate_protocol_types.py --check`. Regenerate with the same script without `--check` when source schemas change. `make rust-coverage` exercises the Rust coverage gate.                                                                                                                                  |
+| Runtime, tool registration or providers | `make runtime` builds the deployable backend and exercises HTTP contracts; without `RUNTIME_REDIS_IMAGE` it prints that the approval and compaction contracts were skipped. Add the relevant `builder/migration/*_check.py` cases when the generic smoke test does not cover the changed behavior; get arguments from current scripts/Makefile.                                             |
+| Frontend behavior                       | `make frontend` runs lint, TypeScript, coverage and a production build. Preserve global and per-area coverage gates in `frontend/vitest.config.ts`.                                                                                                                                                                                                                                         |
+| Redis, persistence and job lifecycle    | `make test-integration` runs Python and frontend tests against disposable Redis. `pytest -m integration` is a usage error without `PYTEST_USE_REAL_REDIS=1`; frontend suites skip unless `RUN_REDIS_STREAM_INTEGRATION=1`, which `npm run test:integration` sets.                                                                                                                           |
+| Browser flows                           | `make frontend-e2e`; distinguish mock-backend coverage from `make candidate-browser`, which uses the built candidate image and its prerequisites.                                                                                                                                                                                                                                           |
+| Migration/compatibility                 | `make migration` covers differential/full/minimal image and service contracts. `make migration-benchmark` uses frozen synthetic workloads after migration setup; it does not establish live task latency.                                                                                                                                                                                   |
+| Deployment/configuration                | `make helm`, and applicable `make redis-upgrade`, `make docker`, `make security` jobs. Inspect required tools and disposable infrastructure before execution. `builder/tests/test_redis_acl_helm.py` checks the rendered backend Redis ACL against the backend's key families; `builder/tests/test_deploy_helm_secret_allowlists.py` keeps `deploy.sh` and chart Secret allowlists aligned. |
+| Hooks                                   | `uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <changed-files>`; `make hooks` installs frontend dependencies and runs the same pinned release on all files.                                                                                                                                                                                                             |
+| Automatic CI gate                       | `make ci` runs the automatic CI counterparts sequentially. Inspect `make help` and current CI for prerequisites and coverage. Record every unavailable gate; do not relabel a partial run as full CI.                                                                                                                                                                                       |
 
 Containerized Rust checks of several source trees mounted at the same path
 must not share a `CARGO_TARGET_DIR`: cargo's mtime fingerprints can reuse a test

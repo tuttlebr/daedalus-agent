@@ -23,6 +23,7 @@ import {
   cancelImageJob,
   createRecoverableImageJob,
   heartbeatImageJob,
+  IMAGE_JOB_TTL_SECONDS,
   imageJobKey,
   loadRecoverableImageJob,
   updateOwnedImageJob,
@@ -55,12 +56,8 @@ export const config = {
     },
     responseLimit: false,
   },
-  // Leave room to persist the final OpenAI response after the backend's 300s
-  // provider timeout; nginx permits this route for 360s.
-  maxDuration: 360,
 };
 
-const IMAGE_JOB_TTL_SECONDS = 60 * 60;
 const MAX_USER_JOBS = 20;
 const MAX_ACTIVE_JOBS_PER_USER = 2;
 const IMAGE_TIMEOUT_MS = 330_000;

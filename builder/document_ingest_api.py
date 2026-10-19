@@ -139,7 +139,6 @@ def _default_config() -> NvIngestFunctionConfig:
         use_v2_api=_env_bool("DOCUMENT_INGEST_USE_V2_API", False),
         pdf_pages_per_chunk=_env_int("DOCUMENT_INGEST_PDF_PAGES_PER_CHUNK", 32),
         enable_image_filter=_env_bool("DOCUMENT_INGEST_ENABLE_IMAGE_FILTER", True),
-        enable_captioning=_env_bool("DOCUMENT_INGEST_ENABLE_CAPTIONING", False),
         worker_pool_size=_env_int("DOCUMENT_INGEST_WORKER_POOL_SIZE", 16),
         batch_concurrency=_env_int("DOCUMENT_INGEST_BATCH_CONCURRENCY", 1),
         max_documents_per_batch=_env_int("DOCUMENT_INGEST_MAX_DOCUMENTS_PER_BATCH", 20),

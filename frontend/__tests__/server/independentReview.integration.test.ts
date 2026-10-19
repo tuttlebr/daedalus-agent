@@ -317,10 +317,10 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
     };
     const applyPhase = async (jobId: string, operation: any) => {
       const finalizationId = operation.finalization_id ?? 'f71';
-      await jobs.markFinalizationPhase(
+      await jobs.markFinalizationPhases(
         jobId,
         finalizationId,
-        phaseFields[operation.phase],
+        [phaseFields[operation.phase]],
         operation.value.at,
       );
       if (operation.value.receipt) {

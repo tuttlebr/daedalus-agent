@@ -113,23 +113,10 @@ describe('useWebSocket behavior through the mounted hook', () => {
     ).toBe(true);
   });
 
-  it('forwards job and conversation subscriptions from its public API', () => {
-    render();
-    api.subscribeToJob('job-a');
-    api.unsubscribeFromJob('job-a');
-    api.subscribeToChat('chat-a');
-    api.unsubscribeFromChat('chat-a');
-    expect(mocks.manager.subscribeToJob).toHaveBeenCalledWith('job-a');
-    expect(mocks.manager.unsubscribeFromJob).toHaveBeenCalledWith('job-a');
-    expect(mocks.manager.subscribeToChat).toHaveBeenCalledWith('chat-a');
-    expect(mocks.manager.unsubscribeFromChat).toHaveBeenCalledWith('chat-a');
-  });
-
   it('tracks connection and streaming state from delivered events', () => {
     const onConnected = vi.fn(),
-      onDisconnected = vi.fn(),
-      onStreamingStateChanged = vi.fn();
-    render({ onConnected, onDisconnected, onStreamingStateChanged });
+      onDisconnected = vi.fn();
+    render({ onConnected, onDisconnected });
     const streamingStates = {
       first: { conversationId: 'first', sessionId: 's' },
     };
@@ -140,10 +127,6 @@ describe('useWebSocket behavior through the mounted hook', () => {
     emit('streaming_started', { conversationId: 'second' });
     emit('streaming_ended', { conversationId: 'first' });
     expect(api.streamingStates).toEqual({ second: true });
-    expect(onStreamingStateChanged.mock.calls).toEqual([
-      ['second', true],
-      ['first', false],
-    ]);
     emit('disconnected');
     expect(api.isConnected).toBe(false);
     expect(onDisconnected).toHaveBeenCalledOnce();
@@ -155,8 +138,6 @@ describe('useWebSocket behavior through the mounted hook', () => {
     const options = {
       onConversationUpdated: vi.fn(),
       onConversationDeleted: vi.fn(),
-      onConversationListChanged: vi.fn(),
-      onSelectedConversationChanged: vi.fn(),
       onAutonomyStatus: vi.fn(),
       onAutonomyRunEvent: vi.fn(),
       onAutonomyFeedUpdated: vi.fn(),
@@ -164,20 +145,22 @@ describe('useWebSocket behavior through the mounted hook', () => {
     render({ ...options, onConversationUpdated: old });
     const registrations = mocks.manager.on.mock.calls.length;
     render({ ...options, onConversationUpdated: current });
-    const conversation = { id: 'chat' };
-    emit('conversation_updated', { conversation });
+    // Browser saves announce an id and revision; finalization adds the record.
+    const announced = { conversationId: 'chat', revision: 'r2' };
+    const finalized = {
+      conversationId: 'chat',
+      conversation: { id: 'chat' },
+    };
+    emit('conversation_updated', announced);
+    emit('conversation_updated', finalized);
     emit('conversation_deleted', { conversationId: 'chat' });
-    emit('conversation_list_changed');
-    emit('selected_conversation_changed', { conversationId: 'other' });
     const event = { id: 'run' };
     emit('autonomy_status', event);
     emit('autonomy_run_event', event);
     emit('autonomy_feed_updated', event);
     expect(old).not.toHaveBeenCalled();
-    expect(current).toHaveBeenCalledWith(conversation);
+    expect(current.mock.calls).toEqual([[announced], [finalized]]);
     expect(options.onConversationDeleted).toHaveBeenCalledWith('chat');
-    expect(options.onConversationListChanged).toHaveBeenCalledOnce();
-    expect(options.onSelectedConversationChanged).toHaveBeenCalledWith('other');
     for (const callback of [
       options.onAutonomyStatus,
       options.onAutonomyRunEvent,

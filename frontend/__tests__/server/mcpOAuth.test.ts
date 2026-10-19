@@ -1,6 +1,7 @@
 import {
   deleteOAuthCallbackTarget,
   isAllowedOAuthBackendBaseUrl,
+  isOAuthCallbackOwner,
   loadOAuthCallbackTarget,
   saveOAuthCallbackTarget,
 } from '@/server/mcpOAuth';
@@ -76,5 +77,62 @@ describe('MCP OAuth callback routing', () => {
     });
 
     await expect(loadOAuthCallbackTarget('state-b')).resolves.toBeNull();
+  });
+
+  it('records the initiating user and rejects malformed owners', async () => {
+    await saveOAuthCallbackTarget(
+      'browser-state-secret',
+      'http://10.2.3.4:8000',
+      'approval_request_12345',
+      'alice',
+    );
+    expect(vi.mocked(jsonSetWithExpiry).mock.calls[0][1]).toMatchObject({
+      jobId: 'approval_request_12345',
+      userId: 'alice',
+    });
+
+    for (const owner of ['', 'x'.repeat(257)]) {
+      await expect(
+        saveOAuthCallbackTarget(
+          'browser-state-secret',
+          'http://10.2.3.4:8000',
+          'job-123',
+          owner,
+        ),
+      ).rejects.toThrow('OAuth callback owner is invalid');
+    }
+    vi.mocked(jsonGet).mockResolvedValue({
+      backendBaseUrl: 'http://10.2.3.4:8000',
+      jobId: 'job-123',
+      userId: 42,
+      createdAt: 123,
+    });
+    await expect(loadOAuthCallbackTarget('state-c')).resolves.toBeNull();
+  });
+
+  it('authorizes only the recorded owner, falling back to the chat job owner', async () => {
+    const target = {
+      backendBaseUrl: 'http://10.2.3.4:8000',
+      jobId: 'job-123',
+      createdAt: 123,
+    };
+    vi.mocked(jsonGet).mockResolvedValue({ userId: 'bob' });
+
+    // A recorded owner is authoritative and needs no job lookup.
+    await expect(
+      isOAuthCallbackOwner({ ...target, userId: 'alice' }, 'alice'),
+    ).resolves.toBe(true);
+    await expect(
+      isOAuthCallbackOwner({ ...target, userId: 'alice' }, 'bob'),
+    ).resolves.toBe(false);
+    expect(jsonGet).not.toHaveBeenCalled();
+
+    // Older stream workers record only the job; its request names the owner.
+    await expect(isOAuthCallbackOwner(target, 'bob')).resolves.toBe(true);
+    await expect(isOAuthCallbackOwner(target, 'alice')).resolves.toBe(false);
+    expect(jsonGet).toHaveBeenCalledWith('async-job-request:job-123');
+    vi.mocked(jsonGet).mockResolvedValue(null);
+    await expect(isOAuthCallbackOwner(target, 'bob')).resolves.toBe(false);
+    await expect(isOAuthCallbackOwner(target, '')).resolves.toBe(false);
   });
 });

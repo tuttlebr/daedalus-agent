@@ -18,7 +18,6 @@ pub struct Preparation {
     pub domain_tools: HashMap<String, Arc<crate::domain_retriever::Adapter>>,
     pub docs_tools: HashMap<String, crate::nvidia_docs::Settings>,
     pub search_tools: HashMap<String, crate::perplexity_search::Settings>,
-    pub user_tools: HashMap<String, crate::user_interaction::Tool>,
     pub skill_tools: HashMap<String, crate::agent_skills::Tool>,
     pub exploration_tools: HashMap<String, crate::exploration::Tool>,
     pub sandbox_tools: HashMap<String, crate::llm_sandbox::Tool>,
@@ -300,13 +299,12 @@ pub fn base_prepare(
 }
 
 impl Preparation {
-    pub fn new(config: Config, http: reqwest::Client) -> Result<Arc<Self>> {
+    pub fn new(config: Config) -> Result<Arc<Self>> {
         let mut output_readers = HashMap::new();
         let mut document_tools = HashMap::new();
         let mut domain_tools = HashMap::new();
         let mut docs_tools = HashMap::new();
         let mut search_tools = HashMap::new();
-        let mut user_tools = HashMap::new();
         let mut skill_tools = HashMap::new();
         let mut exploration_tools = HashMap::new();
         let mut sandbox_tools = HashMap::new();
@@ -333,12 +331,6 @@ impl Preparation {
                     skill_tools.insert(
                         name.clone(),
                         crate::agent_skills::Tool::new(raw, &config.env)?,
-                    );
-                }
-                if raw["_type"] == "user_interaction" {
-                    user_tools.insert(
-                        name.clone(),
-                        crate::user_interaction::Tool::new(raw, &config.env)?,
                     );
                 }
                 if raw["_type"] == "perplexity_search" {
@@ -405,7 +397,6 @@ impl Preparation {
             domain_tools,
             docs_tools,
             search_tools,
-            user_tools,
             skill_tools,
             sandbox_tools,
             exploration_tools,
@@ -420,7 +411,7 @@ impl Preparation {
             },
             telemetry: crate::telemetry::Telemetry::new(&config)?,
             outputs: OutputStore::new(&config)?,
-            memory: Memory::new(&config, http)?,
+            memory: Memory::new(&config)?,
             memory_tools: crate::memory_tools::Tools::new(&config)?,
             config,
         }))
@@ -495,11 +486,6 @@ impl Preparation {
                 schemas.insert(name.clone(), vec![self.docs_tools[name].schema(name)?]);
             } else if raw["_type"] == "perplexity_search" {
                 schemas.insert(name.clone(), vec![self.search_tools[name].schema(name)?]);
-            } else if raw["_type"] == "user_interaction" {
-                schemas.insert(
-                    name.clone(),
-                    vec![self.user_tools[name].settings.schema(name)?],
-                );
             } else if raw["_type"] == "agent_skills" {
                 schemas.insert(name.clone(), vec![self.skill_tools[name].schema(name)?]);
             } else if raw["_type"] == "sandbox_exploration" {
@@ -672,7 +658,7 @@ mod tests {
             .with_state(Arc::new(Barrier::new(2)));
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let http = reqwest::Client::new();
-        let preparation = Preparation::new(configuration(&base), http.clone()).unwrap();
+        let preparation = Preparation::new(configuration(&base)).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "fixture-user".parse().unwrap());
         let body = json!({"messages":[
@@ -725,7 +711,7 @@ mod tests {
             .with_state(Arc::new(Barrier::new(2)));
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let http = reqwest::Client::new();
-        let preparation = Preparation::new(configuration(&base), http.clone()).unwrap();
+        let preparation = Preparation::new(configuration(&base)).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "fixture-user".parse().unwrap());
         let body = json!({"messages":[{"role":"user","content":"Review my project preferences"}]});
@@ -814,7 +800,7 @@ mod tests {
             .with_state(barrier);
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let http = reqwest::Client::new();
-        let preparation = Preparation::new(discovery(&base), http.clone()).unwrap();
+        let preparation = Preparation::new(discovery(&base)).unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-user-id", "fixture-user".parse().unwrap());
         let body = json!({"messages":[{"role":"user","content":"Check my lights"}]});

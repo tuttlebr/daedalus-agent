@@ -2006,3 +2006,104 @@ def test_indexing_progress_does_not_depend_on_sdk_log_level(monkeypatch, level):
     assert phases.count("indexing") == 1
     assert phases.index("processing") < phases.index("indexing")
     assert phases.index("indexing") < phases.index("postprocessing")
+
+
+def test_tool_and_route_processors_serialize_one_collection(monkeypatch):
+    """The NAT tool and the HTTP route build separate processors; a UI upload
+    and a tool ingest into one private collection must not write concurrently."""
+    import base64
+    import json
+    import time
+    from unittest.mock import AsyncMock
+
+    import nat_nv_ingest.nat_nv_ingest as module
+
+    active = 0
+    overlap = []
+    guard = threading.Lock()
+
+    class Ingestor:
+        def __init__(self, client):
+            self._vdb_bulk_upload = None
+
+        def buffers(self, *_):
+            return self
+
+        def extract(self, **_):
+            return self
+
+        def filter(self, **_):
+            return self
+
+        def split(self, **_):
+            return self
+
+        def dedup(self):
+            return self
+
+        def embed(self):
+            return self
+
+        def vdb_upload(self, **_):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def ingest(self, **_):
+            nonlocal active
+            with guard:
+                active += 1
+                overlap.append(active)
+            time.sleep(0.2)  # the SDK's Milvus write for this collection
+            with guard:
+                active -= 1
+            return [
+                [
+                    {
+                        "document_type": "text",
+                        "metadata": {
+                            "content": "x",
+                            "content_metadata": {"page_number": 0},
+                        },
+                    }
+                ]
+            ], [[]]
+
+    monkeypatch.setattr(module, "Ingestor", Ingestor)
+    monkeypatch.setattr(module, "_validate_embedding_dimension", lambda *_: None)
+
+    def processor():
+        built = module.NvIngestDocumentProcessor(module.NvIngestFunctionConfig())
+        redis_client = MagicMock()
+        redis_client.execute_command.return_value = json.dumps(
+            {
+                "userId": "alice",
+                "filename": "a.txt",
+                "data": base64.b64encode(b"text").decode(),
+            }
+        )
+        monkeypatch.setattr(built, "_get_redis", AsyncMock(return_value=redis_client))
+        monkeypatch.setattr(built, "_get_nv_client", AsyncMock(return_value=object()))
+        return built
+
+    tool, route = processor(), processor()
+
+    async def both():
+        return await asyncio.gather(
+            tool.process_document(
+                documentRef={"documentId": "d1", "sessionId": "s"}, username="alice"
+            ),
+            route.process_document(
+                documentRef={"documentId": "d2", "sessionId": "s"}, username="alice"
+            ),
+        )
+
+    results = asyncio.run(both())
+    assert {result["collection"] for result in results} == {
+        user_upload_collection_name("alice")
+    }
+    assert max(overlap) == 1, "two writers ran against one private collection"

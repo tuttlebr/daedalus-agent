@@ -10,7 +10,10 @@ requesting user.
 
 The Rust runtime owns the `nat_nv_ingest` tool and document routes in the
 default deployment. This package is the `DAEDALUS_PREPARATION=python` rollback
-implementation and the baseline for the retained differential fixtures.
+implementation and the baseline for the retained differential fixtures. Its
+registered schema and configuration defaults are exported to
+`builder/runtime/resources/document-tools.json`, which
+`builder/tests/test_rust_tool_resource_parity.py` keeps in sync.
 
 ## What It Does
 
@@ -45,11 +48,10 @@ whether an end user has an in-flight upload through this API. A service pod
 replacement can invalidate the HTTP/Ray job being polled; the client retry is
 bounded and is not a substitute for a coordinated rollout.
 
-The package-level smoke-test config lives in
-[`src/nat_nv_ingest/configs/config.yml`](src/nat_nv_ingest/configs/config.yml).
-It contains no fallback credentials or client-side `0.0.0.0` endpoints and
-requires its connection settings from the environment. Production uses the
-reviewed `backend/tool-calling-config.yaml` workflow.
+Production uses the reviewed
+[`backend/tool-calling-config.yaml`](../../backend/tool-calling-config.yaml)
+workflow. Supply connection settings from the environment; do not add
+fallback credentials or client-side `0.0.0.0` endpoints. A minimal block:
 
 ```yaml
 functions:
@@ -167,7 +169,8 @@ of the immutable authenticated subject. Runtime reads and writes don't fall
 back to legacy normalized-only names because two users can share one legacy
 name. Legacy collections are migrated with the operator-only
 [`milvus_collection_migration.py`](../milvus_collection_migration.py) command.
-It isn't registered as a NAT function or exposed to the model.
+It isn't registered as a tool in either preparation mode or exposed to the
+model.
 
 ### Private collection migration runbook
 

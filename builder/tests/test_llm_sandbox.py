@@ -934,3 +934,80 @@ def test_execute_rejects_malformed_service_response():
             return await sandbox(argv=["printf", "hello"])
 
     assert "invalid exitCode field" in run(_run())
+
+
+def test_failed_execute_post_reports_unknown_outcome_without_retrying():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        FakeAsyncClient.calls = []
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(),
+            httpx.ReadTimeout("response lost after the request was sent"),
+        ]
+        with patch.object(mod.httpx, "AsyncClient", FakeAsyncClient):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(argv=["printf", "hello"])
+
+    output = run(_run())
+    executes = [path for _, path, _ in FakeAsyncClient.calls].count("/v1/execute")
+    assert executes == 1
+    assert output == "Error: " + mod.EXECUTE_UNCERTAIN
+    assert "transport retry" not in output
+
+
+def test_failed_publish_post_reports_unknown_outcome_without_retrying():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    content = b"ready"
+    collected = {
+        "path": "output.txt",
+        "size": len(content),
+        "mode": "0644",
+        "contentBase64": base64.b64encode(content).decode(),
+        "truncated": False,
+    }
+
+    async def _run():
+        FakeAsyncClient.calls = []
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(commands=["true"], workspace_persistence=True),
+            execute_response(files=[collected], workspace_persisted=True),
+            httpx.RemoteProtocolError("connection closed after the upload"),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_trusted_scope_from_context",
+                return_value=("user-a", "conversation-a"),
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(operation="publish_file", file_path="output.txt")
+
+    output = run(_run())
+    publish_url = sandbox_config().artifact_publish_url
+    assert [path for _, path, _ in FakeAsyncClient.calls].count(publish_url) == 1
+    assert output == "Error: " + mod.PUBLISH_UNCERTAIN
+    assert mod.ARTIFACT_REF_MARKER not in output
+
+
+def test_failed_discovery_get_still_reports_its_retry():
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        FakeAsyncClient.calls = []
+        FakeAsyncClient.responses = [
+            httpx.ConnectError("unreachable"),
+            httpx.ConnectError("unreachable"),
+        ]
+        with patch.object(mod.httpx, "AsyncClient", FakeAsyncClient):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(argv=["printf", "hello"])
+
+    output = run(_run())
+    assert len(FakeAsyncClient.calls) == 2
+    assert output == "Error: Could not reach LLM sandbox after one transport retry."

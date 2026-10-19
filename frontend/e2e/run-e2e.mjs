@@ -17,7 +17,6 @@ const publicBuildEnv = {
   }`,
   NEXT_PUBLIC_WS_FALLBACK_POLL_INTERVAL_MS: '1000',
   NEXT_TELEMETRY_DISABLED: '1',
-  SESSION_SECRET: 'e2e-session-secret-with-more-than-thirty-two-bytes',
 };
 
 function run(command, args, env = process.env) {

@@ -18,6 +18,37 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
 
     afterAll(() => client?.disconnect());
 
+    it.each(['plain', 'json'])(
+      'deletes only a live %s status',
+      async (format) => {
+        const live = `delete-live-${process.pid}-${Date.now()}-${format}`;
+        const done = `${live}-done`;
+        const write = async (jobId: string, status: Record<string, any>) => {
+          const key = redis.sessionKey(['async-job-status', jobId]);
+          const value = JSON.stringify({ jobId, createdAt: 1, ...status });
+          if (format === 'plain') await client.set(key, value, 'EX', 120);
+          else await client.call('JSON.SET', key, '$', value);
+          return key;
+        };
+        const liveKey = await write(live, { status: 'pending' });
+        const doneKey = await write(done, {
+          status: 'error',
+          finalizedAt: 2,
+        });
+        try {
+          expect(await state.deleteLiveJobStatus(live)).toBe(true);
+          expect(await client.exists(liveKey)).toBe(0);
+          expect(await state.deleteLiveJobStatus(done)).toBe(false);
+          expect(await client.exists(doneKey)).toBe(1);
+          expect(await state.deleteLiveJobStatus(`${live}-missing`)).toBe(
+            false,
+          );
+        } finally {
+          await client.del(liveKey, doneKey);
+        }
+      },
+    );
+
     it.each([
       ['plain', 'progress'],
       ['json', 'progress'],

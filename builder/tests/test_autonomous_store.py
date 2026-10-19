@@ -1,6 +1,7 @@
 """Tests for the autonomous worker reliable queue (F-013)."""
 
 import json
+import re
 
 import pytest
 from autonomous_agent.models import now_ms
@@ -51,12 +52,23 @@ class _FakeRedis:
         return int(existed)
 
     def eval(self, script, num_keys, *args):
-        if "RPOPLPUSH" in script:
+        move = re.search(
+            r'"(RPOPLPUSH|LMOVE)", KEYS\[2\], KEYS\[3\](?:, "(\w+)", "(\w+)")?',
+            script,
+        )
+        if move:
+            # Execute the reclaim script's actual list move, including its
+            # directions, so tests observe the real queue order.
+            command, source_end, destination_end = move.groups()
+            if command == "RPOPLPUSH":
+                source_end, destination_end = "RIGHT", "LEFT"
             lease_key, processing_key, queue_key, token = args
             if self.kv.get(lease_key) != token:
                 return None
             moved = []
-            while raw := self.rpoplpush(processing_key, queue_key):
+            while raw := self.lmove(
+                processing_key, queue_key, source_end, destination_end
+            ):
                 moved.append(raw)
             return moved
         if "LREM" in script:
@@ -93,11 +105,19 @@ class _FakeRedis:
         return v
 
     def rpoplpush(self, src, dst):
+        return self.lmove(src, dst, "RIGHT", "LEFT")
+
+    def lmove(self, src, dst, source_end, destination_end):
+        # Index 0 is the Redis list head (LEFT); -1 is its tail (RIGHT).
         lst = self.lists.get(src) or []
         if not lst:
             return None
-        v = lst.pop()
-        self.lists.setdefault(dst, []).insert(0, v)
+        v = lst.pop(0 if source_end == "LEFT" else -1)
+        destination = self.lists.setdefault(dst, [])
+        if destination_end == "LEFT":
+            destination.insert(0, v)
+        else:
+            destination.append(v)
         return v
 
     def lrem(self, k, count, val):
@@ -153,6 +173,45 @@ def test_crash_before_complete_is_reclaimed_not_lost():
     assert restarted.redis.llen(key("u", "processing")) == 0
     # The request is retried rather than silently dropped.
     assert restarted.dequeue("u", timeout=0) == {"id": "r1"}
+
+
+def test_reclaimed_request_runs_before_requests_queued_behind_it():
+    """An interrupted request keeps its place at the front of the FIFO queue."""
+    store = _store()
+    assert store.acquire_lease("u")
+    for request_id in ("r1", "r2", "r3"):
+        store.redis.lpush(key("u", "queue"), json.dumps({"id": request_id}))
+    assert store.dequeue("u", timeout=0) == {"id": "r1"}  # crashes mid-run
+
+    restarted = RedisStore()
+    restarted.redis = store.redis
+    store.redis.delete(key("u", "lease"))
+    assert restarted.acquire_lease("u")
+    assert restarted.reclaim_processing("u") == 1
+
+    order = []
+    while request := restarted.dequeue("u", timeout=0):
+        order.append(request["id"])
+        restarted.complete("u")
+    assert order == ["r1", "r2", "r3"]
+
+
+def test_reclaim_preserves_the_order_of_several_interrupted_requests():
+    store = _store()
+    assert store.acquire_lease("u")
+    for request_id in ("r1", "r2", "r3"):
+        store.redis.lpush(key("u", "queue"), json.dumps({"id": request_id}))
+    # Two claims left behind by earlier owners, r1 claimed before r2.
+    assert store.dequeue("u", timeout=0) == {"id": "r1"}
+    assert store.dequeue("u", timeout=0) == {"id": "r2"}
+
+    assert store.reclaim_processing("u") == 2
+
+    order = []
+    while request := store.dequeue("u", timeout=0):
+        order.append(request["id"])
+        store.complete("u")
+    assert order == ["r1", "r2", "r3"]
 
 
 def test_poison_message_is_dropped_from_processing():

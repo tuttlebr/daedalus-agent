@@ -44,11 +44,6 @@ import { releaseUserJobGuard } from './userJobGuard';
 
 import { updateJsonAtomically } from '@/server/atomicJson';
 import {
-  MAX_PUSH_SUBSCRIPTIONS,
-  parsePushSubscription,
-} from '@/server/pushSubscriptions';
-import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
-import {
   ConversationWriteError,
   readConversationForUser,
   saveConversationForUser,
@@ -505,54 +500,6 @@ export async function resumePendingFinalization(
   return result ?? 'pending';
 }
 
-async function sendSuccessPushNotification(
-  journal: NewJobFinalizationJournal,
-): Promise<void> {
-  try {
-    if (process.env.PUSH_NOTIFICATIONS_ENABLED === 'false') return;
-    const webpush = await import('web-push');
-    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-    if (!vapidPublicKey || !vapidPrivateKey || !journal.userId) return;
-    if (
-      journal.conversation &&
-      !(await verifyConversationOwnership(
-        journal.userId,
-        journal.conversation.id,
-      ))
-    )
-      return;
-
-    webpush.setVapidDetails(
-      'mailto:noreply@daedalus.app',
-      vapidPublicKey,
-      vapidPrivateKey,
-    );
-    const subscriptions = await jsonGet(
-      sessionKey(['user', journal.userId, 'push-subscriptions']),
-    );
-    if (!Array.isArray(subscriptions) || subscriptions.length === 0) return;
-
-    const payload = JSON.stringify({
-      title: 'Response Ready',
-      body: 'Your conversation has a new response',
-      data: { conversationId: journal.conversation?.id },
-    });
-    for (const stored of subscriptions.slice(0, MAX_PUSH_SUBSCRIPTIONS)) {
-      // Recheck legacy persisted inputs at execution, not only on registration.
-      const subscription = parsePushSubscription(stored);
-      if (!subscription) continue;
-      webpush
-        .sendNotification(subscription, payload, { timeout: 10000 })
-        .catch((error: any) => {
-          logger.warn(`Push notification failed: ${error.statusCode}`);
-        });
-    }
-  } catch (error) {
-    logger.debug('Push notification skipped', error);
-  }
-}
-
 export async function finalizeSuccess(
   jobId: string,
   jobRequest: AsyncJobRequest,
@@ -645,7 +592,6 @@ export async function finalizeSuccess(
   logger.info(
     `Job ${jobId}: Finalized successfully (${accumulatedSteps.length} steps)`,
   );
-  await sendSuccessPushNotification(journal);
   return true;
 }
 

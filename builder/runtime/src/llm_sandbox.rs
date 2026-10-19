@@ -1032,6 +1032,17 @@ impl std::fmt::Display for Transport {
     }
 }
 impl std::error::Error for Transport {}
+/// A POST failed in transit. It is never retried, and it may already have run.
+#[derive(Debug)]
+struct Uncertain;
+impl std::fmt::Display for Uncertain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Sandbox request outcome is unknown")
+    }
+}
+impl std::error::Error for Uncertain {}
+const EXECUTE_UNCERTAIN: &str = "Error: The LLM sandbox request failed in transit, so it may already have run and its outcome is unknown. Inspect the workspace before retrying; do not repeat appends or other changes blindly.";
+const PUBLISH_UNCERTAIN: &str = "Error: The sandbox artifact publish request failed in transit, so the file may already have been published. Check whether it was published before retrying; do not publish it again blindly.";
 #[derive(Debug)]
 struct HttpReply {
     status: u16,
@@ -1257,8 +1268,10 @@ async fn request(
                 .unwrap_or_default()
                 .to_owned();
             let body = response.bytes().await.map_err(|_| Transport)?;
-            let body =
-                crate::embeddings::decompress(&encoding, body.to_vec()).map_err(|_| Transport)?;
+            // The agent accepts at most about 32 MiB of tool output (four
+            // million characters JSON-escaped plus its envelope).
+            let body = crate::embeddings::decompress(&encoding, body.to_vec(), 32 * 1024 * 1024)
+                .map_err(|_| Transport)?;
             Ok(HttpReply { status, body })
         }
         .await;
@@ -1271,6 +1284,11 @@ async fn request(
             Err(error)
                 if attempt + 1 == attempts || error.downcast_ref::<Transport>().is_none() =>
             {
+                // Only discovery GETs retry. A failed POST may already have
+                // executed (including an append or a publication).
+                if method != reqwest::Method::GET && error.downcast_ref::<Transport>().is_some() {
+                    return Err(Uncertain.into());
+                }
                 return Err(error);
             }
             _ => (),
@@ -1372,6 +1390,9 @@ impl Tool {
         match self.execute(&input, scope(headers)).await {
             Ok(text) => Ok(text),
             Err(error) => {
+                if error.downcast_ref::<Uncertain>().is_some() {
+                    return Ok(EXECUTE_UNCERTAIN.into());
+                }
                 if error.downcast_ref::<Transport>().is_some() {
                     return Ok(
                         "Error: Could not reach LLM sandbox after one transport retry.".into(),
@@ -1657,6 +1678,9 @@ impl Tool {
         .await
         {
             Ok(reply) => reply,
+            Err(error) if error.downcast_ref::<Uncertain>().is_some() => {
+                return Ok(PUBLISH_UNCERTAIN.into());
+            }
             Err(error) if error.downcast_ref::<Transport>().is_some() => return Ok(
                 "Error: Could not reach the sandbox artifact publisher after one transport retry."
                     .into(),
@@ -1959,5 +1983,52 @@ mod tests {
         assert_eq!(input["append"], true);
         assert!(input["argv"].is_null());
         assert_eq!(input["working_directory"], ".");
+    }
+
+    #[tokio::test]
+    async fn failed_posts_report_an_unknown_outcome_and_are_never_retried() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::AsyncReadExt;
+        // Each connection reads its request, then closes without a response.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1/execute", listener.local_addr().unwrap());
+        let connections = std::sync::Arc::new(AtomicUsize::new(0));
+        let accepted = connections.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                accepted.fetch_add(1, Ordering::SeqCst);
+                let mut buffer = [0; 4096];
+                let _ = socket.read(&mut buffer).await;
+            }
+        });
+        let http = client(5., Default::default()).unwrap();
+        let error = request(
+            &http,
+            reqwest::Method::POST,
+            &url,
+            &[],
+            Some(b"{}".to_vec()),
+            0.,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.downcast_ref::<Uncertain>().is_some(), "{error}");
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            1,
+            "a POST never retries"
+        );
+        // Discovery GETs still retry once and report an unreachable sandbox.
+        let error = request(&http, reqwest::Method::GET, &url, &[], None, 0.)
+            .await
+            .unwrap_err();
+        assert!(error.downcast_ref::<Transport>().is_some(), "{error}");
+        assert_eq!(connections.load(Ordering::SeqCst), 3);
+        for message in [EXECUTE_UNCERTAIN, PUBLISH_UNCERTAIN] {
+            assert!(!message.contains("transport retry"));
+            assert!(message.contains("blindly"));
+        }
+        server.abort();
     }
 }

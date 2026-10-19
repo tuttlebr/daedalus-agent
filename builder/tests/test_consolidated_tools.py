@@ -42,32 +42,21 @@ def test_identity_fields_are_absent_from_llm_facing_tool_schemas():
         )
 
 
-def test_visual_media_rejects_legacy_cross_user_assertion(monkeypatch):
+def test_visual_media_dispatcher_accepts_no_identity_argument():
+    """Ownership comes only from the authenticated request context."""
+    import inspect
+
     async def _run():
-        import visual_media.visual_media_function as mod
-
-        def _trusted_identity(asserted=""):
-            if asserted and asserted != "alice":
-                raise ValueError(
-                    "supplied user identity does not match the authenticated request"
-                )
-            return "alice"
-
-        monkeypatch.setattr(mod, "resolve_authenticated_user_id", _trusted_identity)
         generator = visual_media_function(VisualMediaFunctionConfig(), MagicMock())
         function_info = await generator.__anext__()
         try:
-            return await function_info.fn(
-                operation="generate",
-                prompt="draw another user's private photo",
-                user_id="mallory",
-            )
+            return inspect.signature(function_info.fn).parameters
         finally:
             await generator.aclose()
 
-    result = asyncio.run(_run())
-
-    assert "does not match" in result.lower()
+    parameters = asyncio.run(_run())
+    assert "user_id" not in parameters
+    assert set(parameters) <= set(VisualMediaInput.model_fields)
 
 
 def test_visual_media_config_groups_image_and_vlm_settings():

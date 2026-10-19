@@ -11,6 +11,7 @@ import {
   jsonDel,
   jsonSetWithExpiry,
 } from '@/server/session/redis';
+import { ownsUpload } from '@/server/uploadOwnership';
 import crypto from 'crypto';
 import decodeHeic from 'heic-decode';
 import sharp from 'sharp';
@@ -377,7 +378,6 @@ export async function storeImage(
   base64Data: string,
   mimeType: string = 'image/png',
 ): Promise<StoreImageResult> {
-  const redis = getRedis();
   const imageId = generateImageId();
 
   // Preserve the display image and build API/VLM-safe derivatives.
@@ -407,19 +407,6 @@ export async function storeImage(
     : sessionKey(['image', sessionId, imageId]);
 
   await jsonSetWithExpiry(key, imageData, IMAGE_EXPIRY_SECONDS);
-
-  // Also store a reference for easy cleanup
-  if (userId) {
-    // For authenticated users, store in user-specific set
-    const userImagesKey = sessionKey(['user', userId, 'images']);
-    await redis.sadd(userImagesKey, imageId);
-    await redis.expire(userImagesKey, IMAGE_EXPIRY_SECONDS);
-  } else {
-    // For anonymous users, store in session-specific set
-    const sessionImagesKey = sessionKey(['session-images', sessionId]);
-    await redis.sadd(sessionImagesKey, imageId);
-    await redis.expire(sessionImagesKey, IMAGE_EXPIRY_SECONDS);
-  }
 
   return { imageId, mimeType: processed.mimeType };
 }
@@ -503,29 +490,16 @@ export async function deleteImage(
   imageId: string,
   userId?: string,
 ): Promise<boolean> {
-  const redis = getRedis();
   let result = 0;
 
   // Try to delete from user-specific key if userId is provided
   if (userId) {
-    const userKey = sessionKey(['user', userId, 'image', imageId]);
-    result = await jsonDel(userKey);
-
-    // Also remove from user images set
-    if (result > 0) {
-      const userImagesKey = sessionKey(['user', userId, 'images']);
-      await redis.srem(userImagesKey, imageId);
-    }
+    result = await jsonDel(sessionKey(['user', userId, 'image', imageId]));
   }
 
   // Also try session-specific key (for backward compatibility)
   if (result === 0) {
-    const key = sessionKey(['image', sessionId, imageId]);
-    result = await jsonDel(key);
-
-    // Also remove from session images set
-    const sessionImagesKey = sessionKey(['session-images', sessionId]);
-    await redis.srem(sessionImagesKey, imageId);
+    result = await jsonDel(sessionKey(['image', sessionId, imageId]));
   }
 
   return result > 0;
@@ -652,7 +626,7 @@ export default async function handler(
         return res.status(404).json({ error: 'Image not found' });
       }
 
-      if (!canAccessStoredImage(image, sessionId, userId)) {
+      if (!ownsUpload(image, { userId, sessionId })) {
         return res.status(403).json({ error: 'Forbidden' });
       }
 
@@ -717,15 +691,4 @@ export default async function handler(
     res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
-}
-
-function canAccessStoredImage(
-  image: Partial<StoredImage>,
-  currentSessionId: string,
-  currentUserId: string,
-): boolean {
-  if (image.userId) {
-    return image.userId === currentUserId;
-  }
-  return image.sessionId === currentSessionId;
 }

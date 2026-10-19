@@ -791,6 +791,54 @@ describe('WebSocketManager', () => {
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps retrying at the slowest interval through a long outage', () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5); // no jitter
+      const mgr = new WebSocketManager('/ws-outage');
+      const sockets = () =>
+        wsInstances.filter((socket) => socket.url.endsWith('/ws-outage'));
+      mgr.connect();
+      // Far more failures than the backoff needs to reach its cap.
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        sockets().at(-1)!.simulateClose(1006, 'unreachable');
+        vi.advanceTimersByTime(30_000);
+      }
+      expect(sockets()).toHaveLength(31);
+      sockets().at(-1)!.simulateReady();
+      expect(mgr.isConnected).toBe(true);
+      mgr.disconnect();
+    });
+
+    it.each(['online', 'focus'])(
+      'retries at once with a fresh backoff on %s',
+      (eventName) => {
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        const mgr = new WebSocketManager(`/ws-${eventName}`);
+        const sockets = () =>
+          wsInstances.filter((socket) =>
+            socket.url.endsWith(`/ws-${eventName}`),
+          );
+        mgr.connect();
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          sockets().at(-1)!.simulateClose(1006, 'unreachable');
+          vi.advanceTimersByTime(30_000);
+        }
+        sockets().at(-1)!.simulateClose(1006, 'unreachable');
+        const before = sockets().length;
+        // The next attempt is 30 s away; the browser signals recovery now.
+        window.dispatchEvent(new Event(eventName));
+        expect(sockets()).toHaveLength(before + 1);
+        // The backoff starts over after this attempt fails too.
+        sockets().at(-1)!.simulateClose(1006, 'unreachable');
+        vi.advanceTimersByTime(1_000);
+        expect(sockets()).toHaveLength(before + 2);
+
+        // An intentional disconnect is not undone.
+        mgr.disconnect();
+        window.dispatchEvent(new Event(eventName));
+        expect(sockets()).toHaveLength(before + 2);
+      },
+    );
+
     it('does NOT reconnect after intentional disconnect', () => {
       const mgr = new WebSocketManager('/ws');
       mgr.connect();

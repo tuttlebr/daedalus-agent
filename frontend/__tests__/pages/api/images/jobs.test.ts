@@ -2,6 +2,8 @@ import handler from '@/pages/api/images/jobs';
 
 import { imageContext } from '../../../fixtures/imageContext';
 
+import { updateJsonAtomically } from '@/server/atomicJson';
+import { jsonGet } from '@/server/session/redis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -655,5 +657,70 @@ describe('/api/images/jobs', () => {
         error: expect.stringContaining('two image jobs'),
       }),
     );
+  });
+
+  it('admits only one of two concurrent submissions for the last free slot', async () => {
+    mocks.store.set('user:alice:imageJobs', ['one']);
+    mocks.store.set('image-job:one', {
+      jobId: 'one',
+      userId: 'alice',
+      status: 'running',
+      updatedAt: Date.now(),
+      leaseExpiresAt: Date.now() + 60_000,
+    });
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ imageIds: ['img-1'] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    // Both requests pass the advisory pre-check before either is recorded.
+    const read = vi.mocked(jsonGet).getMockImplementation()!;
+    let arrived = 0;
+    let release!: () => void;
+    const bothChecked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(jsonGet).mockImplementation(async (key: string) => {
+      const value = await read(key);
+      if (key === 'user:alice:imageJobs' && arrived < 2) {
+        arrived += 1;
+        if (arrived === 2) release();
+        await bothChecked;
+      }
+      return value;
+    });
+    // Real Redis commits each index update atomically; serialize per key.
+    const update = vi.mocked(updateJsonAtomically).getMockImplementation()!;
+    let queue = Promise.resolve<unknown>(undefined);
+    vi.mocked(updateJsonAtomically).mockImplementation(((...args: any[]) => {
+      const next = queue.then(() => (update as any)(...args));
+      queue = next.catch(() => undefined);
+      return next;
+    }) as any);
+
+    try {
+      const first = createMockReqRes('POST', { prompt: 'first' });
+      const second = createMockReqRes('POST', { prompt: 'second' });
+      await Promise.all([
+        handler(first.req, first.res),
+        handler(second.req, second.res),
+      ]);
+
+      const statuses = [first.res, second.res].map(
+        (res) => res.status.mock.calls[0][0],
+      );
+      expect(statuses.sort()).toEqual([202, 429]);
+      const index = mocks.store.get('user:alice:imageJobs') as string[];
+      expect(index).toHaveLength(2);
+      // The rejected submission leaves no orphaned job record behind.
+      expect(
+        [...mocks.store.keys()].filter((key) => key.startsWith('image-job:')),
+      ).toHaveLength(2);
+      await drainUntil(() => mocks.fetch.mock.calls.length === 1);
+    } finally {
+      vi.mocked(jsonGet).mockImplementation(read);
+      vi.mocked(updateJsonAtomically).mockImplementation(update);
+    }
   });
 });

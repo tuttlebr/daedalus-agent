@@ -38,9 +38,6 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
     afterAll(async () => {
       if (client) {
         if (keys.length) await client.del(...keys);
-        await client.del(
-          redis.sessionKey(['user', identity.username, 'images']),
-        );
         client.disconnect();
       }
     });

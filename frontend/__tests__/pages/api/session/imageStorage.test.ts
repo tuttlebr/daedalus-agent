@@ -101,6 +101,28 @@ describe('/api/session/imageStorage', () => {
     expect(bytes.toString()).not.toContain('<script>');
   });
 
+  it('stores an upload without unread per-user or per-session index sets', async () => {
+    const { storeImage } = await import('@/pages/api/session/imageStorage');
+    const png = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: '#808080' },
+    })
+      .png()
+      .toBuffer();
+
+    for (const userId of ['alice', undefined]) {
+      await storeImage(
+        'session-1',
+        userId,
+        png.toString('base64'),
+        'image/png',
+      );
+    }
+
+    expect(mocks.jsonSetWithExpiry).toHaveBeenCalledTimes(2);
+    expect(mocks.sadd).not.toHaveBeenCalled();
+    expect(mocks.expire).not.toHaveBeenCalled();
+  });
+
   it('uses a 41 MiB parser ceiling for a 30 MiB base64 image request', async () => {
     const { config } = await import('@/pages/api/session/imageStorage');
 

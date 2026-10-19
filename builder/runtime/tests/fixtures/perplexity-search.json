@@ -14124,8 +14124,15 @@
       "query": "Synthetic 雪",
       "max_results": 2,
       "expected": {
-        "error": "ValueError",
-        "message": "'invalid' does not appear to be an IPv4 or IPv6 address"
+        "ok": {
+          "$string_parts": [
+            "## Perplexity Search Results for \"Synthetic 雪\"\n\n1. [Synthetic](https://[invalid]",
+            "/a)\n\n<searchresults>{\"query\": \"Synthetic \\u96ea\", \"search_info\": {\"total_results",
+            "\": 1, \"query_displayed\": \"Synthetic \\u96ea\"}, \"organic_results\": [{\"position\": 1",
+            ", \"title\": \"Synthetic\", \"link\": \"https://[invalid]/a\", \"displayed_link\": \"https:",
+            "//[invalid]/a\"}]}</searchresults>"
+          ]
+        }
       }
     },
     {
@@ -14140,8 +14147,15 @@
       "query": ["one", "two"],
       "max_results": 2,
       "expected": {
-        "error": "ValueError",
-        "message": "'invalid' does not appear to be an IPv4 or IPv6 address"
+        "ok": {
+          "$string_parts": [
+            "## Perplexity Search Results for 2 related queries\n- one\n- two\n\n1. [Synthetic](h",
+            "ttps://[invalid]/a)\n\n<searchresults>{\"query\": \"one; two\", \"search_info\": {\"total",
+            "_results\": 1, \"query_displayed\": \"one; two\"}, \"queries\": [\"one\", \"two\"], \"organi",
+            "c_results\": [{\"position\": 1, \"title\": \"Synthetic\", \"link\": \"https://[invalid]/a\"",
+            ", \"displayed_link\": \"https://[invalid]/a\"}]}</searchresults>"
+          ]
+        }
       }
     },
     {
@@ -14202,8 +14216,15 @@
       "query": "Synthetic 雪",
       "max_results": 2,
       "expected": {
-        "error": "ValueError",
-        "message": "An IPv4 address cannot be in brackets"
+        "ok": {
+          "$string_parts": [
+            "## Perplexity Search Results for \"Synthetic 雪\"\n\n1. [Synthetic](https://[127.0.0.",
+            "1]/a)\n\n<searchresults>{\"query\": \"Synthetic \\u96ea\", \"search_info\": {\"total_resul",
+            "ts\": 1, \"query_displayed\": \"Synthetic \\u96ea\"}, \"organic_results\": [{\"position\":",
+            " 1, \"title\": \"Synthetic\", \"link\": \"https://[127.0.0.1]/a\", \"displayed_link\": \"ht",
+            "tps://[127.0.0.1]/a\"}]}</searchresults>"
+          ]
+        }
       }
     },
     {
@@ -14218,8 +14239,15 @@
       "query": ["one", "two"],
       "max_results": 2,
       "expected": {
-        "error": "ValueError",
-        "message": "An IPv4 address cannot be in brackets"
+        "ok": {
+          "$string_parts": [
+            "## Perplexity Search Results for 2 related queries\n- one\n- two\n\n1. [Synthetic](h",
+            "ttps://[127.0.0.1]/a)\n\n<searchresults>{\"query\": \"one; two\", \"search_info\": {\"tot",
+            "al_results\": 1, \"query_displayed\": \"one; two\"}, \"queries\": [\"one\", \"two\"], \"orga",
+            "nic_results\": [{\"position\": 1, \"title\": \"Synthetic\", \"link\": \"https://[127.0.0.1",
+            "]/a\", \"displayed_link\": \"https://[127.0.0.1]/a\"}]}</searchresults>"
+          ]
+        }
       }
     },
     {
@@ -14234,8 +14262,15 @@
       "query": "Synthetic 雪",
       "max_results": 2,
       "expected": {
-        "error": "ValueError",
-        "message": "netloc 'example.test：80' contains invalid characters under NFKC normalization"
+        "ok": {
+          "$string_parts": [
+            "## Perplexity Search Results for \"Synthetic 雪\"\n\n1. [Synthetic](https://example.t",
+            "est：80/a)\n\n<searchresults>{\"query\": \"Synthetic \\u96ea\", \"search_info\": {\"total_r",
+            "esults\": 1, \"query_displayed\": \"Synthetic \\u96ea\"}, \"organic_results\": [{\"positi",
+            "on\": 1, \"title\": \"Synthetic\", \"link\": \"https://example.test\\uff1a80/a\", \"display",
+            "ed_link\": \"https://example.test\\uff1a80/a\"}]}</searchresults>"
+          ]
+        }
       }
     },
     {
@@ -14250,8 +14285,16 @@
       "query": ["one", "two"],
       "max_results": 2,
       "expected": {
-        "error": "ValueError",
-        "message": "netloc 'example.test：80' contains invalid characters under NFKC normalization"
+        "ok": {
+          "$string_parts": [
+            "## Perplexity Search Results for 2 related queries\n- one\n- two\n\n1. [Synthetic](h",
+            "ttps://example.test：80/a)\n\n<searchresults>{\"query\": \"one; two\", \"search_info\": {",
+            "\"total_results\": 1, \"query_displayed\": \"one; two\"}, \"queries\": [\"one\", \"two\"], \"",
+            "organic_results\": [{\"position\": 1, \"title\": \"Synthetic\", \"link\": \"https://exampl",
+            "e.test\\uff1a80/a\", \"displayed_link\": \"https://example.test\\uff1a80/a\"}]}</search",
+            "results>"
+          ]
+        }
       }
     },
     {

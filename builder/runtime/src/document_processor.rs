@@ -35,7 +35,7 @@ pub struct Processor {
     redis_url: Option<String>,
     recreate: bool,
     bucket: String,
-    locks: crate::document_ownership::Collections,
+    locks: Arc<crate::document_ownership::Collections>,
 }
 pub(super) fn integer(config: &Config, name: &str, default: i64) -> Result<i64> {
     let value = config.variable(name, "");
@@ -114,7 +114,7 @@ impl Processor {
             bucket: config.variable("MINIO_BUCKET", "nv-ingest"),
             store: OnceCell::new(),
             client: OnceCell::new(),
-            locks: Default::default(),
+            locks: crate::document_ownership::Collections::shared(),
         })
     }
     pub fn for_tool(config: &Config, settings: &crate::document_tools::Settings) -> Result<Self> {
@@ -298,14 +298,14 @@ impl Processor {
                 // Batch responses contain summary counts, not the generated
                 // Markdown, including when that Markdown cannot be UTF-8 encoded.
                 let _markdown_unencodable = result.markdown_unencodable;
-                Ok(document_batch::Outcome {
+                document_batch::Outcome {
                     status: result.status.into(),
                     filename: result.filename,
                     chunks: result.chunks,
                     pages: result.pages,
                     failures: result.failures,
                     error: result.error,
-                })
+                }
             })
         });
         document_batch::run(&batch, request, process, progress).await
@@ -364,7 +364,9 @@ impl Processor {
         let session = reference["sessionId"].as_str().unwrap();
         let store = self.redis().await.map_err(unexpected)?;
         let record = store.document(&format!("document:{session}:{document}"), self.connect_timeout, self.read_timeout).await
-            .map_err(|error| anyhow!("Error accessing document storage: {error}"))?
+            .map_err(|error| {
+                document_store::unavailable(format!("Error accessing document storage: {error}"))
+            })?
             .filter(|bytes| !bytes.is_empty())
             .ok_or_else(|| anyhow!("Error: Document not found in storage. The file may have expired or the session may be invalid. Please try uploading the document again."))?;
         let record: Value = serde_json::from_slice(&record).map_err(|error| {
@@ -483,6 +485,41 @@ mod tests {
     };
     use serde_json::json;
     use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn tool_and_http_processors_serialize_one_collection() {
+        use crate::document_ownership::{WaitError, run};
+        let config = Config {
+            raw: json!({}),
+            policy_raw: json!({}),
+            env: HashMap::new(),
+            python_tools: false,
+        };
+        let settings = Settings::new(&json!({}), &HashMap::new()).unwrap();
+        let http = Processor::new(&config).unwrap();
+        let tool = Processor::for_tool(&config, &settings).unwrap();
+        let collection = "u_shared_ownership_fixture";
+        // An HTTP upload owns the collection's write.
+        let upload = http.locks.get(collection).lock_owned().await;
+        let waiting = run(
+            tool.locks.get(collection),
+            std::time::Duration::from_millis(50),
+            || async { Ok(()) },
+        )
+        .await;
+        assert!(
+            matches!(waiting, Err(WaitError::Timeout)),
+            "a tool ingest must wait for the upload's write"
+        );
+        drop(upload);
+        run(
+            tool.locks.get(collection),
+            std::time::Duration::from_secs(1),
+            || async { Ok(()) },
+        )
+        .await
+        .unwrap();
+    }
 
     #[tokio::test]
     async fn retained_named_tool_pipeline_options() {

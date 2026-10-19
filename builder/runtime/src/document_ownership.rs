@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::{
     collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex as MapMutex, Weak},
+    sync::{Arc, LazyLock, Mutex as MapMutex, Weak},
     time::Duration,
 };
 use tokio::sync::Mutex;
@@ -12,6 +12,13 @@ use tokio::sync::Mutex;
 #[derive(Default)]
 pub struct Collections(MapMutex<HashMap<String, Weak<Mutex<()>>>>);
 impl Collections {
+    /// The process's one write-ownership registry. The HTTP routes and every
+    /// document tool build their own processors; uploads and tool ingests into
+    /// the same collection must still serialize their writes.
+    pub fn shared() -> Arc<Self> {
+        static SHARED: LazyLock<Arc<Collections>> = LazyLock::new(Arc::default);
+        SHARED.clone()
+    }
     pub fn get(&self, collection: &str) -> Arc<Mutex<()>> {
         let mut locks = self.0.lock().unwrap();
         locks.retain(|_, lock| lock.strong_count() > 0);

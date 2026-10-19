@@ -104,18 +104,6 @@ def test_context_fallback_is_used_only_when_request_headers_are_absent():
     )
 
 
-def test_execution_scope_distinguishes_direct_chat_and_autonomy():
-    import nat_helpers.identity as identity
-
-    assert identity.execution_scope_from_context_or_none() is None
-    with identity.authenticated_request_headers_scope(
-        {"x-daedalus-execution-scope": "Autonomy"}
-    ):
-        assert identity.execution_scope_from_context_or_none() == "autonomy"
-    with identity.authenticated_request_headers_scope({"x-user-id": "alice"}):
-        assert identity.execution_scope_from_context_or_none() == ""
-
-
 def test_execution_id_is_available_only_in_autonomy_scope():
     import nat_helpers.identity as identity
 

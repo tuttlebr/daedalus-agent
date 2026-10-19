@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hmac
-import os
 from collections.abc import Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
+
+from nat_helpers import internal_auth
 
 _http_request_headers: ContextVar[Any] = ContextVar(
     "daedalus_http_request_headers", default=None
@@ -26,18 +27,6 @@ def authenticated_request_headers_scope(headers):
 
 def _request_headers():
     return _http_request_headers.get()
-
-
-def _configured_internal_token() -> str:
-    return (os.getenv("DAEDALUS_INTERNAL_API_TOKEN") or "").strip()
-
-
-def _allow_insecure_internal() -> bool:
-    return (os.getenv("ALLOW_INSECURE_INTERNAL") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
 
 
 def _header_value(headers: Any, name: str) -> str:
@@ -75,7 +64,9 @@ def authenticated_user_id_from_headers(headers: Any) -> str:
     ``ALLOW_INSECURE_INTERNAL``.
     """
 
-    expected_token = _configured_internal_token()
+    # The HTTP routers' gate owns these settings; tool identity must accept
+    # exactly the requests that gate accepts.
+    expected_token = internal_auth.configured_internal_token()
     if expected_token:
         provided_token = _header_value(headers, "x-daedalus-internal-token")
         # Byte comparison keeps non-ASCII header text an ordinary mismatch;
@@ -85,11 +76,8 @@ def authenticated_user_id_from_headers(headers: Any) -> str:
             expected_token.encode("utf-8"),
         ):
             raise ValueError("valid x-daedalus-internal-token is required")
-    else:
-        # Match the custom HTTP-router policy without importing FastAPI or
-        # Starlette into this low-level helper.
-        if not _allow_insecure_internal():
-            raise ValueError("internal API authentication is not configured")
+    elif not internal_auth.allow_insecure_internal():
+        raise ValueError("internal API authentication is not configured")
 
     user_id = _header_value(headers, "x-user-id")
     if not user_id:
@@ -120,37 +108,6 @@ def request_id_from_context_or_none() -> str | None:
     except Exception:
         return None
     return request_id or None
-
-
-def approval_token_from_context() -> str:
-    """Read the worker-supplied approval credential from trusted HTTP metadata.
-
-    Callers must also resolve the authenticated user with
-    :func:`authenticated_user_id_from_context`; that validation proves the
-    request came through the internal frontend/worker boundary. The credential
-    is deliberately not accepted from model/tool arguments.
-    """
-
-    return _header_value(_request_headers(), "x-daedalus-approval-token")
-
-
-def execution_scope_from_context_or_none() -> str | None:
-    """Return the trusted caller scope, or ``None`` for a direct invocation.
-
-    An HTTP request with no scope header returns the empty string. This lets
-    consequential tools distinguish ordinary interactive chat from the
-    dedicated autonomy worker, while preserving direct-call/test behavior when
-    no request metadata exists at all.
-    """
-
-    try:
-        headers = _request_headers()
-    except Exception:
-        return None
-
-    if headers is None:
-        return None
-    return _header_value(headers, "x-daedalus-execution-scope").lower()
 
 
 def execution_id_from_context_or_none() -> str | None:

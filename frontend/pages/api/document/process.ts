@@ -25,14 +25,15 @@ export const config = {
       // live in object storage and must never be replayed through JSON.
       sizeLimit: '1mb',
     },
-    // Match the 15-minute timeout used by chat.ts and nginx
     responseLimit: false,
     externalResolver: true,
   },
-  maxDuration: 900, // 15 minutes — NV-Ingest processing can be slow for large documents
 };
 
-const DOCUMENT_PROCESSING_TIMEOUT_MS = 900_000; // 15 minutes
+// NV-Ingest can be slow for large documents. The standalone Next.js server
+// imposes no route deadline, so this bound matches nginx's 15-minute proxy
+// timeout for /api/document/.
+const DOCUMENT_PROCESSING_TIMEOUT_MS = 900_000;
 
 // Generous backstop on the (NV-Ingest-bearing) document processing path; sized
 // above legitimate batch ingests but caps runaway/abusive floods.

@@ -72,14 +72,15 @@ data:
           "${REDIS_PREVIOUS_PASSWORD:-}" '~*' '&*'
         # The backend can access tool/runtime state but cannot read sessions,
         # login counters, conversations, autonomy state, or general user keys.
+        # Visual media analysis reads frontend-stored images and videos.
         write_acl_user "$REDIS_BACKEND_USERNAME" "$REDIS_BACKEND_PASSWORD" \
           "${REDIS_BACKEND_PREVIOUS_PASSWORD:-}" \
-          '~nat:* ~nat/* ~approval:* ~approval-pending:* ~approval-receipt:* ~document:* ~generated:* ~image:* ~user:*:image:* ~rss_feed:* ~daedalus:*' ''
+          '~nat:* ~nat/* ~approval:* ~approval-pending:* ~approval-receipt:* ~document:* ~generated:* ~image:* ~user:*:image:* ~video:* ~user:*:video:* ~rss_feed:* ~daedalus:*' ''
         # The stream worker receives only async execution/finalization state and
         # its exact realtime channels; authentication keyspaces stay excluded.
         write_acl_user "$REDIS_STREAM_WORKER_USERNAME" "$REDIS_STREAM_WORKER_PASSWORD" \
           "${REDIS_STREAM_WORKER_PREVIOUS_PASSWORD:-}" \
-          '~async-* ~conversation:* ~conversation-job:* ~streaming:user:*:conversation:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~session-documents:* ~generated:* ~image:* ~image-job:*' \
+          '~async-* ~conversation:* ~conversation-job:* ~streaming:user:*:conversation:* ~user:* ~memory-retention:* ~mcp-oauth-callback:* ~mcp-approval-status:* ~document:* ~generated:* ~image:* ~image-job:*' \
           '&job:*:status &user:*:chat:*:tokens &user:*:updates'
         # The autonomous process owns only autonomy state, its persisted
         # workspace notes, and its update topic.

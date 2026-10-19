@@ -47,12 +47,19 @@ describe('session/conversationHistory', () => {
   });
 
   it('returns reconciled history scoped to the authenticated user', async () => {
-    const history = [{ id: 'saved', messages: [{ content: 'Still here' }] }];
+    const history = [
+      { id: 'saved', messages: [{ content: 'Still here' }], updatedAt: 7 },
+      { id: 'browser-saved', messages: [], revision: 'rev-2' },
+    ];
     mocks.list.mockResolvedValue(history);
     const { req, res } = request('GET');
     await handler(req, res);
     expect(mocks.list).toHaveBeenCalledWith('testuser');
-    expect(res.json).toHaveBeenCalledWith(history);
+    // Each entry carries the concurrency token its next save sends back.
+    expect(res.json).toHaveBeenCalledWith([
+      { ...history[0], revision: 't7' },
+      history[1],
+    ]);
     expect(mocks.merge).not.toHaveBeenCalled();
   });
 

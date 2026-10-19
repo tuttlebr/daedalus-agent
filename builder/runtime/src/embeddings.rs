@@ -381,6 +381,9 @@ impl Client {
             endpoint,
             headers,
             pool,
+            // httpx's 100-connection pool bounds concurrent queries. The
+            // validated max_concurrency bounds only the retained provider's
+            // document batches, which this query-only client never sends.
             slots: Arc::new(tokio::sync::Semaphore::new(100)),
             timeout,
         })
@@ -432,23 +435,32 @@ impl Client {
             .unwrap_or("")
             .to_owned();
         let body = response.bytes().await.map_err(|e| transport(&e))?;
-        let decoded = decompress(&encoding, body.to_vec())?;
+        let decoded = decompress(&encoding, body.to_vec(), MAX_DECODED)?;
         lease.reusable = true;
         extract(status, &decoded)
     }
 }
-pub(crate) fn decompress(encoding: &str, mut body: Vec<u8>) -> Result<Vec<u8>> {
-    fn read(mut decoder: impl Read) -> std::io::Result<Vec<u8>> {
+/// An embedding response is one vector; this bounds a decompression bomb.
+const MAX_DECODED: usize = 16 * 1024 * 1024;
+
+/// Undo each content encoding, failing once any decoded stage exceeds `limit`
+/// bytes. Callers read untrusted responses in memory.
+pub(crate) fn decompress(encoding: &str, mut body: Vec<u8>, limit: usize) -> Result<Vec<u8>> {
+    let read = |decoder: &mut dyn Read| -> std::io::Result<Vec<u8>> {
         let mut output = Vec::new();
-        decoder.read_to_end(&mut output)?;
+        decoder.take(limit as u64 + 1).read_to_end(&mut output)?;
+        if output.len() > limit {
+            return Err(std::io::Error::other("decoded response exceeds its limit"));
+        }
         Ok(output)
-    }
+    };
     for encoding in encoding.split(',').rev().map(str::trim) {
         body = match encoding.to_ascii_lowercase().as_str() {
-            "gzip" => read(flate2::read::GzDecoder::new(body.as_slice())),
-            "deflate" => read(flate2::read::ZlibDecoder::new(body.as_slice()))
-                .or_else(|_| read(flate2::read::DeflateDecoder::new(body.as_slice()))),
-            "zstd" => zstd::stream::decode_all(body.as_slice()),
+            "gzip" => read(&mut flate2::read::GzDecoder::new(body.as_slice())),
+            "deflate" => read(&mut flate2::read::ZlibDecoder::new(body.as_slice()))
+                .or_else(|_| read(&mut flate2::read::DeflateDecoder::new(body.as_slice()))),
+            "zstd" => zstd::stream::read::Decoder::new(body.as_slice())
+                .and_then(|mut decoder| read(&mut decoder)),
             _ => Ok(body),
         }
         .map_err(|_| Failure::new("DecodingError"))?;
@@ -696,11 +708,34 @@ mod tests {
             let body = base64::engine::general_purpose::STANDARD
                 .decode(case["body"].as_str().unwrap())
                 .unwrap();
-            let actual = decompress(case["encoding"].as_str().unwrap(), body)
+            let actual = decompress(case["encoding"].as_str().unwrap(), body, MAX_DECODED)
                 .and_then(|body|extract(200, &body))
                 .map(|v|json!({"bits":v.into_iter().map(|n|format!("{:016x}",n.to_bits())).collect::<Vec<_>>()}))
                 .unwrap_or_else(|e|e.observation());
             assert_eq!(actual, case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn decoded_responses_are_bounded() {
+        use std::io::Write;
+        let zeros = vec![0u8; 4 * 1024 * 1024];
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        gzip.write_all(&zeros).unwrap();
+        let gzip = gzip.finish().unwrap();
+        let zstd = zstd::stream::encode_all(zeros.as_slice(), 19).unwrap();
+        let mut deflate = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        deflate.write_all(&zeros).unwrap();
+        let deflate = deflate.finish().unwrap();
+        for (encoding, body) in [("gzip", gzip), ("zstd", zstd), ("deflate", deflate)] {
+            assert!(body.len() < 64 * 1024, "{encoding}");
+            assert_eq!(
+                decompress(encoding, body.clone(), zeros.len()).unwrap(),
+                zeros,
+                "{encoding}"
+            );
+            let error = decompress(encoding, body, zeros.len() - 1).unwrap_err();
+            assert_eq!(error.observation()["error"], "DecodingError", "{encoding}");
         }
     }
 }

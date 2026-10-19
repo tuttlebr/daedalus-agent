@@ -16,18 +16,24 @@ import {
 import { useWebSocket } from '@/hooks/useWebSocket';
 
 import { apiGet } from '@/utils/app/api';
+import { cleanConversationHistory } from '@/utils/app/clean';
 import {
-  cleanConversationHistory,
-  cleanSelectedConversation,
-} from '@/utils/app/clean';
-import { saveConversation, loadConversation } from '@/utils/app/conversation';
-import { dedupeConversationsById } from '@/utils/app/conversationList';
+  cachedSelectedConversationId,
+  loadSelectedConversationId,
+  persistSelectedConversation,
+  rememberSelectedConversation,
+  saveConversation,
+} from '@/utils/app/conversation';
+import {
+  conversationRevision,
+  type RevisionedConversation,
+  withConversationRevision,
+} from '@/utils/app/conversationRevision';
 import { getWorkflowName } from '@/utils/app/helper';
 import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 
 import { Conversation } from '@/types/chat';
 
-import { useAuth } from '@/components/auth';
 import { ProtectedRoute } from '@/components/auth';
 import { AutonomyDashboard } from '@/components/autonomy';
 import { ChatView } from '@/components/chat/ChatView';
@@ -44,10 +50,30 @@ import { useImageChatDraftStore } from '@/state/imageChatDraftStore';
 import { useImagePanelStore } from '@/state/imagePanelStore';
 import { v4 as uuidv4 } from 'uuid';
 
-const Home = () => {
-  const { user } = useAuth();
-  const userId = user?.username || 'anon';
+function newConversation(): Conversation {
+  return {
+    id: uuidv4(),
+    name: 'New Conversation',
+    messages: [],
+    folderId: null,
+    updatedAt: Date.now(),
+  };
+}
 
+/**
+ * Replace this tab's copy with a server record. A streaming conversation is
+ * left alone: this tab is the authority on its messages until the turn ends.
+ */
+function adoptServerConversation(conversation: Conversation) {
+  const store = useConversationStore.getState();
+  if (store.streamingConversationIds.has(conversation.id)) return;
+  const [cleaned] = cleanConversationHistory([
+    withConversationRevision(conversation),
+  ]);
+  store.addConversation(cleaned);
+}
+
+const Home = () => {
   const workflow = getWorkflowName() || 'Daedalus';
   const visualViewport = useVisualViewportKeyboard();
 
@@ -57,16 +83,11 @@ const Home = () => {
     shortcuts: [
       commonShortcuts.toggleSidebar(() => toggleChatbar()),
       commonShortcuts.newItem(() => {
-        const newConv: Conversation = {
-          id: uuidv4(),
-          name: 'New Conversation',
-          messages: [],
-          folderId: null,
-          updatedAt: Date.now(),
-        };
+        const newConv = newConversation();
         useConversationStore.getState().addConversation(newConv);
         useConversationStore.getState().selectConversation(newConv.id);
-        saveConversation(newConv);
+        void persistSelectedConversation(newConv.id);
+        void saveConversation(newConv).catch(() => undefined);
       }),
     ],
   });
@@ -79,9 +100,6 @@ const Home = () => {
   );
   const selectConversation = useConversationStore((s) => s.selectConversation);
   const addConversation = useConversationStore((s) => s.addConversation);
-  const updateConversationInStore = useConversationStore(
-    (s) => s.updateConversation,
-  );
   const deleteConversationFromStore = useConversationStore(
     (s) => s.deleteConversation,
   );
@@ -115,34 +133,47 @@ const Home = () => {
   useWebSocket({
     enabled: true,
     onConversationUpdated: useCallback(
-      (conversation: Conversation) => {
+      (event: {
+        conversationId?: string;
+        revision?: string;
+        conversation?: Conversation;
+      }) => {
+        const conversationId = event.conversationId || event.conversation?.id;
+        if (!conversationId) return;
+        const store = useConversationStore.getState();
         // Never overwrite a conversation that is actively streaming —
         // the frontend is the authority on its messages during streaming.
-        if (
-          useConversationStore
-            .getState()
-            .streamingConversationIds.has(conversation.id)
-        ) {
+        if (store.streamingConversationIds.has(conversationId)) return;
+        const current = store.conversations.find(
+          (conversation) => conversation.id === conversationId,
+        ) as RevisionedConversation | undefined;
+        const incoming = event.conversation
+          ? conversationRevision(event.conversation)
+          : event.revision;
+        // Already this revision, for example this tab's own save.
+        if (current?.revision && current.revision === incoming) return;
+        if (event.conversation) {
+          // Worker finalization includes the record it saved.
+          adoptServerConversation({
+            ...event.conversation,
+            id: conversationId,
+          });
           return;
         }
-
-        const current = useConversationStore
-          .getState()
-          .conversations.find((c) => c.id === conversation.id);
-        if (current) {
-          // Only apply if incoming data is at least as recent as local state
-          // to prevent stale sync events from overwriting newer local updates
-          // (e.g. auto-naming that happened after the initial save started)
-          const incomingTime = conversation.updatedAt || 0;
-          const currentTime = current.updatedAt || 0;
-          if (incomingTime >= currentTime) {
-            updateConversationInStore(conversation.id, conversation);
-          }
-        } else {
-          addConversation(conversation);
-        }
+        // Browser saves announce only the id and revision.
+        void apiGet<Conversation>(
+          `/api/conversations/${encodeURIComponent(conversationId)}`,
+        )
+          .then((server) => {
+            if (server && Array.isArray(server.messages)) {
+              adoptServerConversation({ ...server, id: conversationId });
+            }
+          })
+          .catch((error) => {
+            console.warn('Failed to load an updated conversation', error);
+          });
       },
-      [updateConversationInStore, addConversation],
+      [],
     ),
     onConversationDeleted: useCallback(
       (conversationId: string) => {
@@ -153,13 +184,7 @@ const Home = () => {
           if (next) {
             selectConversation(next.id);
           } else {
-            const newConv: Conversation = {
-              id: uuidv4(),
-              name: 'New Conversation',
-              messages: [],
-              folderId: null,
-              updatedAt: Date.now(),
-            };
+            const newConv = newConversation();
             addConversation(newConv);
             selectConversation(newConv.id);
           }
@@ -167,9 +192,6 @@ const Home = () => {
       },
       [deleteConversationFromStore, selectConversation, addConversation],
     ),
-    onConversationListChanged: useCallback(() => {
-      refreshConversationList();
-    }, [refreshConversationList]),
     onConnected: useCallback(() => {
       refreshConversationList();
     }, [refreshConversationList]),
@@ -183,24 +205,6 @@ const Home = () => {
     return () =>
       document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [refreshConversationList]);
-
-  // Clear stale async jobs from previous sessions (prevents 404 polling spam)
-  useEffect(() => {
-    try {
-      const key = `asyncJobs_${userId}`;
-      const stored = localStorage.getItem(key);
-      if (stored) {
-        const jobs = JSON.parse(stored);
-        // Clear jobs older than 1 hour
-        const fresh = Array.isArray(jobs)
-          ? jobs.filter((j: any) => Date.now() - (j.timestamp || 0) < 3600000)
-          : [];
-        if (fresh.length !== jobs.length) {
-          localStorage.setItem(key, JSON.stringify(fresh));
-        }
-      }
-    } catch {}
-  }, [userId]);
 
   // Initial data load
   useEffect(() => {
@@ -233,51 +237,60 @@ const Home = () => {
       }
     };
 
-    const loadSelectedConversation = async () => {
-      try {
-        const serverConv = await loadConversation();
-        if (serverConv) {
-          const cleaned = cleanSelectedConversation(serverConv);
-          const existing = useConversationStore
-            .getState()
-            .conversations.find(
-              (conversation) => conversation.id === cleaned.id,
-            );
-          // Selection is a cached copy and may have fewer/older messages than
-          // the complete record recovered by the history request above.
-          const [preferred] = dedupeConversationsById([
-            ...(existing ? [existing] : []),
-            cleaned,
-          ]);
-          useConversationStore.getState().addConversation(preferred);
-          useConversationStore.getState().selectConversation(cleaned.id);
-        } else {
-          const local = getUserSessionItem('selectedConversation');
-          if (local) {
-            const parsed = cleanSelectedConversation(JSON.parse(local));
-            useConversationStore.getState().selectConversation(parsed.id);
-          } else {
-            const newConv: Conversation = {
-              id: uuidv4(),
-              name: 'New Conversation',
-              messages: [],
-              folderId: null,
-              updatedAt: Date.now(),
-            };
-            useConversationStore.getState().addConversation(newConv);
-            useConversationStore.getState().selectConversation(newConv.id);
-          }
-        }
-      } catch {
-        const local = getUserSessionItem('selectedConversation');
-        if (local) {
-          const parsed = cleanSelectedConversation(JSON.parse(local));
-          useConversationStore.getState().selectConversation(parsed.id);
-        }
+    // Open the saved selection only when history still contains it. It may
+    // name a conversation deleted here or on another device; selecting that
+    // id would leave the composer without a conversation to send to.
+    const restoreSelection = async () => {
+      const serverSelection = await loadSelectedConversationId();
+      const store = useConversationStore.getState();
+      const selected = [
+        serverSelection,
+        cachedSelectedConversationId(),
+        // A conversation opened while history loaded.
+        store.selectedConversationId,
+      ].find(
+        (id) =>
+          id &&
+          store.conversations.some((conversation) => conversation.id === id),
+      );
+      if (selected) {
+        store.selectConversation(selected);
+      } else {
+        const newConv = newConversation();
+        store.addConversation(newConv);
+        store.selectConversation(newConv.id);
       }
     };
 
-    void fetchConversations().then(loadSelectedConversation);
+    // Selection is never saved as a side effect of saving a conversation (a
+    // background chat finishing must not change what a reload opens). This
+    // tab remembers each selection; an explicit choice (a conversation picked
+    // or created) is also saved on the server where the user made it.
+    let disposed = false;
+    let unsubscribeSelection = () => {};
+    void fetchConversations()
+      .catch((error) => {
+        console.error('Failed to load conversation history', error);
+      })
+      .then(restoreSelection)
+      .catch((error) => {
+        console.error('Failed to restore the selected conversation', error);
+      })
+      .finally(() => {
+        if (disposed) return;
+        const remember = (id: string | null) => {
+          if (id) rememberSelectedConversation(id);
+        };
+        remember(useConversationStore.getState().selectedConversationId);
+        unsubscribeSelection = useConversationStore.subscribe(
+          (state) => state.selectedConversationId,
+          remember,
+        );
+      });
+    return () => {
+      disposed = true;
+      unsubscribeSelection();
+    };
   }, []);
 
   return (

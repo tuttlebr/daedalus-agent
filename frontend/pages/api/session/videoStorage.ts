@@ -2,19 +2,12 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 import { validateVideoMagicBytes } from '@/utils/app/magicBytes';
 
-import { buildContentDisposition } from '@/server/contentDisposition';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getStorageSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
-import {
-  getRedis,
-  sessionKey,
-  jsonGet,
-  jsonDel,
-  jsonSetWithExpiry,
-} from '@/server/session/redis';
+import { sessionKey, jsonSetWithExpiry } from '@/server/session/redis';
 import crypto from 'crypto';
 
 const VIDEO_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
@@ -36,7 +29,7 @@ export interface StoredVideo {
   filename?: string;
   createdAt: number;
   sessionId: string;
-  userId?: string;
+  userId: string;
 }
 
 // Generate a unique ID for the video
@@ -49,15 +42,15 @@ function isValidMimeType(mimeType: string): boolean {
   return SUPPORTED_MIME_TYPES.includes(mimeType.toLowerCase());
 }
 
-// Store video in Redis
+// Store a video for the backend's visual-media tool, which reads
+// user:{userId}:video:{videoId} directly. The browser only uploads.
 export async function storeVideo(
   sessionId: string,
-  userId: string | undefined,
+  userId: string,
   base64Data: string,
   filename: string,
   mimeType: string = 'video/mp4',
 ): Promise<string> {
-  const redis = getRedis();
   const videoId = generateVideoId();
 
   // Remove data URL prefix if present
@@ -109,77 +102,13 @@ export async function storeVideo(
     userId,
   };
 
-  // Use user-specific key for authenticated users, session-specific for anonymous
-  const key = userId
-    ? sessionKey(['user', userId, 'video', videoId])
-    : sessionKey(['video', sessionId, videoId]);
-
-  await jsonSetWithExpiry(key, videoData, VIDEO_EXPIRY_SECONDS);
-
-  // Also store a reference for easy cleanup
-  if (userId) {
-    const userVideosKey = sessionKey(['user', userId, 'videos']);
-    await redis.sadd(userVideosKey, videoId);
-    await redis.expire(userVideosKey, VIDEO_EXPIRY_SECONDS);
-  } else {
-    const sessionVideosKey = sessionKey(['session-videos', sessionId]);
-    await redis.sadd(sessionVideosKey, videoId);
-    await redis.expire(sessionVideosKey, VIDEO_EXPIRY_SECONDS);
-  }
+  await jsonSetWithExpiry(
+    sessionKey(['user', userId, 'video', videoId]),
+    videoData,
+    VIDEO_EXPIRY_SECONDS,
+  );
 
   return videoId;
-}
-
-// Retrieve video from Redis
-export async function getVideo(
-  sessionId: string,
-  videoId: string,
-  userId?: string,
-): Promise<StoredVideo | null> {
-  // Try user-specific key first if userId is provided
-  if (userId) {
-    const userKey = sessionKey(['user', userId, 'video', videoId]);
-    const userVideo = (await jsonGet(userKey)) as StoredVideo | null;
-    if (userVideo) {
-      return userVideo;
-    }
-  }
-
-  // Fall back to session-specific key
-  const key = sessionKey(['video', sessionId, videoId]);
-  return (await jsonGet(key)) as StoredVideo | null;
-}
-
-// Delete video from Redis
-export async function deleteVideo(
-  sessionId: string,
-  videoId: string,
-  userId?: string,
-): Promise<boolean> {
-  const redis = getRedis();
-  let result = 0;
-
-  // Try to delete from user-specific key if userId is provided
-  if (userId) {
-    const userKey = sessionKey(['user', userId, 'video', videoId]);
-    result = await jsonDel(userKey);
-
-    if (result > 0) {
-      const userVideosKey = sessionKey(['user', userId, 'videos']);
-      await redis.srem(userVideosKey, videoId);
-    }
-  }
-
-  // Also try session-specific key
-  if (result === 0) {
-    const key = sessionKey(['video', sessionId, videoId]);
-    result = await jsonDel(key);
-
-    const sessionVideosKey = sessionKey(['session-videos', sessionId]);
-    await redis.srem(sessionVideosKey, videoId);
-  }
-
-  return result > 0;
 }
 
 // Backstop on the (large, single-file) video upload path; caps abusive floods.
@@ -213,8 +142,7 @@ export default async function handler(
       if (!filename) {
         return res.status(400).json({ error: 'No filename provided' });
       }
-      // The name is replayed in every download header; reject values that
-      // cannot be encoded instead of storing a video that always fails to load.
+      // Store only well-formed names; the backend tool receives this record.
       if (
         typeof filename !== 'string' ||
         filename.length > MAX_FILENAME_CHARS ||
@@ -246,71 +174,8 @@ export default async function handler(
         : 500;
       return res.status(status).json({ error: message });
     }
-  } else if (req.method === 'GET') {
-    // Retrieve video
-    const { videoId, sessionId: querySessionId } = req.query;
-
-    if (!videoId || typeof videoId !== 'string') {
-      return res.status(400).json({ error: 'Invalid video ID' });
-    }
-
-    const targetSessionId =
-      typeof querySessionId === 'string' && querySessionId
-        ? querySessionId
-        : sessionId;
-
-    try {
-      const video = await getVideo(targetSessionId, videoId, userId);
-
-      if (!video) {
-        return res.status(404).json({ error: 'Video not found' });
-      }
-
-      if (!canAccessStoredVideo(video, sessionId, userId)) {
-        return res.status(403).json({ error: 'Forbidden' });
-      }
-
-      // Return video data with caching
-      res.setHeader('Content-Type', video.mimeType);
-      res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
-      res.setHeader('ETag', `"${videoId}"`);
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-
-      if (video.filename) {
-        res.setHeader(
-          'Content-Disposition',
-          buildContentDisposition(video.filename, 'inline'),
-        );
-      }
-
-      const buffer = Buffer.from(video.data, 'base64');
-      return res.status(200).send(buffer);
-    } catch (error) {
-      console.error('Error retrieving video:', error);
-      return res.status(500).json({ error: 'Failed to retrieve video' });
-    }
-  } else if (req.method === 'DELETE') {
-    // Delete video
-    const { videoId } = req.query;
-
-    if (!videoId || typeof videoId !== 'string') {
-      return res.status(400).json({ error: 'Invalid video ID' });
-    }
-
-    try {
-      const deleted = await deleteVideo(sessionId, videoId, userId);
-
-      if (!deleted) {
-        return res.status(404).json({ error: 'Video not found' });
-      }
-
-      return res.status(200).json({ message: 'Video deleted successfully' });
-    } catch (error) {
-      console.error('Error deleting video:', error);
-      return res.status(500).json({ error: 'Failed to delete video' });
-    }
   } else {
-    res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
+    res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 }
@@ -324,14 +189,3 @@ export const config = {
     },
   },
 };
-
-function canAccessStoredVideo(
-  video: StoredVideo,
-  currentSessionId: string,
-  currentUserId: string,
-): boolean {
-  if (video.userId) {
-    return video.userId === currentUserId;
-  }
-  return video.sessionId === currentSessionId;
-}

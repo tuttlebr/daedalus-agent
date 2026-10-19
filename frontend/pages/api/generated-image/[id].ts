@@ -1,10 +1,16 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
 import {
+  GENERATED_IMAGE_ID_PATTERN,
+  ownsGeneratedImage,
+  persistGeneratedImageThumbnail,
+  readGeneratedImageData,
+  readGeneratedImageRecord,
+} from '@/server/images/generatedImage';
+import {
   getStorageSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
-import { getRedis } from '@/server/session/redis';
 import sharp from 'sharp';
 
 export const config = {
@@ -18,14 +24,6 @@ const THUMBNAIL_QUALITY = 80;
 const LEGACY_PUBLIC_ACCESS =
   process.env.NODE_ENV !== 'production' &&
   process.env.GENERATED_IMAGE_LEGACY_PUBLIC === 'true';
-
-interface GeneratedImageRecord {
-  data?: string;
-  mimeType?: string;
-  userId?: string;
-  user?: string;
-  sessionId?: string;
-}
 
 function fileExtensionForMimeType(mimeType: string): string {
   switch (mimeType.toLowerCase()) {
@@ -41,25 +39,12 @@ function fileExtensionForMimeType(mimeType: string): string {
   }
 }
 
-function recordMatchesRequestOwner(
-  record: GeneratedImageRecord,
-  userId: string,
-  sessionId: string,
-): boolean {
-  const ownerUserId = record.userId || record.user;
-  // A persisted user owner is authoritative.  Session IDs are only a
-  // fallback for legacy/anonymous assets; otherwise a reused browser session
-  // could grant a different signed-in user access to an owned asset.
-  if (ownerUserId) return ownerUserId === userId;
-  return Boolean(record.sessionId && record.sessionId === sessionId);
-}
-
-async function canAccessGeneratedImage(
-  record: GeneratedImageRecord,
-  userId: string,
-  sessionId: string,
-): Promise<boolean> {
-  return recordMatchesRequestOwner(record, userId, sessionId);
+function sendThumbnail(res: NextApiResponse, id: string, thumbnail: Buffer) {
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
+  res.setHeader('ETag', `"${id}-thumb"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.status(200).send(thumbnail);
 }
 
 /**
@@ -73,6 +58,7 @@ async function canAccessGeneratedImage(
  *   - createdAt: ISO timestamp
  *   - source: e.g. "visual_media.generate" or "visual_media.edit"
  *     (legacy records may carry "image_generation" as the source label)
+ * The first thumbnail view adds `thumbnail`, a base64 JPEG derivative.
  *
  * Query parameters:
  *   - thumbnail=true  Return a 400px-max JPEG thumbnail instead of the full image.
@@ -94,7 +80,7 @@ export default async function handler(
   }
 
   // Basic input validation - UUIDs are hex + hyphens
-  if (!/^[a-f0-9-]+$/i.test(id)) {
+  if (!GENERATED_IMAGE_ID_PATTERN.test(id)) {
     return res.status(400).json({ error: 'Invalid image ID format' });
   }
 
@@ -102,38 +88,28 @@ export default async function handler(
     const session = await requireAuthenticatedUser(req, res);
     if (!session) return;
 
-    const redis = getRedis();
-    const redisKey = `generated:image:${id}`;
-    const sessionId = getStorageSessionId(req, res);
-    const userId = session.username;
+    const viewer = {
+      userId: session.username,
+      sessionId: getStorageSessionId(req, res),
+    };
+    const wantsDownload = download === '1' || download === 'true';
+    // Downloads must retain the signed original even if a thumbnail query
+    // parameter is present. Re-encoding would strip its Content Credentials.
+    const wantThumbnail =
+      (thumbnail === 'true' || thumbnail === '1') && !wantsDownload;
 
-    // Try RedisJSON first, fall back to plain GET
-    let record: GeneratedImageRecord | null = null;
-    try {
-      const jsonResult = (await redis.call('JSON.GET', redisKey, '$')) as
-        | string
-        | null;
-      if (jsonResult) {
-        const parsed = JSON.parse(jsonResult);
-        record = Array.isArray(parsed) ? parsed[0] : parsed;
-      }
-    } catch {
-      // RedisJSON not available or key not JSON - try plain string
-      const plainResult = await redis.get(redisKey);
-      if (plainResult) {
-        try {
-          record = JSON.parse(plainResult);
-        } catch {
-          // Not JSON at all
-        }
-      }
-    }
-
-    if (!record || !record.data) {
+    // The history drawer requests dozens of thumbnails at once. Read only the
+    // owner and view fields; the multi-megabyte original is read after
+    // authorization and only when the requested view needs it.
+    const record = await readGeneratedImageRecord(
+      id,
+      wantThumbnail ? ['mimeType', 'thumbnail'] : ['mimeType'],
+    );
+    if (!record?.hasData) {
       return res.status(404).json({ error: 'Image not found' });
     }
 
-    const authorized = await canAccessGeneratedImage(record, userId, sessionId);
+    const authorized = ownsGeneratedImage(record, viewer);
     if (!authorized && !LEGACY_PUBLIC_ACCESS) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -141,36 +117,43 @@ export default async function handler(
       res.setHeader('X-Generated-Image-Legacy-Access', 'true');
     }
 
-    const mimeType: string = record.mimeType || 'image/png';
-    const wantThumbnail = thumbnail === 'true' || thumbnail === '1';
-    const wantsDownload = download === '1' || download === 'true';
+    if (wantThumbnail && record.thumbnail) {
+      return sendThumbnail(res, id, Buffer.from(record.thumbnail, 'base64'));
+    }
 
-    // Decode base64 data
-    const imageBuffer = Buffer.from(record.data, 'base64');
+    const data = await readGeneratedImageData(id, record);
+    if (!data) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    const imageBuffer = Buffer.from(data, 'base64');
 
-    // Downloads must retain the signed original even if a thumbnail query
-    // parameter is present. Re-encoding would strip its Content Credentials.
-    if (wantThumbnail && !wantsDownload) {
+    if (wantThumbnail) {
+      let thumbBuffer: Buffer | null = null;
       try {
-        const thumbBuffer = await sharp(imageBuffer)
+        thumbBuffer = await sharp(imageBuffer)
           .resize(THUMBNAIL_MAX_SIZE, THUMBNAIL_MAX_SIZE, {
             fit: 'inside',
             withoutEnlargement: true,
           })
           .jpeg({ quality: THUMBNAIL_QUALITY })
           .toBuffer();
-
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
-        res.setHeader('ETag', `"${id}-thumb"`);
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        return res.status(200).send(thumbBuffer);
       } catch {
         // Thumbnail generation failed - fall through to full image
+      }
+      if (thumbBuffer) {
+        // Later views of this record never read or resize the original.
+        await persistGeneratedImageThumbnail(
+          id,
+          thumbBuffer.toString('base64'),
+        ).catch((error) => {
+          console.warn('Failed to persist generated image thumbnail:', error);
+        });
+        return sendThumbnail(res, id, thumbBuffer);
       }
     }
 
     // Return full image
+    const mimeType = record.mimeType || 'image/png';
     res.setHeader('Content-Type', mimeType);
     // A browser should never retain an explicit download after the user asks
     // to purge generated assets from history. Display assets remain privately

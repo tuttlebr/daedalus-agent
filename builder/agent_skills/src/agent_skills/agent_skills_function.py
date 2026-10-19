@@ -111,6 +111,26 @@ def _terminate_process_group(proc) -> None:
             pass
 
 
+async def _reap_script(proc) -> None:
+    """Wait for the terminated script itself, not for every holder of its pipes.
+
+    On Python 3.12, ``Process.wait()`` and ``communicate()`` also wait for
+    stdout/stderr EOF. A descendant that escaped the process group (``setsid``
+    plus ``fork``) survives the group kill and can hold those pipes open
+    indefinitely. Close our read ends first, as the Rust runtime drops its
+    pipes before waiting; the script's exit status still comes from the child
+    watcher. asyncio exposes the pipe transports only through the process's
+    subprocess transport.
+    """
+    transport = getattr(proc, "_transport", None)
+    if transport is not None:
+        for fd in (1, 2):
+            pipe = transport.get_pipe_transport(fd)
+            if pipe is not None:
+                pipe.close()
+    await proc.wait()
+
+
 # ----------------------------------------------------------------------
 # Standalone operation helpers
 #
@@ -323,7 +343,7 @@ async def _run_skill_script(
             for reader in readers:
                 reader.cancel()
             await asyncio.gather(*readers, return_exceptions=True)
-            await asyncio.shield(proc.communicate())
+            await asyncio.shield(_reap_script(proc))
 
     output_parts: list[str] = []
     if stdout:

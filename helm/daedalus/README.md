@@ -8,7 +8,8 @@ supported build, preflight, and rollout commands. For local text chat, use the
 
 ## Prerequisites
 
-- Helm 3 and a Kubernetes cluster with registry access and suitable storage.
+- Helm 3 (CI pins v3.22.1; Helm 4 is untested) and a Kubernetes cluster with
+  registry access and suitable storage.
 - Application and repository-owned Redis images, built and published through
   `make deploy` or the signed release workflow.
 - Separate backend, frontend, and stream-worker Secrets and any configured
@@ -50,11 +51,14 @@ copy the full file into any pod:
 
 The frontend allowlist contains only authentication, upload bounds, public
 browser configuration, backend routing, and frontend resilience settings. The
-stream-worker allowlist contains only backend routing, queue tuning, and Web
-Push configuration. Model API keys, MCP credentials, Milvus credentials,
+stream-worker allowlist contains only backend routing, queue and stream
+tuning, and logging settings. Model API keys, MCP credentials, Milvus credentials,
 Phoenix credentials, and NV-Ingest MinIO credentials are backend-only. The
 Helm templates reject keys outside each workload allowlist when chart-managed
-Secret data or frontend overrides are used.
+Secret data or frontend overrides are used. `deploy.sh` and the chart accept the
+same keys, except that `make deploy` copies only non-credential Milvus and MinIO
+settings: `scripts/sync_rag_secrets.py` mirrors their credentials into the
+dedicated Secrets that `retrieval.*.auth.existingSecret` selects.
 
 The autonomous worker receives its internal backend token and dedicated Redis credential
 through explicit `secretKeyRef` entries and doesn't inherit the backend Secret.
@@ -109,8 +113,9 @@ upgrades, or set it explicitly when coordinating multiple releases.
 For Google Workspace MCP, the backend secret must include
 `GOOGLE_MCP_CLIENT_ID`, `GOOGLE_MCP_CLIENT_SECRET`, and
 `GOOGLE_MCP_REDIRECT_URI`. The redirect URI must be registered on the
-Google OAuth client and should point at the public nginx backend redirect
-path, for example `https://assistant.example/auth/redirect`. One OAuth client is
+Google OAuth client and should point at the public `/auth/redirect` path, for
+example `https://assistant.example/auth/redirect`. nginx routes it to the
+frontend, which completes it only for the signed-in user who started the flow. One OAuth client is
 shared by Gmail, Calendar, and Docs. Add the scope union
 listed in `.env.template` to the consent configuration. Before deployment,
 enable both `docs.googleapis.com` and `docsmcp.googleapis.com` in that OAuth
@@ -202,29 +207,6 @@ the ACL password with overlap, rotates the TLS Secret and certificate with a CA
 overlap, and performs a byte-compatible rollback. Those generated certificates
 are test-only and aren't written to the repository. Production certificates
 and keys must remain externally supplied.
-
-### Completion Web Push
-
-Kubernetes completion notifications require an explicit opt-in:
-`frontend.streamWorker.pushNotifications.enabled: true`, plus
-`NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in the stream-worker
-Secret. The chart sets `PUSH_NOTIFICATIONS_ENABLED` consistently in the API and
-worker. With the default `false`, neither subscription admission nor sending
-is enabled; existing subscriptions are retained. Compose keeps its existing
-VAPID-based opt-in unless that environment flag explicitly disables it.
-
-Only HTTPS port 443 endpoints from FCM (`fcm.googleapis.com`), Mozilla
-(`updates.push.services.mozilla.com`) and Apple (`*.push.apple.com`) are
-supported. Other providers require a reviewed application/policy change.
-Cilium permits those provider names only. Standard NetworkPolicy cannot use
-DNS names: set `frontend.streamWorker.pushNotifications.cidrs` to the current,
-reviewed provider IP ranges. Enabling push without ranges in standard mode
-fails rendering; unrestricted `/0` ranges are rejected. Keep the ranges
-current as providers change them. No public egress is added to frontend pods.
-
-Enablement changes require a Helm rollout; disabling the value is reversible
-and preserves registrations. Native delivery and certificate validation must
-also succeed; a rendered rule alone does not prove network connectivity.
 
 ## Install or upgrade
 

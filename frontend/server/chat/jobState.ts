@@ -290,6 +290,26 @@ end
 return 1
 `;
 
+const DELETE_LIVE_JOB_STATUS_LUA = `
+-- DELETE_LIVE_JOB_STATUS
+${READ_LIVE_JOB_STATUS_LUA}
+redis.call('DEL', KEYS[1])
+return 1
+`;
+
+/**
+ * Remove a status that never reached a terminal outcome. A terminal status is
+ * kept: its finalization journal and polling clients still depend on it.
+ */
+export async function deleteLiveJobStatus(jobId: string): Promise<boolean> {
+  const deleted = await getRedis().eval(
+    DELETE_LIVE_JOB_STATUS_LUA,
+    1,
+    sessionKey(['async-job-status', jobId]),
+  );
+  return Number(deleted) === 1;
+}
+
 async function mutateLiveJobStatus(
   jobId: string,
   mutate: (current: AsyncJobStatus) => AsyncJobStatus | null,
@@ -516,15 +536,6 @@ function recordPhases(
     if (journal[phase] === undefined) journal[phase] = at;
     if (phase === 'completedAt') journal.state = 'completed';
   }
-}
-
-export async function markFinalizationPhase(
-  jobId: string,
-  finalizationId: string,
-  phase: FinalizationJournalPhase,
-  at: number = Date.now(),
-): Promise<JobFinalizationJournal | null> {
-  return markFinalizationPhases(jobId, finalizationId, [phase], at);
 }
 
 /** Record several completed phases in one journal write. */

@@ -57,6 +57,7 @@ enum Missing {
     None,
     Collection,
     Index,
+    Load,
 }
 fn missing(status: &Status, allowed: Missing) -> bool {
     match allowed {
@@ -67,8 +68,15 @@ fn missing(status: &Status, allowed: Missing) -> bool {
                 || (status.error_code == 1 && status.reason.contains("can't find collection"))
         }
         Missing::Index => status.code == 700 || status.error_code == 25,
+        Missing::Load => status.code == 101 || status.reason.contains("not loaded"),
     }
 }
+// These waits run while the write owns its collection. Each polls Milvus until
+// it reports progress, and fails once that many consecutive polls show none,
+// so a stalled server releases the collection instead of holding it forever.
+const INDEX_STALL_POLLS: usize = 600; // 500 ms apart: five minutes
+const LOAD_STALL_POLLS: usize = 600; // 200 ms apart: two minutes
+const FLUSH_POLLS: usize = 600; // 500 ms apart: five minutes
 /// A non-transport failure after this upload's row inserts were acknowledged.
 /// Those rows remain in Milvus, so the document runner must not replay the
 /// pipeline: it would insert them again. The message is the underlying error's.
@@ -287,7 +295,7 @@ async fn create(
         .await?;
     }
     if exists(io, collection).await? {
-        return Ok(());
+        return repair(io, collection, metadata).await;
     }
     let _: Status = call(
         io,
@@ -297,6 +305,45 @@ async fn create(
         Missing::None,
     )
     .await?;
+    build_index(io, collection, metadata).await?;
+    load(io, collection).await
+}
+/// A failure between CreateCollection and the end of loading leaves a
+/// collection without its index or unloaded. Existence alone is not
+/// readiness: uploads would succeed while searches fail. Complete whichever
+/// step is missing.
+async fn repair(io: &mut impl Io, collection: &str, metadata: bool) -> Result<()> {
+    // Any vector index serves: a collection created elsewhere may name its
+    // index differently, and Milvus allows only one index per field.
+    let listed = indexes(io, collection, "", 0, Context::Client, Missing::Index).await?;
+    let indexed = !listed
+        .status
+        .as_ref()
+        .is_some_and(|status| missing(status, Missing::Index))
+        && listed
+            .index_descriptions
+            .iter()
+            .any(|index| index.field_name == "vector");
+    if !indexed {
+        build_index(io, collection, metadata).await?;
+    }
+    let progress = loading(io, collection, Missing::Load).await?;
+    // Loading an already loading collection is idempotent. Some servers
+    // report an unloaded collection as zero progress rather than an error.
+    if progress.progress == 0
+        || progress
+            .status
+            .as_ref()
+            .is_some_and(|status| missing(status, Missing::Load))
+    {
+        return load(io, collection).await;
+    }
+    if progress.progress < 100 {
+        return loaded(io, collection).await;
+    }
+    Ok(())
+}
+async fn build_index(io: &mut impl Io, collection: &str, metadata: bool) -> Result<()> {
     let _: Status = call(
         io,
         "CreateIndex",
@@ -313,6 +360,8 @@ async fn create(
         Missing::None,
     )
     .await?;
+    let mut observed = None;
+    let mut stalled = 0;
     loop {
         io.sleep(Duration::from_millis(500)).await;
         let response = indexes(
@@ -334,11 +383,36 @@ async fn create(
         }
         .ok_or_else(ambiguous_index)?;
         match index.state {
-            3 => break,
+            3 => return Ok(()),
             4 => return Err(server_error(1, &index.index_state_fail_reason)),
             _ => (),
         }
+        let current = Some((index.state, index.indexed_rows, index.pending_index_rows));
+        stalled = if current == observed { stalled + 1 } else { 0 };
+        observed = current;
+        if stalled >= INDEX_STALL_POLLS {
+            bail!("Index is not getting built as expected for: dense_index - {collection}");
+        }
     }
+}
+async fn loading(
+    io: &mut impl Io,
+    collection: &str,
+    allowed: Missing,
+) -> Result<pb::GetLoadingProgressResponse> {
+    call(
+        io,
+        "GetLoadingProgress",
+        pb::GetLoadingProgressRequest {
+            collection_name: collection.into(),
+            ..Default::default()
+        },
+        Context::Client,
+        allowed,
+    )
+    .await
+}
+async fn load(io: &mut impl Io, collection: &str) -> Result<()> {
     let _: Status = call(
         io,
         "LoadCollection",
@@ -350,24 +424,27 @@ async fn create(
         Missing::None,
     )
     .await?;
+    loaded(io, collection).await
+}
+async fn loaded(io: &mut impl Io, collection: &str) -> Result<()> {
+    let mut best = i64::MIN;
+    let mut stalled = 0;
     loop {
-        let progress: pb::GetLoadingProgressResponse = call(
-            io,
-            "GetLoadingProgress",
-            pb::GetLoadingProgressRequest {
-                collection_name: collection.into(),
-                ..Default::default()
-            },
-            Context::Client,
-            Missing::None,
-        )
-        .await?;
+        let progress = loading(io, collection, Missing::None).await?;
         if progress.progress >= 100 {
-            break;
+            return Ok(());
+        }
+        if progress.progress > best {
+            best = progress.progress;
+            stalled = 0;
+        } else {
+            stalled += 1;
+            if stalled >= LOAD_STALL_POLLS {
+                bail!("Collection is not getting loaded as expected: {collection}");
+            }
         }
         io.sleep(Duration::from_millis(200)).await;
     }
-    Ok(())
 }
 async fn indexed_rows(io: &mut impl Io, collection: &str, name: &str) -> Result<i64> {
     let response = indexes(io, collection, name, 0, Context::Client, Missing::Index).await?;
@@ -410,7 +487,7 @@ async fn flush(io: &mut impl Io, collection: &str) -> Result<()> {
         collection_name: collection.into(),
         ..Default::default()
     };
-    loop {
+    for _ in 0..FLUSH_POLLS {
         let state: pb::GetFlushStateResponse = call(
             io,
             "GetFlushState",
@@ -424,6 +501,7 @@ async fn flush(io: &mut impl Io, collection: &str) -> Result<()> {
         }
         io.sleep(Duration::from_millis(500)).await;
     }
+    bail!("Collection is not getting flushed as expected: {collection}")
 }
 async fn wait_for_index(
     io: &mut impl Io,
@@ -880,5 +958,188 @@ mod tests {
             assert_eq!(io.polls, stalled_polls + 1, "{missing}");
             assert_eq!(io.sleeps, stalled_polls, "{missing}");
         }
+    }
+
+    /// Answers each RPC from a closure and records the sequence of methods.
+    struct Scripted<F> {
+        respond: F,
+        calls: Vec<&'static str>,
+        sleeps: usize,
+    }
+    impl<F: FnMut(&'static str) -> Vec<u8> + Send> Scripted<F> {
+        fn new(respond: F) -> Self {
+            Self {
+                respond,
+                calls: Vec::new(),
+                sleeps: 0,
+            }
+        }
+    }
+    impl<F: FnMut(&'static str) -> Vec<u8> + Send> Io for Scripted<F> {
+        async fn exchange<I, O>(
+            &mut self,
+            method: &'static str,
+            _input: I,
+            _context: Context,
+        ) -> Result<O>
+        where
+            I: Message + Default + Clone + Send + Sync + 'static,
+            O: Message + Default + Send + Sync + 'static,
+        {
+            self.calls.push(method);
+            assert!(self.calls.len() < 5000, "wait did not terminate");
+            Ok(O::decode((self.respond)(method).as_slice())?)
+        }
+        async fn sleep(&mut self, _duration: Duration) {
+            self.sleeps += 1;
+        }
+    }
+    fn failed(code: i32) -> Status {
+        Status {
+            code,
+            reason: "Synthetic status".into(),
+            ..Default::default()
+        }
+    }
+    fn index(state: i32) -> Vec<u8> {
+        pb::DescribeIndexResponse {
+            status: Some(Status::default()),
+            index_descriptions: vec![pb::IndexDescription {
+                index_name: "dense_index".into(),
+                field_name: "vector".into(),
+                state,
+                ..Default::default()
+            }],
+        }
+        .encode_to_vec()
+    }
+    fn progress(status: Status, progress: i64) -> Vec<u8> {
+        pb::GetLoadingProgressResponse {
+            status: Some(status),
+            progress,
+            ..Default::default()
+        }
+        .encode_to_vec()
+    }
+
+    #[tokio::test]
+    async fn half_created_collections_are_indexed_and_loaded_before_use() {
+        // (index exists, first loading answer) -> calls after the existence check
+        let cases = [
+            (
+                false,
+                progress(failed(101), 0),
+                vec![
+                    "DescribeIndex",
+                    "CreateIndex",
+                    "AllocTimestamp",
+                    "DescribeIndex",
+                    "GetLoadingProgress",
+                    "LoadCollection",
+                    "GetLoadingProgress",
+                ],
+            ),
+            (
+                true,
+                progress(Status::default(), 0),
+                vec![
+                    "DescribeIndex",
+                    "GetLoadingProgress",
+                    "LoadCollection",
+                    "GetLoadingProgress",
+                ],
+            ),
+            (
+                true,
+                progress(Status::default(), 100),
+                vec!["DescribeIndex", "GetLoadingProgress"],
+            ),
+        ];
+        for (indexed, first_progress, expected) in cases {
+            let mut built = indexed;
+            let mut loads = 0;
+            let mut io = Scripted::new(|method| match method {
+                "DescribeCollection" => pb::DescribeCollectionResponse::default().encode_to_vec(),
+                "DescribeIndex" if !built => pb::DescribeIndexResponse {
+                    status: Some(failed(700)),
+                    ..Default::default()
+                }
+                .encode_to_vec(),
+                "DescribeIndex" => index(3),
+                "CreateIndex" => {
+                    built = true;
+                    Status::default().encode_to_vec()
+                }
+                "AllocTimestamp" | "LoadCollection" => Vec::new(),
+                "GetLoadingProgress" => {
+                    loads += 1;
+                    if loads == 1 {
+                        first_progress.clone()
+                    } else {
+                        progress(Status::default(), 100)
+                    }
+                }
+                method => panic!("Unexpected Milvus call {method}"),
+            });
+            create(&mut io, "private_collection", 2, false, false)
+                .await
+                .unwrap();
+            assert_eq!(io.calls[0], "DescribeCollection");
+            assert_eq!(io.calls[1..], expected, "indexed={indexed}");
+        }
+    }
+
+    #[tokio::test]
+    async fn stalled_index_load_and_flush_waits_release_the_collection() {
+        let new_collection = |method| match method {
+            "DescribeCollection" => pb::DescribeCollectionResponse {
+                status: Some(failed(100)),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            "CreateCollection" | "CreateIndex" | "AllocTimestamp" | "LoadCollection" => Vec::new(),
+            method => panic!("Unexpected Milvus call {method}"),
+        };
+        let mut io = Scripted::new(|method| match method {
+            "DescribeIndex" => index(2),
+            method => new_collection(method),
+        });
+        let error = create(&mut io, "private_collection", 2, false, false)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Index is not getting built as expected for: dense_index - private_collection"
+        );
+        assert_eq!(io.sleeps, INDEX_STALL_POLLS + 1);
+        let mut io = Scripted::new(|method| match method {
+            "DescribeIndex" => index(3),
+            "GetLoadingProgress" => progress(Status::default(), 50),
+            method => new_collection(method),
+        });
+        let error = create(&mut io, "private_collection", 2, false, false)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Collection is not getting loaded as expected: private_collection"
+        );
+        let polls = io
+            .calls
+            .iter()
+            .filter(|m| **m == "GetLoadingProgress")
+            .count();
+        assert_eq!(polls, LOAD_STALL_POLLS + 1);
+        let mut io = Scripted::new(|method| match method {
+            "Flush" => pb::FlushResponse::default().encode_to_vec(),
+            "GetFlushState" => pb::GetFlushStateResponse::default().encode_to_vec(),
+            method => panic!("Unexpected Milvus call {method}"),
+        });
+        let error = flush(&mut io, "private_collection").await.unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Collection is not getting flushed as expected: private_collection"
+        );
+        assert_eq!(io.sleeps, FLUSH_POLLS);
     }
 }

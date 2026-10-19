@@ -24,14 +24,6 @@ const nextConfig = {
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
-  // Extend proxy timeout so long-running API routes (document processing)
-  // are not killed by Next.js's internal HTTP proxy before the route completes.
-  httpAgentOptions: {
-    keepAlive: true,
-  },
-  experimental: {
-    proxyTimeout: 900_000, // 15 minutes — matches nginx and API route timeouts
-  },
   modularizeImports: {
     '@tabler/icons-react': {
       transform: '@tabler/icons-react/dist/esm/icons/{{member}}',

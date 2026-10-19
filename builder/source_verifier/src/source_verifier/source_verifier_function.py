@@ -17,9 +17,11 @@ Registers one typed evidence dispatcher with NAT:
 Designed to combat hallucination compounding in autonomous agent cycles
 where uncited or incorrectly cited claims accumulate in memory over time.
 
-Reuses webscrape's pinned public HTTP fetch and local-file conversion for
-source retrieval without consuming a tool call. Claim verification is driven
-by a provider-neutral critic using any LLM configured in NeMo Agent Toolkit.
+Retrieves sources through the builder-scoped public article session shared
+with webscrape and RSS (pinned public transport, redirect validation, bounded
+cache and request coalescing) without consuming a tool call. Claim
+verification is driven by a provider-neutral critic using any LLM configured
+in NeMo Agent Toolkit.
 """
 
 import asyncio
@@ -27,6 +29,7 @@ import json
 import logging
 import re
 from collections import Counter
+from contextvars import ContextVar
 from dataclasses import dataclass
 from itertools import islice
 from typing import Any, Literal
@@ -39,15 +42,16 @@ from daedalus_runtime.tools import (
     ToolRegistry,
     register_tool,
 )
+from nat_helpers.public_content import PublicContentSession, public_content_session
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import BaseModel, ConfigDict, Field
 from source_verifier.critic import CriticResponseError, LLMClaimCritic
 from webscrape.webscrape_function import (
+    _convert_public_resource,
     _count_tokens,
-    _httpx_timeout_from_seconds,
+    _describe_retrieval_failure,
     _is_challenge_page,
     _is_valid_content,
-    _scrape_with_httpx_result,
     _truncate_to_token_limit,
     _validate_url,
 )
@@ -470,52 +474,74 @@ async def _call_llm(
         raise VerificationLLMError(str(exc)) from exc
 
 
-async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
-    """Fetch through pinned public transports and convert only local files."""
-    # Validate URL
-    try:
-        normalized_url, _ = _validate_url(url, ["http", "https"])
-    except ValueError as exc:
-        return FetchResult(status="invalid_url", error=str(exc))
+# verify_claim binds its tool's builder-scoped article session for each call.
+# ``_fetch_source(url, config)`` stays the replaceable fetch seam used by the
+# catalog contract check and the migration leaf fixtures.
+_content_session: ContextVar[PublicContentSession | None] = ContextVar(
+    "source_verifier_content_session", default=None
+)
+_SOURCE_SCHEMES = ("http", "https")
 
-    # F-001: source URLs come from LLM output / stored memories. Reject
-    # non-http(s) schemes and hosts resolving to non-public addresses. DNS can
-    # take seconds; resolving on the event loop would stall every other call.
+
+def _is_placeholder_source(source_url: str) -> bool:
+    """Check the host of the URL that would actually be fetched."""
     try:
-        await asyncio.to_thread(validate_public_url, normalized_url, check_dns=True)
-    except UnsafeURLError as exc:
+        _, parsed = _validate_url(source_url, list(_SOURCE_SCHEMES))
+    except ValueError:
+        # _fetch_source returns the structured invalid_url verdict.
+        return False
+    return (parsed.hostname or "").lower() in _PLACEHOLDER_HOSTS
+
+
+async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
+    """Fetch through the public article session shared with webscrape and RSS.
+
+    A source already scraped (or verified) by this builder's tools is served
+    from the same bounded cache, and concurrent requests for one URL share one
+    fetch. Conversion uses webscrape's converter so cached content does not
+    depend on which tool fetched it first.
+    """
+    session = _content_session.get()
+    if session is None:
+        raise RuntimeError("source verification requires its tool content session")
+    try:
+        normalized_url, parsed = _validate_url(url, list(_SOURCE_SCHEMES))
+        if parsed.username is not None or parsed.password is not None:
+            raise UnsafeURLError("Anonymous public URLs cannot contain credentials")
+        # Schemes and literal internal addresses fail before any network work.
+        # The session validates DNS and every redirect off the event loop, and
+        # its transport connects only to the validated public addresses.
+        validate_public_url(
+            normalized_url, allowed_schemes=_SOURCE_SCHEMES, check_dns=False
+        )
+    except ValueError as exc:
         return FetchResult(status="invalid_url", error=str(exc))
 
     try:
         # Keep the complete converted source: verify_claim selects evidence
         # before applying the model's character and token bounds.
-        content, outcome = await asyncio.wait_for(
-            _scrape_with_httpx_result(
-                normalized_url,
-                allowed_schemes=["http", "https"],
-                timeout=_httpx_timeout_from_seconds(config.fetch_timeout),
-            ),
+        article, _ = await session.article(
+            normalized_url,
+            converter=_convert_public_resource,
             timeout=config.fetch_timeout,
-        )
-        if content and _is_valid_content(content):
-            return FetchResult(status="ok", content=content)
-        if outcome == "blocked" or (content and _is_challenge_page(content)):
-            return FetchResult(
-                status="challenge_page",
-                error="Content appears to be a challenge page",
-            )
-        return FetchResult(
-            status="unreachable",
-            error=f"Controlled fetch returned {outcome}",
-        )
-    except UnsafeURLError as exc:
-        return FetchResult(status="invalid_url", error=str(exc))
-    except TimeoutError:
-        return FetchResult(
-            status="unreachable", error=f"Fetch timed out after {config.fetch_timeout}s"
+            allowed_schemes=_SOURCE_SCHEMES,
         )
     except Exception as exc:
-        return FetchResult(status="unreachable", error=str(exc))
+        kind, message = _describe_retrieval_failure(exc, config.fetch_timeout)
+        status = {"unsafe": "invalid_url", "blocked": "challenge_page"}.get(
+            kind, "unreachable"
+        )
+        return FetchResult(status=status, error=message)
+
+    if _is_valid_content(article.markdown):
+        return FetchResult(status="ok", content=article.markdown)
+    if _is_challenge_page(article.markdown):
+        return FetchResult(
+            status="challenge_page", error="The site is blocking automated access."
+        )
+    return FetchResult(
+        status="unreachable", error="The page returned too little extractable content."
+    )
 
 
 def _normalize_audit_url(url: str) -> str:
@@ -996,13 +1022,7 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                 }
             )
 
-        try:
-            parsed_url = urlparse(source_url.strip())
-            hostname = (parsed_url.hostname or "").lower()
-        except ValueError:
-            # _fetch_source returns the structured invalid_url verdict.
-            hostname = ""
-        if hostname in _PLACEHOLDER_HOSTS:
+        if _is_placeholder_source(source_url.strip()):
             return json.dumps(
                 {
                     "verdict": "unsupported",
@@ -1016,8 +1036,13 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                 }
             )
 
-        # Fetch the source
-        fetch = await _fetch_source(source_url.strip(), config)
+        # The session is entered around the yielded tool below, so it is bound
+        # whenever the runtime can invoke this operation.
+        session_token = _content_session.set(content_session)
+        try:
+            fetch = await _fetch_source(source_url.strip(), config)
+        finally:
+            _content_session.reset(session_token)
 
         if fetch.status != "ok":
             return json.dumps(
@@ -1483,11 +1508,13 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
         )
 
     try:
-        yield ToolDefinition.from_fn(
-            source_verifier,
-            input_schema=SourceVerifierInput,
-            description=config.description,
-        )
+        # Share fetched sources with this builder's webscrape and RSS tools.
+        async with public_content_session(builder) as content_session:
+            yield ToolDefinition.from_fn(
+                source_verifier,
+                input_schema=SourceVerifierInput,
+                description=config.description,
+            )
 
     except GeneratorExit:
         logger.warning("source_verifier function exited early!")

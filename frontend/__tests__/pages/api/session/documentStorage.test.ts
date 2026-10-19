@@ -3,6 +3,7 @@ import handler, {
   config,
 } from '@/pages/api/session/documentStorage';
 
+import { isExpectedDocumentObjectKey } from '@/server/documentObjectStore';
 import { validateHeaderValue } from 'node:http';
 import { PassThrough, Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -516,4 +517,167 @@ describe('/api/session/documentStorage', () => {
     expect(mocks.deleteDocumentObject).not.toHaveBeenCalled();
     expect(mocks.jsonDel).not.toHaveBeenCalled();
   });
+
+  it('stores upload metadata without an unread session index', async () => {
+    const res = response();
+    await handler(multipartRequest(Buffer.from('%PDF-test')), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mocks.jsonSetWithExpiry).toHaveBeenCalledOnce();
+    expect(mocks.sadd).not.toHaveBeenCalled();
+    expect(mocks.expire).not.toHaveBeenCalled();
+  });
+
+  it('refuses an owned record whose object key points into another scope', async () => {
+    const real = await vi.importActual<
+      typeof import('@/server/documentObjectStore')
+    >('@/server/documentObjectStore');
+    vi.mocked(isExpectedDocumentObjectKey).mockImplementation(
+      real.isExpectedDocumentObjectKey,
+    );
+    const objectConfig = {
+      endpoint: new URL('http://minio:9000'),
+      accessKey: 'access',
+      secretKey: 'secret',
+      bucket: 'documents',
+      region: 'us-east-1',
+      prefix: 'documents',
+      requestTimeoutMs: 1_000,
+    };
+    const record = (objectKey: string) => ({
+      id: 'doc-1',
+      storage: 'object-v1',
+      objectKey,
+      objectBucket: 'documents',
+      filename: 'paper.pdf',
+      mimeType: 'application/pdf',
+      size: 4,
+      createdAt: Date.now(),
+      sessionId: 'session-1',
+      userId: 'alice',
+    });
+    const download = async () => {
+      const res = response();
+      await handler(
+        {
+          method: 'GET',
+          headers: {},
+          query: { documentId: 'doc-1', sessionId: 'session-1' },
+        } as any,
+        res,
+      );
+      return res;
+    };
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    try {
+      for (const objectKey of [
+        // Alice's metadata naming Bob's object, another session, another file.
+        real.buildDocumentObjectKey('bob', 'session-1', 'doc-1', objectConfig),
+        real.buildDocumentObjectKey(
+          'alice',
+          'session-2',
+          'doc-1',
+          objectConfig,
+        ),
+        real.buildDocumentObjectKey(
+          'alice',
+          'session-1',
+          'doc-2',
+          objectConfig,
+        ),
+      ]) {
+        mocks.jsonGet.mockResolvedValueOnce(record(objectKey));
+        expect((await download()).status).toHaveBeenCalledWith(500);
+      }
+      expect(mocks.getDocumentObject).not.toHaveBeenCalled();
+
+      const object = Readable.from([Buffer.from('%PDF')]) as any;
+      object.headers = { 'content-length': '4' };
+      mocks.getDocumentObject.mockResolvedValueOnce(object);
+      mocks.jsonGet.mockResolvedValueOnce(
+        record(
+          real.buildDocumentObjectKey(
+            'alice',
+            'session-1',
+            'doc-1',
+            objectConfig,
+          ),
+        ),
+      );
+      const owned = streamingResponse();
+      owned.resume();
+      await handler(
+        {
+          method: 'GET',
+          headers: {},
+          query: { documentId: 'doc-1', sessionId: 'session-1' },
+        } as any,
+        owned,
+      );
+      expect(mocks.getDocumentObject).toHaveBeenCalledOnce();
+    } finally {
+      consoleError.mockRestore();
+      vi.mocked(isExpectedDocumentObjectKey).mockImplementation(() => true);
+    }
+  });
+
+  it('fails a download whose object length differs from its metadata', async () => {
+    mocks.jsonGet.mockResolvedValue({
+      id: 'doc-1',
+      storage: 'object-v1',
+      objectKey: 'documents/owner/session-1/doc-1',
+      objectBucket: 'documents',
+      filename: 'paper.pdf',
+      mimeType: 'application/pdf',
+      size: 10,
+      createdAt: Date.now(),
+      sessionId: 'session-1',
+      userId: 'alice',
+    });
+    const object = Readable.from([Buffer.from('%PDF-truncated')]) as any;
+    object.headers = { 'content-length': '14' };
+    const destroy = vi.spyOn(object, 'destroy');
+    mocks.getDocumentObject.mockResolvedValue(object);
+    const res = streamingResponse();
+    const received: Buffer[] = [];
+    res.on('data', (chunk: Buffer) => received.push(chunk));
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    try {
+      await handler(
+        { method: 'GET', headers: {}, query: { documentId: 'doc-1' } } as any,
+        res,
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(destroy).toHaveBeenCalled();
+    expect(received).toEqual([]);
+    expect(res.setHeader).not.toHaveBeenCalledWith('Content-Length', '10');
+  });
+
+  it.each([
+    [{ documentId: 'session-2:doc-1' }],
+    [{ documentId: 'doc-1', sessionId: 'session-1:doc-2' }],
+    [{ documentId: '../doc-1' }],
+    [{ documentId: 'x'.repeat(129) }],
+  ])(
+    'rejects reference IDs that could address another key (%j)',
+    async (query) => {
+      for (const method of ['GET', 'DELETE']) {
+        const res = response();
+        await handler({ method, headers: {}, query } as any, res);
+        expect(res.status).toHaveBeenCalledWith(400);
+      }
+      expect(mocks.jsonGet).not.toHaveBeenCalled();
+      expect(mocks.jsonDel).not.toHaveBeenCalled();
+    },
+  );
 });

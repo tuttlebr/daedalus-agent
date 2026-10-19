@@ -10,7 +10,6 @@ import socket
 from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import urlparse
 
-import httpx
 import pytest
 import webscrape.webscrape_function as webscrape_mod
 from nat_helpers.url_guard import UnsafeURLError
@@ -20,8 +19,6 @@ from webscrape.webscrape_function import (
     _get_following_safe_redirects,
     _is_challenge_page,
     _is_valid_content,
-    _response_looks_like_html,
-    _scrape_with_httpx_result,
     _truncate_to_token_limit,
     _validate_url,
 )
@@ -181,6 +178,49 @@ class TestValidateUrl:
         result = _validate_url("https://example.com", ["https"])
         assert isinstance(result, tuple)
         assert len(result) == 2
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://en.wikipedia.org/wiki/Python_(programming_language)",
+            "https://learn.microsoft.com/en-us/previous-versions/ms123401(v=vs.85)",
+            "https://example.com/it's-here",
+            "https://example.com/a]b",
+            'https://example.com/search?q="exact"',
+        ],
+    )
+    def test_complete_url_argument_is_used_unchanged(self, url):
+        normalized, _ = _validate_url(url, ["https", "http"])
+        assert normalized == url
+
+    @pytest.mark.parametrize(
+        "wrapped,expected",
+        [
+            (
+                "[Python](https://en.wikipedia.org/wiki/Python_(programming_language))",
+                "https://en.wikipedia.org/wiki/Python_(programming_language)",
+            ),
+            (
+                "See https://en.wikipedia.org/wiki/Python_(programming_language).",
+                "https://en.wikipedia.org/wiki/Python_(programming_language)",
+            ),
+            (
+                "(source: https://example.com/article)",
+                "https://example.com/article",
+            ),
+            (
+                "Read https://example.com/it's-here, then summarize.",
+                "https://example.com/it's-here",
+            ),
+            ("Quoted: 'https://example.com/article'", "https://example.com/article"),
+            ("<https://example.com/a_(b)>", "https://example.com/a_(b)"),
+        ],
+    )
+    def test_wrapped_url_keeps_balanced_parentheses_and_apostrophes(
+        self, wrapped, expected
+    ):
+        normalized, _ = _validate_url(wrapped, ["https", "http"])
+        assert normalized == expected
 
 
 # ---------------------------------------------------------------------------
@@ -415,39 +455,6 @@ class TestTruncateToTokenLimit:
 
 
 # ---------------------------------------------------------------------------
-# _response_looks_like_html
-# ---------------------------------------------------------------------------
-
-
-class TestResponseLooksLikeHtml:
-    def test_html_content_type_true(self):
-        response = _mk_response(
-            200,
-            text="<html><body>ok</body></html>",
-            is_success=True,
-            headers={"content-type": "text/html; charset=utf-8"},
-        )
-        assert _response_looks_like_html(response)
-
-    def test_non_html_content_type_false(self):
-        response = _mk_response(
-            200,
-            text="%PDF-1.7",
-            is_success=True,
-            headers={"content-type": "application/pdf"},
-        )
-        assert not _response_looks_like_html(response)
-
-    def test_missing_content_type_detects_html_prefix(self):
-        response = _mk_response(
-            200,
-            text="   <!doctype html><html><body>ok</body></html>",
-            is_success=True,
-        )
-        assert _response_looks_like_html(response)
-
-
-# ---------------------------------------------------------------------------
 # _check_robots (async, tested via asyncio.run)
 # ---------------------------------------------------------------------------
 
@@ -640,44 +647,6 @@ class TestGetFollowingSafeRedirects:
 
         asyncio.run(_run())
 
-    def test_transient_transport_error_is_retried(self):
-        async def _run():
-            final = _mk_response(200, text="ok", is_success=True)
-            client = _QueuedClient([httpx.ReadTimeout("temporary"), final])
-            result = await _get_following_safe_redirects(
-                client,
-                "https://example.com/page",
-                retry_attempts=1,
-                retry_backoff_seconds=0,
-            )
-            assert result is final
-            assert client.requested_urls == [
-                "https://example.com/page",
-                "https://example.com/page",
-            ]
-
-        asyncio.run(_run())
-
-    def test_retryable_status_code_is_retried(self):
-        async def _run():
-            retryable = _mk_response(503, text="busy", is_success=False)
-            final = _mk_response(200, text="ok", is_success=True)
-            client = _QueuedClient([retryable, final])
-            result = await _get_following_safe_redirects(
-                client,
-                "https://example.com/page",
-                retry_attempts=1,
-                retry_backoff_seconds=0,
-                retry_status_codes={503},
-            )
-            assert result is final
-            assert client.requested_urls == [
-                "https://example.com/page",
-                "https://example.com/page",
-            ]
-
-        asyncio.run(_run())
-
     def test_relative_redirect_resolved_against_current_url(self):
         async def _run():
             redirect = _mk_response(302, location="/other")
@@ -768,166 +737,5 @@ class TestGetFollowingSafeRedirects:
                 await _get_following_safe_redirects(
                     client, "https://example.com/start", max_redirects=3
                 )
-
-        asyncio.run(_run())
-
-
-# ---------------------------------------------------------------------------
-# _scrape_with_httpx_result SSRF redirect guard (F-002a)
-# ---------------------------------------------------------------------------
-
-
-class TestScrapeWithHttpxRedirect:
-    def test_redirect_to_metadata_address_rejected(self, monkeypatch):
-        # The scrape path must reject a redirect to an internal/metadata target
-        # rather than fetching it.
-        async def _run():
-            from webscrape.webscrape_function import _scrape_with_httpx_result
-
-            redirect = _mk_response(
-                302, location="http://169.254.169.254/latest/meta-data/"
-            )
-            client = _QueuedClient([redirect])
-
-            class _FakeAsyncClient:
-                def __init__(self, *args, **kwargs):
-                    # The client must disable auto-redirects so each hop is
-                    # validated manually (F-002a).
-                    assert kwargs.get("follow_redirects") is False
-
-                async def __aenter__(self):
-                    return client
-
-                async def __aexit__(self, *exc):
-                    return False
-
-            monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
-
-            with pytest.raises(UnsafeURLError):
-                await _scrape_with_httpx_result(
-                    "https://attacker.com/start", allowed_schemes=["https", "http"]
-                )
-
-        asyncio.run(_run())
-
-
-# ---------------------------------------------------------------------------
-# _scrape_with_httpx_result outcomes
-# ---------------------------------------------------------------------------
-
-
-class TestScrapeWithHttpxResult:
-    def _patch_client(self, monkeypatch, queued_client):
-        class _FakeAsyncClient:
-            def __init__(self, *args, **kwargs):
-                assert kwargs.get("follow_redirects") is False
-
-            async def __aenter__(self):
-                return queued_client
-
-            async def __aexit__(self, *exc):
-                return False
-
-        monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
-
-    def test_blocked_status_returns_blocked_outcome(self, monkeypatch):
-        async def _run():
-            response = _mk_response(
-                403,
-                text=(
-                    "<HTML><TITLE>Access Denied</TITLE>"
-                    "You don't have permission to access this page. Reference #18"
-                ),
-                is_success=False,
-                headers={"content-type": "text/html"},
-            )
-            client = _QueuedClient([response])
-            self._patch_client(monkeypatch, client)
-
-            content, outcome = await _scrape_with_httpx_result(
-                "https://example.com/page"
-            )
-            assert content is None
-            assert outcome == "blocked"
-
-        asyncio.run(_run())
-
-    def test_non_html_success_converts_already_fetched_bytes(self, monkeypatch):
-        async def _run():
-            response = _mk_response(
-                200,
-                text="%PDF-1.7",
-                is_success=True,
-                headers={"content-type": "application/pdf"},
-            )
-            client = _QueuedClient([response])
-            self._patch_client(monkeypatch, client)
-            local_conversion = MagicMock(
-                return_value=(
-                    "# PDF\n\n_Source: https://example.com/file.pdf_\n\n"
-                    + "Converted PDF content. " * 5
-                )
-            )
-            monkeypatch.setattr(webscrape_mod, "_bytes_to_markdown", local_conversion)
-
-            content, outcome = await _scrape_with_httpx_result(
-                "https://example.com/file.pdf"
-            )
-            assert "Converted PDF content" in content
-            assert outcome == "ok"
-            assert local_conversion.call_args.args[:2] == (
-                b"%PDF-1.7",
-                "https://example.com/file.pdf",
-            )
-            assert (
-                local_conversion.call_args.kwargs["content_type"] == "application/pdf"
-            )
-
-        asyncio.run(_run())
-
-    def test_legacy_encoded_html_is_converted_from_original_bytes(self, monkeypatch):
-        """Source verification must see the same characters as the page.
-
-        httpx decodes a media type without charset as UTF-8 with replacement
-        characters. Conversion must receive the original bytes so the HTML
-        charset declaration can be honored.
-        """
-        legacy = (
-            "<html><head><title>Résumé</title>"
-            '<meta charset="windows-1252"></head><body><p>'
-            + "Müller reported revenue of £42 million in Zürich. " * 3
-            + "</p></body></html>"
-        ).encode("cp1252")
-
-        async def _run():
-            response = httpx.Response(
-                200,
-                content=legacy,
-                headers={"content-type": "text/html"},
-                request=httpx.Request("GET", "https://example.com/legacy"),
-            )
-            assert "�" in response.text  # the lossy decode this guards
-            self._patch_client(monkeypatch, _QueuedClient([response]))
-            converted = {}
-
-            def convert(path):
-                with open(path, "rb") as file_obj:
-                    converted["bytes"] = file_obj.read()
-                return MagicMock(title="Résumé", text_content="Article body. " * 10)
-
-            monkeypatch.setattr(
-                webscrape_mod, "_convert_html_article", lambda *_: None, raising=False
-            )
-            monkeypatch.setattr(
-                webscrape_mod,
-                "MarkItDown",
-                MagicMock(return_value=MagicMock(convert=convert)),
-            )
-            content, outcome = await _scrape_with_httpx_result(
-                "https://example.com/legacy"
-            )
-            assert outcome == "ok"
-            assert content.startswith("# Résumé")
-            assert converted["bytes"] == legacy
 
         asyncio.run(_run())

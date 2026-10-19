@@ -1,5 +1,6 @@
-//! Per-document ingestion, with collection ownership spanning the entire owned
-//! pipeline, including after its HTTP waiter disconnects or times out.
+//! Per-document ingestion. NV-Ingest extraction runs under the caller's
+//! deadline without the collection; ownership spans the Milvus write, which
+//! runs to completion even after its HTTP waiter disconnects or times out.
 use crate::{
     collections,
     config::{Config, truthy},
@@ -97,7 +98,14 @@ pub trait Engine: Clone + Send + Sync + 'static {
     fn build(&self, input: Build) -> impl Future<Output = Result<Self::Pipeline>> + Send;
 }
 pub trait Pipeline: Send {
-    fn ingest(self, progress: Stages) -> impl Future<Output = Result<Ingested>> + Send;
+    type Extraction: Extraction;
+    /// NV-Ingest extraction, chunking and embedding. It writes nothing to
+    /// Milvus, so a timed-out or cancelled extraction is simply dropped.
+    fn extract(self, progress: Stages) -> impl Future<Output = Result<Self::Extraction>> + Send;
+}
+pub trait Extraction: Send + 'static {
+    /// The Milvus write, run to completion while owning the collection.
+    fn write(self, progress: Stages) -> impl Future<Output = Result<Ingested>> + Send;
 }
 
 /// A service-side timeout has the same no-retry behavior as a waiter timeout.
@@ -164,17 +172,11 @@ fn first_len(value: &Value) -> usize {
         _ => 0,
     }
 }
-async fn work<E: Engine>(
+async fn extract<E: Engine>(
     engine: E,
     input: Build,
     stages: Stages,
-) -> Result<(
-    String,
-    usize,
-    usize,
-    usize,
-    crate::document_json::Surrogates,
-)> {
+) -> Result<<E::Pipeline as Pipeline>::Extraction> {
     stages
         .emit(
             "preparing",
@@ -190,7 +192,19 @@ async fn work<E: Engine>(
             json!({}),
         )
         .await;
-    let output = pipeline.ingest(stages.clone()).await?;
+    pipeline.extract(stages).await
+}
+async fn write<X: Extraction>(
+    extraction: X,
+    stages: Stages,
+) -> Result<(
+    String,
+    usize,
+    usize,
+    usize,
+    crate::document_json::Surrogates,
+)> {
+    let output = extraction.write(stages.clone()).await?;
     stages
         .emit(
             "postprocessing",
@@ -393,15 +407,6 @@ pub async fn run<S: Services>(
     let lock = locks.get(&collection);
     let mut last = "None".to_owned();
     for attempt in 0..=options.ingest_max_retries {
-        if lock.try_lock().is_err() {
-            stages
-                .emit(
-                    "waiting",
-                    "Waiting for the collection write lock",
-                    json!({"attempt":attempt + 1}),
-                )
-                .await;
-        }
         stages
             .emit(
                 "submitting",
@@ -409,12 +414,41 @@ pub async fn run<S: Services>(
                 json!({"attempt":attempt + 1}),
             )
             .await;
-        let worker = engine.clone();
-        let input = input.clone();
+        let deadline = tokio::time::Instant::now() + timeout;
         let owned = Stages::worker(stages.filename.clone(), stages.callback.clone());
-        let result =
-            document_ownership::run(lock.clone(), timeout, move || work(worker, input, owned))
-                .await;
+        // Build and extraction write nothing to Milvus. The deadline drops
+        // them, so a stalled NV-Ingest job never holds the collection.
+        let extracted = tokio::time::timeout_at(
+            deadline,
+            extract(engine.clone(), input.clone(), owned.clone()),
+        )
+        .await;
+        let result = match extracted {
+            Err(_) => {
+                return failure(
+                    format!(
+                        "Error processing document with NvIngest: timed out after {:.0} seconds before indexing started. No chunks were written for this document.",
+                        timeout.as_secs_f64()
+                    ),
+                    json!(filename),
+                );
+            }
+            Ok(Err(error)) => Err(WaitError::Failed(error)),
+            Ok(Ok(extraction)) => {
+                if lock.try_lock().is_err() {
+                    stages
+                        .emit(
+                            "waiting",
+                            "Waiting for the collection write lock",
+                            json!({"attempt":attempt + 1}),
+                        )
+                        .await;
+                }
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                document_ownership::run(lock.clone(), remaining, move || write(extraction, owned))
+                    .await
+            }
+        };
         let error = match result {
             Ok((markdown, pages, chunks, failures, surrogates)) => {
                 let unencodable = markdown.chars().any(|c| surrogates.contains_key(&c));
@@ -507,7 +541,10 @@ mod tests {
         stored: Value,
         results: Value,
         observed: Arc<Mutex<Observed>>,
+        /// Holds the owned Milvus write.
         gate: Option<Arc<Gate>>,
+        /// Holds NV-Ingest extraction, before the collection is owned.
+        extraction_gate: Option<Arc<Gate>>,
     }
     impl Fake {
         fn new(data: &Value, case: &Value) -> Self {
@@ -523,6 +560,7 @@ mod tests {
                 results: data["result"].clone(),
                 observed: Arc::new(Mutex::new(Observed::default())),
                 gate: None,
+                extraction_gate: None,
             }
         }
         fn callback(&self) -> Progress {
@@ -604,8 +642,9 @@ mod tests {
         }
     }
     impl Pipeline for FakePipeline {
-        async fn ingest(self, progress: Stages) -> Result<Ingested> {
-            if let Some(gate) = &self.fake.gate {
+        type Extraction = Self;
+        async fn extract(self, _progress: Stages) -> Result<Self> {
+            if let Some(gate) = &self.fake.extraction_gate {
                 gate.started.notify_one();
                 gate.release.notified().await;
             }
@@ -613,15 +652,26 @@ mod tests {
                 match self.fake.case["error_stage"].as_str() {
                     Some("ingest") => bail!("Synthetic ingest failure"),
                     Some("timeout") => return Err(PipelineTimeout.into()),
-                    Some("transport") => {
-                        return Err(crate::milvus_index_transport::TransportFailure {
-                            method: "Insert",
-                            code: tonic::Code::Unavailable,
-                        }
-                        .into());
-                    }
                     _ => (),
                 }
+            }
+            Ok(self)
+        }
+    }
+    impl Extraction for FakePipeline {
+        async fn write(self, progress: Stages) -> Result<Ingested> {
+            if let Some(gate) = &self.fake.gate {
+                gate.started.notify_one();
+                gate.release.notified().await;
+            }
+            if self.attempt as u64 <= self.fake.case["failed_attempts"].as_u64().unwrap_or(0)
+                && self.fake.case["error_stage"] == "transport"
+            {
+                return Err(crate::milvus_index_transport::TransportFailure {
+                    method: "Insert",
+                    code: tonic::Code::Unavailable,
+                }
+                .into());
             }
             progress
                 .emit(
@@ -877,5 +927,46 @@ mod tests {
                 "postprocessed"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn stalled_extraction_never_owns_the_collection() {
+        let data = fixture();
+        let case = &data["cases"][0];
+        let mut fake = Fake::new(&data, case);
+        // NV-Ingest never finishes this document.
+        let gate = Arc::new(Gate::default());
+        fake.extraction_gate = Some(gate.clone());
+        let locks = Collections::default();
+        let collection = case["expected"]["collection"].as_str().unwrap();
+        let options = Options {
+            ingest_timeout_seconds: 1.,
+            ..Options::default()
+        };
+        let waiting = run(
+            &fake,
+            &locks,
+            &options,
+            serde_json::from_value(case["request"].clone()).unwrap(),
+            Some(fake.callback()),
+        );
+        tokio::pin!(waiting);
+        tokio::select! {
+            _ = &mut waiting => panic!("extraction must still be pending"),
+            _ = gate.started.notified() => {}
+        }
+        // Another document for the same collection can write meanwhile.
+        assert!(locks.get(collection).try_lock().is_ok());
+        let outcome = waiting.await;
+        assert_eq!(outcome.status, "failure");
+        assert_eq!(
+            outcome.error,
+            "Error processing document with NvIngest: timed out after 1 seconds before indexing started. No chunks were written for this document."
+        );
+        assert!(outcome.error.to_lowercase().contains("timed out"));
+        assert!(locks.get(collection).try_lock().is_ok());
+        let observed = fake.observed.lock().unwrap();
+        assert_eq!(observed.builds.len(), 1);
+        assert!(observed.events.iter().all(|e| e["phase"] != "indexing"));
     }
 }

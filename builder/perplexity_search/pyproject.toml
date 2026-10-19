@@ -17,8 +17,5 @@ classifiers = ["Programming Language :: Python"]
 packages = ["perplexity_search"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-perplexity_search = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

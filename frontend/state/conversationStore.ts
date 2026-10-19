@@ -17,6 +17,7 @@
  * @requires zustand - Run: npm install zustand
  */
 import { dedupeConversationsById } from '@/utils/app/conversationList';
+import type { RevisionedConversation } from '@/utils/app/conversationRevision';
 import { Logger } from '@/utils/logger';
 
 import { Conversation, Message } from '@/types/chat';
@@ -48,7 +49,16 @@ export interface ConversationActions {
   addConversation: (conversation: Conversation) => void;
   updateConversation: (id: string, updates: Partial<Conversation>) => void;
   deleteConversation: (id: string) => void;
-  clearConversations: () => void;
+  /**
+   * Record the server revision a save committed, but only on a copy still
+   * derived from one of the revisions that save replaced. A copy adopted from
+   * the server meanwhile keeps its own revision.
+   */
+  applySavedRevision: (
+    id: string,
+    replaced: ReadonlyArray<string | null>,
+    revision: string,
+  ) => void;
 
   // Selection
   selectConversation: (id: string | null) => void;
@@ -67,9 +77,6 @@ export interface ConversationActions {
 
   // Streaming
   setStreaming: (conversationId: string, isStreaming: boolean) => void;
-
-  // Reset
-  reset: () => void;
 }
 
 export type ConversationStore = ConversationState & ConversationActions;
@@ -212,13 +219,14 @@ export const useConversationStore = create<ConversationStore>()(
         logger.debug('Deleted conversation', { id });
       },
 
-      clearConversations: () => {
+      applySavedRevision: (id, replaced, revision) => {
         set((state) => {
-          state.conversations = [];
-          state.selectedConversationId = null;
-          state.streamingConversationIds.clear();
+          const conversation = state.conversations.find(
+            (c: Conversation) => c.id === id,
+          ) as RevisionedConversation | undefined;
+          if (conversation && replaced.includes(conversation.revision ?? null))
+            conversation.revision = revision;
         });
-        logger.debug('Cleared all conversations');
       },
 
       // ========================================================================
@@ -296,15 +304,6 @@ export const useConversationStore = create<ConversationStore>()(
             state.streamingConversationIds.delete(conversationId);
           }
         });
-      },
-
-      // ========================================================================
-      // Reset
-      // ========================================================================
-
-      reset: () => {
-        set(initialState);
-        logger.debug('Store reset');
       },
     })),
   ),

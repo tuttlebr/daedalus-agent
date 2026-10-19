@@ -55,6 +55,8 @@ jobs:
 
       - name: Set up Helm for deployment image inventory
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: v3.22.1
 
       - name: Validate deployment image inventory
         run: python3 scripts/check_image_inventory.py

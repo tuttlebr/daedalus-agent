@@ -80,7 +80,6 @@ export interface AsyncJobStatus {
 export interface BackgroundExecutionControl {
   signal?: AbortSignal;
   beforeBackendRequest?: () => Promise<void>;
-  approvalToken?: string;
 }
 
 export interface StreamFailureSnapshot {
@@ -101,7 +100,6 @@ export class StreamUserCancellationError extends Error {
 export interface StreamQueuePayload {
   messagesForNat: any[];
   verifiedUsername: string;
-  approvalToken?: string;
 }
 
 export class ApiRouteError extends Error {

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { Fragment, memo, useMemo } from 'react';
 
 import { extractStandaloneHtmlResponse } from '@/utils/app/htmlResponse';
+import { splitStreamingMarkdown } from '@/utils/app/streamingMarkdown';
 
 import { LazyCodeBlock } from '@/components/markdown/LazyCodeBlock';
 import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
@@ -34,13 +35,51 @@ interface ResponseDocumentProps {
   className?: string;
   fullscreen?: boolean;
   /**
-   * Skips the raw-HTML rehype pass while tokens are still arriving. That pass
-   * re-parses the whole document as HTML on every flush, and mid-stream markup
-   * is usually half-formed anyway, so the work is discarded. The completed
-   * answer renders through the full pipeline.
+   * While tokens are still arriving, completed top-level blocks keep their
+   * rendered output and only the growing tail is parsed again, and the
+   * raw-HTML rehype pass is skipped (mid-stream markup is usually half-formed
+   * anyway). The completed answer renders through the full pipeline.
    */
   isStreaming?: boolean;
 }
+
+interface StreamingMarkdownProps {
+  content: string;
+  messageIndex: number;
+  messageId?: string;
+  className: string;
+}
+
+/**
+ * Renders a streaming answer block by block. Each block renders the same alone
+ * as within the whole text (see splitStreamingMarkdown), and the newline
+ * between them is the separator the whole-document render places between
+ * top-level elements, so the markup matches a single render. Unchanged blocks
+ * skip rendering through MarkdownRenderer's memo.
+ */
+const StreamingMarkdown = memo(
+  ({ content, messageIndex, messageId, className }: StreamingMarkdownProps) => {
+    const blocks = useMemo(() => splitStreamingMarkdown(content), [content]);
+    return (
+      <div className={className}>
+        {blocks.map((block, index) => (
+          <Fragment key={index}>
+            {index > 0 ? '\n' : null}
+            <MarkdownRenderer
+              content={block}
+              messageIndex={messageIndex}
+              messageId={messageId}
+              className=""
+              allowHtml={false}
+            />
+          </Fragment>
+        ))}
+      </div>
+    );
+  },
+);
+
+StreamingMarkdown.displayName = 'StreamingMarkdown';
 
 /** Uses the same content classification and renderer in inline and fullscreen. */
 export const ResponseDocument = memo(
@@ -63,13 +102,23 @@ export const ResponseDocument = memo(
       );
     }
 
+    if (isStreaming) {
+      return (
+        <StreamingMarkdown
+          content={document.content}
+          messageIndex={messageIndex}
+          messageId={messageId}
+          className={className}
+        />
+      );
+    }
+
     return (
       <MarkdownRenderer
         content={document.content}
         messageIndex={messageIndex}
         messageId={messageId}
         className={className}
-        allowHtml={!isStreaming}
       />
     );
   },

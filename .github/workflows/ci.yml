@@ -29,6 +29,8 @@ jobs:
           npm ci --legacy-peer-deps
       - name: Set up Helm for chart hooks
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: v3.22.1
       - name: Check all tracked files
         run: pre-commit run --all-files --show-diff-on-failure
 
@@ -75,6 +77,8 @@ jobs:
       # Their Helm gate fails instead of skipping when CI is set.
       - name: Set up Helm for rendered-chart tests
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: v3.22.1
 
       - name: Run tests with coverage
         working-directory: builder
@@ -139,7 +143,6 @@ jobs:
         working-directory: frontend
         env:
           REDIS_URL: redis://default:ci-real-redis-password@localhost:6379
-          SESSION_SECRET: ci-session-secret-for-build-only
         run: npm run test:integration
 
   frontend:
@@ -148,8 +151,6 @@ jobs:
     defaults:
       run:
         working-directory: frontend
-    env:
-      SESSION_SECRET: ci-session-secret-for-build-only
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -219,6 +220,8 @@ jobs:
 
       - name: Set up Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: v3.22.1
 
       - name: Lint chart
         run: helm lint helm/daedalus
@@ -247,6 +250,8 @@ jobs:
 
       - name: Set up Helm
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: v3.22.1
 
       - name: Set up Kind
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
@@ -276,6 +281,8 @@ jobs:
 
       - name: Set up Helm for deployment image inventory
         uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: v3.22.1
 
       - name: Validate deployment image inventory
         run: python3 scripts/check_image_inventory.py

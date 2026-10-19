@@ -7,6 +7,7 @@ import pytest
 import redis
 from nat_helpers.image_utils import (
     fetch_image_from_redis,
+    fetch_video_from_redis,
     parse_ref,
     store_image_in_redis,
 )
@@ -16,9 +17,18 @@ class _FakeRedisError(Exception):
     pass
 
 
+class _FakeNoPermissionError(_FakeRedisError):
+    """Stands in for redis.exceptions.NoPermissionError (a RedisError)."""
+
+
+class _FakeConnectionError(_FakeRedisError):
+    pass
+
+
 @pytest.fixture(autouse=True)
 def redis_error_class(monkeypatch):
     monkeypatch.setattr(redis, "RedisError", _FakeRedisError)
+    monkeypatch.setattr(redis.exceptions, "NoPermissionError", _FakeNoPermissionError)
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +76,18 @@ class _FakeRedis:
     def execute_command(self, cmd, key):
         self.requested_keys.append(key)
         return self.payload_for_key.get(key)
+
+
+class _ReadFailingRedis:
+    """Every read fails, as under a Redis ACL that omits the media keys."""
+
+    def __init__(self, error: Exception):
+        self.error = error
+        self.requested_keys: list[str] = []
+
+    def execute_command(self, cmd, key):
+        self.requested_keys.append(key)
+        raise self.error
 
 
 class _Transaction:
@@ -391,7 +413,179 @@ class TestFetchImageFromRedis:
         assert result == ("Z2Vu", "image/png")
 
 
+class TestFetchImageStorageErrors:
+    def test_permission_denied_is_not_reported_as_missing(self):
+        redis_client = _ReadFailingRedis(_FakeNoPermissionError("no permissions"))
+
+        data, error = _run(
+            fetch_image_from_redis(
+                redis_client, {"imageId": "i1"}, expected_user_id="alice"
+            )
+        )
+
+        assert data is None
+        assert "not found" not in error.lower()
+        assert "NOPERM" in error
+        assert redis_client.requested_keys == [
+            "user:alice:image:i1",
+            "generated:image:i1",
+        ]
+
+    def test_readable_fallback_key_still_wins_over_an_earlier_read_error(self):
+        class _UserKeyDenied(_FakeRedis):
+            def execute_command(self, cmd, key):
+                self.requested_keys.append(key)
+                if key.startswith("user:"):
+                    raise _FakeNoPermissionError("no permissions")
+                return self.payload_for_key.get(key)
+
+        redis_client = _UserKeyDenied(
+            {
+                "generated:image:i1": json.dumps(
+                    {"data": "Z2Vu", "mimeType": "image/png"}
+                )
+            }
+        )
+
+        result = _run(
+            fetch_image_from_redis(
+                redis_client, {"imageId": "i1"}, expected_user_id="alice"
+            )
+        )
+
+        assert result == ("Z2Vu", "image/png")
+
+
+class TestFetchVideoFromRedis:
+    def test_returns_user_scoped_video(self):
+        redis_client = _FakeRedis(
+            {
+                "user:alice:video:v1": json.dumps(
+                    {"data": "AAAA", "mimeType": "video/webm"}
+                )
+            }
+        )
+
+        result = _run(
+            fetch_video_from_redis(
+                redis_client, {"videoId": "v1"}, expected_user_id="alice"
+            )
+        )
+
+        assert result == ("AAAA", "video/webm")
+        assert redis_client.requested_keys == ["user:alice:video:v1"]
+
+    def test_session_scoped_video_is_read_without_a_user(self):
+        redis_client = _FakeRedis({"video:s1:v1": json.dumps({"data": "AAAA"})})
+
+        result = _run(
+            fetch_video_from_redis(redis_client, {"videoId": "v1", "sessionId": "s1"})
+        )
+
+        assert result == ("AAAA", "video/mp4")
+        assert redis_client.requested_keys == ["video:s1:v1"]
+
+    def test_missing_video_reports_not_found(self):
+        data, error = _run(
+            fetch_video_from_redis(
+                _FakeRedis({}), {"videoId": "v1"}, expected_user_id="alice"
+            )
+        )
+
+        assert data is None
+        assert error.startswith("Error: Video not found.")
+
+    def test_permission_denied_is_not_reported_as_missing(self, caplog):
+        redis_client = _ReadFailingRedis(
+            _FakeNoPermissionError(
+                "this user has no permissions to access one of the keys"
+            )
+        )
+
+        with caplog.at_level("ERROR", logger="nat_helpers.image_utils"):
+            data, error = _run(
+                fetch_video_from_redis(
+                    redis_client, {"videoId": "v1"}, expected_user_id="alice"
+                )
+            )
+
+        assert data is None
+        assert "not found" not in error.lower()
+        assert "NOPERM" in error
+        assert "video" in error.lower()
+        assert any("user:alice:video:v1" in r.getMessage() for r in caplog.records)
+
+    def test_storage_connection_failure_is_reported_distinctly(self):
+        redis_client = _ReadFailingRedis(_FakeConnectionError("Connection refused"))
+
+        data, error = _run(
+            fetch_video_from_redis(
+                redis_client, {"videoId": "v1"}, expected_user_id="alice"
+            )
+        )
+
+        assert data is None
+        assert "not found" not in error.lower()
+        assert "unavailable" in error
+        assert "_FakeConnectionError" in error
+
+    def test_stored_mime_type_takes_precedence_over_the_reference(self):
+        redis_client = _FakeRedis(
+            {
+                "user:alice:video:v1": json.dumps(
+                    {"data": "AAAA", "mimeType": "video/webm"}
+                )
+            }
+        )
+
+        result = _run(
+            fetch_video_from_redis(
+                redis_client,
+                {"videoId": "v1", "mimeType": "video/mp4"},
+                expected_user_id="alice",
+            )
+        )
+
+        assert result == ("AAAA", "video/webm")
+
+    def test_reference_mime_type_is_only_a_legacy_fallback(self):
+        redis_client = _FakeRedis({"user:alice:video:v1": json.dumps({"data": "AAAA"})})
+
+        result = _run(
+            fetch_video_from_redis(
+                redis_client,
+                {"videoId": "v1", "mimeType": "video/quicktime"},
+                expected_user_id="alice",
+            )
+        )
+
+        assert result == ("AAAA", "video/quicktime")
+
+
 class TestStoreImageInRedis:
+    def test_partial_preview_expires_with_its_image_job(self):
+        from nat_helpers.image_utils import (
+            GENERATED_IMAGE_TTL_SECONDS,
+            PARTIAL_IMAGE_TTL_SECONDS,
+        )
+
+        final_client, partial_client = _WritableRedis(), _WritableRedis()
+
+        final_id = _run(
+            store_image_in_redis(final_client, "aGVsbG8=", "image/png", "prompt")
+        )
+        partial_id = _run(
+            store_image_in_redis(
+                partial_client, "aGVsbG8=", "image/png", "prompt", is_partial=True
+            )
+        )
+
+        [[_, final_expiry]] = final_client.transactions
+        [[_, partial_expiry]] = partial_client.transactions
+        assert final_expiry[1] == (f"generated:image:{final_id}", 604800)
+        assert partial_expiry[1] == (f"generated:image:{partial_id}", 3600)
+        assert PARTIAL_IMAGE_TTL_SECONDS < GENERATED_IMAGE_TTL_SECONDS
+
     def test_stores_owner_metadata_when_provided(self):
         redis_client = _WritableRedis()
 

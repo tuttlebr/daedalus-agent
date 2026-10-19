@@ -30,10 +30,12 @@ pub fn merge(base: &mut Value, overlay: Value) {
 }
 
 fn expand(value: &mut Value, env: &HashMap<String, String>) {
+    static VARIABLE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}").unwrap()
+    });
     match value {
         Value::String(text) => {
-            let regex = Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}").unwrap();
-            *text = regex
+            *text = VARIABLE
                 .replace_all(text, |cap: &regex::Captures| {
                     env.get(&cap[1])
                         .filter(|v| !v.is_empty())
@@ -87,6 +89,18 @@ fn load_with_policy(path: &Path, env: &HashMap<String, String>, policy: bool) ->
         Ok(data)
     }
     visit(path, env, &mut HashSet::new(), policy)
+}
+
+/// `ALLOW_INSECURE_INTERNAL`, parsed as the Python services do:
+/// `value.strip().lower() in ("1", "true", "yes")`.
+pub fn allow_insecure_internal(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        ["1", "true", "yes"].contains(
+            &crate::memory_tools::trim(value)
+                .to_ascii_lowercase()
+                .as_str(),
+        )
+    })
 }
 
 pub fn truthy(v: &Value) -> bool {
@@ -182,7 +196,6 @@ impl Config {
                             | "domain_retriever"
                             | "nvidia_docs"
                             | "perplexity_search"
-                            | "user_interaction"
                             | "agent_skills"
                             | "llm_sandbox"
                             | "sandbox_exploration"
@@ -285,9 +298,6 @@ impl Config {
             }
             if function["_type"] == "llm_sandbox" {
                 crate::llm_sandbox::Settings::new(function, &self.env)?;
-            }
-            if function["_type"] == "user_interaction" {
-                crate::user_interaction::Settings::new(function)?;
             }
             if function["_type"] == "perplexity_search" {
                 crate::perplexity_search::Settings::new(function, &self.env)?;
@@ -511,5 +521,16 @@ mod concurrency_tests {
                 .tool_concurrency("test"),
             1
         );
+    }
+
+    #[test]
+    fn insecure_internal_opt_out_matches_the_python_services() {
+        for value in ["1", "true", "yes", " TRUE ", "Yes\n", "\ttrue\u{1f}"] {
+            assert!(super::allow_insecure_internal(Some(value)), "{value:?}");
+        }
+        for value in ["", "0", "false", "on", "y", "true!", "t rue"] {
+            assert!(!super::allow_insecure_internal(Some(value)), "{value:?}");
+        }
+        assert!(!super::allow_insecure_internal(None));
     }
 }

@@ -383,3 +383,116 @@ async fn mcp_duplicate_or_undocumented_catalogues_fail_before_execution() {
     }
     server.abort();
 }
+
+async fn serve(peer: Arc<Peer>) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+    let router = Router::new().route("/mcp", post(rpc)).with_state(peer);
+    let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (url, server)
+}
+
+fn names(schemas: &HashMap<String, Vec<Value>>) -> Vec<&str> {
+    schemas["fixture"]
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn catalogue_does_not_wait_behind_another_runs_tool_call() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&config(&url)).unwrap();
+    let full = names(&manager.catalogue(&["fixture".into()], "alice", false).await)
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(full.len(), 5);
+    *peer.mode.lock().unwrap() = "wait".into();
+    let (emit, _events) = emit();
+    let slow = {
+        let manager = manager.clone();
+        tokio::spawn(async move {
+            manager
+                .call("fixture__inspect", &json!({"value":1}), "alice", "", &emit)
+                .await
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while count(&peer, "tools/call") == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // Another chat for the same user prepares while that call is in flight.
+    let schemas = tokio::time::timeout(
+        Duration::from_secs(2),
+        manager.catalogue(&["fixture".into()], "alice", false),
+    )
+    .await
+    .expect("preparation must not wait behind another run's MCP call");
+    assert_eq!(
+        names(&schemas),
+        full,
+        "the open session's catalogue is reused"
+    );
+    assert_eq!(
+        count(&peer, "initialize"),
+        1,
+        "no second session is created"
+    );
+    slow.abort();
+    let _ = slow.await;
+    manager.close();
+    server.abort();
+}
+
+fn oauth_config(url: &str) -> Config {
+    Config::new(
+        json!({"llms":{"main":{"model_name":"fixture","base_url":"http://127.0.0.1/v1"}},
+            "workflow":{"_type":"daedalus_rust_agent","llm_name":"main","tools":["fixture"]},
+            "authentication":{"google":{"_type":"mcp_oauth2",
+                "server_url":"https://gmailmcp.googleapis.com/mcp","client_id":"synthetic",
+                "client_secret":"synthetic","redirect_uri":"http://127.0.0.1/auth/redirect",
+                "scopes":["synthetic"]}},
+            "function_groups":{"fixture":{"_type":"per_user_mcp_client",
+                "server":{"url":url,"auth_provider":"google"},"approval_policy":"auto_approve"}}}),
+        [("REDIS_URL".to_string(), "redis://127.0.0.1:1".to_string())].into(),
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn catalogue_does_not_wait_behind_another_runs_authorization() {
+    let peer = Arc::new(Peer::default());
+    let (url, server) = serve(peer.clone()).await;
+    let manager = Mcp::new(&oauth_config(&url)).unwrap();
+    // Another run is waiting for alice to finish Google consent.
+    let grant = manager.oauth.grant_lock("gmail", "alice");
+    let consent = grant.lock().await;
+    let (emit, _events) = emit();
+    let waiting = {
+        let manager = manager.clone();
+        tokio::spawn(async move {
+            manager
+                .call("fixture__inspect", &json!({"value":1}), "alice", "", &emit)
+                .await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let schemas = tokio::time::timeout(
+        Duration::from_secs(5),
+        manager.catalogue(&["fixture".into()], "alice", false),
+    )
+    .await
+    .expect("preparation must not wait behind another run's authorization");
+    assert_eq!(names(&schemas), ["fixture__connect"]);
+    assert_eq!(count(&peer, "initialize"), 0);
+    assert!(!waiting.is_finished(), "the authorizing call keeps waiting");
+    drop(consent);
+    waiting.abort();
+    let _ = waiting.await;
+    server.abort();
+}

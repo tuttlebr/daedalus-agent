@@ -99,8 +99,11 @@ impl Settings {
                 .unwrap_or_default()
                 .to_owned();
             let bytes = response.bytes().await?;
-            let decoded = crate::embeddings::decompress(&encoding, bytes.to_vec())
-                .map_err(|_| anyhow!("Provider decoding error"))?;
+            // Search results are small; this bounds a decompression bomb from
+            // the third-party provider.
+            let decoded =
+                crate::embeddings::decompress(&encoding, bytes.to_vec(), 16 * 1024 * 1024)
+                    .map_err(|_| anyhow!("Provider decoding error"))?;
             if status != 429 || attempt == maximum {
                 return Ok((status, decoded));
             }
@@ -464,9 +467,11 @@ fn request_payload(input: &Value) -> std::result::Result<Value, String> {
     Ok(output)
 }
 
-// urlparse preserves case, credentials and explicit ports; URL normalization
-// would change the SearchResults displayed_link field.
-fn displayed_link(url: &str) -> Result<String> {
+/// The URL's host, as Python's `urlparse(url).netloc` without `www.`. That
+/// keeps case, credentials and explicit ports; URL normalization would change
+/// the SearchResults displayed_link field. A URL whose host the parser rejects
+/// displays as itself: one malformed provider URL must not fail the search.
+fn displayed_link(url: &str) -> String {
     let cleaned = url
         .trim_start_matches(|c: char| c <= ' ')
         .replace(['\r', '\n', '\t'], "");
@@ -480,11 +485,11 @@ fn displayed_link(url: &str) -> Result<String> {
         rest = tail;
     }
     let Some(rest) = rest.strip_prefix("//") else {
-        return Ok(url.into());
+        return url.into();
     };
     let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
     if host.contains('[') != host.contains(']') {
-        return Err(Failure::new("ValueError").into());
+        return url.into();
     }
     if let Some((_, tail)) = host.split_once('[') {
         let address = tail.split(']').next().unwrap();
@@ -502,7 +507,7 @@ fn displayed_link(url: &str) -> Result<String> {
                 && zone.is_none_or(|v| !v.is_empty() && !v.contains('%'))
         };
         if !valid {
-            return Err(Failure::new("ValueError").into());
+            return url.into();
         }
     }
     if host.chars().any(|c| {
@@ -511,14 +516,14 @@ fn displayed_link(url: &str) -> Result<String> {
             .unwrap()
             .contains(&json!(u32::from(c)))
     }) {
-        return Err(Failure::new("ValueError").into());
+        return url.into();
     }
-    Ok(if host.is_empty() {
+    if host.is_empty() {
         url
     } else {
         host.strip_prefix("www.").unwrap_or(host)
     }
-    .into())
+    .into()
 }
 
 fn render(data: &Value, query: &Value, maximum: usize) -> Result<String> {
@@ -544,7 +549,7 @@ fn render(data: &Value, query: &Value, maximum: usize) -> Result<String> {
                 if title.is_empty() || url.is_empty() {
                     continue;
                 }
-                let mut entry = json!({"position":results.len()+1, "title":title, "link":url, "displayed_link":displayed_link(url)?});
+                let mut entry = json!({"position":results.len()+1, "title":title, "link":url, "displayed_link":displayed_link(url)});
                 for key in ["snippet", "date", "last_updated"] {
                     if let Some(value) = item.get(key).filter(|v| truthy(v)) {
                         entry[key] = json!(identifier(value));
@@ -645,6 +650,25 @@ fn http_error(status: u16, body: &Value) -> String {
         400 => "Error: Perplexity Search rejected the request arguments. Correct the arguments before retrying.".into(),
         _ => format!("Error: Perplexity Search failed with provider status {status}. Report the provider failure to the user and do not retry this tool unchanged in the same turn."),
     }
+}
+
+#[test]
+fn one_malformed_result_url_does_not_fail_the_search() {
+    let data = json!({"results":[
+        {"title":"Malformed","url":"http://[broken"},
+        {"title":"Valid","url":"https://www.example.test/a"}
+    ]});
+    let output = render(&data, &json!("synthetic query"), 5).unwrap();
+    let start = output.find("<searchresults>").unwrap() + "<searchresults>".len();
+    let end = output.find("</searchresults>").unwrap();
+    let payload: Value = serde_json::from_str(&output[start..end]).unwrap();
+    let links: Vec<_> = payload["organic_results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["displayed_link"].as_str().unwrap())
+        .collect();
+    assert_eq!(links, ["http://[broken", "example.test"]);
 }
 
 #[test]

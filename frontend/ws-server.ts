@@ -9,6 +9,7 @@
  */
 import { isConfiguredUsername } from './utils/auth/config';
 
+import { isValidConversationId } from './server/chat/conversationId';
 import {
   forwardSteeringCommand,
   validateSteeringCommand,
@@ -46,7 +47,7 @@ const CLIENT_TIMEOUT = 90_000; // Close if no ping received in 90s
 // rotation revokes the realtime channel, not just the next HTTP request.
 const SESSION_REVALIDATE_INTERVAL =
   positiveIntegerFromEnv('WS_SESSION_REVALIDATE_SECONDS', 60) * 1000;
-const CHANNEL_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+const JOB_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
 const MAX_WS_MESSAGE_BYTES = positiveIntegerFromEnv(
   'WS_MAX_MESSAGE_BYTES',
@@ -552,8 +553,8 @@ function sendToConnection(conn: ClientConnection, message: object): void {
   }
 }
 
-function isSafeChannelId(value: string): boolean {
-  return CHANNEL_ID_PATTERN.test(value);
+function isSafeJobId(value: string): boolean {
+  return JOB_ID_PATTERN.test(value);
 }
 
 function rejectSubscription(conn: ClientConnection, message: string): void {
@@ -618,7 +619,7 @@ async function subscribeToJob(
   conn: ClientConnection,
   dependencies: ConnectionInitializationDependencies,
 ): Promise<void> {
-  if (!isSafeChannelId(jobId)) {
+  if (!isSafeJobId(jobId)) {
     rejectSubscription(conn, 'Invalid job subscription');
     return;
   }
@@ -697,7 +698,9 @@ async function subscribeToChat(
   conn: ClientConnection,
   dependencies: ConnectionInitializationDependencies,
 ): Promise<void> {
-  if (!isSafeChannelId(conversationId)) {
+  // The same rule admits a conversation at chat submission, so every
+  // conversation that can run a job can also receive its live events.
+  if (!isValidConversationId(conversationId)) {
     rejectSubscription(conn, 'Invalid chat subscription');
     return;
   }

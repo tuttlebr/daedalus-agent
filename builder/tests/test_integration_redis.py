@@ -153,6 +153,36 @@ def test_autonomous_lease_fences_live_reclaim_and_recovers_after_expiry():
             worker_b.redis.close()
 
 
+def test_autonomous_reclaim_returns_interrupted_requests_to_the_front():
+    """Real LMOVE semantics: reclaimed claims run first, oldest claim first."""
+    url = os.environ["REDIS_URL"]
+    store = RedisStore(url)
+    user_id = f"reclaim-order-itest-{uuid.uuid4().hex}"
+    queue_key = autonomy_key(user_id, "queue")
+    try:
+        assert store.acquire_lease(user_id, ttl_seconds=30)
+        for request_id in ("r1", "r2", "r3"):
+            store.redis.lpush(queue_key, json.dumps({"id": request_id}))
+        # Two claims left in processing by interrupted runs, r1 claimed first.
+        assert store.dequeue(user_id, timeout=0) == {"id": "r1"}
+        assert store.dequeue(user_id, timeout=0) == {"id": "r2"}
+
+        assert store.reclaim_processing(user_id) == 2
+
+        order = []
+        for _ in range(3):
+            order.append(store.dequeue(user_id, timeout=0)["id"])
+            assert store.complete(user_id) is True
+        assert order == ["r1", "r2", "r3"]
+        assert store.queue_length(user_id) == 0
+    finally:
+        try:
+            for redis_key in store.redis.scan_iter(match=f"autonomy:{user_id}:*"):
+                store.redis.delete(redis_key)
+        finally:
+            store.redis.close()
+
+
 @pytest.mark.parametrize("storage", ["string", "json"])
 def test_autonomous_schedule_merges_dashboard_writes_atomically(storage):
     url = os.environ["REDIS_URL"]

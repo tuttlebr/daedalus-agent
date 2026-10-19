@@ -86,6 +86,48 @@ describe('/api/internal/sandboxArtifacts', () => {
     expect(mocks.storeSandboxArtifact).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['a missing token header', undefined, 'internal-secret'],
+    ['an unset service token', 'internal-secret', undefined],
+    ['a blank service token', '   ', '   '],
+    ['a same-length wrong token', 'internal-secreT', 'internal-secret'],
+    ['a token extending the secret', 'internal-secret-x', 'internal-secret'],
+    ['a truncated token', 'internal-secre', 'internal-secret'],
+  ])(
+    'fails closed for %s without storing bytes',
+    async (_label, provided, configured) => {
+      if (configured === undefined) {
+        vi.stubEnv('DAEDALUS_INTERNAL_API_TOKEN', undefined as any);
+      } else {
+        vi.stubEnv('DAEDALUS_INTERNAL_API_TOKEN', configured);
+      }
+      const req = request(Buffer.from('hello'));
+      if (provided === undefined)
+        delete req.headers['x-daedalus-internal-token'];
+      else req.headers['x-daedalus-internal-token'] = provided;
+      const res = response();
+
+      await handler(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(mocks.storeSandboxArtifact).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['text/plain', 'application/json', 'application/octet-stream; x=1'])(
+    'rejects an authenticated %s body with 415 before storing it',
+    async (contentType) => {
+      const req = request(Buffer.from('hello'));
+      req.headers['content-type'] = contentType;
+      const res = response();
+
+      await handler(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(415);
+      expect(mocks.storeSandboxArtifact).not.toHaveBeenCalled();
+    },
+  );
+
   it('rejects a declared body that exceeds the artifact limit', async () => {
     const req = request(Buffer.from('hello'));
     req.headers['content-length'] = String(6_291_457);

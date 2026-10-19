@@ -291,7 +291,6 @@ class Peers:
                     "DOMAIN_SEARCH",
                     "WEB_SEARCH",
                     "NWS_WEATHER",
-                    "USER_INTERACTION_CONFIRM",
                     "SKILL_LOAD",
                     "SANDBOX_WRITE",
                     "SANDBOX_READ",
@@ -309,8 +308,8 @@ class Peers:
                 )
                 if redirected:
                     if scenario == "TOOL_STEER":
-                        assert "RETAINED_EVIDENCE" in serialized  # nosec B101 - executable contract check
-                        assert "Not executed:" in serialized  # nosec B101 - executable contract check
+                        assert "RETAINED_EVIDENCE" in serialized
+                        assert "Not executed:" in serialized
                     text = (
                         "Directed answer with retained evidence"
                         if has_result
@@ -366,10 +365,11 @@ class Peers:
                     and body.get("tool_choice") == "none"
                     and "IGNORE_FALLBACK" not in serialized
                 ):
-                    assert not body.get("tools")  # nosec B101
-                    assert result_count == 4  # nosec B101 - clock, rejected renderer twice, valid sibling
-                    assert "HTML edition could not be validated" in serialized  # nosec B101
-                    assert "function_call_output" in serialized  # nosec B101
+                    assert not body.get("tools")
+                    # clock, rejected renderer twice, valid sibling
+                    assert result_count == 4
+                    assert "HTML edition could not be validated" in serialized
+                    assert "function_call_output" in serialized
                     text = "The HTML edition could not be validated. Sourced briefing from retained evidence."
                 elif (
                     "Tools with repeated invalid arguments have been disabled"
@@ -417,8 +417,6 @@ class Peers:
                         if scenario.startswith("SANDBOX_")
                         else ["agent_skills_tool"]
                         if scenario == "SKILL_LOAD"
-                        else ["user_interaction"]
-                        if scenario == "USER_INTERACTION_CONFIRM"
                         else ["web_search"]
                         if scenario == "WEB_SEARCH"
                         else ["nws_weather_tool"]
@@ -520,15 +518,6 @@ class Peers:
                                 }
                             )
                             if name == "nws_weather_tool"
-                            else json.dumps(
-                                {
-                                    "operation": "confirm_action",
-                                    "action": "Remove browser memories",
-                                    "reason": "Synthetic browser confirmation",
-                                    "risks": "Saved preferences will be removed",
-                                }
-                            )
-                            if name == "user_interaction"
                             else json.dumps(
                                 {
                                     "query": [
@@ -666,7 +655,7 @@ class Peers:
                             for item in body["input"]
                             if item.get("type") == "function_call_output"
                         )
-                        assert "Synthetic indexed 雪🌲" in result  # nosec B101 - browser evidence
+                        assert "Synthetic indexed 雪🌲" in result
                         text = "Retrieved indexed document: Synthetic indexed 雪🌲"
                     if scenario == "DOMAIN_SEARCH":
                         result = next(
@@ -675,11 +664,11 @@ class Peers:
                             if item.get("type") == "function_call_output"
                         )
                         payload = json.loads(result)
-                        assert payload["domain"] == "nvidia"  # nosec B101 - browser contract
-                        assert payload["ranking_status"] == "vector_only"  # nosec B101
+                        assert payload["domain"] == "nvidia"
+                        assert payload["ranking_status"] == "vector_only"
                         assert (
                             payload["results"][0]["content"] == "Synthetic indexed 雪🌲"
-                        )  # nosec B101
+                        )
                         text = "Retrieved domain passage: Synthetic indexed 雪🌲"
                     if scenario == "SKILL_LOAD":
                         text = next(
@@ -687,9 +676,9 @@ class Peers:
                             for item in reversed(body["input"])
                             if item.get("type") == "function_call_output"
                         )
-                        assert "Loaded skill evidence 雪🌲" in text  # nosec B101 - browser contract
-                        assert "resource.txt" in text  # nosec B101
-                        assert body["model"] == "fixture/deep"  # nosec B101
+                        assert "Loaded skill evidence 雪🌲" in text
+                        assert "resource.txt" in text
+                        assert body["model"] == "fixture/deep"
                     if scenario.startswith("SANDBOX_"):
                         result = next(
                             item["output"]
@@ -697,25 +686,18 @@ class Peers:
                             if item.get("type") == "function_call_output"
                         )
                         if scenario == "SANDBOX_PUBLISH":
-                            assert "DAEDALUS_SANDBOX_ARTIFACT_REF_V1:" in result  # nosec B101 - private backend transport
-                            assert "/api/session/documentStorage?" in result  # nosec B101
+                            # private backend transport
+                            assert "DAEDALUS_SANDBOX_ARTIFACT_REF_V1:" in result
+                            assert "/api/session/documentStorage?" in result
                             text = "Published browser artifact: [browser-report.txt](reports/browser-report.txt)"
                         elif scenario == "SANDBOX_READ":
-                            assert "Synthetic browser artifact" in result  # nosec B101
+                            assert "Synthetic browser artifact" in result
                             text = "Verified browser artifact contents."
                         else:
-                            assert "Conversation workspace persisted: True" in result  # nosec B101
+                            assert "Conversation workspace persisted: True" in result
                             text = (
                                 "Wrote browser artifact to its conversation workspace."
                             )
-                    if scenario == "USER_INTERACTION_CONFIRM":
-                        text = next(
-                            item["output"]
-                            for item in reversed(body["input"])
-                            if item.get("type") == "function_call_output"
-                        )
-                        assert "No executable credential has been created." in text  # nosec B101 - browser contract
-                        assert "target=`e2e-user`" in text  # nosec B101
                     if scenario == "WEB_SEARCH":
                         result = next(
                             item["output"]
@@ -727,11 +709,11 @@ class Peers:
                                 "</searchresults>", 1
                             )[0]
                         )
-                        assert payload["search_info"]["total_results"] == 2  # nosec B101 - browser contract
+                        assert payload["search_info"]["total_results"] == 2
                         assert payload["queries"] == [
                             "Synthetic browser search",
                             "Synthetic related search",
-                        ]  # nosec B101
+                        ]
                         text = result
                     if scenario == "NWS_WEATHER":
                         result = next(
@@ -740,20 +722,20 @@ class Peers:
                             if item.get("type") == "function_call_output"
                         )
                         payload = json.loads(result)
-                        assert payload["location"]["city"] == "Synthetic 雪🌲"  # nosec B101 - browser contract
-                        assert payload["forecast"]["coverage"]["complete"]  # nosec B101
+                        assert payload["location"]["city"] == "Synthetic 雪🌲"
+                        assert payload["forecast"]["coverage"]["complete"]
                         assert payload["observations"]["observation"][
                             "temperature"
-                        ] == {"value": 20, "unitCode": "wmoUnit:degC"}  # nosec B101
+                        ] == {"value": 20, "unitCode": "wmoUnit:degC"}
                         if payload["alerts"]["status"] == "unavailable":
-                            assert payload["status"] == "partial"  # nosec B101
+                            assert payload["status"] == "partial"
                             alert = "Alerts are unavailable."
                         else:
-                            assert payload["status"] == "ok"  # nosec B101
+                            assert payload["status"] == "ok"
                             assert (
                                 payload["alerts"]["items"][0]["headline"]
                                 == "Synthetic alert"
-                            )  # nosec B101
+                            )
                             alert = "Synthetic alert is active."
                         text = f"Weather for Synthetic 雪🌲: 20 °C. Forecast coverage is complete. {alert}\n\n[NWS forecast]({payload['forecast']['source_url']})"
                     if scenario == "OUTPUT_RETRIEVAL":
@@ -763,8 +745,8 @@ class Peers:
                             if item.get("type") == "function_call_output"
                         )
                         payload = json.loads(result["output"])
-                        assert payload["mode"] == "exact_page"  # nosec B101 - browser contract
-                        assert payload["content"] == peers.retrieval_content[1:]  # nosec B101
+                        assert payload["mode"] == "exact_page"
+                        assert payload["content"] == peers.retrieval_content[1:]
                         text = "Recovered exact cached output: " + payload["content"]
                     if scenario in ["MEMORY_WRITE", "MEMORY_READ"]:
                         result = next(
@@ -776,13 +758,13 @@ class Peers:
                             assert (
                                 result
                                 == "Memory added successfully. You can continue. Please respond to the user."
-                            )  # nosec B101
+                            )
                             text = "Saved memory through the native tool."
                         else:
                             memories = json.loads(
                                 result.removeprefix("Memories as a JSON: \n")
                             )
-                            assert memories[0]["text"] == "Browser preference 雪🌲"  # nosec B101
+                            assert memories[0]["text"] == "Browser preference 雪🌲"
                             text = "Recalled memory: " + memories[0]["text"]
                 if text:
                     item = {
@@ -1188,13 +1170,13 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     if time.monotonic() > deadline:
                         raise RuntimeError("Runtime startup timed out")
                     time.sleep(0.1)
-                assert (  # nosec B101 - executable contract check
+                assert (
                     client.post(
                         base + "/v1/chat/completions", json={"messages": []}
                     ).status_code
                     == 401
                 )
-                assert (  # nosec B101 - executable contract check
+                assert (
                     client.post(
                         base + "/runtime/prepare", headers=headers, json={}
                     ).status_code
@@ -1224,31 +1206,31 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             "messages": [{"role": "user", "content": scenario}],
                         },
                     )
-                    assert response.status_code == 200, response.status_code  # nosec B101 - executable contract check
+                    assert response.status_code == 200, response.status_code
                     return response.text
 
                 answer = chat("BASIC PRIVATE_PROMPT", "basic-run")
-                assert "The real datetime tool completed" in answer, answer  # nosec B101 - executable contract check
-                assert "Function Complete: current_datetime_tool" in answer  # nosec B101 - executable contract check
-                assert not peers.calls  # nosec B101 - executable contract check
+                assert "The real datetime tool completed" in answer, answer
+                assert "Function Complete: current_datetime_tool" in answer
+                assert not peers.calls
                 affinity = peers.requests[0]["user"]
-                assert re.fullmatch(r"[0-9a-f]{64}", affinity)  # nosec B101 - executable contract check
-                assert all(request["user"] == affinity for request in peers.requests)  # nosec B101 - executable contract check
+                assert re.fullmatch(r"[0-9a-f]{64}", affinity)
+                assert all(request["user"] == affinity for request in peers.requests)
                 before = len(peers.requests)
                 chat("BASIC PRIVATE_PROMPT", "basic-followup", conversation="basic-run")
                 assert all(
                     request["user"] == affinity for request in peers.requests[before:]
-                )  # nosec B101 - executable contract check
+                )
                 before = len(peers.requests)
                 deferred = chat("DEFERRED_DISCOVERY", "discovery-run")
                 requests = peers.requests[before:]
-                assert requests[0]["user"] != affinity  # nosec B101 - executable contract check
+                assert requests[0]["user"] != affinity
                 assert all(
                     request["user"] == requests[0]["user"] for request in requests
-                )  # nosec B101 - executable contract check
-                assert "The real datetime tool completed" in deferred  # nosec B101 - executable contract check
-                assert "Function Complete: fixture_deferred__connect" in deferred  # nosec B101 - executable contract check
-                assert "Function Complete: fixture_deferred__next_read" in deferred  # nosec B101 - executable contract check
+                )
+                assert "The real datetime tool completed" in deferred
+                assert "Function Complete: fixture_deferred__connect" in deferred
+                assert "Function Complete: fixture_deferred__next_read" in deferred
                 initial_names = {tool["name"] for tool in requests[0]["tools"]}
                 connected_names = {tool["name"] for tool in requests[1]["tools"]}
                 discovery = next(
@@ -1256,16 +1238,16 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     for tool in requests[0]["tools"]
                     if tool["name"] == "fixture_deferred__connect"
                 )
-                assert "fixture_deferred__next_read" in discovery["description"]  # nosec B101 - executable contract check
-                assert "fixture_deferred__write_item" not in discovery["description"]  # nosec B101 - executable contract check
-                assert "fixture_deferred__connect" in initial_names  # nosec B101 - executable contract check
-                assert "fixture_deferred__slow_read" in initial_names  # nosec B101 - executable contract check
-                assert "fixture_deferred__next_read" not in initial_names  # nosec B101 - executable contract check
-                assert initial_names <= connected_names  # nosec B101 - executable contract check
-                assert len(connected_names) == len(requests[1]["tools"])  # nosec B101 - executable contract check
-                assert "fixture_deferred__next_read" in connected_names  # nosec B101 - executable contract check
-                assert "fixture_deferred__write_item" not in connected_names  # nosec B101 - executable contract check
-                assert len(requests) == 3 and peers.calls == ["next_read"]  # nosec B101 - executable contract check
+                assert "fixture_deferred__next_read" in discovery["description"]
+                assert "fixture_deferred__write_item" not in discovery["description"]
+                assert "fixture_deferred__connect" in initial_names
+                assert "fixture_deferred__slow_read" in initial_names
+                assert "fixture_deferred__next_read" not in initial_names
+                assert initial_names <= connected_names
+                assert len(connected_names) == len(requests[1]["tools"])
+                assert "fixture_deferred__next_read" in connected_names
+                assert "fixture_deferred__write_item" not in connected_names
+                assert len(requests) == 3 and peers.calls == ["next_read"]
                 peers.calls.clear()
                 before = len(peers.requests)
                 required = chat(
@@ -1276,50 +1258,51 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         "function": {"name": "fixture_deferred__next_read"},
                     },
                 )
-                assert '"finish_reason":"stop"' in required, required  # nosec B101
-                assert "Function Complete: fixture_deferred__next_read" in required  # nosec B101
-                assert peers.calls == ["next_read"], peers.calls  # nosec B101
+                assert '"finish_reason":"stop"' in required, required
+                assert "Function Complete: fixture_deferred__next_read" in required
+                assert peers.calls == ["next_read"], peers.calls
                 names = {tool["name"] for tool in peers.requests[before]["tools"]}
-                assert names == {"fixture_deferred__next_read"}, names  # nosec B101
+                assert names == {"fixture_deferred__next_read"}, names
                 peers.calls.clear()
                 invalid_clock = chat("CLOCK_EXTRA", "clock-extra-run")
-                assert "The real datetime tool completed" in invalid_clock  # nosec B101
-                assert "invalid_tool_batch" in json.dumps(peers.requests[-1])  # nosec B101
+                assert "The real datetime tool completed" in invalid_clock
+                assert "invalid_tool_batch" in json.dumps(peers.requests[-1])
                 invalid_clock = chat("CLOCK_NULL", "clock-null-run")
-                assert "Function Start:" not in invalid_clock  # nosec B101
+                assert "Function Start:" not in invalid_clock
                 for scenario in ("CONTRACT_REPAIR", "CONTRACT_UNKNOWN"):
                     peers.calls.clear()
                     answer = chat(scenario, scenario.lower())
-                    assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
+                    assert "Function Complete: current_datetime_tool" in answer, answer
                     assert peers.calls == (
                         ["next_read"] if scenario == "CONTRACT_REPAIR" else []
-                    ), peers.calls  # nosec B101
+                    ), peers.calls
                 peers.calls.clear()
                 for scenario in ("CONTRACT_MULTI_REPAIR", "CONTRACT_LATER_REPAIR"):
                     before = len(peers.requests)
                     answer = chat(scenario, scenario.lower())
-                    assert '"finish_reason":"stop"' in answer, answer  # nosec B101
-                    assert answer.count("Function Complete:") == 2, answer  # nosec B101
-                    assert len(peers.requests) - before == 5  # nosec B101
-                    assert not peers.calls  # nosec B101
+                    assert '"finish_reason":"stop"' in answer, answer
+                    assert answer.count("Function Complete:") == 2, answer
+                    assert len(peers.requests) - before == 5
+                    assert not peers.calls
                 answer = chat("CONTRACT_REPEAT_AFTER_PROGRESS", "repeated-validation")
-                assert '"finish_reason":"stop"' in answer, answer  # nosec B101
-                assert peers.calls == ["next_read"], peers.calls  # nosec B101
+                assert '"finish_reason":"stop"' in answer, answer
+                assert peers.calls == ["next_read"], peers.calls
                 assert "current_datetime_tool" not in {
                     tool["name"] for tool in peers.requests[-1].get("tools", [])
-                }  # nosec B101
+                }
                 peers.calls.clear()
                 answer = chat("CONTRACT_BAD_BATCH_ALWAYS", "invalid-batch")
-                assert '"finish_reason":"stop"' in answer, answer  # nosec B101
-                assert peers.calls == ["next_read"], peers.calls  # nosec B101 - valid sibling executes once
-                assert "Function Start: current_datetime_tool" not in answer  # nosec B101
+                assert '"finish_reason":"stop"' in answer, answer
+                # valid sibling executes once
+                assert peers.calls == ["next_read"], peers.calls
+                assert "Function Start: current_datetime_tool" not in answer
                 peers.calls.clear()
                 answer = chat("CONTRACT_DUPLICATE", "duplicate-calls")
-                assert "Invalid or repeated tool call ID" in answer, answer  # nosec B101
-                assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
+                assert "Invalid or repeated tool call ID" in answer, answer
+                assert "Function Start:" not in answer and not peers.calls, answer
                 answer = chat("CONTRACT_REUSED", "reused-call")
-                assert "Invalid or repeated tool call ID" in answer, answer  # nosec B101
-                assert peers.calls == ["next_read"], peers.calls  # nosec B101
+                assert "Invalid or repeated tool call ID" in answer, answer
+                assert peers.calls == ["next_read"], peers.calls
                 peers.calls.clear()
                 for index, choice in enumerate(
                     (
@@ -1337,33 +1320,33 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     )
                     assert (
                         "Required tool did not complete successfully" in answer
-                    ), answer  # nosec B101
-                    assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer  # nosec B101
-                    assert peers.requests[-1]["tool_choice"] != "auto"  # nosec B101
+                    ), answer
+                    assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer
+                    assert peers.requests[-1]["tool_choice"] != "auto"
                 answer = chat(
                     "REQUIRED_RECOVER", "required-recover", tool_choice="required"
                 )
-                assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer  # nosec B101
-                assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
-                assert "The real datetime tool completed" in answer, answer  # nosec B101
+                assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer
+                assert "Function Complete: current_datetime_tool" in answer, answer
+                assert "The real datetime tool completed" in answer, answer
                 before = len(peers.requests)
                 answer = chat(
                     "OMITTED_TOOL_RECOVER Call current_datetime_tool with no arguments.",
                     "omitted-tool-recover",
                 )
-                assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer  # nosec B101
-                assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
-                assert "The real datetime tool completed" in answer, answer  # nosec B101
-                assert len(peers.requests) - before == 3  # nosec B101
+                assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in answer, answer
+                assert "Function Complete: current_datetime_tool" in answer, answer
+                assert "The real datetime tool completed" in answer, answer
+                assert len(peers.requests) - before == 3
                 assert all(
                     request["tool_choice"] == "auto"
                     for request in peers.requests[before:]
-                )  # nosec B101 - evidence review never forces permission or execution
+                )  # evidence review never forces permission or execution
                 assert "UNSUPPORTED_CLAIM_WITHOUT_TOOL" not in json.dumps(
                     peers.requests[before + 1]
-                )  # nosec B101 - do not reinforce an unverified proposed answer
+                )  # do not reinforce an unverified proposed answer
                 answer = chat("BASIC", "tools-disabled", tool_choice="none")
-                assert "Function Start:" not in answer and not peers.calls, answer  # nosec B101
+                assert "Function Start:" not in answer and not peers.calls, answer
                 before = len(peers.requests)
                 answer = chat(
                     "BASIC Call current_datetime_tool with no arguments.",
@@ -1373,21 +1356,21 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 assert first_names == {
                     "current_datetime_tool",
                     "agent_skills_tool",
-                }, first_names  # nosec B101
-                assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
-                assert len(peers.requests[before + 1]["tools"]) > len(first_names)  # nosec B101
+                }, first_names
+                assert "Function Complete: current_datetime_tool" in answer, answer
+                assert len(peers.requests[before + 1]["tools"]) > len(first_names)
                 before = len(peers.requests)
                 answer = chat(
                     "TEXT_ONLY Explain current_datetime_tool without calling any tools.",
                     "named-clock-explanation",
                 )
-                assert "Function Start:" not in answer, answer  # nosec B101
-                assert len(peers.requests) - before == 2  # nosec B101
-                assert answer.count("Synthetic text response") == 1  # nosec B101
+                assert "Function Start:" not in answer, answer
+                assert len(peers.requests) - before == 2
+                assert answer.count("Synthetic text response") == 1
                 assert all(
                     request["tool_choice"] == "auto"
                     for request in peers.requests[before:]
-                )  # nosec B101
+                )
                 before = len(peers.requests)
                 peers.calls.clear()
                 answer = chat(
@@ -1396,42 +1379,39 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 )
                 assert "current_datetime_tool" not in {
                     tool["name"] for tool in peers.requests[before]["tools"]
-                }  # nosec B101
-                assert "invalid_tool_batch" in json.dumps(peers.requests[before + 1])  # nosec B101
+                }
+                assert "invalid_tool_batch" in json.dumps(peers.requests[before + 1])
                 assert "current_datetime_tool" in {
                     tool["name"] for tool in peers.requests[before + 1]["tools"]
-                }  # nosec B101
-                assert "Function Complete: current_datetime_tool" in answer, answer  # nosec B101
-                assert peers.calls == ["next_read"], peers.calls  # nosec B101
+                }
+                assert "Function Complete: current_datetime_tool" in answer, answer
+                assert peers.calls == ["next_read"], peers.calls
                 peers.calls.clear()
                 gateway = chat("GATEWAY", "gateway-run")
-                assert gateway.count("The real datetime tool completed") == 1, gateway  # nosec B101 - executable contract check
-                assert "Function Complete: current_datetime_tool" in gateway  # nosec B101 - executable contract check
-                assert '"finish_reason":"stop"' in gateway, gateway  # nosec B101 - executable contract check
+                assert gateway.count("The real datetime tool completed") == 1, gateway
+                assert "Function Complete: current_datetime_tool" in gateway
+                assert '"finish_reason":"stop"' in gateway, gateway
                 gateway_incomplete = chat(
                     "GATEWAY_INCOMPLETE", "gateway-incomplete-run"
                 )
                 assert (
                     "Model response did not complete" in gateway_incomplete
-                ), gateway_incomplete  # nosec B101 - executable contract check
-                assert "Function Start:" not in gateway_incomplete  # nosec B101 - executable contract check
+                ), gateway_incomplete
+                assert "Function Start:" not in gateway_incomplete
                 for profile, expected in [
                     (None, ["fixture", "fixture/deep"]),
                     ("default", ["fixture", "fixture"]),
                     ("deep_max", ["fixture/max", "fixture/max"]),
                 ]:
                     before = len(peers.requests)
-                    assert "The real datetime tool completed" in chat(  # nosec B101 - executable contract check
+                    assert "The real datetime tool completed" in chat(
                         "SKILL_ROUTE",
                         "route-" + str(profile),
                         {"model_profile": profile} if profile else None,
                     )
-                    assert (
-                        [  # nosec B101 - executable contract check
-                            request["model"] for request in peers.requests[before:]
-                        ]
-                        == expected
-                    )
+                    assert [
+                        request["model"] for request in peers.requests[before:]
+                    ] == expected
                 for profile in (None, "deep_max"):
                     before = len(peers.requests)
                     response = chat(
@@ -1440,62 +1420,66 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         {"model_profile": profile} if profile else None,
                         extra_headers={"x-daedalus-execution-scope": "autonomy"},
                     )
-                    assert "The real datetime tool completed" in response  # nosec B101
+                    assert "The real datetime tool completed" in response
                     assert [
                         request["model"] for request in peers.requests[before:]
-                    ] == ["fixture/autonomy", "fixture/autonomy"]  # nosec B101
+                    ] == ["fixture/autonomy", "fixture/autonomy"]
                 conflict = chat("POLICY_CONFLICT", "policy-conflict-run")
-                assert "read-only policy conflicts" in conflict  # nosec B101
-                assert "The real datetime tool completed" in conflict  # nosec B101
-                assert "mcp_approval_required" not in conflict  # nosec B101
-                assert "conflicting_read" not in peers.calls  # nosec B101
+                assert "read-only policy conflicts" in conflict
+                assert "The real datetime tool completed" in conflict
+                assert "mcp_approval_required" not in conflict
+                assert "conflicting_read" not in peers.calls
                 peers.calls.clear()
                 before = len(peers.requests)
                 fallback = chat(
                     "Run my daily briefing. RENDERER_FALLBACK", "renderer-fallback"
                 )
-                assert '"finish_reason":"stop"' in fallback, fallback  # nosec B101
-                assert "Sourced briefing from retained evidence" in fallback  # nosec B101
-                assert fallback.count("Function Complete: current_datetime_tool") == 1  # nosec B101
-                assert "Function Start: briefing_renderer_tool" not in fallback  # nosec B101
-                assert peers.calls == ["next_read"]  # nosec B101 - valid sibling executes once
+                assert '"finish_reason":"stop"' in fallback, fallback
+                assert "Sourced briefing from retained evidence" in fallback
+                assert fallback.count("Function Complete: current_datetime_tool") == 1
+                assert "Function Start: briefing_renderer_tool" not in fallback
+                # valid sibling executes once
+                assert peers.calls == ["next_read"]
                 requests = peers.requests[before:]
-                assert len(requests) == 4  # nosec B101 - evidence, correction, fallback
+                # evidence, correction, fallback
+                assert len(requests) == 4
                 clock_result = next(
                     item
                     for item in requests[1]["input"]
                     if item.get("type") == "function_call_output"
                 )
-                assert clock_result in requests[-1]["input"]  # nosec B101 - retain exact evidence
+                # retain exact evidence
+                assert clock_result in requests[-1]["input"]
                 peers.calls.clear()
                 ignored = chat(
                     "Run my daily briefing. RENDERER_FALLBACK IGNORE_FALLBACK",
                     "renderer-fallback-ignored",
                 )
-                assert '"finish_reason":"error"' in ignored, ignored  # nosec B101
-                assert peers.requests[-1]["tool_choice"] == "none"  # nosec B101
-                assert not peers.requests[-1].get("tools")  # nosec B101
-                assert peers.calls == ["next_read"]  # nosec B101 - no extra reads after fallback
+                assert '"finish_reason":"error"' in ignored, ignored
+                assert peers.requests[-1]["tool_choice"] == "none"
+                assert not peers.requests[-1].get("tools")
+                # no extra reads after fallback
+                assert peers.calls == ["next_read"]
                 peers.calls.clear()
                 ordinary = chat("RENDERER_FALLBACK", "ordinary-renderer-failure")
-                assert '"finish_reason":"stop"' in ordinary  # nosec B101
+                assert '"finish_reason":"stop"' in ordinary
                 assert "Sourced briefing" not in ordinary and peers.calls == [
                     "next_read"
-                ]  # nosec B101
+                ]
                 peers.calls.clear()
                 retried = chat("RETRY_MODEL", "retry-run")
-                assert "The real datetime tool completed" in retried  # nosec B101 - executable contract check
-                assert (  # nosec B101 - executable contract check
+                assert "The real datetime tool completed" in retried
+                assert (
                     sum("RETRY_MODEL" in json.dumps(old) for old in peers.requests) == 3
                 )
                 before = len(peers.requests)
                 incomplete = chat("INCOMPLETE", "incomplete-run")
-                assert "Model response did not complete" in incomplete, incomplete  # nosec B101 - executable contract check
-                assert "Function Start:" not in incomplete  # nosec B101 - executable contract check
-                assert len(peers.requests) == before + 1  # nosec B101 - executable contract check
+                assert "Model response did not complete" in incomplete, incomplete
+                assert "Function Start:" not in incomplete
+                assert len(peers.requests) == before + 1
                 failed = chat("PROVIDER_FAILURE", "provider-failure-run")
-                assert "Agent execution failed" in failed  # nosec B101 - executable contract check
-                assert "PRIVATE_PROVIDER_ERROR" not in failed  # nosec B101 - executable contract check
+                assert "Agent execution failed" in failed
+                assert "PRIVATE_PROVIDER_ERROR" not in failed
                 for scenario in (
                     "STREAM_RECOVER",
                     "STREAM_TRUNCATED",
@@ -1504,13 +1488,13 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 ):
                     before = len(peers.requests)
                     recovered = chat("GATEWAY_" + scenario, scenario.lower())
-                    assert recovered.count("First part. ") == 1, recovered  # nosec B101 - executable contract check
-                    assert recovered.count("Recovered final answer.") == 1, recovered  # nosec B101 - executable contract check
-                    assert '"finish_reason":"stop"' in recovered, recovered  # nosec B101 - executable contract check
-                    assert "event: error" not in recovered, recovered  # nosec B101 - executable contract check
-                    assert recovered.count("Function Start: current_datetime_tool") == 1  # nosec B101 - executable contract check
+                    assert recovered.count("First part. ") == 1, recovered
+                    assert recovered.count("Recovered final answer.") == 1, recovered
+                    assert '"finish_reason":"stop"' in recovered, recovered
+                    assert "event: error" not in recovered, recovered
+                    assert recovered.count("Function Start: current_datetime_tool") == 1
                     attempts = peers.requests[before:]
-                    assert len(attempts) == 3, attempts  # nosec B101 - executable contract check
+                    assert len(attempts) == 3, attempts
 
                     # A retry retains the exact completed tool results and the
                     # text already sent to the browser, without replaying tools.
@@ -1521,57 +1505,69 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             if item.get("type") == "function_call_output"
                         ]
 
-                    assert results(attempts[1]) == results(attempts[2])  # nosec B101 - executable contract check
-                    assert "First part. " in json.dumps(attempts[2]["input"])  # nosec B101 - executable contract check
-                    assert "unexecuted_write" not in json.dumps(attempts[2]["input"])  # nosec B101 - failed proposals are discarded
-                    assert "fixture_mcp__write_item" not in peers.calls  # nosec B101 - no uncertain mutation executes
+                    assert results(attempts[1]) == results(attempts[2])
+                    assert "First part. " in json.dumps(attempts[2]["input"])
+                    # failed proposals are discarded
+                    assert "unexecuted_write" not in json.dumps(attempts[2]["input"])
+                    # no uncertain mutation executes
+                    assert "fixture_mcp__write_item" not in peers.calls
                 peers.calls.clear()
                 cut = chat("GATEWAY_STREAM_TOOL_CUT", "stream-tool-cut")
-                assert not peers.calls, peers.calls  # nosec B101 - executable contract check
-                assert "Function Start: fixture_mcp__next_read" not in cut  # nosec B101 - executable contract check
-                assert '"finish_reason":"stop"' in cut, cut  # nosec B101 - executable contract check
+                assert not peers.calls, peers.calls
+                assert "Function Start: fixture_mcp__next_read" not in cut
+                assert '"finish_reason":"stop"' in cut, cut
                 before = len(peers.requests)
                 cut = chat("GATEWAY_STREAM_JSON_TOOL_CUT", "stream-json-tool-cut")
-                assert not peers.calls, peers.calls  # nosec B101 - executable contract check
-                assert len(peers.requests) == before + 3  # nosec B101 - rejected response, clock response, final answer
-                assert cut.count("Function Start: current_datetime_tool") == 1  # nosec B101 - no tool from the rejected response ran
-                assert '"finish_reason":"stop"' in cut, cut  # nosec B101 - executable contract check
+                assert not peers.calls, peers.calls
+                # rejected response, clock response, final answer
+                assert len(peers.requests) == before + 3
+                # no tool from the rejected response ran
+                assert cut.count("Function Start: current_datetime_tool") == 1
+                assert '"finish_reason":"stop"' in cut, cut
                 before = len(peers.requests)
                 failed = chat("GATEWAY_STREAM_JSON_ALWAYS_FAIL", "stream-json-limit")
-                assert len(peers.requests) == before + 3  # nosec B101 - one successful research round and exactly one decode recovery
+                # one successful research round and exactly one decode recovery
+                assert len(peers.requests) == before + 3
                 assert (
                     "Model response could not be decoded; completed output has been preserved"
                     in failed
-                )  # nosec B101 - executable contract check
-                assert failed.count("Function Start: current_datetime_tool") == 1  # nosec B101 - completed research is retained
-                assert "Function Start: fixture_mcp__write_item" not in failed  # nosec B101 - executable contract check
-                assert '"finish_reason":"error"' in failed  # nosec B101 - executable contract check
+                )
+                # completed research is retained
+                assert failed.count("Function Start: current_datetime_tool") == 1
+                assert "Function Start: fixture_mcp__write_item" not in failed
+                assert '"finish_reason":"error"' in failed
                 peers.calls.clear()
                 before = len(peers.requests)
                 failed = chat("GATEWAY_STREAM_JSON_TWICE", "stream-json-twice")
-                assert len(peers.requests) == before + 4  # nosec B101 - successful rounds do not reset the decode recovery limit
-                assert peers.calls == ["next_read"], peers.calls  # nosec B101 - each completed tool executes once
-                assert failed.count("Function Start: current_datetime_tool") == 1  # nosec B101 - executable contract check
-                assert "Model response could not be decoded" in failed  # nosec B101 - executable contract check
-                assert '"finish_reason":"error"' in failed  # nosec B101 - executable contract check
+                # successful rounds do not reset the decode recovery limit
+                assert len(peers.requests) == before + 4
+                # each completed tool executes once
+                assert peers.calls == ["next_read"], peers.calls
+                assert failed.count("Function Start: current_datetime_tool") == 1
+                assert "Model response could not be decoded" in failed
+                assert '"finish_reason":"error"' in failed
                 for scenario, attempts in (
                     ("STREAM_ALWAYS_FAIL", 4),
                     ("STREAM_PERMANENT", 1),
                 ):
                     before = len(peers.requests)
                     failed = chat("GATEWAY_" + scenario, scenario.lower())
-                    assert '"finish_reason":"error"' in failed, failed  # nosec B101 - executable contract check
-                    assert "Function Start:" not in failed, failed  # nosec B101 - executable contract check
-                    assert len(peers.requests) == before + attempts  # nosec B101 - executable contract check
+                    assert '"finish_reason":"error"' in failed, failed
+                    assert "Function Start:" not in failed, failed
+                    assert len(peers.requests) == before + attempts
                     if scenario == "STREAM_ALWAYS_FAIL":
-                        assert "Model stream interrupted after retry limit" in failed  # nosec B101 - executable contract check
+                        assert "Model stream interrupted after retry limit" in failed
                 before = len(peers.requests)
                 active = chat("GATEWAY_MODEL_PROGRESS", "model-progress")
-                assert ": model active\n\n" in active, active  # nosec B101 - hidden model progress keeps the frontend connection alive
-                assert "PRIVATE_MODEL_REASONING" not in active  # nosec B101 - reasoning never crosses the UI boundary
-                assert "Visible answer after active model generation." in active  # nosec B101 - completion still delivers the answer
-                assert '"finish_reason":"stop"' in active  # nosec B101 - executable contract check
-                assert len(peers.requests) == before + 1  # nosec B101 - activity does not trigger another model call
+                # hidden model progress keeps the frontend connection alive
+                assert ": model active\n\n" in active, active
+                # reasoning never crosses the UI boundary
+                assert "PRIVATE_MODEL_REASONING" not in active
+                # completion still delivers the answer
+                assert "Visible answer after active model generation." in active
+                assert '"finish_reason":"stop"' in active
+                # activity does not trigger another model call
+                assert len(peers.requests) == before + 1
                 # Hold five separate conversations at the provider boundary.
                 peers.release_model.clear()
                 quota_headers = {"x-user-id": "quota-user"}
@@ -1587,9 +1583,11 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     try:
                         deadline = time.monotonic() + 15
                         while len(peers.requests) < before + 5:
-                            assert time.monotonic() < deadline  # nosec B101 - five actual provider streams start
+                            # five actual provider streams start
+                            assert time.monotonic() < deadline
                             time.sleep(0.05)
-                        assert all(not future.done() for future in futures.values())  # nosec B101 - streams overlap
+                        # streams overlap
+                        assert all(not future.done() for future in futures.values())
                         for conversation, expected in [
                             ("quota-sixth", 429),
                             (quota_runs[0], 409),
@@ -1607,8 +1605,10 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                                     "messages": [{"role": "user", "content": "BASIC"}],
                                 },
                             )
-                            assert rejected.status_code == expected, rejected.text  # nosec B101 - capacity and conversation ownership
-                        assert len(peers.requests) == before + 5  # nosec B101 - rejection never calls the model
+                            # capacity and conversation ownership
+                            assert rejected.status_code == expected, rejected.text
+                        # rejection never calls the model
+                        assert len(peers.requests) == before + 5
                         futures["quota-other-user"] = pool.submit(
                             chat,
                             "MODEL_STEER",
@@ -1617,25 +1617,27 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         )
                         deadline = time.monotonic() + 15
                         while len(peers.requests) < before + 6:
-                            assert time.monotonic() < deadline  # nosec B101 - another user has independent capacity
+                            # another user has independent capacity
+                            assert time.monotonic() < deadline
                             time.sleep(0.05)
                         stopped = client.post(
                             base + f"/v1/runs/{quota_runs[0]}/control",
                             headers={**headers, **quota_headers},
                             json={"type": "cancel", "command_id": str(uuid.uuid4())},
                         )
-                        assert stopped.is_success  # nosec B101 - cancel only this chat
+                        # cancel only this chat
+                        assert stopped.is_success
                         assert "Run cancelled by user" in futures[quota_runs[0]].result(
                             timeout=10
-                        )  # nosec B101 - cancellation completes
+                        )  # cancellation completes
                         assert "The real datetime tool completed" in chat(
                             "BASIC", "quota-replacement", extra_headers=quota_headers
-                        )  # nosec B101 - freed capacity admits another chat
+                        )  # freed capacity admits another chat
                         assert all(
                             not future.done()
                             for run, future in futures.items()
                             if run != quota_runs[0]
-                        )  # nosec B101 - other streams stay active
+                        )  # other streams stay active
                     finally:
                         for run, future in futures.items():
                             if not future.done():
@@ -1671,14 +1673,14 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         else:
                             peers.release_tool.clear()
                         future = pool.submit(chat, scenario, run)
-                        assert waiting.wait(15), f"{scenario} did not reach its wait"  # nosec B101 - executable contract check
+                        assert waiting.wait(15), f"{scenario} did not reach its wait"
                         command = {
                             "type": "steer",
                             "command_id": str(uuid.uuid4()),
                             "instruction": "NEW_DIRECTION: use retained results and answer now",
                         }
                         url = base + f"/v1/runs/{run}/control"
-                        assert (  # nosec B101 - executable contract check
+                        assert (
                             client.post(
                                 url,
                                 headers={**headers, "x-user-id": "bob"},
@@ -1687,15 +1689,15 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             == 404
                         )
                         accepted = client.post(url, headers=headers, json=command)
-                        assert accepted.status_code == 200, accepted.text  # nosec B101 - executable contract check
+                        assert accepted.status_code == 200, accepted.text
                         # Tool waits keep the run active for deterministic duplicate checks.
                         if scenario == "TOOL_STEER":
                             duplicate = client.post(url, headers=headers, json=command)
-                            assert (  # nosec B101 - executable contract check
+                            assert (
                                 duplicate.status_code == 200
                                 and duplicate.json()["accepted"] is False
                             )
-                            assert (  # nosec B101 - executable contract check
+                            assert (
                                 client.post(
                                     url,
                                     headers=headers,
@@ -1705,28 +1707,28 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             )
                             peers.release_tool.set()
                         result = future.result(timeout=20)
-                        assert "Directed answer" in result, result  # nosec B101 - executable contract check
-                        assert '"status":"applied"' in result, result  # nosec B101 - executable contract check
+                        assert "Directed answer" in result, result
+                        assert '"status":"applied"' in result, result
                         if scenario == "MODEL_STEER":
-                            assert not peers.calls, peers.calls  # nosec B101 - executable contract check
+                            assert not peers.calls, peers.calls
                             peers.release_model.set()
                         else:
-                            assert peers.calls == ["slow_read"], peers.calls  # nosec B101 - executable contract check
-                            assert "RETAINED_EVIDENCE" in result  # nosec B101 - executable contract check
+                            assert peers.calls == ["slow_read"], peers.calls
+                            assert "RETAINED_EVIDENCE" in result
                     # Cancellation interrupts a provider wait and releases the run.
                     peers.model_waiting.clear()
                     peers.release_model.clear()
                     cancelled = pool.submit(chat, "MODEL_STEER", "cancel-run")
-                    assert peers.model_waiting.wait(15)  # nosec B101 - executable contract check
+                    assert peers.model_waiting.wait(15)
                     response = client.post(
                         base + "/v1/runs/cancel-run/control",
                         headers=headers,
                         json={"type": "cancel", "command_id": str(uuid.uuid4())},
                     )
-                    assert response.is_success  # nosec B101 - executable contract check
-                    assert "Run cancelled by user" in cancelled.result(timeout=10)  # nosec B101 - executable contract check
+                    assert response.is_success
+                    assert "Run cancelled by user" in cancelled.result(timeout=10)
                     peers.release_model.set()
-                    assert "The real datetime tool completed" in chat(  # nosec B101 - executable contract check
+                    assert "The real datetime tool completed" in chat(
                         "BASIC", "cancel-run"
                     )
                     # Stop must cancel the in-flight MCP transport and discard
@@ -1736,16 +1738,16 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     peers.tool_disconnected.clear()
                     peers.calls.clear()
                     cancelled = pool.submit(chat, "TOOL_STEER", "cancel-tool-run")
-                    assert peers.tool_waiting.wait(15)  # nosec B101 - executable contract check
+                    assert peers.tool_waiting.wait(15)
                     response = client.post(
                         base + "/v1/runs/cancel-tool-run/control",
                         headers=headers,
                         json={"type": "cancel", "command_id": str(uuid.uuid4())},
                     )
-                    assert response.is_success  # nosec B101 - executable contract check
-                    assert "Run cancelled by user" in cancelled.result(timeout=5)  # nosec B101 - executable contract check
-                    assert peers.tool_disconnected.wait(5), "MCP request survived Stop"  # nosec B101 - executable contract check
-                    assert peers.calls == ["slow_read"], peers.calls  # nosec B101 - executable contract check
+                    assert response.is_success
+                    assert "Run cancelled by user" in cancelled.result(timeout=5)
+                    assert peers.tool_disconnected.wait(5), "MCP request survived Stop"
+                    assert peers.calls == ["slow_read"], peers.calls
                     peers.release_tool.set()
                     # Create travels through the Rust HTTP proxy to the real
                     # Python route and SDK. Cover silent streams and requests
@@ -1781,22 +1783,22 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             connection.sendall(request.encode() + body)
                             assert peers.image_waiting.wait(
                                 10
-                            ), "Image provider was not reached"  # nosec B101 - executable contract check
+                            ), "Image provider was not reached"
                         assert peers.image_disconnected.wait(
                             5
-                        ), f"Image request survived disconnect: stream={stream}"  # nosec B101 - executable contract check
+                        ), f"Image request survived disconnect: stream={stream}"
                     if redis_image:
                         peers.release_tool.clear()
                         peers.tool_waiting.clear()
                         approval = pool.submit(chat, "APPROVAL", "approval-run")
-                        assert peers.tool_waiting.wait(15)  # nosec B101 - executable contract check
+                        assert peers.tool_waiting.wait(15)
                         # A sibling read must finish before the terminal approval frame.
                         peers.release_tool.set()
                         result = approval.result(timeout=20)
-                        assert result.index("RETAINED_EVIDENCE") < result.index(  # nosec B101 - executable contract check
+                        assert result.index("RETAINED_EVIDENCE") < result.index(
                             "event: mcp_approval_required"
                         )
-                        assert "write_item" not in peers.calls  # nosec B101 - executable contract check
+                        assert "write_item" not in peers.calls
                         encoded = re.search(
                             r"<!--daedalus-mcp-approval:([A-Za-z0-9_-]+)-->", result
                         )[1]
@@ -1833,7 +1835,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             **headers,
                             "x-daedalus-approval-token": credential,
                         }
-                        assert (  # nosec B101 - executable contract check
+                        assert (
                             client.post(
                                 url,
                                 headers={**approved_headers, "x-user-id": "bob"},
@@ -1841,7 +1843,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             ).status_code
                             == 409
                         )
-                        assert (  # nosec B101 - executable contract check
+                        assert (
                             client.post(
                                 url,
                                 headers=approved_headers,
@@ -1853,11 +1855,11 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             == 409
                         )
                         executed = client.post(url, headers=approved_headers, json=body)
-                        assert executed.status_code == 200, executed.text  # nosec B101 - executable contract check
-                        assert executed.json()["status"] == "completed"  # nosec B101 - executable contract check
-                        assert "RETAINED_EVIDENCE" not in executed.text  # nosec B101 - executable contract check
-                        assert peers.calls.count("write_item") == 1  # nosec B101 - executable contract check
-                        assert (  # nosec B101 - executable contract check
+                        assert executed.status_code == 200, executed.text
+                        assert executed.json()["status"] == "completed"
+                        assert "RETAINED_EVIDENCE" not in executed.text
+                        assert peers.calls.count("write_item") == 1
+                        assert (
                             client.post(
                                 url, headers=approved_headers, json=body
                             ).status_code
@@ -1867,14 +1869,14 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                             "approval-receipt:"
                             + hashlib.sha256(credential.encode()).hexdigest()
                         )
-                        assert (  # nosec B101 - executable contract check
+                        assert (
                             json.loads(redis_command("GET", receipt_key))[
                                 "arguments_sha256"
                             ]
                             == body["arguments_sha256"]
                         )
                         execution_id = executed.json()["executionId"]
-                        assert (  # nosec B101 - executable contract check
+                        assert (
                             client.get(
                                 base + "/executions/" + execution_id,
                                 headers={**headers, "x-user-id": "bob"},
@@ -1883,12 +1885,12 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         )
                 if redis_image:
                     result = chat("LARGE_TOOL", "large-tool-run")
-                    assert "The real datetime tool completed" in result  # nosec B101
+                    assert "The real datetime tool completed" in result
                     assert "_daedalus_compacted_tool_output" in json.dumps(
                         peers.requests[-1]
-                    )  # nosec B101
+                    )
                     result = chat("LARGE_OPAQUE", "large-opaque-run")
-                    assert "Agent execution failed" in result  # nosec B101
+                    assert "Agent execution failed" in result
                 # Read through a separate descriptor: seeking the child's shared
                 # stdout file would move its write position while it is logging.
                 records = []
@@ -1938,10 +1940,10 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 else:
                     assert not {"tool_prepare_finished", "tool_run_released"} & {
                         event.get("event") for event in events
-                    }, "Rust runs must not create or release Python run state"  # nosec B101
+                    }, "Rust runs must not create or release Python run state"
                 assert required_events <= {event.get("event") for event in events}, (
                     required_events - {event.get("event") for event in events}
-                )  # nosec B101 - executable contract check
+                )
                 for name in (
                     "run_started",
                     "prepare_finished",
@@ -1950,7 +1952,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     "run_finished",
                 ):
                     assert any(
-                        record.get("fields", {}).get("event") == name  # nosec B101 - executable contract check
+                        record.get("fields", {}).get("event") == name
                         and record.get("span", {}).get("run_id") == "basic-run"
                         for record in records
                     ), name
@@ -1959,7 +1961,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         event.get("event") == "tool_execution_finished"
                         and event.get("run_id") == "basic-run"
                         for event in events
-                    )  # nosec B101 - baseline Python dispatch owns this lifecycle
+                    )  # baseline Python dispatch owns this lifecycle
                 else:
                     assert any(
                         record.get("fields", {}).get("event") == "tool_call_finished"
@@ -1967,25 +1969,25 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         == "fixture_mcp__slow_read"
                         and record.get("span", {}).get("run_id") == "tool-run"
                         for record in records
-                    )  # nosec B101 - migrated MCP must correlate in Rust
+                    )  # migrated MCP must correlate in Rust
                     assert not any(
                         event.get("event") == "tool_execution_finished"
                         and event.get("run_id") == "tool-run"
                         for event in events
-                    ), "Rust MCP dispatch must not invoke the Python executor"  # nosec B101
+                    ), "Rust MCP dispatch must not invoke the Python executor"
                     assert any(
                         record.get("fields", {}).get("event") == "tool_call_finished"
                         and record.get("fields", {}).get("tool") == "agent_skills_tool"
                         and record.get("span", {}).get("run_id") == "route-None"
                         for record in records
-                    )  # nosec B101 - skill execution belongs to Rust
+                    )  # skill execution belongs to Rust
                     assert not any(
                         event.get("event") == "tool_execution_finished"
                         and str(event.get("run_id", "")).startswith("route-")
                         for event in events
-                    ), "Rust skill dispatch must not invoke the Python executor"  # nosec B101
+                    ), "Rust skill dispatch must not invoke the Python executor"
                 assert any(
-                    event.get("event") == "model_retry_scheduled"  # nosec B101 - executable contract check
+                    event.get("event") == "model_retry_scheduled"
                     and event.get("http_status") == 503
                     for event in events
                 )
@@ -1995,7 +1997,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     and event.get("resuming") is True
                     and event.get("output_bytes") == len("First part. ")
                     for event in events
-                )  # nosec B101 - executable contract check
+                )
                 assert any(
                     record.get("fields", {}).get("event") == "model_frame_rejected"
                     and record.get("span", {}).get("run_id") == "stream_json_recover"
@@ -2003,22 +2005,23 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     == "response.output_text.delta"
                     and record["fields"].get("category") == "schema"
                     for record in records
-                )  # nosec B101 - content-free structural diagnostics
+                )  # content-free structural diagnostics
                 assert any(
                     record.get("fields", {}).get("event") == "model_frame_rejected"
                     and record.get("span", {}).get("run_id") == "stream_json_syntax"
                     and record["fields"].get("event_type") == "invalid_json"
                     and record["fields"].get("category") == "eof"
                     for record in records
-                )  # nosec B101 - invalid provider text is never logged
+                )  # invalid provider text is never logged
                 decode_retries = [
                     record["fields"]
                     for record in records
                     if record.get("fields", {}).get("event") == "model_retry_scheduled"
                     and record.get("span", {}).get("run_id") == "stream-json-limit"
                 ]
-                assert len(decode_retries) == 1, decode_retries  # nosec B101 - exactly one recovery
-                assert decode_retries[0]["decode_recoveries"] == 1  # nosec B101 - executable contract check
+                # exactly one recovery
+                assert len(decode_retries) == 1, decode_retries
+                assert decode_retries[0]["decode_recoveries"] == 1
                 assert (
                     sum(
                         record.get("fields", {}).get("event") == "model_retry_scheduled"
@@ -2026,10 +2029,10 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         for record in records
                     )
                     == 1
-                )  # nosec B101 - a successful tool round does not replenish decode recovery
+                )  # a successful tool round does not replenish decode recovery
                 assert any(
                     event.get("event") == "run_failed"
-                    and event.get("phase") == "model_stream"  # nosec B101 - executable contract check
+                    and event.get("phase") == "model_stream"
                     and event.get("http_status") == 400
                     and event.get("error_kind") == "provider_response"
                     for event in events
@@ -2038,7 +2041,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     event.get("event") == "run_finished"
                     and event.get("outcome") == "cancelled"
                     for event in events
-                )  # nosec B101 - executable contract check
+                )
                 rejected = [
                     event
                     for event in events
@@ -2046,12 +2049,12 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 ]
                 assert rejected and any(
                     event["recovery_exhausted"] for event in rejected
-                )  # nosec B101
+                )
                 assert all(
                     set(problem) == {"tool", "constraint"}
                     for event in rejected
                     for problem in json.loads(event["problems"])
-                )  # nosec B101 - structural diagnostics contain no call arguments
+                )  # structural diagnostics contain no call arguments
                 for private in (
                     token,
                     "PRIVATE_PROMPT",
@@ -2069,14 +2072,14 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                 ):
                     assert (
                         private not in raw_logs
-                    ), "Private content appeared in runtime logs"  # nosec B101 - executable contract check
-                assert len(peers.routing_sessions) == len(peers.requests)  # nosec B101
+                    ), "Private content appeared in runtime logs"
+                assert len(peers.routing_sessions) == len(peers.requests)
                 assert all(
                     session == request["user"]
                     for session, request in zip(
                         peers.routing_sessions, peers.requests, strict=True
                     )
-                ), "Routing affinity was lost across model/tool/retry rounds"  # nosec B101
+                ), "Routing affinity was lost across model/tool/retry rounds"
                 if report:
                     # Only the clock's result is nondeterministic. Keep all model
                     # requests, tool arguments, schemas, errors and affinity IDs.

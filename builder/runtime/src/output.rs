@@ -48,11 +48,31 @@ pub fn chars(s: &str) -> usize {
 pub fn clip(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
-fn text_range(s: &str, start: usize, end: usize) -> String {
-    s.chars()
-        .skip(start)
-        .take(end.saturating_sub(start))
-        .collect()
+/// Character-offset slicing over one precomputed boundary table. Excerpt
+/// ranking slices every 800-character window; rescanning from the start for
+/// each window was quadratic in the article length.
+struct CharSlices<'a> {
+    text: &'a str,
+    boundaries: Vec<usize>,
+}
+impl<'a> CharSlices<'a> {
+    fn new(text: &'a str) -> Self {
+        let boundaries = text
+            .char_indices()
+            .map(|(offset, _)| offset)
+            .chain(std::iter::once(text.len()))
+            .collect();
+        Self { text, boundaries }
+    }
+    fn len(&self) -> usize {
+        self.boundaries.len() - 1
+    }
+    /// Characters `start..end`, clamped like `chars().skip(start).take(..)`.
+    fn get(&self, start: usize, end: usize) -> &'a str {
+        let end = end.min(self.len());
+        let start = start.min(end);
+        &self.text[self.boundaries[start]..self.boundaries[end]]
+    }
 }
 pub fn reference(content: &str) -> String {
     format!("tor_{:x}", Sha256::digest(content.as_bytes()))[..36].into()
@@ -96,7 +116,9 @@ pub fn key(user: &str, reference: &str) -> String {
     )
 }
 fn terms(query: &str) -> BTreeSet<String> {
-    let re = Regex::new(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{2,}").unwrap();
+    static TERM: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{2,}").unwrap());
+    let re = &*TERM;
     let stop = "about after also and are can could does for from have into latest list more please show that the their this tool what when where which with would";
     re.find_iter(query)
         .map(|m| m.as_str().to_lowercase())
@@ -355,18 +377,21 @@ fn parsed(content: &str) -> Option<(Value, String, String)> {
         return Some((value, String::new(), String::new()));
     }
     // Rust regex deliberately has no backreferences; compare the closing tag explicitly.
-    let tag = Regex::new(
-        r"(?s)^(\s*<([A-Za-z][A-Za-z0-9_:-]*)>\s*)(.*)(\s*</([A-Za-z][A-Za-z0-9_:-]*)>\s*)$",
-    )
-    .unwrap();
-    if let Some(c) = tag.captures(content)
+    static TAG: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?s)^(\s*<([A-Za-z][A-Za-z0-9_:-]*)>\s*)(.*)(\s*</([A-Za-z][A-Za-z0-9_:-]*)>\s*)$",
+        )
+        .unwrap()
+    });
+    static FENCE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?is)^(\s*```(?:json)?\s*)(.*?)(\s*```\s*)$").unwrap());
+    if let Some(c) = TAG.captures(content)
         && c[2] == c[5]
         && let Some(value) = decode(c[3].trim())
     {
         return Some((value, c[1].into(), c[4].into()));
     }
-    let fence = Regex::new(r"(?is)^(\s*```(?:json)?\s*)(.*?)(\s*```\s*)$").unwrap();
-    if let Some(c) = fence.captures(content)
+    if let Some(c) = FENCE.captures(content)
         && let Some(value) = decode(c[2].trim())
     {
         return Some((value, c[1].into(), c[3].into()));
@@ -552,7 +577,8 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
         && let Some(article) = value["content"].as_str()
         && chars(article) > 4000
     {
-        let length = chars(article);
+        let article = CharSlices::new(article);
+        let length = article.len();
         let windows: Vec<(usize, usize)> = (0..length)
             .step_by(800)
             .map(|i| (i, (i + 800).min(length)))
@@ -564,13 +590,14 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
         ));
         let mut ranked: Vec<_> = (1..windows.len() - 1)
             .map(|i| {
-                let text = text_range(article, windows[i].0, windows[i].1);
+                let text = article.get(windows[i].0, windows[i].1);
+                let lowercase = text.to_lowercase();
                 (
-                    std::cmp::Reverse(ERRORS.is_match(&text)),
+                    std::cmp::Reverse(ERRORS.is_match(text)),
                     std::cmp::Reverse(
                         terms
                             .iter()
-                            .map(|t| text.to_lowercase().matches(t.as_str()).count())
+                            .map(|t| lowercase.matches(t.as_str()).count())
                             .sum::<usize>(),
                     ),
                     i,
@@ -590,7 +617,7 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
                 remaining -= size;
             }
         }
-        let excerpts:Vec<Value>=selected.iter().map(|&i|json!({"start_offset":windows[i].0,"end_offset":windows[i].1,"text":text_range(article,windows[i].0,windows[i].1)})).collect();
+        let excerpts:Vec<Value>=selected.iter().map(|&i|json!({"start_offset":windows[i].0,"end_offset":windows[i].1,"text":article.get(windows[i].0,windows[i].1)})).collect();
         let shown = excerpts
             .iter()
             .map(|v| chars(v["text"].as_str().unwrap()))
@@ -642,6 +669,137 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
 #[cfg(test)]
 mod retrieval_tests {
     use super::*;
+
+    /// The previous per-window character scan, kept as the reference.
+    fn text_range(s: &str, start: usize, end: usize) -> String {
+        s.chars()
+            .skip(start)
+            .take(end.saturating_sub(start))
+            .collect()
+    }
+
+    /// The previous excerpt selection over `text_range`, kept as the reference.
+    fn reference_excerpts(article: &str, terms: &BTreeSet<String>) -> Vec<(usize, usize, String)> {
+        let length = chars(article);
+        let windows: Vec<(usize, usize)> = (0..length)
+            .step_by(800)
+            .map(|i| (i, (i + 800).min(length)))
+            .collect();
+        let mut selected = BTreeSet::from([0, windows.len() - 1]);
+        let mut ranked: Vec<_> = (1..windows.len() - 1)
+            .map(|i| {
+                let text = text_range(article, windows[i].0, windows[i].1);
+                (
+                    std::cmp::Reverse(ERRORS.is_match(&text)),
+                    std::cmp::Reverse(
+                        terms
+                            .iter()
+                            .map(|t| text.to_lowercase().matches(t.as_str()).count())
+                            .sum::<usize>(),
+                    ),
+                    i,
+                )
+            })
+            .collect();
+        ranked.sort();
+        let mut remaining = 4000
+            - selected
+                .iter()
+                .map(|&i| windows[i].1 - windows[i].0)
+                .sum::<usize>();
+        for (_, _, i) in ranked {
+            let size = windows[i].1 - windows[i].0;
+            if size <= remaining {
+                selected.insert(i);
+                remaining -= size;
+            }
+        }
+        selected
+            .iter()
+            .map(|&i| {
+                let (start, end) = windows[i];
+                (start, end, text_range(article, start, end))
+            })
+            .collect()
+    }
+
+    fn excerpts(compacted: &str) -> Vec<(usize, usize, String)> {
+        let value: Value = serde_json::from_str(compacted).unwrap();
+        value["preview"]["excerpts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| {
+                (
+                    e["start_offset"].as_u64().unwrap() as usize,
+                    e["end_offset"].as_u64().unwrap() as usize,
+                    e["text"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn character_slices_match_the_reference_scan() {
+        for text in ["", "a", "雪🌲e\u{301}x", &"Ünïcödé 雪🌲 ".repeat(37)] {
+            let slices = CharSlices::new(text);
+            let length = chars(text);
+            for start in 0..=length + 2 {
+                for end in 0..=length + 2 {
+                    assert_eq!(slices.get(start, end), text_range(text, start, end));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn large_research_excerpts_match_the_reference_and_stay_linear() {
+        let config = Config::new(json!({"llms":{"main":{"base_url":"http://model.invalid", "model_name":"fixture"}}, "workflow":{"_type":"daedalus_rust_agent", "llm_name":"main"}}), Default::default()).unwrap();
+        let settings = Settings::new(&config);
+        let query = "summarize glacier telemetry";
+        let terms = terms(query);
+        let document = |filler: usize| {
+            format!(
+                "{}Glacier telemetry 雪🌲 failed calibration.{}glacier TELEMETRY again{}",
+                "Neutral 雪🌲 prose. ".repeat(filler),
+                "More 🌲 context here. ".repeat(filler),
+                "Closing ü notes. ".repeat(filler / 2)
+            )
+        };
+        // A small article: identical offsets and text to the previous scan.
+        let small = document(300);
+        let source = json!({"success":true, "source":{"url":"https://source.test/a"},
+            "output_mode":"research", "content":small});
+        let (_, compacted) = preview(&source.to_string(), "webscrape_tool", query, &settings);
+        assert_eq!(
+            excerpts(&compacted.unwrap()),
+            reference_excerpts(&small, &terms)
+        );
+        // About a million multibyte characters, within the default size cap.
+        let large = document(22_000);
+        assert!(chars(&large) > 1_000_000);
+        let source = json!({"success":true, "source":{"url":"https://source.test/b"},
+            "output_mode":"research", "content":large});
+        let content = source.to_string();
+        let started = Instant::now();
+        let (_, compacted) = preview(&content, "webscrape_tool", query, &settings);
+        let elapsed = started.elapsed();
+        let selected = excerpts(&compacted.unwrap());
+        for (start, end, text) in &selected {
+            assert_eq!(text, &text_range(&large, *start, *end));
+        }
+        assert!(
+            selected
+                .iter()
+                .any(|(_, _, text)| text.contains("failed calibration")),
+            "the caution window is selected"
+        );
+        // The previous scan took about 13 seconds here in a debug build.
+        assert!(
+            elapsed < Duration::from_secs(8),
+            "excerpt ranking must stay linear: {elapsed:?}"
+        );
+    }
 
     #[test]
     fn lossless_compaction_preserves_numbers_that_float_would_change() {

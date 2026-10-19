@@ -74,7 +74,6 @@ mod response_policy;
 mod storage;
 mod telemetry;
 mod tool_contracts;
-mod user_interaction;
 mod yaml;
 
 use std::{
@@ -362,6 +361,9 @@ async fn supervise(
             Err(_) => Err(anyhow::anyhow!("Agent execution panicked")),
         },
     };
+    // Nothing reads the inbox any longer. Report later direction and Stop as
+    // finished before terminal events, as a successful run already does.
+    handle.finish().await;
     let outcome = if result.is_ok() {
         "completed"
     } else {
@@ -710,7 +712,7 @@ async fn main() -> anyhow::Result<()> {
                 );
                 return Ok(());
             }
-            Some(preparation::Preparation::new(config, http.clone())?)
+            Some(preparation::Preparation::new(config)?)
         }
         "python" => {
             if std::env::var("DAEDALUS_AUTHORIZATION").is_ok_and(|v| v != "python") {
@@ -730,11 +732,8 @@ async fn main() -> anyhow::Result<()> {
                 .trim()
                 .to_owned(),
         ),
-        insecure: matches!(
-            std::env::var("ALLOW_INSECURE_INTERNAL")
-                .unwrap_or_default()
-                .as_str(),
-            "1" | "true" | "yes"
+        insecure: config::allow_insecure_internal(
+            std::env::var("ALLOW_INSECURE_INTERNAL").ok().as_deref(),
         ),
         runs: Arc::new(Mutex::new(HashMap::new())),
         preparation,
@@ -892,6 +891,58 @@ mod tests {
         // The conversation and the user's slot are available again.
         let next = run("alice", "conversation", false);
         assert!(admission_rejection(&*runs.lock().await, "next", &next).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_failed_run_reports_finished_to_later_commands() {
+        let runs: Runs = Arc::default();
+        let (commands, inbox) = mpsc::channel(8);
+        let handle = Arc::new(RunHandle {
+            telemetry: Mutex::new(None),
+            user: "alice".into(),
+            conversation: "conversation".into(),
+            autonomy: false,
+            sender: commands,
+            commands: Mutex::new(HashMap::new()),
+            finished: std::sync::atomic::AtomicBool::new(false),
+            cancellation: tokio::sync::watch::channel(false).0,
+            metrics: control::Metrics::default(),
+        });
+        runs.lock().await.insert("failed".into(), handle.clone());
+        // A one-slot output channel holds the supervisor in its terminal events.
+        let (sender, mut receiver) = mpsc::channel(1);
+        let events = Events {
+            run_id: "failed".into(),
+            sender,
+        };
+        let failed = async move {
+            let _inbox = inbox;
+            anyhow::bail!("synthetic model failure")
+        };
+        let supervisor = tokio::spawn(supervise(
+            runs.clone(),
+            "failed".into(),
+            handle.clone(),
+            events,
+            failed,
+            None,
+        ));
+        let first = receiver.recv().await.unwrap();
+        assert!(String::from_utf8_lossy(&first).contains("event: error"));
+        assert!(runs.lock().await.contains_key("failed"));
+        // The run has ended: neither direction nor Stop is "received".
+        let steer = Command::Steer {
+            command_id: Uuid::new_v4(),
+            instruction: "Use source B".into(),
+        };
+        assert_eq!(handle.submit("alice", steer).await, Err(409));
+        let cancel = Command::Cancel {
+            command_id: Uuid::new_v4(),
+        };
+        assert_eq!(handle.submit("alice", cancel).await, Err(409));
+        while receiver.recv().await.is_some() {}
+        supervisor.await.unwrap();
+        assert!(!runs.lock().await.contains_key("failed"));
     }
 
     #[tokio::test]

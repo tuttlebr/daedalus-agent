@@ -5,16 +5,11 @@ import { getPublisher, channels } from '@/server/session/redis';
 export type SyncEventType =
   | 'conversation_updated'
   | 'conversation_deleted'
-  | 'conversation_list_changed'
-  | 'selected_conversation_changed'
   | 'streaming_started'
   | 'streaming_ended'
   | 'autonomy_status'
   | 'autonomy_run_event'
-  | 'autonomy_feed_updated'
-  | 'heartbeat'
-  | 'session_registered'
-  | 'session_unregistered';
+  | 'autonomy_feed_updated';
 
 export interface SyncEvent {
   type: SyncEventType;
@@ -22,11 +17,17 @@ export interface SyncEvent {
   data: any;
 }
 
+/**
+ * A saved conversation changed. Browser saves publish only its id and the
+ * committed revision, and receivers read the record. Worker finalization
+ * (server/chat/finalization.ts) also includes the conversation it saved.
+ */
 export interface ConversationUpdateEvent extends SyncEvent {
   type: 'conversation_updated';
   data: {
     conversationId: string;
-    conversation: Conversation;
+    revision?: string;
+    conversation?: Conversation;
   };
 }
 
@@ -39,28 +40,22 @@ export interface StreamingStateEvent extends SyncEvent {
   };
 }
 
-// Publish a conversation update to all user sessions
+// Publish a conversation update to all user sessions. Failures reach the
+// caller, which reports them to the notifying browser.
 export async function publishConversationUpdate(
   userId: string,
-  conversation: Conversation,
+  conversationId: string,
+  revision?: string,
 ): Promise<void> {
-  try {
-    const publisher = getPublisher();
-    const channel = channels.userUpdates(userId);
-
-    const event: ConversationUpdateEvent = {
-      type: 'conversation_updated',
-      timestamp: Date.now(),
-      data: {
-        conversationId: conversation.id,
-        conversation,
-      },
-    };
-
-    await publisher.publish(channel, JSON.stringify(event));
-  } catch (error) {
-    console.error('Failed to publish conversation update:', error);
-  }
+  const event: ConversationUpdateEvent = {
+    type: 'conversation_updated',
+    timestamp: Date.now(),
+    data: { conversationId, ...(revision ? { revision } : {}) },
+  };
+  await getPublisher().publish(
+    channels.userUpdates(userId),
+    JSON.stringify(event),
+  );
 }
 
 // Publish streaming state change to all user sessions

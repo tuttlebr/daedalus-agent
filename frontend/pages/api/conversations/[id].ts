@@ -1,7 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+import {
+  conversationRevision,
+  withConversationRevision,
+} from '@/utils/app/conversationRevision';
 import { extractImageReferences } from '@/utils/app/imageHandler';
 import { getSession } from '@/utils/auth/session';
+import { publishSyncEvent } from '@/utils/sync/publish';
 
 import { touchImage } from '../session/imageStorage';
 
@@ -11,6 +16,11 @@ import {
   saveConversationForUser,
   readConversationForUser,
 } from '@/server/session/conversationStore';
+import { v4 as uuidv4 } from 'uuid';
+
+// The token of a record reserved by a chat request and never saved since
+// (server/session/conversationStore.ts reserveConversationForUser).
+const RESERVED_REVISION = conversationRevision({ updatedAt: 0 });
 
 export const config = {
   api: {
@@ -25,6 +35,14 @@ export const config = {
  * GET: Get latest conversation state including any async job results.
  * PUT: Save conversation state.
  * DELETE: Delete a conversation.
+ *
+ * Saves use optimistic concurrency with a server-issued token. GET and every
+ * successful PUT return the record's `revision`; a PUT sends the revision its
+ * copy was derived from as `baseRevision` and is rejected with 409 (and the
+ * current record) when the stored revision differs. Browser clocks are never
+ * compared. Records written without a revision (older saves, worker
+ * finalization, chat reservation) are identified by their server-stamped
+ * `updatedAt` (see conversationRevision).
  */
 export default async function handler(
   req: NextApiRequest,
@@ -52,23 +70,54 @@ export default async function handler(
       return res.status(400).json({ error: 'Expected a conversation object' });
     }
 
+    const hasBase = Object.prototype.hasOwnProperty.call(
+      updatedData,
+      'baseRevision',
+    );
+    const {
+      baseRevision,
+      revision: _clientRevision,
+      ...fields
+    } = updatedData as Record<string, any>;
+    if (
+      hasBase &&
+      baseRevision !== null &&
+      (typeof baseRevision !== 'string' || !baseRevision)
+    ) {
+      return res.status(400).json({ error: 'Invalid base revision' });
+    }
+
     try {
-      // Server-authoritative timestamp
       const dataToSave = await saveConversationForUser(
         session.username,
         id,
         (current) => {
-          if (
-            current?.updatedAt &&
-            updatedData.updatedAt &&
-            current.updatedAt > updatedData.updatedAt
-          ) {
-            throw new ConversationWriteError('conflict', current);
+          // A missing record is created as before: legacy history-only
+          // conversations have no record to compare with. A browser that has
+          // not saved a new conversation yet sends null; its first chat
+          // request may already have reserved the record (empty, stamped 0),
+          // and that reservation is what this save replaces.
+          const expected = baseRevision ?? RESERVED_REVISION;
+          const conflict = hasBase
+            ? current !== null && conversationRevision(current) !== expected
+            : // Clients that predate revisions send their own updatedAt.
+              Boolean(
+                current?.updatedAt &&
+                  fields.updatedAt &&
+                  current.updatedAt > fields.updatedAt,
+              );
+          if (conflict) {
+            throw new ConversationWriteError(
+              'conflict',
+              withConversationRevision(current!),
+            );
           }
           return {
             ...current,
-            ...updatedData,
+            ...fields,
+            // Server-authoritative timestamp and a fresh concurrency token.
             updatedAt: Date.now(),
+            revision: uuidv4(),
           };
         },
         true,
@@ -95,7 +144,11 @@ export default async function handler(
       // History reads reconcile these owned records directly. Writing a second
       // read/modify/write history document here lost concurrent conversations.
 
-      return res.status(200).json({ success: true });
+      return res.status(200).json({
+        success: true,
+        revision: dataToSave.revision,
+        updatedAt: dataToSave.updatedAt,
+      });
     } catch (error) {
       if (error instanceof ConversationWriteError) {
         return res.status(error.reason === 'forbidden' ? 403 : 409).json({
@@ -115,6 +168,14 @@ export default async function handler(
         });
       }
 
+      // Other open sessions remove it too (best-effort; history reads are
+      // authoritative).
+      await publishSyncEvent(session.username, {
+        type: 'conversation_deleted',
+        timestamp: Date.now(),
+        data: { conversationId: id },
+      });
+
       return res.status(200).json({ success: true });
     } catch (error) {
       console.error('Error deleting conversation:', error);
@@ -129,7 +190,7 @@ export default async function handler(
       );
 
       if (conversationData) {
-        return res.status(200).json(conversationData);
+        return res.status(200).json(withConversationRevision(conversationData));
       }
       return res.status(404).json({ error: 'Conversation not found' });
     } catch (error) {

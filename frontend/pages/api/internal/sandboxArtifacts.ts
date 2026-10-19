@@ -155,5 +155,4 @@ export const config = {
     bodyParser: false,
     responseLimit: '1mb',
   },
-  maxDuration: 120,
 };

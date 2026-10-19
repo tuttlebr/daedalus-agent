@@ -1,6 +1,5 @@
 import handler from '@/pages/api/session/videoStorage';
 
-import { validateHeaderValue } from 'node:http';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -50,11 +49,17 @@ describe('/api/session/videoStorage uploads', () => {
     );
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(mocks.jsonSetWithExpiry.mock.calls[0][1]).toMatchObject({
+    const [key, record] = mocks.jsonSetWithExpiry.mock.calls[0];
+    // The backend's visual-media tool reads exactly this user-scoped key.
+    expect(key).toBe(`user:alice:video:${record.id}`);
+    expect(record).toMatchObject({
       filename: '旅行🙂.mp4',
       mimeType: 'video/mp4',
       userId: 'alice',
     });
+    // No reader exists for per-user or per-session video index sets.
+    expect(mocks.sadd).not.toHaveBeenCalled();
+    expect(mocks.expire).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -97,42 +102,23 @@ describe('/api/session/videoStorage uploads', () => {
   });
 });
 
-describe('/api/session/videoStorage download headers', () => {
+describe('/api/session/videoStorage reads', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it.each(['旅行🙂.mp4', 'quote";\r\nInjected: yes.mp4'])(
-    'serves a stored video named %s with a valid inline filename',
-    async (filename) => {
-      const bytes = Buffer.from('stored video');
-      mocks.jsonGet.mockResolvedValue({
-        id: 'video-1',
-        userId: 'alice',
-        sessionId: 'session-1',
-        data: bytes.toString('base64'),
-        mimeType: 'video/mp4',
-        filename,
-      });
+  it.each(['GET', 'DELETE'])(
+    'offers no %s endpoint for stored videos',
+    async (method) => {
       const res = {
         status: vi.fn().mockReturnThis(),
         json: vi.fn().mockReturnThis(),
-        send: vi.fn(),
-        setHeader: vi.fn(validateHeaderValue),
+        setHeader: vi.fn(),
       } as any;
 
-      await handler(
-        { method: 'GET', query: { videoId: 'video-1' } } as any,
-        res,
-      );
+      await handler({ method, query: { videoId: 'video-1' } } as any, res);
 
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.send).toHaveBeenCalledWith(bytes);
-      const disposition = res.setHeader.mock.calls.find(
-        ([name]: string[]) => name === 'Content-Disposition',
-      )?.[1];
-      expect(disposition).toMatch(/^inline; filename="[^"\r\n]*"; filename\*=/);
-      expect(disposition).toContain(
-        `filename*=UTF-8''${encodeURIComponent(filename)}`,
-      );
+      expect(res.status).toHaveBeenCalledWith(405);
+      expect(res.setHeader).toHaveBeenCalledWith('Allow', ['POST']);
+      expect(mocks.jsonGet).not.toHaveBeenCalled();
     },
   );
 });

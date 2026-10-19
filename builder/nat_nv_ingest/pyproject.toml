@@ -32,8 +32,5 @@ classifiers = ["Programming Language :: Python"]
 packages = ["nat_nv_ingest"]
 package-dir = { "" = "src" }
 
-[tool.setuptools.package-data]
-nat_nv_ingest = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

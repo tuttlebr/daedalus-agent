@@ -40,16 +40,20 @@ for the rest.
 Redis makes chat admission, queue ownership, streamed output and finalization
 recoverable. The model/tool execution itself lives in the backend process.
 A worker that loses its lease aborts its request; reclaim never resubmits a
-backend request already marked as started. It preserves completed output and
-reports interruption instead of risking duplicated external actions. There is
-no durable checkpoint/resume of an in-flight Rust agent. See the
+backend request that may have started (a start marker, streamed output, or a
+chat job's status past `pending`). It preserves completed output and reports
+interruption, or the user's Stop, instead of risking duplicated external
+actions. There is no durable checkpoint/resume of an in-flight Rust agent. See the
 [long-running workflow guide](long-running-workflows.md) for scheduling,
 context bounds and measurement commands.
 
 Each authenticated user can submit up to five chats concurrently across tabs
 and frontend instances. Redis atomically reserves a slot before enqueueing,
 including pending jobs, and the owning worker renews that reservation while
-running. Finalization and failed submission release it. A run awaiting OAuth
+running. Finalization and failed submission release it. The reservation stays
+provisional for two minutes until the job's records are written, so a
+submitting process that stops before queueing cannot hold a slot longer; the
+next turn in that conversation also recovers it. A run awaiting OAuth
 keeps its slot; if its stream ends first, the job ends with an error that keeps
 its streamed output.
 Separate conversations run independently; each conversation retains one active
@@ -212,8 +216,8 @@ process is the public backend on port 8000. The supervisor starts both, waits
 for Python startup, forwards termination signals, and exits if either fails.
 Rust owns memory and profile-import APIs, document/collection APIs and ingestion,
 as well as the registered memory, output retrieval, document search/ingestion,
-domain retrieval, NVIDIA documentation, Perplexity, user interaction, skills,
-sandbox and weather tools. It talks directly to their configured services.
+domain retrieval, NVIDIA documentation, Perplexity, skills, sandbox and weather
+tools. It talks directly to their configured services.
 Python runs RSS, generic scraping, source verification, briefing rendering and
 visual media, and serves the image API and remaining public adapters behind the
 Rust proxy. The [ownership table](rust-migration.md#current-ownership) and

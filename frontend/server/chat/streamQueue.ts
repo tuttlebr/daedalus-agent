@@ -1,10 +1,7 @@
 import { JOB_EXPIRY_SECONDS } from './constants';
 import { CONVERSATION_JOB_GUARD_TTL_SECONDS } from './conversationJobGuard';
-import {
-  legacyStreamStepsKey,
-  streamResponseKey,
-  streamStepsKey,
-} from './streamState';
+import { abortKey, finalizationJournalKey } from './jobState';
+import { streamResponseKey, streamStepsKey } from './streamState';
 import type { StreamQueuePayload } from './types';
 import { USER_JOB_GUARD_TTL_SECONDS } from './userJobGuard';
 
@@ -105,6 +102,29 @@ export async function loadStreamQueuePayload(
   return (await jsonGet(streamPayloadKey(jobId))) as StreamQueuePayload | null;
 }
 
+export interface StreamJobPresence {
+  request: boolean;
+  payload: boolean;
+  lease: boolean;
+}
+
+/**
+ * Which execution records exist for a job. A queued or running job has its
+ * request and queue payload until a worker acknowledges it after its terminal
+ * status; a worker processing it also holds the lease.
+ */
+export async function getStreamJobPresence(
+  jobId: string,
+  client: Redis = getRedis(),
+): Promise<StreamJobPresence> {
+  const [request, payload, lease] = await Promise.all([
+    client.exists(sessionKey(['async-job-request', jobId])),
+    client.exists(streamPayloadKey(jobId)),
+    client.exists(streamLeaseKey(jobId)),
+  ]);
+  return { request: request === 1, payload: payload === 1, lease: lease === 1 };
+}
+
 export async function readNewStreamJobs(
   client: Redis,
   consumer: string,
@@ -165,7 +185,7 @@ export async function acquireStreamLease(
 const RENEW_LEASE_LUA = `
 if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call('pexpire', KEYS[1], ARGV[2])
-for index = 2, 10 do
+for index = 2, tonumber(ARGV[11]) do
   redis.call('expire', KEYS[index], ARGV[3])
 end
 -- Optional keys follow the fixed ones; ARGV[7..9] give their positions (0 when
@@ -229,10 +249,10 @@ export async function renewStreamLease(
     streamBackendStartedKey(jobId),
     streamResponseKey(jobId),
     streamStepsKey(jobId),
-    legacyStreamStepsKey(jobId),
-    sessionKey(['async-job-abort', jobId]),
-    sessionKey(['async-job-finalization', jobId]),
+    abortKey(jobId),
+    finalizationJournalKey(jobId),
   ];
+  const renewedKeyCount = keys.length;
   const position = (key?: string): number => {
     if (!key) return 0;
     keys.push(key);
@@ -256,6 +276,7 @@ export async function renewStreamLease(
       userIndex,
       streamingIndex,
       STREAMING_STATE_TTL_SECONDS,
+      renewedKeyCount,
     )) === 1
   );
 }
@@ -280,37 +301,67 @@ export async function releaseStreamLease(
 }
 
 const MARK_BACKEND_STARTED_LUA = `
+-- MARK_BACKEND_STARTED
 if redis.call('get', KEYS[1]) ~= ARGV[1] then
   return 0
+end
+-- A Stop or conversation deletion committed before this point wins. Checking
+-- it in the same script as the marker leaves no window in which a recorded
+-- stop can be followed by a backend request.
+if redis.call('exists', KEYS[3]) == 1 then
+  return 2
 end
 redis.call('set', KEYS[2], ARGV[2], 'EX', ARGV[3])
 return 1
 `;
 
+export type BackendStartResult = 'started' | 'lease_lost' | 'canceled';
+
+/**
+ * Record that this lease owner is about to send the backend request. Only
+ * 'started' permits the request: 'lease_lost' means another owner may run the
+ * job, and 'canceled' means a durable stop was recorded first.
+ */
 export async function markBackendRequestStarted(
   jobId: string,
   ownerToken: string,
   client: Redis = getRedis(),
-): Promise<boolean> {
+): Promise<BackendStartResult> {
   const marker = JSON.stringify({ ownerToken, startedAt: Date.now() });
-  return (
-    (await client.eval(
+  const result = Number(
+    await client.eval(
       MARK_BACKEND_STARTED_LUA,
-      2,
+      3,
       streamLeaseKey(jobId),
       streamBackendStartedKey(jobId),
+      abortKey(jobId),
       ownerToken,
       marker,
       JOB_EXPIRY_SECONDS,
-    )) === 1
+    ),
   );
+  if (result === 1) return 'started';
+  if (result === 2) return 'canceled';
+  return 'lease_lost';
 }
 
+/**
+ * Whether backend execution may already have begun. Reclaim must never replay
+ * a started request, and the marker is an expiring key that Redis can evict
+ * under memory pressure, so streamed output also counts as evidence: the
+ * reader writes it only after the backend request was sent.
+ */
 export async function hasBackendRequestStarted(
   jobId: string,
   client: Redis = getRedis(),
 ): Promise<boolean> {
-  return (await client.exists(streamBackendStartedKey(jobId))) === 1;
+  return (
+    (await client.exists(
+      streamBackendStartedKey(jobId),
+      streamResponseKey(jobId),
+      streamStepsKey(jobId),
+    )) > 0
+  );
 }
 
 export async function acknowledgeStreamQueueEntry(

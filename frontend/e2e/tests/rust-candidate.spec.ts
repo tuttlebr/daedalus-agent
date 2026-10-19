@@ -92,24 +92,6 @@ test('candidate image preserves chat, memory, and profile workflows through the 
     page.getByText(recovered, { exact: false }).first(),
   ).toBeVisible();
   await expect(stop).toBeHidden();
-  await input.fill('USER_INTERACTION_CONFIRM synthetic browser request');
-  await page.getByRole('button', { name: 'Send message' }).click();
-  await expect(
-    page.getByText('Action requiring confirmation:', { exact: true }).first(),
-  ).toBeVisible();
-  await expect(
-    page
-      .getByText('No executable credential has been created.', { exact: false })
-      .first(),
-  ).toBeVisible();
-  await expect(
-    page.getByText('Remove browser memories', { exact: false }).first(),
-  ).toBeVisible();
-  await expect(stop).toBeHidden();
-  await page.reload();
-  await expect(
-    page.getByText('Action requiring confirmation:', { exact: true }).first(),
-  ).toBeVisible();
   await input.fill('SKILL_LOAD synthetic browser skill request');
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(

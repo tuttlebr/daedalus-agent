@@ -24,15 +24,16 @@ export const config = {
       sizeLimit: '1mb',
     },
     // The request is tiny, but the response (full-document markdown) can be
-    // large and NV-Ingest extraction is slow — disable the response cap and
-    // match the 15-minute timeout used by the rest of the document path.
+    // large — disable the response cap.
     responseLimit: false,
     externalResolver: true,
   },
-  maxDuration: 900,
 };
 
-const DOCUMENT_MARKDOWN_TIMEOUT_MS = 900_000; // 15 minutes
+// NV-Ingest extraction is slow. The standalone Next.js server imposes no route
+// deadline, so this bound matches nginx's 15-minute proxy timeout for
+// /api/document/.
+const DOCUMENT_MARKDOWN_TIMEOUT_MS = 900_000;
 
 // Conversion runs NV-Ingest, so keep a generous-but-bounded backstop.
 const DOC_MARKDOWN_RATE_LIMIT = ruleFromEnv(

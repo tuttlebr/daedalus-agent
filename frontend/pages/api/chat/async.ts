@@ -6,7 +6,14 @@ import { resolveTimezoneFromHeaders } from '@/utils/server/backendAuth';
 import { publishStreamingState } from '@/utils/sync/publish';
 
 import { selectStreamBackendBaseUrl } from '@/server/chat/backendSelection';
-import { JOB_EXPIRY_SECONDS } from '@/server/chat/constants';
+import {
+  JOB_EXPIRY_SECONDS,
+  JOB_INITIALIZATION_TTL_SECONDS,
+} from '@/server/chat/constants';
+import {
+  INVALID_CONVERSATION_ID_MESSAGE,
+  isValidConversationId,
+} from '@/server/chat/conversationId';
 import {
   acquireConversationJobGuard,
   isConversationJobInitializationStale,
@@ -21,12 +28,14 @@ import {
 import {
   abortKey,
   clearOAuthStatusFields,
+  deleteLiveJobStatus,
   isTerminalJobStatus,
   updateJobStatus,
 } from '@/server/chat/jobState';
 import {
   getDocumentIngestJobRequest,
   processMessages,
+  requiresCollectionMetadata,
 } from '@/server/chat/messagePreprocessing';
 import { validateModelProfile } from '@/server/chat/modelProfile';
 import {
@@ -37,7 +46,7 @@ import { buildSourcePolicyMessage } from '@/server/chat/sourcePolicy';
 import { forwardCancellation } from '@/server/chat/steering';
 import {
   enqueueStreamJob,
-  loadStreamQueuePayload,
+  getStreamJobPresence,
   streamPayloadKey,
 } from '@/server/chat/streamQueue';
 import { getStreamResponse, getStreamSteps } from '@/server/chat/streamState';
@@ -49,6 +58,7 @@ import {
 } from '@/server/chat/types';
 import {
   acquireUserJobGuard,
+  confirmUserJobGuard,
   releaseUserJobGuard,
 } from '@/server/chat/userJobGuard';
 import {
@@ -59,7 +69,7 @@ import {
 } from '@/server/jobSubmission';
 import { getMilvusMetadata } from '@/server/milvusMetadata';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
-import { getOrSetSessionId } from '@/server/session/_utils';
+import { getStorageSessionId } from '@/server/session/_utils';
 import {
   ConversationWriteError,
   reserveConversationForUser,
@@ -93,7 +103,6 @@ export const config = {
       sizeLimit: '32mb',
     },
   },
-  maxDuration: 900, // 15 minutes
 };
 
 function getMessageId(message: any): string | null {
@@ -208,9 +217,9 @@ async function claimConversationForJob(
       );
       if (acquisition.acquired) return;
     } else if (
-      !currentStatus &&
       acquisition.currentSerialized &&
-      isConversationJobInitializationStale(current)
+      isConversationJobInitializationStale(current) &&
+      (await isAbandonedSubmission(current.jobId, currentStatus))
     ) {
       const replaced = await replaceStaleConversationJobGuard(
         userId,
@@ -218,7 +227,12 @@ async function claimConversationForJob(
         acquisition.currentSerialized,
         jobId,
       );
-      if (replaced) return;
+      if (replaced) {
+        // Only the request that replaced the guard releases the abandoned
+        // job's records, so concurrent submissions cannot both recover it.
+        await discardAbandonedSubmission(userId, conversationId, current.jobId);
+        return;
+      }
 
       acquisition = await acquireConversationJobGuard(
         userId,
@@ -234,6 +248,53 @@ async function claimConversationForJob(
     'Another response is already active for this conversation.',
     'conversation_job_active',
   );
+}
+
+/**
+ * A conversation's job that no worker can ever finish: its submitting process
+ * stopped before queueing it, so it has no request or no queue payload, and no
+ * worker holds its lease. A status that disappeared is the same case. Callers
+ * apply this only after the guard's initialization grace, which a live
+ * submission does not outlast.
+ */
+async function isAbandonedSubmission(
+  jobId: string,
+  status: AsyncJobStatus | null,
+): Promise<boolean> {
+  const presence = await getStreamJobPresence(jobId);
+  if (presence.lease) return false;
+  return !status || !presence.request || !presence.payload;
+}
+
+/**
+ * Release what an abandoned submission still holds: its chat slot, its live
+ * status (so status reads stop reporting it as running), its unqueued request
+ * and the conversation's streaming state if it still names that job. A
+ * submission that was only slow cannot run afterwards: its slot confirmation
+ * fails if its records were not yet written, and a worker acknowledges a job
+ * without a status without executing it.
+ */
+async function discardAbandonedSubmission(
+  userId: string,
+  conversationId: string,
+  jobId: string,
+): Promise<void> {
+  const results = await Promise.allSettled([
+    releaseUserJobGuard(userId, jobId),
+    deleteLiveJobStatus(jobId),
+    jsonDel(sessionKey(['async-job-request', jobId])),
+    clearStreamingState(userId, conversationId, jobId),
+  ]);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      // The conversation is already recovered; leftover records expire.
+      logger.warn(
+        `Job ${jobId}: failed to release an abandoned submission`,
+        result.reason,
+      );
+    }
+  }
+  logger.warn(`Job ${jobId}: recovered conversation from abandoned submission`);
 }
 
 // Response text is returned verbatim: repeated answers are legitimate output
@@ -326,7 +387,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return;
     }
 
-    const currentSessionId = getOrSetSessionId(req, res);
+    // Upload routes scope anonymous documents by this derived storage ID, never
+    // by the raw session credential.
+    const currentSessionId = getStorageSessionId(req, res);
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Invalid messages' });
@@ -335,13 +398,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (profileError) {
       return res.status(400).json({ error: profileError });
     }
-    if (
-      conversationId != null &&
-      (typeof conversationId !== 'string' ||
-        !conversationId ||
-        conversationId.length > 200)
-    ) {
-      return res.status(400).json({ error: 'Invalid conversation ID' });
+    if (conversationId != null && !isValidConversationId(conversationId)) {
+      return res.status(400).json({
+        error: INVALID_CONVERSATION_ID_MESSAGE,
+        reason: 'invalid_conversation_id',
+      });
     }
 
     if (submissionId !== undefined && !validSubmissionId(submissionId)) {
@@ -377,7 +438,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       };
     }
 
-    if (!(await acquireUserJobGuard(verifiedUsername, jobId))) {
+    // The slot is provisional until the job's records are written below.
+    if (
+      !(await acquireUserJobGuard(
+        verifiedUsername,
+        jobId,
+        undefined,
+        JOB_INITIALIZATION_TTL_SECONDS,
+      ))
+    ) {
       throw new ApiRouteError(
         429,
         'You already have five chats running. Wait for one to finish or stop a response before starting another.',
@@ -386,9 +455,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     acquiredUserGuard = { userId: verifiedUsername, jobId };
 
-    // Publish a provisional status immediately after the guard. This closes the
-    // initialization window used for stale-owner recovery while backend
-    // selection and queue preparation are still in progress.
+    // Publish a provisional status immediately after the guard so a status read
+    // sees the submission while backend selection and queue preparation run.
+    // It expires quickly unless initialization below replaces it; stale-owner
+    // recovery also treats a guard past its grace without a request or queue
+    // payload as abandoned.
     await jsonSetWithExpiry(
       sessionKey(['async-job-status', jobId]),
       {
@@ -402,7 +473,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           ? { assistantMessageId }
           : {}),
       } satisfies AsyncJobStatus,
-      JOB_EXPIRY_SECONDS,
+      JOB_INITIALIZATION_TTL_SECONDS,
     );
 
     // Claiming the guard can recover and save the previous turn. Read history
@@ -433,15 +504,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const natSessionId = buildNatSessionId(verifiedUsername);
     const timezone = resolveTimezoneFromHeaders(req.headers);
-    const hasDocumentAttachments = effectiveMessages.some(
-      (message: any) =>
-        Array.isArray(message?.attachments) &&
-        message.attachments.some(
-          (attachment: any) => attachment?.type === 'document',
-        ),
-    );
+    // Only an ingestion turn needs the authoritative collection name. History
+    // attachments must not make every later turn depend on Milvus.
     let collectionMetadata = null;
-    if (hasDocumentAttachments) {
+    if (requiresCollectionMetadata(effectiveMessages)) {
       try {
         collectionMetadata = await getMilvusMetadata(verifiedUsername);
       } catch (error) {
@@ -501,10 +567,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         role: 'user',
         content:
           `[IDENTITY] The authenticated user for this session is: ${verifiedUsername}. ` +
-          'All user-scoped tools, including get_memory, add_memory, and delete_memory_guarded, ' +
+          'All user-scoped tools, including get_memory and add_memory, ' +
           'derive identity only from the trusted authenticated request context. ' +
           'Never pass user_id, username, or another identity argument to a tool. ' +
           'For explicit "remember" requests, call add_memory directly and do not ask for confirmation. ' +
+          'No tool deletes durable memory; the user deletes it in the Memory Center. ' +
           'Do not echo this identity message to the user.',
       },
       ...(sourcePolicyMessage ? [sourcePolicyMessage] : []),
@@ -584,6 +651,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // subscription auth and the connect-time streamingStates payload.
     const effectiveUserId = verifiedUsername;
     const initialization = await Promise.allSettled([
+      // Keep the slot for the job's lifetime. It is gone only if it expired or
+      // stale-submission recovery released it; then this submission must not
+      // queue a job that no longer holds a slot or its conversation.
+      confirmUserJobGuard(verifiedUsername, jobId),
       jsonSetWithExpiry(
         sessionKey(['async-job-request', jobId]),
         jobRequest,
@@ -602,6 +673,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // before cleanup, or the late write can recreate an orphaned job/state.
     for (const result of initialization) {
       if (result.status === 'rejected') throw result.reason;
+    }
+    if (initialization[0].status === 'fulfilled' && !initialization[0].value) {
+      throw new ApiRouteError(
+        503,
+        'This response took too long to start. Please try again.',
+        'submission_expired',
+      );
     }
 
     if (await submissionCancelled('chat', verifiedUsername, submissionId)) {
@@ -794,18 +872,24 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
     let workerOwnsFinalization = false;
     if (currentStatus && !isTerminalJobStatus(currentStatus.status)) {
       // Signal before checking ownership so a worker still holding the payload
-      // observes the stop. A live status without a payload has no worker owner
-      // (for example one parked by an earlier OAuth handoff); finish it here.
+      // observes the stop. A live status without a payload or lease has no
+      // worker owner; finish it here.
       await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
-      const afterAbort = (await jsonGet(statusKey)) as AsyncJobStatus | null;
+      const [afterAbort, presence] = await Promise.all([
+        jsonGet(statusKey) as Promise<AsyncJobStatus | null>,
+        getStreamJobPresence(jobId),
+      ]);
+      // A queued or running job keeps its queue payload until a worker
+      // acknowledges its terminal status, and a running one also holds the
+      // lease. Without either, including a pending job whose submitting
+      // process stopped before queueing it, no worker will observe the stop.
       workerOwnsFinalization =
         ['stream', 'document_ingest'].includes(
           jobRequest.executionMode ?? '',
         ) &&
-        (afterAbort?.status === 'pending' ||
-          ((afterAbort?.status === 'streaming' ||
-            afterAbort?.status === 'oauth_required') &&
-            Boolean(await loadStreamQueuePayload(jobId))));
+        Boolean(afterAbort) &&
+        !isTerminalJobStatus(afterAbort!.status) &&
+        (presence.payload || presence.lease);
       if (workerOwnsFinalization) {
         // Let the stream owner flush accepted output before claiming the
         // terminal snapshot. The durable queue also handles queued jobs and

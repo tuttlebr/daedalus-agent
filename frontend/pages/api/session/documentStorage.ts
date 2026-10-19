@@ -27,6 +27,7 @@ import {
   jsonDel,
   jsonSetWithExpiry,
 } from '@/server/session/redis';
+import { ownsUpload } from '@/server/uploadOwnership';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 
@@ -107,27 +108,11 @@ async function releaseUploadSlot(userId: string): Promise<void> {
 }
 
 async function storeDocumentMetadata(document: StoredDocument): Promise<void> {
-  const redis = getRedis();
-  const key = sessionKey(['document', document.sessionId, document.id]);
-  const sessionDocumentsKey = sessionKey([
-    'session-documents',
-    document.sessionId,
-  ]);
-  try {
-    await redis.sadd(sessionDocumentsKey, document.id);
-    await redis.expire(sessionDocumentsKey, DOCUMENT_EXPIRY_SECONDS);
-    await jsonSetWithExpiry(key, document, DOCUMENT_EXPIRY_SECONDS);
-  } catch (error) {
-    try {
-      await redis.srem(sessionDocumentsKey, document.id);
-    } catch (cleanupError) {
-      console.error(
-        'Failed to remove incomplete document metadata:',
-        cleanupError,
-      );
-    }
-    throw error;
-  }
+  await jsonSetWithExpiry(
+    sessionKey(['document', document.sessionId, document.id]),
+    document,
+    DOCUMENT_EXPIRY_SECONDS,
+  );
 }
 
 export async function getDocument(
@@ -142,13 +127,7 @@ async function deleteDocumentMetadata(
   sessionId: string,
   documentId: string,
 ): Promise<boolean> {
-  const redis = getRedis();
-  const key = sessionKey(['document', sessionId, documentId]);
-  const deleted = await jsonDel(key);
-  if (deleted > 0) {
-    await redis.srem(sessionKey(['session-documents', sessionId]), documentId);
-  }
-  return deleted > 0;
+  return (await jsonDel(sessionKey(['document', sessionId, documentId]))) > 0;
 }
 
 function assertObjectRecord(
@@ -469,6 +448,8 @@ export function canAccessStoredDocument(
   currentSessionId: string,
   currentUserId: string,
 ): boolean {
-  if (document.userId) return document.userId === currentUserId;
-  return document.sessionId === currentSessionId;
+  return ownsUpload(document, {
+    userId: currentUserId,
+    sessionId: currentSessionId,
+  });
 }

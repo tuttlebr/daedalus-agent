@@ -658,6 +658,22 @@ def _http_error(response: httpx.Response) -> str:
     )
 
 
+EXECUTE_UNCERTAIN = (
+    "The LLM sandbox request failed in transit, so it may already have run and its "
+    "outcome is unknown. Inspect the workspace before retrying; do not repeat "
+    "appends or other changes blindly."
+)
+PUBLISH_UNCERTAIN = (
+    "The sandbox artifact publish request failed in transit, so the file may "
+    "already have been published. Check whether it was published before retrying; "
+    "do not publish it again blindly."
+)
+
+
+class _UncertainPost(Exception):
+    """A POST failed in transit. It is never retried and may already have run."""
+
+
 async def _request_with_retry(
     client: httpx.AsyncClient,
     method: Literal["GET", "POST"],
@@ -688,8 +704,10 @@ async def _request_with_retry(
                 path,
                 **request_kwargs,
             )
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
             if attempt + 1 == attempts:
+                if method != "GET":
+                    raise _UncertainPost() from exc
                 raise
         else:
             if (
@@ -737,6 +755,9 @@ async def _publish_artifact(
                 timeout=config.artifact_publish_timeout_seconds,
                 backoff_seconds=config.retry_backoff_seconds,
             )
+    except _UncertainPost:
+        logger.error("Sandbox artifact publisher transport failure; outcome unknown")
+        return _error(PUBLISH_UNCERTAIN)
     except httpx.HTTPError:
         logger.error("Sandbox artifact publisher transport failure")
         return _error(
@@ -1080,6 +1101,12 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: ToolRegistry):
                 exc.response.status_code,
             )
             return _http_error(exc.response)
+        except _UncertainPost as exc:
+            logger.error(
+                "LLM sandbox transport failure: %s; outcome unknown",
+                type(exc.__cause__).__name__,
+            )
+            return _error(EXECUTE_UNCERTAIN)
         except httpx.HTTPError as exc:
             logger.error("LLM sandbox transport failure: %s", type(exc).__name__)
             return _error("Could not reach LLM sandbox after one transport retry.")

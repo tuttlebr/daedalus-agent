@@ -4,6 +4,7 @@ import {
   processStreamQueueEntry,
   type StreamWorkerOptions,
 } from '@/server/chat/streamWorker';
+import { ApiRouteError } from '@/server/chat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -154,7 +155,12 @@ describe('durable stream worker entry processing', () => {
       messagesForNat: [{ role: 'user', content: 'trusted message' }],
       verifiedUsername: 'testuser',
     });
-    mocks.markBackendRequestStarted.mockResolvedValue(true);
+    // Mirrors the Redis script: a recorded stop wins over the start marker.
+    mocks.markBackendRequestStarted.mockImplementation(async (jobId: string) =>
+      mocks.store.has(`daedalus:async-job-abort:${jobId}`)
+        ? 'canceled'
+        : 'started',
+    );
     mocks.releaseStreamLease.mockResolvedValue(true);
     mocks.releaseConversationJobGuard.mockResolvedValue(true);
     mocks.renewStreamLease.mockResolvedValue(true);
@@ -320,27 +326,20 @@ describe('durable stream worker entry processing', () => {
     expect(mocks.releaseStreamLease).toHaveBeenCalledWith('job-1', 'owner-1');
   });
 
-  it('carries an approved execution credential only in stream control', async () => {
-    mocks.loadStreamQueuePayload.mockResolvedValue({
-      messagesForNat: [{ role: 'user', content: 'approved exact action' }],
-      verifiedUsername: 'testuser',
-      approvalToken: 'abcdefghijklmnopqrstuvwx',
-    });
-
+  it('passes the stream reader only cancellation and the start fence', async () => {
     await expect(
-      processStreamQueueEntry(entry, options, undefined, 'owner-approved'),
+      processStreamQueueEntry(entry, options, undefined, 'owner-control'),
     ).resolves.toBe('completed');
 
     expect(mocks.startBackgroundStreamReader).toHaveBeenCalledWith(
       'job-1',
-      expect.not.objectContaining({
-        approvalToken: expect.anything(),
-      }),
-      expect.any(Array),
+      expect.any(Object),
+      [{ role: 'user', content: 'trusted message' }],
       'testuser',
-      expect.objectContaining({
-        approvalToken: 'abcdefghijklmnopqrstuvwx',
-      }),
+      {
+        signal: expect.any(AbortSignal),
+        beforeBackendRequest: expect.any(Function),
+      },
     );
   });
 
@@ -678,5 +677,243 @@ describe('durable stream worker entry processing', () => {
       'Job canceled by user',
     );
     expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+  });
+
+  // A reader stand-in that records whether it would have sent the backend
+  // request, which happens only after beforeBackendRequest resolves.
+  function recordBackendRequests(): { sent: () => boolean } {
+    let sent = false;
+    mocks.startBackgroundStreamReader.mockImplementation(
+      async (jobId: string, ...args: any[]) => {
+        await args[3].beforeBackendRequest();
+        sent = true;
+        const key = `daedalus:async-job-status:${jobId}`;
+        mocks.store.set(key, {
+          ...mocks.store.get(key),
+          status: 'completed',
+          finalizedAt: 2,
+        });
+      },
+    );
+    return { sent: () => sent };
+  }
+
+  it('does not start the backend after a durable Stop recorded during reclaim preparation', async () => {
+    const backend = recordBackendRequests();
+    mocks.selectStreamBackendBaseUrl.mockImplementation(async () => {
+      // DELETE /api/chat/async lands while reclaim re-probes backends.
+      mocks.store.set('daedalus:async-job-abort:job-1', true);
+      return 'http://backend-new:8000';
+    });
+    const reclaimed = { ...entry, reclaimed: true };
+
+    await expect(
+      processStreamQueueEntry(reclaimed, options, undefined, 'owner-x'),
+    ).resolves.toBe('recovered_as_error');
+
+    expect(backend.sent()).toBe(false);
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.any(Object),
+      'Job canceled by user',
+    );
+    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(reclaimed);
+  });
+
+  it('never sends the backend request when the start marker finds the lease lost', async () => {
+    const backend = recordBackendRequests();
+    mocks.markBackendRequestStarted.mockResolvedValue('lease_lost');
+
+    await expect(
+      processStreamQueueEntry(entry, options, undefined, 'owner-late'),
+    ).resolves.toBe('interrupted');
+
+    expect(backend.sent()).toBe(false);
+    expect(mocks.finalizeError).not.toHaveBeenCalled();
+    expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
+    expect(mocks.releaseStreamLease).toHaveBeenCalledWith(
+      'job-1',
+      'owner-late',
+    );
+  });
+
+  it('fails and acknowledges a stream job whose queue payload expired', async () => {
+    mocks.loadStreamQueuePayload.mockResolvedValue(null);
+
+    await expect(
+      processStreamQueueEntry(entry, options, undefined, 'owner-expired'),
+    ).resolves.toBe('missing');
+
+    expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.any(Object),
+      'The durable stream payload expired before a worker could process it.',
+    );
+    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+  });
+
+  it.each([
+    ['status', 'daedalus:async-job-status:job-1'],
+    ['request', 'daedalus:async-job-request:job-1'],
+  ])(
+    'acknowledges an entry whose %s no longer exists without running it',
+    async (_record, key) => {
+      mocks.store.delete(key);
+
+      await expect(
+        processStreamQueueEntry(entry, options, undefined, 'owner-missing'),
+      ).resolves.toBe('missing');
+
+      expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+      expect(mocks.finalizeError).not.toHaveBeenCalled();
+      expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+    },
+  );
+
+  it('fences document ingestion with the backend start marker', async () => {
+    const request = mocks.store.get('daedalus:async-job-request:job-1');
+    mocks.store.set('daedalus:async-job-request:job-1', {
+      ...request,
+      executionMode: 'document_ingest',
+    });
+    // Ingestion is queued as streaming and must still run when unstarted.
+    mocks.store.set('daedalus:async-job-status:job-1', {
+      jobId: 'job-1',
+      status: 'streaming',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    let sent = false;
+    mocks.startBackgroundDocumentIngest.mockImplementation(
+      async (jobId: string, _request: any, _user: string, control: any) => {
+        await control.beforeBackendRequest();
+        sent = true;
+        const key = `daedalus:async-job-status:${jobId}`;
+        mocks.store.set(key, {
+          ...mocks.store.get(key),
+          status: 'completed',
+          finalizedAt: 2,
+        });
+      },
+    );
+
+    await expect(
+      processStreamQueueEntry(entry, options, undefined, 'owner-ingest'),
+    ).resolves.toBe('completed');
+
+    expect(mocks.markBackendRequestStarted).toHaveBeenCalledWith(
+      'job-1',
+      'owner-ingest',
+    );
+    expect(sent).toBe(true);
+    expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+  });
+
+  it('leaves a stopped run to reclaim when its owner cannot confirm the lease', async () => {
+    vi.useFakeTimers();
+    blockUntilAbortOrRelease();
+    mocks.renewStreamLease.mockResolvedValue(false);
+
+    const promise = processStreamQueueEntry(
+      entry,
+      { ...options, cancellationPollMs: 10, heartbeatMs: 60_000 },
+      undefined,
+      'owner-stop-lost',
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    mocks.store.set('daedalus:async-job-abort:job-1', true);
+    await vi.advanceTimersByTimeAsync(20);
+
+    await expect(promise).resolves.toBe('interrupted');
+    expect(mocks.finalizeError).not.toHaveBeenCalled();
+    expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
+  });
+
+  it('records a reclaimed started run that the user stopped as a cancellation', async () => {
+    mocks.hasBackendRequestStarted.mockResolvedValue(true);
+    mocks.store.set('daedalus:async-job-abort:job-1', true);
+    const reclaimed = { ...entry, reclaimed: true };
+
+    await expect(
+      processStreamQueueEntry(
+        reclaimed,
+        options,
+        undefined,
+        'owner-after-stop',
+      ),
+    ).resolves.toBe('recovered_as_error');
+
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.any(Object),
+      'Job canceled by user',
+    );
+    expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+  });
+
+  it.each(['streaming', 'oauth_required'])(
+    'does not replay a stream job whose %s status proves it started after the marker was evicted',
+    async (state) => {
+      mocks.store.set('daedalus:async-job-status:job-1', {
+        jobId: 'job-1',
+        status: state,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      const reclaimed = { ...entry, reclaimed: true };
+
+      await expect(
+        processStreamQueueEntry(reclaimed, options, undefined, 'owner-evicted'),
+      ).resolves.toBe('recovered_as_error');
+
+      expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+      expect(mocks.selectStreamBackendBaseUrl).not.toHaveBeenCalled();
+      expect(mocks.finalizeError).toHaveBeenCalledWith(
+        'job-1',
+        expect.any(Object),
+        expect.stringContaining('was not replayed'),
+      );
+    },
+  );
+
+  it('saves a fixed message instead of internal failure details', async () => {
+    mocks.selectStreamBackendBaseUrl.mockRejectedValue(
+      new Error('connect ECONNREFUSED 10.42.0.17:6379'),
+    );
+    const reclaimed = { ...entry, reclaimed: true };
+
+    await expect(
+      processStreamQueueEntry(reclaimed, options, undefined, 'owner-redis'),
+    ).resolves.toBe('recovered_as_error');
+
+    const message = mocks.finalizeError.mock.calls[0][2];
+    expect(message).toBe(
+      'The response could not be processed because of an internal error. Please try again.',
+    );
+    expect(message).not.toContain('10.42.0.17');
+  });
+
+  it('keeps the public message of a user-facing route error', async () => {
+    mocks.selectStreamBackendBaseUrl.mockRejectedValue(
+      new ApiRouteError(
+        502,
+        'The assistant backend is temporarily unavailable. Please try again shortly.',
+        'backend_unavailable',
+      ),
+    );
+
+    await processStreamQueueEntry(
+      { ...entry, reclaimed: true },
+      options,
+      undefined,
+      'owner-unavailable',
+    );
+
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.any(Object),
+      'The assistant backend is temporarily unavailable. Please try again shortly.',
+    );
   });
 });

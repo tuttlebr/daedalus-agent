@@ -241,7 +241,12 @@ async function handlePost(
   const terminal = TERMINAL_STATUSES.includes(state.status);
   if (terminal) state.resultLogged = true;
   if (state.oauthState && state.authUrl) {
-    await saveOAuthCallbackTarget(state.oauthState, backendBaseUrl, requestId);
+    await saveOAuthCallbackTarget(
+      state.oauthState,
+      backendBaseUrl,
+      requestId,
+      userId,
+    );
   }
   await persistState(state);
   if (terminal) logApprovalEvent('result', userId, approval, state.status);
@@ -356,6 +361,7 @@ async function handleGet(
       updated.oauthState,
       updated.backendBaseUrl!,
       requestId,
+      userId,
     );
   }
   return res.status(200).json({

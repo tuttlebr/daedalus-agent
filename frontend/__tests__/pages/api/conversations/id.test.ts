@@ -1,11 +1,12 @@
 import { getSession } from '@/utils/auth/session';
+import { publishSyncEvent } from '@/utils/sync/publish';
 
 // --- Import handler and mocked modules ---
 import handler from '@/pages/api/conversations/[id]';
 
 import { deleteConversationForUser } from '@/server/session/conversationDeletion';
 import { jsonGet, jsonSet } from '@/server/session/redis';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 // --- Mocks ---
 
@@ -43,6 +44,10 @@ vi.mock('@/server/session/conversationDeletion', () => ({
 
 vi.mock('@/utils/auth/session', () => ({
   getSession: vi.fn().mockResolvedValue({ username: 'testuser' }),
+}));
+
+vi.mock('@/utils/sync/publish', () => ({
+  publishSyncEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/pages/api/session/imageStorage', () => ({
@@ -143,7 +148,12 @@ describe('conversations/[id] API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith(conversationData);
+      // A record without a stored revision is identified by its server
+      // timestamp.
+      expect(res.json).toHaveBeenCalledWith({
+        ...conversationData,
+        revision: 't1000',
+      });
     });
 
     it('preserves legitimate repeated assistant text on read', async () => {
@@ -166,7 +176,10 @@ describe('conversations/[id] API handler', () => {
       await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith(conversationData);
+      expect(res.json).toHaveBeenCalledWith({
+        ...conversationData,
+        revision: 't1000',
+      });
       expect(jsonSet).not.toHaveBeenCalled();
     });
 
@@ -228,7 +241,14 @@ describe('conversations/[id] API handler', () => {
       expect(jsonSet).toHaveBeenCalled();
       expect(mockSadd).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ success: true });
+      const saved = (jsonSet as any).mock.calls[0][2];
+      // The committed concurrency token comes back for the next save.
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        revision: saved.revision,
+        updatedAt: saved.updatedAt,
+      });
+      expect(saved.revision).toEqual(expect.any(String));
     });
 
     it('merges with existing data on update', async () => {
@@ -280,7 +300,147 @@ describe('conversations/[id] API handler', () => {
       expect(res.status).toHaveBeenCalledWith(409);
       expect(res.json).toHaveBeenCalledWith({
         error: 'Conflict: server has newer data',
-        serverState: existingData,
+        serverState: { ...existingData, revision: 't5000' },
+      });
+    });
+
+    describe('server-issued revisions', () => {
+      const stored = {
+        id: 'conv-1',
+        name: 'Chat',
+        updatedAt: 5000,
+        revision: 'rev-current',
+        messages: [
+          { id: 'u1', role: 'user', content: 'question' },
+          { id: 'a1', role: 'assistant', content: 'Finalized answer.' },
+        ],
+      };
+
+      it('rejects a stale base even when its clock reads later', async () => {
+        (jsonGet as any).mockResolvedValue(stored);
+        // This device last saw an older revision; its clock is ahead of the
+        // server. Accepting it would drop the finalized answer.
+        const body = {
+          id: 'conv-1',
+          baseRevision: 'rev-older',
+          updatedAt: 9_999_999_999_999,
+          messages: [{ id: 'u1', role: 'user', content: 'question' }],
+        };
+        const { req, res } = createMockReqRes('PUT', { id: 'conv-1' }, body);
+
+        await handler(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(409);
+        expect(res.json).toHaveBeenCalledWith(
+          expect.objectContaining({ serverState: stored }),
+        );
+        expect(jsonSet).not.toHaveBeenCalled();
+      });
+
+      it('accepts the current base from a client whose clock is behind', async () => {
+        (jsonGet as any).mockResolvedValue(stored);
+        const now = 1_700_000_000_000;
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+        onTestFinished(() => clock.mockRestore());
+        const body = {
+          id: 'conv-1',
+          name: 'Renamed',
+          baseRevision: 'rev-current',
+          updatedAt: 1, // a clock far behind the server's
+          messages: stored.messages,
+        };
+        const { req, res } = createMockReqRes('PUT', { id: 'conv-1' }, body);
+
+        await handler(req, res);
+
+        const saved = (jsonSet as any).mock.calls[0][2];
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(saved).toMatchObject({ name: 'Renamed', updatedAt: now });
+        expect(saved).not.toHaveProperty('baseRevision');
+        expect(saved.revision).not.toBe('rev-current');
+        expect(res.json).toHaveBeenCalledWith({
+          success: true,
+          revision: saved.revision,
+          updatedAt: now,
+        });
+      });
+
+      it('identifies records written without a revision by their timestamp', async () => {
+        // Worker finalization and older saves store no revision.
+        const { revision: _omit, ...finalized } = stored;
+        (jsonGet as any).mockResolvedValue(finalized);
+        const accepted = createMockReqRes(
+          'PUT',
+          { id: 'conv-1' },
+          { id: 'conv-1', name: 'Renamed', baseRevision: 't5000' },
+        );
+        await handler(accepted.req, accepted.res);
+        expect(accepted.res.status).toHaveBeenCalledWith(200);
+
+        vi.mocked(jsonSet).mockClear();
+        const stale = createMockReqRes(
+          'PUT',
+          { id: 'conv-1' },
+          { id: 'conv-1', name: 'Renamed', baseRevision: 't4000' },
+        );
+        await handler(stale.req, stale.res);
+        expect(stale.res.status).toHaveBeenCalledWith(409);
+        expect(jsonSet).not.toHaveBeenCalled();
+      });
+
+      it('lets a first save replace the reservation its chat request made', async () => {
+        const reservation = {
+          id: 'conv-1',
+          ownerId: 'testuser',
+          name: 'New conversation',
+          folderId: null,
+          messages: [],
+          updatedAt: 0,
+        };
+        (jsonGet as any).mockResolvedValue(reservation);
+        const first = createMockReqRes(
+          'PUT',
+          { id: 'conv-1' },
+          {
+            id: 'conv-1',
+            name: 'Hello',
+            messages: [{ id: 'u1', role: 'user', content: 'Hello' }],
+            baseRevision: null,
+          },
+        );
+        await handler(first.req, first.res);
+        expect(first.res.status).toHaveBeenCalledWith(200);
+
+        // A record anyone has saved since is not overwritten by a null base.
+        vi.mocked(jsonSet).mockClear();
+        (jsonGet as any).mockResolvedValue({ ...reservation, updatedAt: 42 });
+        const stale = createMockReqRes(
+          'PUT',
+          { id: 'conv-1' },
+          { id: 'conv-1', messages: [], baseRevision: null },
+        );
+        await handler(stale.req, stale.res);
+        expect(stale.res.status).toHaveBeenCalledWith(409);
+        expect(jsonSet).not.toHaveBeenCalled();
+      });
+
+      it('creates a missing record and rejects a malformed base', async () => {
+        (jsonGet as any).mockResolvedValue(null);
+        const created = createMockReqRes(
+          'PUT',
+          { id: 'conv-1' },
+          { id: 'conv-1', name: 'New', messages: [], baseRevision: null },
+        );
+        await handler(created.req, created.res);
+        expect(created.res.status).toHaveBeenCalledWith(200);
+
+        const malformed = createMockReqRes(
+          'PUT',
+          { id: 'conv-1' },
+          { id: 'conv-1', baseRevision: 42 },
+        );
+        await handler(malformed.req, malformed.res);
+        expect(malformed.res.status).toHaveBeenCalledWith(400);
       });
     });
 
@@ -363,6 +523,12 @@ describe('conversations/[id] API handler', () => {
       );
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ success: true });
+      // Other sessions remove it as well.
+      expect(publishSyncEvent).toHaveBeenCalledWith('testuser', {
+        type: 'conversation_deleted',
+        timestamp: expect.any(Number),
+        data: { conversationId: 'conv-1' },
+      });
     });
 
     it('returns 403 when deleting unowned conversation', async () => {

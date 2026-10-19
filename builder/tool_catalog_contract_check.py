@@ -72,11 +72,6 @@ FACTORIES = {
         "ToolOutputRetrieverConfig",
         "tool_output_retriever",
     ),
-    "user_interaction_tool": (
-        "user_interaction.user_interaction_function",
-        "UserInteractionConfig",
-        "user_interaction_function",
-    ),
     "perplexity_search_tool": (
         "perplexity_search.perplexity_search_function",
         "PerplexitySearchConfig",
@@ -152,14 +147,6 @@ SAMPLES = {
     "nws_weather_tool": [{"latitude": 42.1667, "longitude": -83.7833, "days": 4}],
     "tool_output_retriever_tool": [
         {"reference": "00000000-0000-4000-8000-000000000001", "query": "Ready"}
-    ],
-    "user_interaction_tool": [
-        {
-            "operation": "confirm_action",
-            "action": "Delete the selected memory",
-            "reason": "The user requested memory deletion",
-        },
-        {"operation": "delete_memory_guarded", "approval_token": "invalid-fixture"},
     ],
     "perplexity_search_tool": [
         {"query": "NVIDIA release", "search_recency_filter": "week"}

@@ -435,3 +435,41 @@ def test_unbounded_output_is_stopped_before_script_finishes(tmp_path, monkeypatc
     assert "output limit exceeded" in out
     assert len(out) < 1400
     assert not completed.exists()
+
+
+def test_timeout_returns_while_an_escaped_descendant_holds_the_pipes(tmp_path):
+    """A setsid + fork descendant survives the group kill with our pipes open.
+
+    The call must return at its timeout, as the Rust runtime does, instead of
+    waiting for that descendant to close stdout/stderr.
+    """
+    import os
+    import time
+
+    from agent_skills.agent_skills_function import _run_skill_script
+
+    marker = tmp_path / "escaped.pid"
+    body = (
+        "import os, time\n"
+        "if os.fork() == 0:\n"
+        "    os.setsid()\n"
+        f"    open({str(marker)!r}, 'w').write(str(os.getpid()))\n"
+        "    time.sleep(10)\n"
+        "    os._exit(0)\n"
+        "time.sleep(30)\n"
+    )
+    parser = _skill_with_script(tmp_path, "escape.py", body)
+
+    started = time.monotonic()
+    try:
+        out = run(_run_skill_script(parser, [".py"], 1, "runner-skill", "escape.py"))
+        elapsed = time.monotonic() - started
+    finally:
+        if marker.exists():
+            try:
+                os.kill(int(marker.read_text()), 9)
+            except (ProcessLookupError, ValueError):
+                pass
+
+    assert "timed out after 1s" in out
+    assert elapsed < 4, elapsed

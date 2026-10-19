@@ -12,7 +12,8 @@ async def processes_gone(path):
     if not path.exists():
         return None
     record = json.loads(path.read_text())
-    assert record["parent"] == record["group"] == record["session"]  # nosec B101 - real process isolation assertion
+    # real process isolation assertion
+    assert record["parent"] == record["group"] == record["session"]
     for _ in range(500):
         live = []
         for pid in [record["parent"], *record.get("children", [])]:
@@ -53,7 +54,8 @@ async def main(args):
                         for _ in range(500):
                             if Path(case["ready"]).exists():
                                 break
-                            assert not task.done(), task.result()  # nosec B101 - process barrier
+                            # process barrier
+                            assert not task.done(), task.result()
                             await asyncio.sleep(0.01)
                         else:
                             raise AssertionError(

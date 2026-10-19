@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import httpx
-from export_user_interaction import failure
+from export_authorization import failure
 
 
 def observation(text):

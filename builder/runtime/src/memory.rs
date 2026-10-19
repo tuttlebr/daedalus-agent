@@ -42,11 +42,13 @@ fn now() -> f64 {
         .unwrap_or_default()
         .as_secs_f64()
 }
-fn matches(field: &str, text: &str) -> bool {
-    Regex::new(&format!("(?i){}", POLICY[field].as_str().unwrap()))
-        .unwrap()
-        .is_match(text)
+/// The memory policy is compiled in; compile each of its patterns once.
+fn policy_pattern(field: &str) -> Regex {
+    Regex::new(&format!("(?i){}", POLICY[field].as_str().unwrap())).unwrap()
 }
+static SYNTHESIS: LazyLock<Regex> = LazyLock::new(|| policy_pattern("synthesis_pattern"));
+static PAST_LOOKUP: LazyLock<Regex> = LazyLock::new(|| policy_pattern("past_lookup_pattern"));
+static SEPARATORS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\s.!?]+").unwrap());
 
 pub struct Memory {
     http: crate::hindsight::Client,
@@ -70,7 +72,7 @@ impl Drop for Backoff<'_> {
     }
 }
 impl Memory {
-    pub fn new(config: &Config, _http: reqwest::Client) -> Result<Self> {
+    pub fn new(config: &Config) -> Result<Self> {
         let mode = config
             .variable("DAEDALUS_MEMORY_MODE", "hindsight")
             .trim()
@@ -274,7 +276,7 @@ impl Memory {
             .and_then(|v| serde_json::from_str(&v).ok())
             .unwrap_or_else(|| json!({}));
         let cached_text = cached["text"].as_str().unwrap_or("").to_string();
-        if !matches("synthesis_pattern", query)
+        if !SYNTHESIS.is_match(query)
             || cached["reflected_at"]
                 .as_f64()
                 .is_some_and(|t| t != 0. && now() - t < 600.)
@@ -361,8 +363,7 @@ impl Memory {
             return Ok(String::new());
         }
         let query = query.trim();
-        let normalized = Regex::new(r"[\s.!?]+")
-            .unwrap()
+        let normalized = SEPARATORS
             .replace_all(&query.to_lowercase(), " ")
             .trim()
             .to_string();
@@ -383,7 +384,7 @@ impl Memory {
         };
         // A past-lookup query always recalls raw facts, so that read need not
         // wait for page search. Otherwise recall remains a fallback for no pages.
-        let lookup = matches("past_lookup_pattern", query);
+        let lookup = PAST_LOOKUP.is_match(query);
         let (brief, pages, early) = tokio::join!(
             self.session_brief(user, conversation, query),
             self.pages(user, query),
@@ -531,7 +532,7 @@ mod tests {
             .into(),
         )
         .unwrap();
-        let memory = Memory::new(&config, reqwest::Client::new()).unwrap();
+        let memory = Memory::new(&config).unwrap();
         let result = tokio::time::timeout(
             Duration::from_secs(5),
             memory.context("synthetic-alice", "", query),
@@ -624,7 +625,7 @@ mod tests {
             .into(),
         )
         .unwrap();
-        let memory = Arc::new(Memory::new(&config, reqwest::Client::new()).unwrap());
+        let memory = Arc::new(Memory::new(&config).unwrap());
         (memory, server)
     }
     fn initialize(memory: &Arc<Memory>, user: &'static str) -> tokio::task::JoinHandle<Result<()>> {

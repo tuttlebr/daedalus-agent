@@ -5,6 +5,8 @@ import {
   claimStaleStreamJobs,
   enqueueStreamJob,
   ensureStreamConsumerGroup,
+  getStreamJobPresence,
+  hasBackendRequestStarted,
   markBackendRequestStarted,
   readNewStreamJobs,
   releaseStreamLease,
@@ -21,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     xautoclaim: vi.fn(),
     set: vi.fn(),
     eval: vi.fn(),
+    exists: vi.fn(),
   },
   jsonSetWithExpiry: vi.fn(),
   jsonDel: vi.fn(),
@@ -42,6 +45,7 @@ describe('durable stream queue', () => {
     mocks.redis.xadd.mockResolvedValue('1-0');
     mocks.redis.set.mockResolvedValue('OK');
     mocks.redis.eval.mockResolvedValue(1);
+    mocks.redis.exists.mockResolvedValue(0);
     mocks.jsonSetWithExpiry.mockResolvedValue(undefined);
     mocks.jsonDel.mockResolvedValue(1);
   });
@@ -166,7 +170,7 @@ describe('durable stream queue', () => {
     ).resolves.toBe(true);
     await expect(
       markBackendRequestStarted('job-1', 'owner-1', mocks.redis as any),
-    ).resolves.toBe(true);
+    ).resolves.toBe('started');
     await expect(
       releaseStreamLease('job-1', 'owner-1', mocks.redis as any),
     ).resolves.toBe(true);
@@ -182,11 +186,64 @@ describe('durable stream queue', () => {
     expect(mocks.redis.eval.mock.calls[1]).toEqual(
       expect.arrayContaining([
         expect.stringContaining("redis.call('set', KEYS[2]"),
-        2,
+        3,
         'daedalus:async-stream-lease:job-1',
         'daedalus:async-stream-backend-started:job-1',
+        'daedalus:async-job-abort:job-1',
         'owner-1',
       ]),
     );
+  });
+
+  it('renews every fixed job key and declares how many there are', async () => {
+    await renewStreamLease('job-1', 'owner-1', 30000, mocks.redis as any);
+
+    const [script, keyCount, ...rest] = mocks.redis.eval.mock.calls[0];
+    expect(script).toContain('for index = 2, tonumber(ARGV[11])');
+    const keys = rest.slice(0, keyCount);
+    expect(keys).toEqual([
+      'daedalus:async-stream-lease:job-1',
+      'daedalus:async-job-request:job-1',
+      'daedalus:async-job-status:job-1',
+      'daedalus:async-stream-payload:job-1',
+      'daedalus:async-stream-backend-started:job-1',
+      'daedalus:async-job-response:job-1',
+      'daedalus:async-job-steps-v2:job-1',
+      'daedalus:async-job-abort:job-1',
+      'daedalus:async-job-finalization:job-1',
+    ]);
+    expect(rest[keyCount + 10]).toBe(keys.length);
+  });
+
+  it.each([
+    [1, 'started'],
+    [2, 'canceled'],
+    [0, 'lease_lost'],
+  ])('maps start marker result %s to %s', async (scriptResult, expected) => {
+    mocks.redis.eval.mockResolvedValueOnce(scriptResult);
+    await expect(
+      markBackendRequestStarted('job-1', 'owner-1', mocks.redis as any),
+    ).resolves.toBe(expected);
+  });
+
+  it('counts streamed output as backend start evidence', async () => {
+    mocks.redis.exists.mockResolvedValueOnce(1);
+    await expect(
+      hasBackendRequestStarted('job-1', mocks.redis as any),
+    ).resolves.toBe(true);
+    expect(mocks.redis.exists).toHaveBeenCalledWith(
+      'daedalus:async-stream-backend-started:job-1',
+      'daedalus:async-job-response:job-1',
+      'daedalus:async-job-steps-v2:job-1',
+    );
+  });
+
+  it('reports which execution records a job still has', async () => {
+    mocks.redis.exists.mockImplementation(async (key: string) =>
+      key.includes('async-job-request') ? 1 : 0,
+    );
+    await expect(
+      getStreamJobPresence('job-1', mocks.redis as any),
+    ).resolves.toEqual({ request: true, payload: false, lease: false });
   });
 });
