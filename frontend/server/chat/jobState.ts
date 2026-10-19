@@ -5,6 +5,7 @@ import { FINALIZER_LOCK_TTL_MS, JOB_EXPIRY_SECONDS, sleep } from './constants';
 import type { AsyncJobStatus, OAuthRequest } from './types';
 
 import { getRedis, sessionKey } from '@/server/session/redis';
+import { createHash } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 
 const logger = new Logger('AsyncJob');
@@ -250,12 +251,13 @@ return 1
 `;
 
 // Keep journal JSON opaque in Lua: cjson loses empty-array types and rounds
-// large exact integers. The snapshot comparison also fences competing phases.
+// large exact integers. The snapshot comparison also fences competing phases;
+// a digest avoids resending the journal and its conversation history.
 const UPDATE_FINALIZATION_JOURNAL_LUA = `
 -- UPDATE_FINALIZATION_JOURNAL
 local raw = redis.call('GET', KEYS[1])
 if not raw then return nil end
-if raw ~= ARGV[1] then return 0 end
+if redis.sha1hex(raw) ~= ARGV[1] then return 0 end
 redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
 for index = 4, #ARGV, 2 do
   redis.call('PUBLISH', ARGV[index], ARGV[index + 1])
@@ -494,7 +496,7 @@ async function mutateFinalizationJournal(
       UPDATE_FINALIZATION_JOURNAL_LUA,
       1,
       key,
-      snapshot,
+      createHash('sha1').update(snapshot).digest('hex'),
       updated,
       JOB_EXPIRY_SECONDS,
       ...events.flatMap((event) => [event.channel, event.payload]),
@@ -505,16 +507,36 @@ async function mutateFinalizationJournal(
   throw new Error(`Job ${jobId}: journal changed during every update attempt`);
 }
 
+function recordPhases(
+  journal: JobFinalizationJournal,
+  phases: FinalizationJournalPhase[],
+  at: number,
+): void {
+  for (const phase of phases) {
+    if (journal[phase] === undefined) journal[phase] = at;
+    if (phase === 'completedAt') journal.state = 'completed';
+  }
+}
+
 export async function markFinalizationPhase(
   jobId: string,
   finalizationId: string,
   phase: FinalizationJournalPhase,
   at: number = Date.now(),
 ): Promise<JobFinalizationJournal | null> {
-  return mutateFinalizationJournal(jobId, finalizationId, (journal) => {
-    if (journal[phase] === undefined) journal[phase] = at;
-    if (phase === 'completedAt') journal.state = 'completed';
-  });
+  return markFinalizationPhases(jobId, finalizationId, [phase], at);
+}
+
+/** Record several completed phases in one journal write. */
+export async function markFinalizationPhases(
+  jobId: string,
+  finalizationId: string,
+  phases: FinalizationJournalPhase[],
+  at: number = Date.now(),
+): Promise<JobFinalizationJournal | null> {
+  return mutateFinalizationJournal(jobId, finalizationId, (journal) =>
+    recordPhases(journal, phases, at),
+  );
 }
 
 export async function setMemoryRetentionReceipt(
@@ -531,18 +553,21 @@ export async function setMemoryRetentionReceipt(
 /**
  * Publish completion events and persist their idempotency marker in one Redis
  * script. A retry after a lost client response observes eventsPublishedAt and
- * cannot publish the same finalization a second time.
+ * cannot publish the same finalization a second time. Phases completed just
+ * before publication can be recorded by the same write.
  */
 export async function publishFinalizationEvents(
   jobId: string,
   finalizationId: string,
   events: FinalizationEvent[],
   at: number = Date.now(),
+  phases: FinalizationJournalPhase[] = [],
 ): Promise<JobFinalizationJournal | null> {
   return mutateFinalizationJournal(
     jobId,
     finalizationId,
     (journal) => {
+      recordPhases(journal, phases, at);
       if (journal.eventsPublishedAt === undefined)
         journal.eventsPublishedAt = at;
     },

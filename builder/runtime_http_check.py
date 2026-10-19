@@ -2109,7 +2109,9 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     + (
                         " Exact approvals and non-replay passed against real Redis."
                         if redis_image
-                        else ""
+                        # Say so plainly: these contracts did not run.
+                        else " SKIPPED: exact approvals, non-replay and output"
+                        " compaction need --redis-image."
                     )
                 )
         except BaseException:

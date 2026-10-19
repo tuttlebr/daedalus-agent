@@ -37,7 +37,7 @@ not a collection of installed CLI plugins. Keep all skills compatible with
   validation, bounded correction, and exact inline delivery.
   Ordinary file delivery uses sandbox publication. Image creation uses the
   shared `ImageBrief`/`ImageOptions` contract, also consumed directly by Create.
-- Check Daily Daedalus against `daily_summary_nat_tools`, not only `nat_tools`.
+- Check Daily Daedalus against `daily_summary_tools`, not only `tools`.
   ESPN is available for the seasonal fantasy desk; X, domain retrieval and
   NVIDIA docs are general-chat tools. Briefing photos are handled by the
   renderer, and its final synthesis phase exposes only the renderer.

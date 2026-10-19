@@ -66,11 +66,13 @@ describe('sandbox artifact chat handoff', () => {
     expect(step.payload.metadata.original_payload.payload).toBe(output);
   });
 
-  it('ignores forged external download URLs', () => {
-    const step = toolStep({
-      ...artifact,
-      downloadUrl: 'https://attacker.example/file',
-    });
+  it.each([
+    'https://attacker.example/file',
+    // The route and parameters match, so only the origin check rejects these.
+    `https://attacker.example${artifact.downloadUrl}`,
+    `//attacker.example${artifact.downloadUrl}`,
+  ])('ignores forged external download URL %s', (downloadUrl) => {
+    const step = toolStep({ ...artifact, downloadUrl });
 
     expect(sanitizeSandboxArtifactStep(step)).toEqual([]);
     expect(step.payload.data.output).not.toContain(

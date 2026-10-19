@@ -15,6 +15,8 @@ import {
 } from '@tabler/icons-react';
 import React, { useState } from 'react';
 
+import { safeExternalUrl } from '@/utils/app/externalUrl';
+
 // Tool results are untrusted backend data — a malformed/relative `link` must
 // not throw `new URL()` and crash the whole results render (F-007).
 function safeHostname(link: string): string {
@@ -283,9 +285,9 @@ const AnswerBoxCard: React.FC<{ data: AnswerBox }> = ({ data }) => {
       ) : (
         <div className="text-lg font-semibold text-primary">{answer}</div>
       )}
-      {data.link && (
+      {safeExternalUrl(data.link) && (
         <a
-          href={data.link}
+          href={safeExternalUrl(data.link)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs text-nvidia-green hover:underline mt-2"
@@ -343,9 +345,9 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
 
     {/* Links */}
     <div className="mt-3 flex flex-wrap items-center gap-3">
-      {data.website && (
+      {safeExternalUrl(data.website) && (
         <a
-          href={data.website}
+          href={safeExternalUrl(data.website)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs font-medium text-nvidia-green hover:underline"
@@ -356,7 +358,7 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
       )}
       {data.source_link && data.source_name && (
         <a
-          href={data.source_link}
+          href={safeExternalUrl(data.source_link)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -367,7 +369,7 @@ const KnowledgeGraphCard: React.FC<{ data: KnowledgeGraph }> = ({ data }) => (
       {data.profiles?.map((p) => (
         <a
           key={p.name}
-          href={p.link}
+          href={safeExternalUrl(p.link)}
           target="_blank"
           rel="noopener noreferrer"
           className="text-xs text-primary hover:text-nvidia-green hover:underline"
@@ -394,7 +396,7 @@ const OrganicResultCard: React.FC<{ result: OrganicResult }> = ({ result }) => (
     </div>
     {/* Title */}
     <a
-      href={result.link}
+      href={safeExternalUrl(result.link)}
       target="_blank"
       rel="noopener noreferrer"
       className="text-[15px] font-medium text-primary hover:underline leading-snug line-clamp-1"
@@ -426,7 +428,7 @@ const OrganicResultCard: React.FC<{ result: OrganicResult }> = ({ result }) => (
 
 const StoryCard: React.FC<{ item: StoryItem | NewsResult }> = ({ item }) => (
   <a
-    href={item.link}
+    href={safeExternalUrl(item.link)}
     target="_blank"
     rel="noopener noreferrer"
     className="flex-shrink-0 w-56 rounded-lg border border-separator overflow-hidden hover:border-nvidia-green/50 transition-colors group"
@@ -464,7 +466,11 @@ const ImageGrid: React.FC<{ images: ImageResult[] }> = ({ images }) => (
     {images.map((img, i) => (
       <a
         key={i}
-        href={img.link || img.original || img.thumbnail}
+        href={
+          safeExternalUrl(img.link) ??
+          safeExternalUrl(img.original) ??
+          safeExternalUrl(img.thumbnail)
+        }
         target="_blank"
         rel="noopener noreferrer"
         className="relative rounded-md overflow-hidden aspect-square group"
@@ -491,10 +497,10 @@ const ImageGrid: React.FC<{ images: ImageResult[] }> = ({ images }) => (
 // ---------------------------------------------------------------------------
 
 const ShoppingCard: React.FC<{ item: ShoppingResult }> = ({ item }) => {
-  const href = item.link || item.product_link;
+  const href = safeExternalUrl(item.link) ?? safeExternalUrl(item.product_link);
   return (
     <a
-      href={href || '#'}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       className="flex-shrink-0 w-44 rounded-lg border border-separator overflow-hidden hover:border-nvidia-green/50 transition-colors"
@@ -549,7 +555,7 @@ const ShoppingCard: React.FC<{ item: ShoppingResult }> = ({ item }) => {
 
 const VideoCard: React.FC<{ item: VideoResult }> = ({ item }) => (
   <a
-    href={item.link}
+    href={safeExternalUrl(item.link)}
     target="_blank"
     rel="noopener noreferrer"
     className="flex gap-3 py-2 group"
@@ -611,9 +617,9 @@ const RelatedQuestionItem: React.FC<{ item: RelatedQuestion }> = ({ item }) => {
               {item.snippet}
             </p>
           )}
-          {item.link && item.title && (
+          {safeExternalUrl(item.link) && item.title && (
             <a
-              href={item.link}
+              href={safeExternalUrl(item.link)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs text-nvidia-green hover:underline mt-1.5"

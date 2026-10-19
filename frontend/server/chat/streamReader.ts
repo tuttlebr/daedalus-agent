@@ -711,13 +711,9 @@ export async function startBackgroundStreamReader(
 
     // Transport EOF alone cannot establish that the agent finished. A pod or
     // proxy can close the connection after any token or intermediate tool.
-    // OAuth handoff is the one nonterminal exit owned by the worker.
+    // That includes a pending OAuth prompt: the backend waits for its callback
+    // inside the run, and a closed stream ends that run and its pending state.
     if (!streamDone) {
-      const status = (await jsonGet(statusKey)) as AsyncJobStatus | null;
-      if (status?.status === 'oauth_required' && !partialResponse.trim()) {
-        await persistPendingState();
-        return;
-      }
       throw new Error('Backend response stream ended before completion');
     }
 
@@ -738,13 +734,6 @@ export async function startBackgroundStreamReader(
     // Flush only the final unpersisted deltas before taking the terminal
     // snapshot. Each normalized key keeps its own bounded TTL.
     await persistPendingState();
-    const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
-    if (currentStatus?.status === 'oauth_required' && !partialResponse.trim()) {
-      // The OAuth event already persisted and published the complete prompt.
-      // Leave it untouched here so stream shutdown does not emit a duplicate
-      // status event whose only difference is updatedAt.
-      return;
-    }
 
     if (DEBUG_REPLAY_ENABLED) {
       debugReplayLog('inbound-final', {

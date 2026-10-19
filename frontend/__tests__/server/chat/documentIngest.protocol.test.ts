@@ -21,8 +21,10 @@ vi.mock('@/server/chat/natMessages', () => ({
   buildNatRequestHeaders: () => ({}),
 }));
 let server: Server | undefined;
+let secondChunk: NodeJS.Timeout | undefined;
 beforeEach(() => vi.clearAllMocks());
 afterEach(async () => {
+  clearTimeout(secondChunk);
   server?.closeAllConnections();
   if (server)
     await new Promise<void>((resolve) => server!.close(() => resolve()));
@@ -32,10 +34,15 @@ afterEach(async () => {
 async function ingest(data: string, signal?: AbortSignal, remainOpen = false) {
   server = createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    // Split across CRLF boundaries to exercise buffering, not a mock reader.
-    res.write(data.slice(0, 13));
-    if (remainOpen) res.write(data.slice(13));
-    else res.end(data.slice(13));
+    // Split inside the first line terminator (between CR and LF for CRLF) and
+    // send the rest later: back-to-back writes reach the reader as one chunk,
+    // which would not exercise buffering of partial frames across reads.
+    const split = data.includes('\r') ? data.indexOf('\r') + 1 : 13;
+    res.write(data.slice(0, split));
+    secondChunk = setTimeout(() => {
+      if (remainOpen) res.write(data.slice(split));
+      else res.end(data.slice(split));
+    }, 20);
   });
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
   const address = server.address() as { port: number };
@@ -156,7 +163,9 @@ describe('real HTTP ingestion terminal protocol', () => {
     const started = Date.now();
     await startBackgroundDocumentIngest('protocol-test', request, 'test-user');
 
-    expect(Date.now() - started).toBeLessThan(8_000);
+    // The complete JSON detail must end the read, well before the 5 s error
+    // body deadline that only bounds an incomplete diagnostic body.
+    expect(Date.now() - started).toBeLessThan(2_000);
     expect(mocks.error).toHaveBeenCalledWith(
       'protocol-test',
       expect.anything(),

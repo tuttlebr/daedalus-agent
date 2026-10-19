@@ -172,15 +172,67 @@ def test_python_coverage_measures_every_shipped_runtime_module():
             shipped.add(source)
     assert {"memory_api", "daedalus_runtime", "llm_sandbox/src"} <= shipped
 
-    sources, collecting = set(), False
-    for line in (builder / ".coveragerc").read_text().splitlines():
-        if line.strip() == "source =":
+    sources = _coveragerc_list("source")
+    assert shipped - sources == set()
+
+    # `omit` can hide a shipped module just as silently, for example a
+    # basename pattern matching smart_milvus/register.py.
+    from fnmatch import fnmatchcase
+
+    omit = _coveragerc_list("omit")
+    assert omit, "expected the test and conftest exclusions"
+    shipped_files = [
+        path.relative_to(builder).as_posix()
+        for entry in shipped
+        for path in (
+            (builder / entry).rglob("*.py")
+            if (builder / entry).is_dir()
+            else [builder / f"{entry}.py"]
+        )
+    ]
+    assert "smart_milvus/src/smart_milvus/register.py" in shipped_files
+    hidden = sorted(
+        path
+        for path in shipped_files
+        if any(fnmatchcase(path, pattern) for pattern in omit)
+    )
+    assert hidden == []
+
+
+def _coveragerc_list(option: str) -> set[str]:
+    values, collecting = set(), False
+    for line in (_REPO_ROOT / "builder" / ".coveragerc").read_text().splitlines():
+        if line.strip() == f"{option} =":
             collecting = True
         elif collecting and line.startswith((" ", "\t")) and line.strip():
-            sources.add(line.strip())
-        elif collecting and line.strip() and not line.strip().startswith("#"):
+            values.add(line.strip())
+        elif collecting and line.strip():
             collecting = False
-    assert shipped - sources == set()
+    return values
+
+
+def test_python_coverage_floor_and_real_redis_gate_are_enforced():
+    # The parity check above only compares CI with the Makefile; it would
+    # accept both dropping the floor. The integration job must also select the
+    # real-Redis tests and enable them (conftest rejects -m integration without).
+    import re
+
+    floors = re.findall(r"--cov-fail-under=(\d+)", _ci_builder_pytest_command())
+    assert floors and int(floors[0]) >= 65
+    ci = yaml.safe_load(_CI.read_text())
+    integration = [
+        step
+        for step in ci["jobs"]["builder-integration"]["steps"]
+        if "pytest" in (step.get("run", "") or "")
+    ]
+    assert len(integration) == 1
+    assert "-m integration" in integration[0]["run"]
+    assert str(integration[0]["env"]["PYTEST_USE_REAL_REDIS"]) == "1"
+    assert integration[0]["env"]["REDIS_URL"]
+    recipe = _MAKEFILE.read_text().split("\ntest-integration:", 1)[1]
+    recipe = recipe.split("\n\n", 1)[0]
+    assert "PYTEST_USE_REAL_REDIS=1" in recipe
+    assert "-m integration" in recipe
 
 
 def test_frontend_coverage_measures_every_server_runtime_module():

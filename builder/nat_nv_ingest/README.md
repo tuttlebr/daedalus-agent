@@ -8,10 +8,15 @@ bytes through NvIngest, and writes chunked results into Milvus. Search hands
 queries to the [`smart_milvus`](../smart_milvus/) retriever scoped to the
 requesting user.
 
+The Rust runtime owns the `nat_nv_ingest` tool and document routes in the
+default deployment. This package is the `DAEDALUS_PREPARATION=python` rollback
+implementation and the baseline for the retained differential fixtures.
+
 ## What It Does
 
-- Registers a single `user_document_tool(operation, ...)` function with three operations:
+- Registers a single `user_document_tool(operation, ...)` function with four operations:
   - `operation="ingest"` for `documentRef` (single document) or `documentRefs` (batch)
+  - `operation="extract"` to return one `documentRef` as Markdown without indexing it
   - `operation="search"` for natural-language queries against the user's collection
   - `operation="list_collections"` to enumerate the caller's private collection
     and allow-listed shared collections without exposing other tenants
@@ -107,7 +112,6 @@ user_document_tool(
     operation: str = "search",
     query: str = "",
     collection_name: str | None = None,
-    collection_scope: str | None = None,
     provenance: dict[str, Any] | None = None,
     documentRef: dict[str, Any] | None = None,
     documentRefs: list[dict[str, Any]] | None = None,
@@ -118,9 +122,8 @@ user_document_tool(
 ) -> str
 ```
 
-The backend derives identity from trusted NAT request metadata. Legacy direct
-callers may still supply `username` or `input_message`, but `username` is only
-an equality assertion against request identity and is not in the LLM schema.
+The backend derives identity from the authenticated request. The tool schema
+rejects `username`, `collection_scope`, and raw `input_message` requests.
 
 Omitting `chunk_overlap` uses the configured default; `chunk_overlap=0` disables
 overlap. Autonomous ingestion receipts now include a `document-overlap-v2`
@@ -136,15 +139,15 @@ new argument key during a mixed-version rollout or rollback.
 
 1. The frontend streams document bytes into the S3-compatible document store and writes bounded ownership metadata plus the exact object reference to Redis under the `document:<sessionId>:<documentId>` key shape.
 2. The frontend or agent calls the tool with `operation="ingest"` and `documentRef` (or `documentRefs` for batches); the backend supplies the authenticated identity.
-3. The tool retrieves each document, runs NV-Ingest extraction in a worker thread, and writes the resulting chunks into Milvus.
+3. The tool retrieves each document, runs NV-Ingest extraction in a worker thread, and writes the resulting chunks into Milvus. Failures before the SDK's Milvus write retry up to `ingest_max_retries`; a failure after the write starts is reported without replay, because rows may already be committed.
 4. The frontend or agent later calls the same tool with `operation="search"` to retrieve passages for the same user.
 5. The assistant reports success, partial success, or failure back to the user, with footer metadata the upload UI surfaces in its progress badge.
 
 ## HTTP Routes (bypass the agent loop)
 
-`document_ingest_api.py` injects a `/v1/documents/*` FastAPI router that reuses
-this package's extraction code without routing through the LLM (the router
-corrupts exact-args like `username`/`documentRef`):
+With Python preparation, the Rust proxy forwards these routes to
+`document_ingest_api.py`, a FastAPI router that reuses this package's
+processor without routing through the LLM:
 
 - `POST /v1/documents/ingest` and `/ingest/stream`: bulk ingest into Milvus.
 - `POST /v1/documents/extract`: single document to markdown JSON, **truncated**

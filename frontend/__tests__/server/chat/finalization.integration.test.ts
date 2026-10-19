@@ -304,7 +304,9 @@ describe.skipIf(!RUN_REAL_REDIS)(
         ),
       ).toBe(0);
 
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      // Redis replies to PING on the subscriber connection only after it has
+      // delivered every message published before it; a fixed sleep does not.
+      await subscriber.ping();
       const completionEventsBeforeRetry = observedMessages.filter(
         ({ payload }) => payload.type === 'chat_complete',
       );
@@ -314,7 +316,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
       await expect(finalization.resumePendingFinalization(jobId)).resolves.toBe(
         'completed',
       );
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await subscriber.ping();
       expect(
         observedMessages.filter(
           ({ payload }) => payload.type === 'chat_complete',
@@ -325,6 +327,137 @@ describe.skipIf(!RUN_REAL_REDIS)(
       ).toBe(eventsPublishedAt);
       expect(memoryRequests).toHaveLength(successClaimed ? 1 : 0);
       if (successClaimed) expect(memoryRequests[0].request_id).toBe(jobId);
+    });
+
+    // The journal carries the whole conversation history. Each cleanup used to
+    // rewrite it before completion was published, delaying the browser's
+    // completion event in proportion to the history size.
+    it('publishes completion with its cleanup in one journal write and repeats cleanup after a failure', async () => {
+      const batchedJob = `${jobId}-batched`;
+      const batchedConversation = `${conversationId}-batched`;
+      const tokens = `user:${userId}:chat:${batchedConversation}:tokens`;
+      const { reserveConversationForUser } = await import(
+        '@/server/session/conversationStore'
+      );
+      const userGuard = await import('@/server/chat/userJobGuard');
+      const streamingKey = redis.sessionKey([
+        'streaming',
+        'user',
+        userId,
+        'conversation',
+        batchedConversation,
+      ]);
+      const del = vi.spyOn(client, 'del');
+      const evaluate = vi.spyOn(client, 'eval');
+      const journalWrites = () =>
+        evaluate.mock.calls.filter(([script]) =>
+          String(script).includes('UPDATE_FINALIZATION_JOURNAL'),
+        ).length;
+      const completions = () =>
+        observedMessages.filter(
+          ({ payload }) =>
+            payload.type === 'chat_complete' && payload.jobId === batchedJob,
+        );
+      try {
+        await subscriber.subscribe(tokens);
+        await reserveConversationForUser(userId, batchedConversation);
+        await redis.jsonSetWithExpiry(
+          redis.sessionKey(['async-job-status', batchedJob]),
+          { jobId: batchedJob, status: 'streaming', createdAt: 1 },
+          3600,
+        );
+        await redis.setStreamingState(userId, batchedConversation, batchedJob);
+        await conversationGuard.acquireConversationJobGuard(
+          userId,
+          batchedConversation,
+          batchedJob,
+          client,
+        );
+        await userGuard.acquireUserJobGuard(userId, batchedJob, client);
+        await streamState.appendStreamResponseDelta(batchedJob, 'partial', 0);
+        expect(
+          await state.claimTerminalJobStatus(
+            batchedJob,
+            { status: 'error', error: 'Stopped', finalizedAt: 2 },
+            {
+              version: 1,
+              state: 'pending',
+              jobId: batchedJob,
+              finalizationId: `${batchedJob}-final`,
+              outcome: 'error',
+              userId,
+              finalizedAt: 2,
+              conversation: {
+                id: batchedConversation,
+                name: 'Batched',
+                messages: [{ id: 'user-b', role: 'user', content: 'hello' }],
+                assistantMessageId: 'assistant-b',
+                content: 'partial',
+                intermediateSteps: [],
+                isPartial: true,
+                error: 'Stopped',
+              },
+            },
+          ),
+        ).toBe(true);
+
+        del.mockRejectedValueOnce(new Error('transient cleanup failure'));
+        await expect(
+          finalization.resumePendingFinalization(batchedJob),
+        ).rejects.toThrow('transient cleanup failure');
+        const interrupted = await state.getFinalizationJournal(batchedJob);
+        expect(interrupted?.conversationAppliedAt).toEqual(expect.any(Number));
+        expect(interrupted?.eventsPublishedAt).toBeUndefined();
+        expect(interrupted?.streamStateClearedAt).toBeUndefined();
+        expect(interrupted?.conversationGuardReleasedAt).toBeUndefined();
+
+        const writesBeforeRecovery = journalWrites();
+        await expect(
+          finalization.resumePendingFinalization(batchedJob),
+        ).resolves.toBe('completed');
+        // One write publishes completion with the cleanup phases; one more
+        // records the memory attempt and completion.
+        expect(journalWrites() - writesBeforeRecovery).toBe(2);
+        const completed = await state.getFinalizationJournal(batchedJob);
+        expect(completed).toMatchObject({
+          state: 'completed',
+          streamingStateClearedAt: completed?.eventsPublishedAt,
+          streamStateClearedAt: completed?.eventsPublishedAt,
+          conversationGuardReleasedAt: completed?.eventsPublishedAt,
+        });
+        expect(
+          await client.exists(
+            streamingKey,
+            streamState.streamResponseKey(batchedJob),
+            conversationGuard.conversationJobGuardKey(
+              userId,
+              batchedConversation,
+            ),
+          ),
+        ).toBe(0);
+        expect(
+          await client.zscore(userGuard.userJobGuardKey(userId), batchedJob),
+        ).toBeNull();
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(completions()).toHaveLength(1);
+      } finally {
+        del.mockRestore();
+        evaluate.mockRestore();
+        await subscriber.unsubscribe(tokens);
+        await client.del(
+          redis.sessionKey(['async-job-status', batchedJob]),
+          state.finalizationJournalKey(batchedJob),
+          state.abortKey(batchedJob),
+          redis.sessionKey(['conversation', batchedConversation]),
+          streamingKey,
+          streamState.streamResponseKey(batchedJob),
+          conversationGuard.conversationJobGuardKey(
+            userId,
+            batchedConversation,
+          ),
+          userGuard.userJobGuardKey(userId),
+        );
+      }
     });
 
     it.each(['normal', 'recovery', 'deleted'])(

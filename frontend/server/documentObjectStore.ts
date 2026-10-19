@@ -248,16 +248,21 @@ function signedRequestOptions(
   };
 }
 
+// The timeout bounds inactivity (connect, an unanswered request, or a stalled
+// body) rather than the whole exchange: browser uploads and downloads stream
+// through these sockets, so a large transfer over a slow link legitimately
+// lasts longer than any single operation while bytes keep moving.
 function requestFor(
   options: RequestOptions,
   handler: (response: IncomingMessage) => void,
   timeoutMs: number,
 ) {
+  const timedOptions = { ...options, timeout: timeoutMs };
   const request =
     options.protocol === 'https:'
-      ? https.request(options, handler)
-      : http.request(options, handler);
-  const deadline = setTimeout(() => {
+      ? https.request(timedOptions, handler)
+      : http.request(timedOptions, handler);
+  request.on('timeout', () => {
     request.destroy(
       new Error(
         `Document object storage ${
@@ -265,9 +270,7 @@ function requestFor(
         } request timed out after ${timeoutMs}ms`,
       ),
     );
-  }, timeoutMs);
-  deadline.unref();
-  request.once('close', () => clearTimeout(deadline));
+  });
   return request;
 }
 

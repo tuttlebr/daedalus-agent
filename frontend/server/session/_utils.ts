@@ -4,7 +4,7 @@ import { getSession } from '@/utils/auth/session';
 import type { SessionData } from '@/utils/auth/session';
 
 import cookie from 'cookie';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 const COOKIE_NAME = 'sid';
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 days
@@ -57,6 +57,22 @@ export function getOrSetSessionId(
     writeSessionCookie(req, res, sid, COOKIE_MAX_AGE_SECONDS);
   }
   return sid;
+}
+
+/**
+ * SECURITY: the sid is the bearer credential for auth-session:<sid>. Upload
+ * scopes are returned to the browser, embedded in model-visible references and
+ * written into Redis and object-store keys, so derive a stable, non-reversible
+ * identifier for them instead of exposing the credential.
+ */
+export function getStorageSessionId(
+  req: NextApiRequest,
+  res: NextApiResponse,
+): string {
+  return createHash('sha256')
+    .update(`daedalus-storage-session-v1\0${getOrSetSessionId(req, res)}`)
+    .digest('hex')
+    .slice(0, 32);
 }
 
 // SECURITY (session fixation): mint a brand-new sid and overwrite the cookie.

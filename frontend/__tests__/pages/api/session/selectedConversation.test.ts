@@ -58,13 +58,15 @@ describe('session/selectedConversation assistant content preservation', () => {
         { role: 'assistant', content: `${prior}\n\n${next}` },
       ],
     };
+    // Compare with a copy so an in-place rewrite of the stored object fails.
+    const expected = structuredClone(conversation);
     mocks.jsonGet.mockResolvedValue(conversation);
 
     const { req, res } = createMockReqRes('GET');
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(conversation);
+    expect(res.json).toHaveBeenCalledWith(expected);
     expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 });

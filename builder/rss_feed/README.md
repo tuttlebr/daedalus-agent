@@ -19,23 +19,30 @@ The function is feed-specific. It does not search the open web by itself; use
 
 ## Configuration
 
-Default config lives in [`src/rss_feed/configs/config.yml`](src/rss_feed/configs/config.yml).
+Register the tool under `functions` in the workflow YAML; the deployed
+`curated_feed_search_tool` in `backend/tool-calling-config.yaml` is the
+reference. Defaults:
 
 ```yaml
-workflow:
-  _type: rss_feed
-  feed_url: null
-  feeds: {} # optional map of feed_scope name -> RSS URL
-  reranker_endpoint: http://reranker:8000/rerank
-  reranker_model: null
-  reranker_api_key: null
-  reranker_max_passage_tokens: 192
-  reranker_max_total_tokens: 7000
-  cache_ttl_hours: 4.0
-  timeout: 30.0
-  user_agent: 'daedalus-rss-reader/1.0'
-  max_entries: 20
-  scrape_max_output_tokens: 64000
+functions:
+  curated_feed_search_tool:
+    _type: rss_feed
+    feed_url: null
+    feeds: {} # optional map of feed_scope name -> RSS URL
+    reranker_endpoint: null # e.g. http://reranker:8000/rerank
+    reranker_model: null
+    reranker_api_key: null
+    reranker_max_passage_tokens: 192
+    reranker_max_total_tokens: 7000
+    cache_ttl_hours: 4.0
+    timeout: 30.0
+    user_agent: 'daedalus-rss-reader/1.0'
+    max_entries: 20
+    feed_concurrency: 4
+    max_batch_queries: 6
+    discovery_excerpt_chars: 800
+    scrape_max_output_tokens: 8000
+    scrape_timeout: 20.0
 ```
 
 Required inputs:
@@ -60,7 +67,14 @@ if result["success"]:
 ```
 
 `feed_scope="auto"` searches every configured feed; specifying a named scope
-restricts the search to that feed.
+restricts the search to that feed. The registered schema lists only the
+configured scopes.
+
+`mode="discover"` returns up to `top_k` (1-5) ranked candidates per search
+without fetching articles. Pass independent searches as
+`queries=[{"query": ..., "feed_scope": ...}]` (at most `max_batch_queries`,
+without a top-level `query`). Discovery excerpts are feed summaries, not
+verified article content.
 
 ## Response Shape
 

@@ -6,8 +6,6 @@
  *
  * @requires zustand - Run: npm install zustand
  */
-import { IntermediateStepCategory } from '@/types/intermediateSteps';
-
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
@@ -28,27 +26,21 @@ export interface UISettingsState {
   // Chat UI
   showChatbar: boolean;
   chatbarWidth: number;
-  chatHistory: boolean;
 
   // Intermediate Steps
   enableIntermediateSteps: boolean;
-  expandIntermediateSteps: boolean;
-  intermediateStepOverride: boolean;
-  intermediateStepsView: 'timeline' | 'category';
-  intermediateStepsFilter: IntermediateStepCategory[];
 
   // Search
   searchTerm: string;
 
   // Autonomy feed lane filter ('all' or a lane id); persisted so the
-  // selection survives switching views, which unmounts the dashboard.
+  // selection survives reloads.
   autonomyLaneFilter: string;
 }
 
 export interface UISettingsActions {
   // Theme
   setLightMode: (mode: 'system' | 'light' | 'dark') => void;
-  toggleLightMode: () => void;
 
   // View tab
   setActiveView: (view: AppView) => void;
@@ -57,24 +49,15 @@ export interface UISettingsActions {
   setShowChatbar: (show: boolean) => void;
   toggleChatbar: () => void;
   setChatbarWidth: (width: number) => void;
-  setChatHistory: (enabled: boolean) => void;
 
   // Intermediate Steps
   setEnableIntermediateSteps: (enabled: boolean) => void;
-  setExpandIntermediateSteps: (expanded: boolean) => void;
-  setIntermediateStepOverride: (override: boolean) => void;
-  setIntermediateStepsView: (view: 'timeline' | 'category') => void;
-  setIntermediateStepsFilter: (filter: IntermediateStepCategory[]) => void;
-  toggleIntermediateStepCategory: (category: IntermediateStepCategory) => void;
 
   // Search
   setSearchTerm: (term: string) => void;
 
   // Autonomy
   setAutonomyLaneFilter: (lane: string) => void;
-
-  // Reset
-  resetToDefaults: () => void;
 }
 
 export type UISettingsStore = UISettingsState & UISettingsActions;
@@ -83,20 +66,12 @@ export type UISettingsStore = UISettingsState & UISettingsActions;
 // Default Values
 // ============================================================================
 
-const DEFAULT_CHAT_HISTORY =
-  process?.env?.NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON !== 'false';
-
 const initialState: UISettingsState = {
   lightMode: 'system',
   activeView: 'chat',
   showChatbar: false,
   chatbarWidth: 280,
-  chatHistory: DEFAULT_CHAT_HISTORY,
   enableIntermediateSteps: true,
-  expandIntermediateSteps: false,
-  intermediateStepOverride: true,
-  intermediateStepsView: 'timeline',
-  intermediateStepsFilter: [],
   searchTerm: '',
   autonomyLaneFilter: 'all',
 };
@@ -118,11 +93,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
 
         setLightMode: (mode) => set({ lightMode: mode }),
 
-        toggleLightMode: () =>
-          set((state) => ({
-            lightMode: state.lightMode === 'light' ? 'dark' : 'light',
-          })),
-
         // ======================================================================
         // View tab
         // ======================================================================
@@ -140,39 +110,12 @@ export const useUISettingsStore = create<UISettingsStore>()(
 
         setChatbarWidth: (width) => set({ chatbarWidth: width }),
 
-        setChatHistory: (enabled) => set({ chatHistory: enabled }),
-
         // ======================================================================
         // Intermediate Steps
         // ======================================================================
 
         setEnableIntermediateSteps: (enabled) =>
           set({ enableIntermediateSteps: enabled }),
-
-        setExpandIntermediateSteps: (expanded) =>
-          set({ expandIntermediateSteps: expanded }),
-
-        setIntermediateStepOverride: (override) =>
-          set({ intermediateStepOverride: override }),
-
-        setIntermediateStepsView: (view) =>
-          set({ intermediateStepsView: view }),
-
-        setIntermediateStepsFilter: (filter) =>
-          set({ intermediateStepsFilter: filter }),
-
-        toggleIntermediateStepCategory: (category) =>
-          set((state) => {
-            const current = state.intermediateStepsFilter;
-            if (current.includes(category)) {
-              return {
-                intermediateStepsFilter: current.filter((c) => c !== category),
-              };
-            }
-            return {
-              intermediateStepsFilter: [...current, category],
-            };
-          }),
 
         // ======================================================================
         // Search
@@ -185,12 +128,6 @@ export const useUISettingsStore = create<UISettingsStore>()(
         // ======================================================================
 
         setAutonomyLaneFilter: (lane) => set({ autonomyLaneFilter: lane }),
-
-        // ======================================================================
-        // Reset
-        // ======================================================================
-
-        resetToDefaults: () => set(initialState),
       }),
       {
         name: 'ui-settings',
@@ -201,10 +138,7 @@ export const useUISettingsStore = create<UISettingsStore>()(
           activeView: state.activeView,
           showChatbar: state.showChatbar,
           chatbarWidth: state.chatbarWidth,
-          chatHistory: state.chatHistory,
           enableIntermediateSteps: state.enableIntermediateSteps,
-          expandIntermediateSteps: state.expandIntermediateSteps,
-          intermediateStepsView: state.intermediateStepsView,
           autonomyLaneFilter: state.autonomyLaneFilter,
         }),
       },

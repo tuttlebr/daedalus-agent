@@ -1,4 +1,5 @@
-{{- if and .Values.redis.enabled .Values.redis.persistence.enabled .Values.redis.persistence.create }}
+{{- /* Match the Deployment: an existing claim replaces the chart claim. */}}
+{{- if and .Values.redis.enabled .Values.redis.persistence.enabled .Values.redis.persistence.create (not .Values.redis.persistence.existingClaimName) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -13,7 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ".agents/skills"
 # Placeholders, URLs and home or absolute paths are not repository paths.
 NOT_A_PATH = re.compile(r"[<>${}~]|://|^/")
-TARGET = re.compile(r"^[\w.-]+$")
+# Root files such as `Makefile` or `pyproject.toml` have no directory part.
+FILE_NAME = re.compile(r"^(?:Makefile|Dockerfile|\.?[\w-]+(?:\.[\w-]+)*\.[A-Za-z]\w*)$")
+# Make options such as -j4 and VAR=value assignments are not targets.
+TARGET = re.compile(r"^\w[\w.-]*$")
 
 
 def make_targets(makefile):
@@ -24,9 +27,15 @@ def references(text):
     text = re.sub(r"^(```|~~~).*?^\1[^\n]*$", "", text, flags=re.M | re.S)
     for span in re.findall(r"`([^`\n]+)`", text):
         words = span.split()
+        if not words:
+            continue
         if words[0] == "make":
             yield "target", [word for word in words[1:] if TARGET.match(word)]
-        elif len(words) == 1 and "/" in span and not NOT_A_PATH.search(span):
+        elif (
+            len(words) == 1
+            and ("/" in span or FILE_NAME.match(span))
+            and not NOT_A_PATH.search(span)
+        ):
             yield "path", span
 
 

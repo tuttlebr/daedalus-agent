@@ -1,5 +1,7 @@
 import { defaultSchema } from 'rehype-sanitize';
 
+const MATH_CLASSES = ['math', 'math-inline', 'math-display'];
+
 /**
  * Custom sanitization schema for Markdown rendering.
  * Extends the default GitHub-style schema to whitelist elements
@@ -79,15 +81,14 @@ export const sanitizeSchema = {
     'col',
     'colgroup',
   ],
+  // Model and tool HTML must not use the application's own utility classes:
+  // `fixed inset-0 z-50 opacity-0` would turn a link into an invisible
+  // full-screen overlay. Only renderer-owned classes survive: the default
+  // schema's code-language, task-list and footnote classes, and remark-math's
+  // wrappers, which rehype-katex reads after sanitization.
   attributes: {
     ...defaultSchema.attributes,
-    '*': [
-      ...(defaultSchema.attributes?.['*'] || []),
-      'className',
-      'class',
-      'aria-hidden',
-      'role',
-    ],
+    '*': [...(defaultSchema.attributes?.['*'] || []), 'aria-hidden', 'role'],
     img: ['src', 'alt', 'title', 'width', 'height', 'loading'],
     video: [
       'src',
@@ -105,8 +106,9 @@ export const sanitizeSchema = {
     td: ['align', 'valign', 'colSpan', 'rowSpan'],
     th: ['align', 'valign', 'colSpan', 'rowSpan', 'scope'],
     a: ['href', 'title', 'target', 'rel'],
-    span: ['className', 'class', 'aria-hidden'],
-    div: ['className', 'class', 'aria-hidden'],
+    // remarkLatexDelimiters marks display math kept inline with math-display.
+    span: [['className', ...MATH_CLASSES], 'aria-hidden'],
+    div: [['className', ...MATH_CLASSES], 'aria-hidden'],
     math: ['xmlns', 'display'],
     annotation: ['encoding'],
     'annotation-xml': ['encoding'],

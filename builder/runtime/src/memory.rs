@@ -52,8 +52,22 @@ pub struct Memory {
     http: crate::hindsight::Client,
     pub enabled: bool,
     store: Store,
-    bootstrap: Mutex<HashMap<String, Instant>>,
+    bootstrap: std::sync::Mutex<HashMap<String, Instant>>,
     bootstrap_locks: Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>,
+}
+/// Backs off after a failed bootstrap, including one dropped on Stop or its
+/// preparation deadline, as the baseline's negative cache does. Concurrent
+/// callers keep waiting for an attempt that is still in flight.
+struct Backoff<'a> {
+    memory: &'a Memory,
+    id: Option<String>,
+}
+impl Drop for Backoff<'_> {
+    fn drop(&mut self) {
+        if let Some(id) = self.id.take() {
+            self.memory.cache(id, Duration::from_secs(60));
+        }
+    }
 }
 impl Memory {
     pub fn new(config: &Config, _http: reqwest::Client) -> Result<Self> {
@@ -68,9 +82,23 @@ impl Memory {
             http: crate::hindsight::Client::new(config)?,
             enabled: mode == "hindsight",
             store: Store::new(config)?,
-            bootstrap: Mutex::new(HashMap::new()),
+            bootstrap: std::sync::Mutex::new(HashMap::new()),
             bootstrap_locks: Mutex::new(HashMap::new()),
         })
+    }
+    fn bootstrapped(&self, id: &str) -> bool {
+        self.bootstrap
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|t| *t > Instant::now())
+    }
+    fn cache(&self, id: String, ttl: Duration) {
+        let mut cache = self.bootstrap.lock().unwrap();
+        if cache.len() > 4096 {
+            cache.retain(|_, t| *t > Instant::now());
+        }
+        cache.insert(id, Instant::now() + ttl);
     }
     async fn request(
         &self,
@@ -95,13 +123,7 @@ impl Memory {
     }
     pub async fn initialize(&self, user: &str) -> Result<()> {
         let cache_id = digest(&["v1", &bank_id(user)]);
-        if self
-            .bootstrap
-            .lock()
-            .await
-            .get(&cache_id)
-            .is_some_and(|t| *t > Instant::now())
-        {
+        if self.bootstrapped(&cache_id) {
             return Ok(());
         }
         let lock = {
@@ -115,13 +137,7 @@ impl Memory {
             lock
         };
         let _guard = lock.lock().await;
-        if self
-            .bootstrap
-            .lock()
-            .await
-            .get(&cache_id)
-            .is_some_and(|t| *t > Instant::now())
-        {
+        if self.bootstrapped(&cache_id) {
             return Ok(());
         }
         let key = format!("daedalus:memory:bootstrap:{cache_id}");
@@ -129,10 +145,7 @@ impl Memory {
         let mut lease = None;
         if let Ok(cached) = self.store.get(&key).await {
             if cached.is_some() {
-                self.bootstrap
-                    .lock()
-                    .await
-                    .insert(cache_id, Instant::now() + Duration::from_secs(3600));
+                self.cache(cache_id, Duration::from_secs(3600));
                 return Ok(());
             }
             match self.store.lease(&lock_key, 30).await {
@@ -141,21 +154,13 @@ impl Memory {
                 Err(_) => {}
             }
         }
-        // Set failure backoff before awaits so dropping this future on Stop or
-        // its preparation deadline also retains the baseline's negative cache.
-        {
-            let mut cache = self.bootstrap.lock().await;
-            if cache.len() > 4096 {
-                cache.retain(|_, t| *t > Instant::now());
-            }
-            cache.insert(cache_id.clone(), Instant::now() + Duration::from_secs(60));
-        }
+        let mut backoff = Backoff {
+            memory: self,
+            id: Some(cache_id),
+        };
         let result = self.bootstrap_bank(user).await;
         if result.is_ok() {
-            self.bootstrap
-                .lock()
-                .await
-                .insert(cache_id, Instant::now() + Duration::from_secs(3600));
+            self.cache(backoff.id.take().unwrap(), Duration::from_secs(3600));
             if lease.is_some() {
                 let _ = self.store.set(&key, "1", 3600).await;
             }
@@ -165,7 +170,7 @@ impl Memory {
     }
     pub async fn clear_caches(&self, user: &str) -> Result<()> {
         let cache_id = digest(&["v1", &bank_id(user)]);
-        self.bootstrap.lock().await.remove(&cache_id);
+        self.bootstrap.lock().unwrap().remove(&cache_id);
         let user_id = digest(&[&bank_id(user)]);
         // Fence older reflections before scanning: their cache entry might
         // not exist yet. Keep this generation until the next clear.
@@ -576,5 +581,112 @@ mod tests {
             let recall = calls.iter().position(|c| c.ends_with("/memories/recall"));
             assert!(recall.is_none() || search < recall, "{calls:?}");
         }
+    }
+
+    /// Holds each bank configuration read until a permit is released. Every
+    /// request for the bank of `synthetic-bob` fails.
+    #[derive(Clone)]
+    struct Held {
+        arrived: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Semaphore>,
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+    async fn held(
+        State(peer): State<Held>,
+        method: axum::http::Method,
+        uri: Uri,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        let call = format!("{method} {}", uri.path());
+        peer.calls.lock().await.push(call.clone());
+        if uri.path().contains(&bank_id("synthetic-bob")) {
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        if call.starts_with("GET ") && call.ends_with("/config") {
+            peer.arrived.notify_one();
+            peer.release.acquire().await.unwrap().forget();
+        }
+        Json(json!({})).into_response()
+    }
+    async fn held_memory(peer: Held) -> (Arc<Memory>, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new().fallback(held).with_state(peer);
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let config = Config::new(
+            json!({"llms":{"main":{"base_url":"http://model.invalid","model_name":"fixture"}},
+                "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}}),
+            [
+                ("HINDSIGHT_API_URL".into(), base),
+                ("HINDSIGHT_API_KEY".into(), "synthetic-memory-key".into()),
+                ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+            ]
+            .into(),
+        )
+        .unwrap();
+        let memory = Arc::new(Memory::new(&config, reqwest::Client::new()).unwrap());
+        (memory, server)
+    }
+    fn initialize(memory: &Arc<Memory>, user: &'static str) -> tokio::task::JoinHandle<Result<()>> {
+        let memory = memory.clone();
+        tokio::spawn(async move { memory.initialize(user).await })
+    }
+
+    #[tokio::test]
+    async fn concurrent_initialization_waits_for_the_in_flight_bootstrap() {
+        let peer = Held {
+            arrived: Arc::default(),
+            release: Arc::new(tokio::sync::Semaphore::new(0)),
+            calls: Arc::default(),
+        };
+        let (memory, server) = held_memory(peer.clone()).await;
+        let first = initialize(&memory, "synthetic-alice");
+        peer.arrived.notified().await;
+        // Retention and page discovery initialize first so managed bank
+        // defaults apply. A concurrent caller must not treat an unfinished
+        // bootstrap as complete; it waits for the attempt in progress.
+        let mut second = initialize(&memory, "synthetic-alice");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(300), &mut second)
+                .await
+                .is_err(),
+            "a concurrent caller skipped the in-flight bootstrap"
+        );
+        peer.release.add_permits(1);
+        first.await.unwrap().unwrap();
+        second.await.unwrap().unwrap();
+        let calls = peer.calls.lock().await.clone();
+        let reads = calls
+            .iter()
+            .filter(|c| c.starts_with("GET ") && c.ends_with("/config"))
+            .count();
+        assert_eq!(reads, 1, "{calls:?}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn abandoned_or_failed_bootstrap_backs_off() {
+        let peer = Held {
+            arrived: Arc::default(),
+            release: Arc::new(tokio::sync::Semaphore::new(0)),
+            calls: Arc::default(),
+        };
+        let (memory, server) = held_memory(peer.clone()).await;
+        // Stop or the preparation deadline drops an in-flight bootstrap. Like
+        // a failed attempt, it backs off instead of repeating the whole chain.
+        let first = initialize(&memory, "synthetic-alice");
+        peer.arrived.notified().await;
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert!(initialize(&memory, "synthetic-bob").await.unwrap().is_err());
+        let before = peer.calls.lock().await.len();
+        for user in ["synthetic-alice", "synthetic-bob"] {
+            tokio::time::timeout(Duration::from_secs(2), memory.initialize(user))
+                .await
+                .expect("a backed-off bootstrap must not be retried immediately")
+                .unwrap();
+        }
+        assert_eq!(peer.calls.lock().await.len(), before);
+        server.abort();
     }
 }

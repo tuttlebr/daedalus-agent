@@ -37,6 +37,12 @@ export default defineConfig({
         // atomic JSON/history writers, push subscriptions and OAuth state.
         'server/**/*.ts',
         'state/**/*.ts',
+        // Runtime helpers outside the directories above: upload limits,
+        // activity classification, component utilities and the page shell.
+        'components/**/*.ts',
+        'constants/**/*.ts',
+        'types/**/*.ts',
+        'pages/*.tsx',
       ],
       exclude: [
         '**/*.test.ts',

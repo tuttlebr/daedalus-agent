@@ -145,8 +145,8 @@ builder: ## Python builder pytest with coverage  (CI job: builder)
 test-integration: ## Python + frontend persistence tests vs real Redis  (CI job: builder-integration)
 	@set -eu; \
 		compose_file="$(CURDIR)/frontend/e2e/docker-compose.yml"; \
-		docker compose -f $$compose_file up -d --build --wait redis; \
 		trap 'docker compose -f $$compose_file down --volumes --remove-orphans' EXIT; \
+		docker compose -f $$compose_file up -d --build --wait redis; \
 		cd builder; \
 		uv pip install -e ".[test]" redis; \
 		PYTEST_USE_REAL_REDIS=1 \

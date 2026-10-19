@@ -64,7 +64,10 @@ different collection when the authoritative metadata source is unavailable.
 - [`collections.ts`](collections.ts) for the browser-facing route
 - [`../../../server/milvusMetadata.ts`](../../../server/milvusMetadata.ts) for
   backend transport and response validation
-- [`../../../../builder/collection_metadata_api.py`](../../../../builder/collection_metadata_api.py)
-  for the authenticated backend endpoint
+- [`../../../../builder/runtime/src/collection_api.rs`](../../../../builder/runtime/src/collection_api.rs)
+  for the authenticated backend endpoint; the Python
+  [`collection_metadata_api.py`](../../../../builder/collection_metadata_api.py)
+  serves it only when the Rust runtime has no prepared configuration and
+  proxies the request
 - [`../../../../builder/nat_nv_ingest/README.md`](../../../../builder/nat_nv_ingest/README.md)
   for ingestion and collection ownership rules

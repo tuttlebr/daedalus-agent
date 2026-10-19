@@ -20,14 +20,12 @@ import { StepDetails } from './StepDetails';
 interface StepTimelineProps {
   steps: IntermediateStep[];
   isStreaming: boolean;
-  isSearching?: boolean;
   searchTerm?: string;
 }
 
 export const StepTimeline: React.FC<StepTimelineProps> = ({
   steps,
   isStreaming,
-  isSearching = false,
   searchTerm = '',
 }) => {
   const timelineId = useId();
@@ -204,7 +202,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
   if (showEmptyState) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-sm text-muted">
-        {isSearching || searchTerm.trim()
+        {searchTerm.trim()
           ? 'No activity matches your search.'
           : 'No activity recorded yet.'}
       </div>

@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
 import {
-  getOrSetSessionId,
+  getStorageSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
 import { getRedis } from '@/server/session/redis';
@@ -104,7 +104,7 @@ export default async function handler(
 
     const redis = getRedis();
     const redisKey = `generated:image:${id}`;
-    const sessionId = getOrSetSessionId(req, res);
+    const sessionId = getStorageSessionId(req, res);
     const userId = session.username;
 
     // Try RedisJSON first, fall back to plain GET

@@ -24,7 +24,6 @@ from document_ingest_api import (  # noqa: E402
     _redis_url,
     _require_trusted_user,
     _resolve_request,
-    router,
 )
 from pydantic import ValidationError  # noqa: E402
 
@@ -63,9 +62,6 @@ class _RecordingRouter:
 
 
 class TestRouter:
-    def test_router_exists(self):
-        assert router is not None
-
     def test_rollback_routes_match_the_paths_rust_proxies(self, monkeypatch):
         # With DAEDALUS_PREPARATION=python, Rust's document_ingest_api.rs and
         # document_api.rs forward exactly these paths to this router.

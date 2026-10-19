@@ -47,4 +47,47 @@ describe('rendered model HTML sanitization', () => {
     expect((window as any).__xss).toBeUndefined();
     act(() => root.unmount());
   });
+
+  it('drops application classes from model HTML but keeps renderer classes', () => {
+    // The app's own utility classes would let model or tool HTML draw an
+    // invisible full-screen link over the interface.
+    const content = [
+      '<a href="https://evil.test" class="fixed inset-0 z-50 opacity-0">overlay</a>',
+      '<div class="fixed inset-0 bg-black">cover</div>',
+      '<span class="sr-only absolute">hidden</span>',
+      '',
+      'Inline $$x^2$$ math.',
+      '',
+      '```python',
+      'print(1)',
+      '```',
+    ].join('\n');
+    const codeClasses: string[] = [];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <MarkdownRenderer
+          content={content}
+          components={{
+            code: ({ className, children }) => {
+              codeClasses.push(String(className));
+              return <code>{children}</code>;
+            },
+          }}
+        />,
+      ),
+    );
+
+    expect(container.querySelector('a')?.getAttribute('href')).toBe(
+      'https://evil.test',
+    );
+    for (const name of ['fixed', 'inset-0', 'z-50', 'opacity-0', 'absolute']) {
+      expect(container.querySelector(`.${name}`)).toBeNull();
+    }
+    expect(container.querySelectorAll('.katex')).toHaveLength(1);
+    expect(codeClasses).toContain('language-python');
+    act(() => root.unmount());
+  });
 });

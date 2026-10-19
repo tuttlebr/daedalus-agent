@@ -6,22 +6,18 @@ import {
 } from '@tabler/icons-react';
 import React, { memo } from 'react';
 
-import {
-  applyPreset,
-  presetsForMode,
-  type ImagePreset,
-} from '@/utils/app/imagePresets';
+import { presetsForMode } from '@/utils/app/imagePresets';
 
 import { Popover } from '@/components/primitives';
 
 import { ImageSettingsPanel } from './ImageSettingsPanel';
-import { DockIconTrigger, PresetsPanel } from './PresetsPopover';
-
 import {
-  selectMode,
-  useImagePanelStore,
-  type ImageParams,
-} from '@/state/imagePanelStore';
+  DockIconTrigger,
+  PresetsPanel,
+  applyPresetToDraft,
+} from './PresetsPopover';
+
+import { selectMode, useImagePanelStore } from '@/state/imagePanelStore';
 
 export const AdjustPopover = memo(function AdjustPopover({
   disabled,
@@ -29,22 +25,6 @@ export const AdjustPopover = memo(function AdjustPopover({
   disabled?: boolean;
 }) {
   const mode = useImagePanelStore(selectMode);
-  const model = useImagePanelStore((state) => state.model);
-
-  const handleApply = (preset: ImagePreset) => {
-    const { prompt, setPrompt, setPreserveList, setParam } =
-      useImagePanelStore.getState();
-    const {
-      prompt: nextPrompt,
-      preserveList: nextPreserve,
-      params: nextParams,
-    } = applyPreset(preset, prompt, model, mode);
-    setPrompt(nextPrompt);
-    if (nextPreserve !== undefined) setPreserveList(nextPreserve);
-    (Object.keys(nextParams) as (keyof ImageParams)[]).forEach((key) => {
-      setParam(key, nextParams[key] as never);
-    });
-  };
 
   return (
     <Popover
@@ -75,7 +55,7 @@ export const AdjustPopover = memo(function AdjustPopover({
           <PresetsPanel
             mode={mode}
             presets={presetsForMode(mode)}
-            onApply={handleApply}
+            onApply={applyPresetToDraft}
             showHeading={false}
           />
         </details>

@@ -71,7 +71,8 @@ const Home = () => {
     ],
   });
 
-  const conversations = useConversationStore((s) => s.conversations);
+  // Read conversations from the store when handling sync events. Subscribing
+  // here would re-render the whole app shell on every streamed flush.
   const setConversations = useConversationStore((s) => s.setConversations);
   const selectedConversationId = useConversationStore(
     (s) => s.selectedConversationId,
@@ -85,8 +86,6 @@ const Home = () => {
     (s) => s.deleteConversation,
   );
 
-  const conversationsRef = useRef(conversations);
-  conversationsRef.current = conversations;
   const selectedIdRef = useRef(selectedConversationId);
   selectedIdRef.current = selectedConversationId;
 
@@ -127,9 +126,9 @@ const Home = () => {
           return;
         }
 
-        const current = conversationsRef.current.find(
-          (c) => c.id === conversation.id,
-        );
+        const current = useConversationStore
+          .getState()
+          .conversations.find((c) => c.id === conversation.id);
         if (current) {
           // Only apply if incoming data is at least as recent as local state
           // to prevent stale sync events from overwriting newer local updates
@@ -149,9 +148,7 @@ const Home = () => {
       (conversationId: string) => {
         deleteConversationFromStore(conversationId);
         if (selectedIdRef.current === conversationId) {
-          const remaining = conversationsRef.current.filter(
-            (c) => c.id !== conversationId,
-          );
+          const remaining = useConversationStore.getState().conversations;
           const next = remaining[remaining.length - 1];
           if (next) {
             selectConversation(next.id);

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const apiGet = vi.fn();
 const apiPut = vi.fn();
 const apiPost = vi.fn();
+const getUserSessionItem = vi.fn();
 const setUserSessionItem = vi.fn(() => true);
 
 vi.mock('@/utils/app/api', () => {
@@ -25,7 +26,7 @@ vi.mock('@/utils/app/api', () => {
 });
 
 vi.mock('@/utils/app/storage', () => ({
-  getUserSessionItem: vi.fn(),
+  getUserSessionItem,
   setUserSessionItem,
 }));
 
@@ -41,6 +42,7 @@ describe('saveConversation', () => {
     apiPut.mockReset();
     apiPost.mockReset();
     apiPost.mockResolvedValue({ success: true });
+    getUserSessionItem.mockReset();
     setUserSessionItem.mockClear();
   });
 
@@ -160,6 +162,14 @@ describe('saveConversation', () => {
 
   it('loads complete server history without supplementing it from a browser cache', async () => {
     const { loadConversation } = await import('@/utils/app/conversation');
+    // A bounded, stale browser copy of the same conversation must not replace
+    // or extend the authoritative server history.
+    getUserSessionItem.mockReturnValue(
+      JSON.stringify({
+        id: 'conv-1',
+        messages: [{ id: 'cached', role: 'user', content: 'stale cache' }],
+      }),
+    );
     const conversation = {
       id: 'conv-1',
       messages: Array.from({ length: 70 }, (_, index) => ({
@@ -168,7 +178,9 @@ describe('saveConversation', () => {
         content: `message ${index}`,
       })),
     };
+    // Compare with an independent copy: the cleaners return the same object.
+    const expected = structuredClone(conversation);
     apiGet.mockResolvedValue(conversation);
-    expect(await loadConversation()).toEqual(conversation);
+    expect(await loadConversation()).toEqual(expected);
   });
 });

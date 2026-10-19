@@ -835,6 +835,33 @@ def test_execute_rejects_working_directories_outside_request_workspace(
     assert all(path != "/v1/execute" for _, path, _ in FakeAsyncClient.calls)
 
 
+@pytest.mark.parametrize("operation", ["write_file", "read_file", "publish_file"])
+@pytest.mark.parametrize("file_path", ["/etc/passwd", "../escape", "out/../../escape"])
+def test_file_operations_reject_paths_outside_conversation_workspace(
+    operation, file_path
+):
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def _run():
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(commands=["true"], workspace_persistence=True),
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_trusted_scope_from_context",
+                return_value=("user-a", "conversation-a"),
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(operation=operation, file_path=file_path)
+
+    assert "relative path inside the conversation workspace" in run(_run())
+    assert all(path != "/v1/execute" for _, path, _ in FakeAsyncClient.calls)
+
+
 def test_execute_rejects_invalid_env_json():
     import llm_sandbox.llm_sandbox_function as mod
 

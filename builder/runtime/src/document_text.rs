@@ -321,6 +321,43 @@ fn quality(text: &str) -> f64 {
         .count() as f64
         / chars(text) as f64
 }
+/// Stable merge sort. Python's sorted() raises TypeError for an incomparable
+/// pair and the renderer keeps the extraction order. Treating that pair as
+/// equal is not a total order, which the standard sort may reject with a
+/// panic, so stop and report false at the first pair that cannot be ordered.
+fn stable_sort(items: &mut [usize], order: impl Fn(usize, usize) -> Option<Ordering>) -> bool {
+    let mut buffer = items.to_vec();
+    let mut width = 1;
+    while width < items.len() {
+        for start in (0..items.len()).step_by(2 * width) {
+            let middle = (start + width).min(items.len());
+            let end = (start + 2 * width).min(items.len());
+            let (mut left, mut right) = (start, middle);
+            for slot in &mut buffer[start..end] {
+                let first = if left == middle {
+                    false
+                } else if right == end {
+                    true
+                } else {
+                    match order(items[left], items[right]) {
+                        Some(ordering) => ordering != Ordering::Greater,
+                        None => return false,
+                    }
+                };
+                if first {
+                    *slot = items[left];
+                    left += 1;
+                } else {
+                    *slot = items[right];
+                    right += 1;
+                }
+            }
+        }
+        items.copy_from_slice(&buffer);
+        width *= 2;
+    }
+    true
+}
 pub fn markdown(results: &Value) -> Result<(String, usize)> {
     if !crate::config::truthy(results) {
         return Ok((String::new(), 0));
@@ -343,7 +380,6 @@ pub fn markdown(results: &Value) -> Result<(String, usize)> {
     let blank = json!("");
     let unknown = json!(-1);
     let mut keys = Vec::new();
-    let mut can_sort = true;
     for entry in entries {
         if entry
             .get("document_type")
@@ -371,17 +407,16 @@ pub fn markdown(results: &Value) -> Result<(String, usize)> {
         ]);
     }
     let mut indices: Vec<_> = (0..entries.len()).collect();
-    indices.sort_by(|&a, &b| {
+    let order = |a: usize, b: usize| {
         for (a, b) in keys[a].iter().zip(keys[b].iter()) {
             match compare(a, b) {
                 Some(Ordering::Equal) => {}
-                Some(order) => return order,
-                None => can_sort = false,
+                order => return order,
             }
         }
-        Ordering::Equal
-    });
-    if !can_sort {
+        Some(Ordering::Equal)
+    };
+    if !stable_sort(&mut indices, order) {
         indices = (0..entries.len()).collect();
     }
     type TextCandidate<'a> = (usize, &'a str, BTreeSet<String>);
@@ -524,6 +559,35 @@ mod tests {
             Value::Array(values) => Value::Array(values.into_iter().map(expand).collect()),
             other => other,
         }
+    }
+    #[test]
+    fn incomparable_page_numbers_keep_extraction_order() {
+        // Python's sorted() raises TypeError for int/str page numbers and the
+        // renderer keeps NV-Ingest's order. Treating those pairs as equal is
+        // not a total order, and the standard sort panicked on this input.
+        let pages = json!([
+            8, "s", 0, 0, 4, 5, 2, 5, 6, "s", 2, 1, 6, 8, 5, "s", 0, "s", 0, 4, 2
+        ]);
+        let entries: Vec<Value> = pages
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, page)| {
+                json!({"document_type":"text","metadata":{"content":format!("Entry{i}"),
+                    "content_metadata":{"page_number":page}}})
+            })
+            .collect();
+        let (rendered, pages) = std::panic::catch_unwind(|| markdown(&json!([entries])))
+            .expect("rendering must not panic")
+            .unwrap();
+        let order: Vec<_> = rendered
+            .split('\n')
+            .filter(|line| line.starts_with("Entry"))
+            .collect();
+        let expected: Vec<_> = (0..entries.len()).map(|i| format!("Entry{i}")).collect();
+        assert_eq!(order, expected);
+        assert_eq!(pages, 7);
     }
     #[test]
     fn pinned_document_rendering() {

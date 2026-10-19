@@ -83,6 +83,42 @@ describe('conversationStore history reconciliation', () => {
     expect(useConversationStore.getState().conversations).toEqual([local]);
   });
 
+  it('keeps local copies of streaming conversations during a history refresh', () => {
+    const store = useConversationStore.getState();
+    const streaming = {
+      id: 'conv-streaming',
+      name: 'Background answer',
+      messages: [
+        { id: 'user-1', role: 'user' as const, content: 'Hello' },
+        { id: 'assistant-1', role: 'assistant' as const, content: 'Partial' },
+      ],
+      folderId: null,
+      updatedAt: 1,
+    };
+    const unsaved = {
+      id: 'conv-unsaved',
+      name: 'First turn still streaming',
+      messages: [{ id: 'user-2', role: 'user' as const, content: 'Hi' }],
+      folderId: null,
+      updatedAt: 1,
+    };
+    store.addConversation(streaming);
+    store.addConversation(unsaved);
+    store.setStreaming(streaming.id, true);
+    store.setStreaming(unsaved.id, true);
+
+    // The persisted copy predates the in-progress assistant message, and the
+    // first turn of the other conversation has not been saved yet.
+    store.setConversations([
+      { ...streaming, messages: streaming.messages.slice(0, 1), updatedAt: 5 },
+    ]);
+
+    const conversations = useConversationStore.getState().conversations;
+    expect(conversations).toHaveLength(2);
+    expect(conversations).toContainEqual(streaming);
+    expect(conversations).toContainEqual(unsaved);
+  });
+
   it('upserts a conversation instead of adding the same id twice', () => {
     const store = useConversationStore.getState();
     store.addConversation({

@@ -257,3 +257,98 @@ def test_verify_claim_rejects_malformed_url_before_fetching(monkeypatch):
     assert result["verdict"] == "source_unreachable"
     assert result["fetch_status"] == "invalid_url"
     http_fetch.assert_not_awaited()
+
+
+def test_verify_claim_selects_evidence_from_the_whole_fetched_source(monkeypatch):
+    """Claim evidence beyond the model token budget must still reach the critic.
+
+    Only the HTTP client, DNS answer and converter library are replaced; the
+    real controlled fetch, conversion wrapper, excerpt and token bound run.
+    """
+    import socket
+
+    import httpx
+    import source_verifier.source_verifier_function as mod
+    import webscrape.webscrape_function as scrape
+
+    evidence = "The critical build identifier is ZXQ-9.4.7."
+    page = (
+        "HEAD EVIDENCE\n"
+        + "unrelated filler " * 2000
+        + evidence
+        + " more filler" * 2500
+        + "\nTAIL EVIDENCE"
+    )
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            assert kwargs.get("follow_redirects") is False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, requested):
+            return httpx.Response(
+                200,
+                content=page.encode(),
+                headers={"content-type": "text/plain"},
+                request=httpx.Request("GET", requested),
+            )
+
+    def convert(path):
+        with open(path, encoding="utf-8") as file_obj:
+            return MagicMock(title="Release notes", text_content=file_obj.read())
+
+    prompts = []
+
+    async def call_llm(_builder, _config, _system_prompt, user_prompt):
+        prompts.append(user_prompt)
+        return json.dumps(
+            {
+                "verdict": "supported",
+                "confidence": 0.9,
+                "evidence": evidence,
+                "reasoning": "The source states the identifier.",
+                "claim_issues": [],
+            }
+        )
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_a, **_k: [(socket.AF_INET, None, None, "", ("93.184.216.34", 0))],
+    )
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    monkeypatch.setattr(
+        scrape, "MarkItDown", MagicMock(return_value=MagicMock(convert=convert))
+    )
+    monkeypatch.setattr(mod, "_call_llm", call_llm)
+    config = mod.SourceVerifierConfig(
+        enabled_operations=["verify_claim"], max_fetch_tokens=1000
+    )
+
+    async def scenario():
+        async for item in mod.source_verifier_function(config, MagicMock()):
+            return json.loads(
+                await item.fn(
+                    operation="verify_claim",
+                    claim=evidence,
+                    source_url="https://docs.example.test/release",
+                )
+            )
+        raise AssertionError("verify_claim was not registered")
+
+    result = run(scenario())
+
+    (prompt,) = prompts
+    source = prompt.split("BEGIN UNTRUSTED SOURCE CONTENT\n", 1)[1]
+    source = source.split("\nEND UNTRUSTED SOURCE CONTENT", 1)[0]
+    assert evidence in source
+    assert "HEAD EVIDENCE" in source
+    assert source.endswith("TAIL EVIDENCE")
+    assert scrape._count_tokens(source) <= config.max_fetch_tokens
+    assert result["verdict"] == "supported"
+    assert result["source_truncated"] is True

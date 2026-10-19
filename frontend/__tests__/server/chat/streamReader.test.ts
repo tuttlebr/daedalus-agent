@@ -1,30 +1,36 @@
 // @vitest-environment node
 import { startBackgroundStreamReader } from '@/server/chat/streamReader';
 import type { AsyncJobRequest } from '@/server/chat/types';
+import { jsonGet } from '@/server/session/redis';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  response: '',
-  steps: [] as any[],
-  publish: vi.fn(),
-  finalizeSuccess: vi.fn(),
-  finalizeError: vi.fn(),
-  markJobStreaming: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const mocks = {
+    response: '',
+    steps: [] as any[],
+    publish: vi.fn(),
+    finalizeSuccess: vi.fn(),
+    finalizeError: vi.fn(),
+    markJobStreaming: vi.fn(),
+    appendStreamResponseDelta: vi.fn(
+      async (_jobId: string, delta: string, offset: number) => {
+        expect(offset).toBe(Buffer.byteLength(mocks.response));
+        mocks.response += delta;
+      },
+    ),
+    appendStreamSteps: vi.fn(
+      async (_jobId: string, steps: any[], offset: number) => {
+        expect(offset).toBe(mocks.steps.length);
+        mocks.steps.push(...steps);
+      },
+    ),
+  };
+  return mocks;
+});
 
 vi.mock('@/server/chat/streamState', () => ({
-  appendStreamResponseDelta: vi.fn(
-    async (_jobId: string, delta: string, offset: number) => {
-      expect(offset).toBe(Buffer.byteLength(mocks.response));
-      mocks.response += delta;
-    },
-  ),
-  appendStreamSteps: vi.fn(
-    async (_jobId: string, steps: any[], offset: number) => {
-      expect(offset).toBe(mocks.steps.length);
-      mocks.steps.push(...steps);
-    },
-  ),
+  appendStreamResponseDelta: mocks.appendStreamResponseDelta,
+  appendStreamSteps: mocks.appendStreamSteps,
   clearStreamState: vi.fn(),
 }));
 vi.mock('@/server/chat/finalization', () => ({
@@ -34,7 +40,7 @@ vi.mock('@/server/chat/finalization', () => ({
 vi.mock('@/server/chat/jobState', () => ({
   abortKey: (jobId: string) => `async-job-abort:${jobId}`,
   markJobStreaming: mocks.markJobStreaming,
-  recordOAuthJobRequest: vi.fn(),
+  recordOAuthJobRequest: vi.fn(async () => true),
 }));
 vi.mock('@/server/session/redis', () => ({
   getPublisher: () => ({ publish: mocks.publish }),
@@ -107,10 +113,15 @@ describe('backend stream reader persistence', () => {
     vi.setSystemTime(1_000_000);
     mocks.response = '';
     mocks.steps = [];
+    mocks.appendStreamResponseDelta.mockClear();
+    mocks.appendStreamSteps.mockClear();
     mocks.publish.mockReset().mockResolvedValue(1);
     mocks.finalizeSuccess.mockReset().mockResolvedValue(true);
     mocks.finalizeError.mockReset().mockResolvedValue(true);
     mocks.markJobStreaming.mockReset().mockResolvedValue(undefined);
+    vi.mocked(jsonGet)
+      .mockReset()
+      .mockImplementation(async () => null);
   });
 
   afterEach(() => {
@@ -235,6 +246,10 @@ describe('backend stream reader persistence', () => {
     vi.setSystemTime(1_015_000);
     body.push(': model active\n\n');
     await settle();
+    // An empty append leaves the accumulated text unchanged, so assert the
+    // persistence boundary itself: idle keepalives issue no state writes.
+    expect(mocks.appendStreamResponseDelta).not.toHaveBeenCalled();
+    expect(mocks.appendStreamSteps).not.toHaveBeenCalled();
     expect(mocks.response).toBe('');
     expect(mocks.steps).toEqual([]);
 
@@ -248,4 +263,55 @@ describe('backend stream reader persistence', () => {
       'Done',
     );
   });
+
+  // The backend waits for an OAuth callback inside the run. Its stream ending
+  // ends that run, so a job awaiting OAuth must still get a terminal outcome.
+  it.each([
+    ['closes', null],
+    ['completes', 'data: [DONE]\n\n'],
+  ])(
+    'finalizes a job awaiting OAuth when the backend stream %s',
+    async (_ending, terminal) => {
+      vi.mocked(jsonGet).mockImplementation(async (key: string) =>
+        key === 'async-job-status:job-1'
+          ? { jobId: 'job-1', status: 'oauth_required' }
+          : null,
+      );
+      const body = controlledBody();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => body.response),
+      );
+      const reading = startBackgroundStreamReader(
+        'job-1',
+        structuredClone(jobRequest),
+        [],
+        'alice',
+      );
+      body.push(
+        'event: oauth_required\ndata: {"auth_url":"https://accounts.google.com/auth","oauth_state":"state-1"}\n\n',
+      );
+      body.push(step('call-1', 'Start'));
+      if (terminal) body.push(terminal);
+      body.push(null);
+      await reading;
+
+      if (terminal) {
+        expect(mocks.finalizeSuccess).toHaveBeenCalledWith(
+          'job-1',
+          expect.anything(),
+          '',
+        );
+        expect(mocks.finalizeError).not.toHaveBeenCalled();
+      } else {
+        expect(mocks.finalizeSuccess).not.toHaveBeenCalled();
+        expect(mocks.finalizeError).toHaveBeenCalledWith(
+          'job-1',
+          expect.anything(),
+          'Backend response stream ended before completion',
+          expect.objectContaining({ response: '' }),
+        );
+      }
+    },
+  );
 });

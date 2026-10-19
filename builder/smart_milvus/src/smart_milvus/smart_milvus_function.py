@@ -4,7 +4,6 @@ import os
 import time
 from collections import OrderedDict
 from collections.abc import Callable
-from functools import partial
 from typing import Any
 
 import requests
@@ -31,9 +30,8 @@ class MilvusRetriever:
     """
     Client for retrieving document chunks from a Milvus vectorstore.
 
-    This retriever supports both standard search and iterator-based search for
-    handling large result sets. It embeds queries using the provided embedder
-    and searches against vector collections in Milvus.
+    It embeds queries using the provided embedder and searches against vector
+    collections in Milvus.
     """
 
     def __init__(
@@ -41,7 +39,6 @@ class MilvusRetriever:
         client: MilvusClient,
         embedder: Embeddings,
         content_field: str = "content",
-        use_iterator: bool = False,
         database_name: str | None = None,
         vector_field_name: str = "vector",
         reranker_config: dict | None = None,
@@ -58,8 +55,6 @@ class MilvusRetriever:
                 queries.
             content_field (str): The field name containing the main text
                 content. Defaults to "content".
-            use_iterator (bool): Whether to use search iterator for large
-                result sets. Defaults to False.
             database_name (str | None): The name of the Milvus database to
                 use. If provided, switches to this database.
             vector_field_name (str): The field name containing vectors.
@@ -100,49 +95,7 @@ class MilvusRetriever:
         if database_name and database_name != "default":
             logger.info("Configured to use Milvus database: %s", database_name)
 
-        if use_iterator and "search_iterator" not in dir(self._client):
-            raise ValueError(
-                "This version of the pymilvus.MilvusClient does not support "
-                "the search iterator."
-            )
-
-        self._search_func = (
-            self._search if not use_iterator else self._search_with_iterator
-        )
-        self._bound_params = []
         self.content_field = content_field
-        logger.info("Milvus Retriever using %s for search.", self._search_func.__name__)
-
-    def bind(self, **kwargs) -> None:
-        """
-        Bind default values to the search method.
-        Cannot bind the 'query' parameter.
-
-        Args:
-          kwargs (dict): Key value pairs corresponding to the default
-                values of search parameters.
-        """
-        if "query" in kwargs:
-            kwargs = {k: v for k, v in kwargs.items() if k != "query"}
-        self._search_func = partial(self._search_func, **kwargs)
-        self._bound_params = list(kwargs.keys())
-        logger.info(
-            "MilvusRetriever: Binding parameters for search function: %s", kwargs
-        )
-        logger.info(
-            "MilvusRetriever: Instance vector_field_name: %s", self._vector_field_name
-        )
-
-    def get_unbound_params(self) -> list[str]:
-        """
-        Returns a list of unbound parameters which will need to be passed
-        to the search function.
-        """
-        return [
-            param
-            for param in ["query", "collection_name", "top_k", "filters"]
-            if param not in self._bound_params
-        ]
 
     def _invalidate_metadata_cache(self) -> None:
         """Discard collection/schema metadata after any client-side failure."""
@@ -376,129 +329,13 @@ class MilvusRetriever:
         if not query:
             raise ValueError("The 'query' parameter is required and cannot be empty.")
 
-        coro = self._search_func(query=query, **kwargs)
+        coro = self._search(query=query, **kwargs)
         # F-008: hard ceiling on the whole search (embed + Milvus + rerank). The
         # per-call Milvus timeout is honored server-side; this also bounds the
         # embedder round-trip, which runs in a thread and has no server timeout.
         if self._search_timeout is not None:
             return await asyncio.wait_for(coro, timeout=self._search_timeout)
         return await coro
-
-    async def _search_with_iterator(
-        self,
-        query: str,
-        *,
-        collection_name: str,
-        top_k: int,
-        filters: str | None = None,
-        output_fields: list[str] | None = None,
-        search_params: dict | None = None,
-        timeout: float | None = None,
-        vector_field_name: str | None = None,
-        distance_cutoff: float | None = None,
-        **kwargs,
-    ):
-        """
-        Retrieve document chunks from a Milvus vectorstore using a search
-        iterator, allowing for the retrieval of more results.
-        """
-        # Validate required parameters
-        if not query:
-            raise ValueError("The 'query' parameter is required and cannot be empty.")
-
-        logger.debug(
-            "MilvusRetriever searching query: %s, for collection: %s. "
-            "Returning max %s results",
-            query,
-            collection_name,
-            top_k,
-        )
-
-        # Use instance default if not provided
-        if vector_field_name is None:
-            vector_field_name = self._vector_field_name
-        if timeout is None:
-            timeout = self._search_timeout
-
-        exists, actual_collection_name = await self._resolve_collection(collection_name)
-        if not exists:
-            raise CollectionNotFoundError(
-                f"Collection: {collection_name} does not exist"
-            )
-
-        # If no output fields are specified, return all of them
-        if not output_fields:
-            collection_schema = await self._describe_collection(
-                actual_collection_name, timeout=timeout
-            )
-            output_fields = [
-                field["name"]
-                for field in (collection_schema.get("fields") or [])
-                if field["name"] != vector_field_name
-            ]
-
-        search_vector = await asyncio.to_thread(self._embedder.embed_query, query)
-
-        search_iterator = await self._client_call(
-            self._client.search_iterator,
-            collection_name=actual_collection_name,
-            data=[search_vector],
-            batch_size=kwargs.get("batch_size", 1000),
-            filter=filters,
-            limit=top_k,
-            output_fields=output_fields,
-            search_params=(search_params if search_params else {"metric_type": "L2"}),
-            timeout=timeout,
-            anns_field=vector_field_name,
-            round_decimal=kwargs.get("round_decimal", -1),
-            partition_names=kwargs.get("partition_names", None),
-        )
-
-        results = []
-        try:
-            while True:
-                _res = await self._client_call(search_iterator.next)
-                res = _res.get_res()
-                if len(_res) == 0:
-                    await self._client_call(search_iterator.close)
-                    break
-
-                if distance_cutoff:
-                    # Add only results within the distance cutoff
-                    for hit in res[0]:
-                        if hit.distance <= distance_cutoff:
-                            results.append(hit)
-                        else:
-                            # Results are sorted by distance, so we can stop early
-                            await self._client_call(search_iterator.close)
-                            wrapped = _wrap_milvus_results(
-                                results, content_field=self.content_field
-                            )
-                            wrapped.results = await self._rerank(query, wrapped.results)
-                            return wrapped
-                else:
-                    results.extend(res[0])
-
-                # Check if we've collected enough results
-                if len(results) >= top_k:
-                    results = results[:top_k]
-                    await self._client_call(search_iterator.close)
-                    break
-
-            wrapped = _wrap_milvus_results(results, content_field=self.content_field)
-            wrapped.results = await self._rerank(query, wrapped.results)
-            return wrapped
-
-        except Exception as e:
-            logger.error(
-                "Exception when retrieving results from milvus for query %s: %s",
-                query,
-                e,
-            )
-            raise RetrieverError(
-                f"Error when retrieving documents from {collection_name} "
-                f"for query '{query}'"
-            ) from e
 
     async def _search(
         self,

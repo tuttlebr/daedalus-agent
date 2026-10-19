@@ -3,6 +3,8 @@
 import { IconArrowUpRight, IconChevronRight } from '@tabler/icons-react';
 import { memo } from 'react';
 
+import { safeExternalUrl } from '@/utils/app/externalUrl';
+
 import type { AutonomyFeedItem } from '@/types/autonomy';
 
 import { laneAccent, LANE_LABELS, normalizeLane, timeOfDay } from './utils';
@@ -31,6 +33,7 @@ function FeedItemImpl({
   const lane = normalizeLane(item.lane);
   const accent = laneAccent(lane);
   const hasBody = !!item.body && item.body.trim().length > 0;
+  const sourceUrl = safeExternalUrl(item.sourceUrl);
   const expanded = isExpanded && hasBody;
 
   return (
@@ -142,9 +145,9 @@ function FeedItemImpl({
             <span>{expanded ? 'collapse' : 'read more'}</span>
           </button>
         )}
-        {item.sourceUrl && (
+        {sourceUrl && (
           <a
-            href={item.sourceUrl}
+            href={sourceUrl}
             target="_blank"
             rel="noreferrer noopener"
             className="inline-flex min-h-11 items-center gap-0.5 text-nvidia-green transition hover:underline focus-visible:outline-none focus-visible:text-nvidia-green"

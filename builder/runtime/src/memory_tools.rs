@@ -531,6 +531,24 @@ mod tests {
     }
 
     #[test]
+    fn model_schemas_match_the_frozen_python_catalog() {
+        // CONTRACT is the production resource that builds these schemas, so
+        // compare its parameters with the independently frozen catalogue.
+        let catalog: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/native-catalog.json")).unwrap();
+        for (kind, name) in [
+            ("daedalus_add_memory", "add_memory"),
+            ("daedalus_get_memory", "get_memory"),
+        ] {
+            assert_eq!(
+                schema(name, &json!({"_type":kind}))["parameters"],
+                catalog[name]["schema"],
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
     fn memory_configuration_and_response_privacy() {
         for value in [json!(1), json!(50), json!("2.0"), json!(true)] {
             assert!(validate(&json!({"_type":"daedalus_get_memory","top_k":value})).is_ok());

@@ -253,6 +253,33 @@ def test_client_errors_preserve_status_without_echoing_upstream_body(status_code
     assert raised.value.status_code == status_code
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.RemoteProtocolError("Server disconnected without sending a response."),
+        httpx.ProxyError("proxy rejected http://hindsight.test"),
+        httpx.DecodingError("malformed compressed body"),
+    ],
+)
+def test_transport_failures_are_reported_as_unavailable(failure):
+    # A pooled keep-alive connection closed by the server surfaces as a
+    # protocol error, not a timeout or network error. Callers map only
+    # HindsightError to their credential-safe "memory unavailable" response.
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise failure
+
+    client = HindsightClient(
+        base_url="http://hindsight.test",
+        api_key="secret-api-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(HindsightError) as raised:
+        run(client.list_documents(user_id="alice"))
+    assert str(raised.value) == "Hindsight is unavailable"
+    assert raised.value.status_code is None
+
+
 def test_invalidate_memory_uses_bank_scoped_curation_not_document_deletion():
     requests: list[httpx.Request] = []
 

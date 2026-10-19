@@ -102,6 +102,14 @@ describe('autonomy goals API handler', () => {
   it('edits only whitelisted, valid goal fields', async () => {
     const existing = goal('goal_edit', 'Original');
     const other = goal('goal_other', 'Untouched');
+    // Built before the request so an in-place write to the stored goal cannot
+    // also change the expectation.
+    const expected = {
+      ...existing,
+      title: 'Renamed',
+      priority: 1,
+      updatedAt: 12345,
+    };
     vi.mocked(listGoals).mockResolvedValue([existing, other]);
     const { req, res } = createMockReqRes(
       'PATCH',
@@ -121,12 +129,8 @@ describe('autonomy goals API handler', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      ...existing,
-      title: 'Renamed',
-      priority: 1,
-      updatedAt: 12345,
-    });
+    expect(res.json).toHaveBeenCalledWith(expected);
+    expect(existing).toEqual(goal('goal_edit', 'Original'));
     expect(
       vi.mocked(mutateGoals).mock.calls[0][1]([existing, other])[1],
     ).toEqual(other);

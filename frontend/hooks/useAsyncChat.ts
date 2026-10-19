@@ -193,6 +193,7 @@ interface UseAsyncChatOptions {
       conversationId?: string;
       turnId?: string;
       assistantMessageId?: string;
+      generationDurationMs?: number;
     },
   ) => void;
   userId?: string; // Add userId for localStorage key scoping
@@ -335,6 +336,9 @@ export const useAsyncChat = (
   const startWsFallbackPollingRef = useRef<
     ((jobId: string, intervalMs?: number) => void) | null
   >(null);
+  const refreshJobStatusRef = useRef<((jobId: string) => Promise<void>) | null>(
+    null,
+  );
   // Live tokens whose offset lies beyond the received text: earlier tokens
   // were lost, so these wait for a status snapshot to fill the hole.
   const heldTokensByJobRef = useRef<Record<string, OffsetDelta[]>>({});
@@ -573,6 +577,7 @@ export const useAsyncChat = (
           conversationId,
           turnId: event.turnId,
           assistantMessageId: event.assistantMessageId,
+          generationDurationMs: event.generationDurationMs,
         });
       } else {
         onComplete?.(
@@ -707,6 +712,7 @@ export const useAsyncChat = (
             conversationId,
             turnId: status.turnId,
             assistantMessageId: status.assistantMessageId,
+            generationDurationMs: status.generationDurationMs,
           });
         }
         if (conversationId) {
@@ -748,6 +754,21 @@ export const useAsyncChat = (
         wsManager.on('disconnected', () => {
           if (activeJobsRef.current[jobId]) {
             startWsFallbackPollingRef.current?.(jobId, pollingInterval);
+          }
+        }),
+      );
+
+      // The server does not replay what was published while the socket was
+      // down, and a recent disconnection keeps the fallback poller quiet.
+      // Read the status once the subscriptions are re-established, as when
+      // tracking starts, so a missed completion does not wait for that poll.
+      unsubs.push(
+        wsManager.on('connected', () => {
+          if (
+            activeJobsRef.current[jobId] &&
+            !completedJobsRef.current.has(jobId)
+          ) {
+            void refreshJobStatusRef.current?.(jobId);
           }
         }),
       );
@@ -981,6 +1002,7 @@ export const useAsyncChat = (
     },
     [fetchJobStatus, handleMissingJob, handleWsJobStatus, repairLiveText],
   );
+  refreshJobStatusRef.current = refreshJobStatus;
 
   const repairGap = useCallback(
     async (jobId: string) => {
@@ -1288,8 +1310,10 @@ export const useAsyncChat = (
     [onError, userId, cancelJob, subscribeJobToWs, trackJobStatus],
   );
 
-  // Clean up on unmount
+  // Clean up on unmount. Strict Mode and Fast Refresh re-run this effect on
+  // the same instance, so the mounted flag is restored here as well.
   useEffect(() => {
+    isComponentMountedRef.current = true;
     const wsActiveJobs = wsActiveJobsRef.current;
     const activeJobs = activeJobsRef.current;
 
@@ -1409,6 +1433,7 @@ export const useAsyncChat = (
                 turnId: status.turnId || job.turnId,
                 assistantMessageId:
                   status.assistantMessageId || job.assistantMessageId,
+                generationDurationMs: status.generationDurationMs,
               });
               clearPersistedJobs(userId, job.conversationId);
               removeActiveJob(job.jobId, job.conversationId);

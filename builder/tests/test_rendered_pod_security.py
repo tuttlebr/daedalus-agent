@@ -121,6 +121,15 @@ def test_each_weakening_is_rejected(tmp_path, kind, change, message):
     assert any(message in failure for failure in found), found
 
 
+@pytest.mark.parametrize("kind", ["Deployment", "CronJob"])
+def test_init_container_weakening_is_rejected(tmp_path, kind):
+    pod = copy.deepcopy(BASELINE_POD)
+    pod["initContainers"][0]["securityContext"]["privileged"] = True
+    found = failures(tmp_path, workload(kind, pod))
+    assert len(found) == 1, found
+    assert found[0].endswith(f"{kind}/fixture:init: privileged must not be true")
+
+
 @pytest.mark.requires_helm
 @pytest.mark.parametrize(
     "values",

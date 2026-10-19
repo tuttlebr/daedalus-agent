@@ -65,7 +65,8 @@ pub struct Outcome {
 #[derive(Clone)]
 pub struct Build {
     pub append_to_collection: bool,
-    pub bytes: Vec<u8>,
+    /// Shared by every attempt: a retry must not copy the entire upload.
+    pub bytes: bytes::Bytes,
     pub filename: String,
     pub collection_name: String,
     pub chunk_size: Value,
@@ -197,6 +198,8 @@ async fn work<E: Engine>(
             json!({}),
         )
         .await;
+    // The pipeline has already written its rows. A rendering failure must not
+    // let the runner replay the pipeline and insert the same chunks again.
     let (markdown, pages, chunks, failures, surrogates) = tokio::task::spawn_blocking(move || {
         let (markdown, pages) = document_text::markdown(&output.results)?;
         Ok::<_, anyhow::Error>((
@@ -207,7 +210,10 @@ async fn work<E: Engine>(
             output.surrogates,
         ))
     })
-    .await??;
+    .await
+    .map_err(anyhow::Error::from)
+    .and_then(|rendered| rendered)
+    .map_err(crate::milvus_index::CommittedWrite::new)?;
     stages
         .emit(
             "postprocessed",
@@ -370,7 +376,7 @@ pub async fn run<S: Services>(
     };
     let input = Build {
         append_to_collection: request.append_to_collection,
-        bytes,
+        bytes: bytes.into(),
         filename: filename.clone(),
         collection_name: collection.clone(),
         chunk_size: request
@@ -486,6 +492,8 @@ mod tests {
         reads: Vec<Value>,
         builds: Vec<Value>,
         events: Vec<Value>,
+        // Inputs stay alive, so a distinct buffer cannot reuse an address.
+        inputs: Vec<Build>,
     }
     #[derive(Default)]
     struct Gate {
@@ -578,10 +586,11 @@ mod tests {
         async fn build(&self, input: Build) -> Result<FakePipeline> {
             let mut observed = self.observed.lock().unwrap();
             observed.builds.push(json!({
-                "document_bytes":base64::engine::general_purpose::STANDARD.encode(input.bytes),
+                "document_bytes":base64::engine::general_purpose::STANDARD.encode(&input.bytes),
                 "filename":input.filename, "collection_name":input.collection_name,
                 "chunk_size":input.chunk_size,"chunk_overlap":input.chunk_overlap,
             }));
+            observed.inputs.push(input);
             let attempt = observed.builds.len();
             if self.case["error_stage"] == "build"
                 && attempt as u64 <= self.case["failed_attempts"].as_u64().unwrap_or(0)
@@ -667,9 +676,22 @@ mod tests {
                 case["name"]
             );
             let observed = fake.observed.lock().unwrap();
-            assert_eq!(json!(observed.events), case["events"], "{}", case["name"]);
-            assert_eq!(json!(observed.reads), case["reads"], "{}", case["name"]);
+            let mut expected_events = case["events"].clone();
             let mut expected_builds = case["builds"].clone();
+            if case["name"] == "render-error" {
+                // The retained snapshot reran the whole pipeline after its
+                // write when Markdown rendering failed, inserting the same
+                // chunks again. Keep its first attempt, which ends the run.
+                let events = expected_events.as_array_mut().unwrap();
+                let first = events
+                    .iter()
+                    .position(|event| event["phase"] == "retrying")
+                    .unwrap();
+                events.truncate(first);
+                expected_builds.as_array_mut().unwrap().truncate(1);
+            }
+            assert_eq!(json!(observed.events), expected_events, "{}", case["name"]);
+            assert_eq!(json!(observed.reads), case["reads"], "{}", case["name"]);
             if case["name"] == "chunk-overrides" {
                 // The retained snapshot replaced explicit zero with 150.
                 assert_eq!(case["request"]["chunk_overlap"], 0);
@@ -740,6 +762,65 @@ mod tests {
             actual
                 .error
                 .contains("Milvus Insert failed with gRPC status 14")
+        );
+        let observed = fake.observed.lock().unwrap();
+        assert_eq!(observed.builds.len(), 1);
+        assert!(observed.events.iter().all(|e| e["phase"] != "retrying"));
+    }
+    #[tokio::test]
+    async fn retries_share_one_copy_of_the_uploaded_document() {
+        // Uploads can be hundreds of megabytes. A retry needs the same bytes,
+        // but each attempt must not hold another full copy of the document.
+        let data = fixture();
+        let mut case = data["cases"][0].clone();
+        case["error_stage"] = json!("ingest");
+        case["failed_attempts"] = json!(2);
+        let fake = Fake::new(&data, &case);
+        let actual = run(
+            &fake,
+            &Collections::default(),
+            &Options {
+                ingest_retry_delay: 0.,
+                ..Options::default()
+            },
+            serde_json::from_value(case["request"].clone()).unwrap(),
+            None,
+        )
+        .await;
+        assert_eq!(actual.status, "success");
+        let observed = fake.observed.lock().unwrap();
+        let buffers: Vec<_> = observed
+            .inputs
+            .iter()
+            .map(|input| input.bytes.as_ptr())
+            .collect();
+        assert_eq!(buffers.len(), 3);
+        assert!(buffers.iter().all(|buffer| *buffer == buffers[0]));
+    }
+    #[tokio::test]
+    async fn rendering_failure_after_indexing_does_not_replay_the_write() {
+        // The pipeline has written its rows before Markdown rendering. A later
+        // failure must not rerun extraction and insert the same chunks again.
+        let data = fixture();
+        let mut case = data["cases"][0].clone();
+        case["results"] = json!([[{"document_type":"text","metadata":{
+            "content":5,"content_metadata":{"page_number":0}}}]]);
+        let fake = Fake::new(&data, &case);
+        let actual = run(
+            &fake,
+            &Collections::default(),
+            &Options {
+                ingest_retry_delay: 0.,
+                ..Options::default()
+            },
+            serde_json::from_value(case["request"].clone()).unwrap(),
+            Some(fake.callback()),
+        )
+        .await;
+        assert_eq!(actual.status, "failure");
+        assert_eq!(
+            actual.error,
+            "Error processing document with NvIngest: Invalid extraction text"
         );
         let observed = fake.observed.lock().unwrap();
         assert_eq!(observed.builds.len(), 1);

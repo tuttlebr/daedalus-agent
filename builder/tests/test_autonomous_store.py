@@ -354,6 +354,46 @@ def _txn_store():
     return store
 
 
+def test_reclaim_closes_runs_left_running_by_a_stopped_worker():
+    # A pod killed mid-run (for example after its termination grace period)
+    # leaves its run record "running". The dashboard treats the first such
+    # record as the live run, so after the requeued request finishes it would
+    # show the dead run as active indefinitely.
+    stopped = _txn_store()
+    assert stopped.acquire_lease("u")
+    stopped.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
+    assert stopped.dequeue("u", timeout=0) == {"id": "r1"}
+    stopped.upsert_run("u", {"id": "interrupted", "status": "running"})
+    stopped.upsert_run("u", {"id": "earlier", "status": "completed"})
+
+    stopped.redis.delete(key("u", "lease"))  # The lease expires.
+    replacement = RedisStore()
+    replacement.redis = stopped.redis
+    replacement._watch_error_type = stopped._watch_error_type
+    assert replacement.acquire_lease("u")
+    assert replacement.reclaim_processing("u") == 1
+
+    runs = {run["id"]: run for run in replacement.list_runs("u")}
+    assert runs["interrupted"]["status"] == "aborted"
+    assert runs["interrupted"]["completedAt"]
+    assert runs["earlier"]["status"] == "completed"
+    assert replacement.dequeue("u", timeout=0) == {"id": "r1"}
+
+
+def test_reclaim_leaves_run_records_alone_without_the_lease():
+    store = _txn_store()
+    store.upsert_run("u", {"id": "live", "status": "running"})
+    store.redis.lists[key("u", "processing")] = [json.dumps({"id": "r1"})]
+    assert store.acquire_lease("u")
+    store.redis.kv[key("u", "lease")] = "replacement-owner"
+
+    with pytest.raises(RuntimeError):
+        store.reclaim_processing("u")
+
+    assert store.list_runs("u")[0]["status"] == "running"
+    assert store.redis.llen(key("u", "processing")) == 1
+
+
 def test_atomic_update_commits_under_watch_multi():
     store = _txn_store()
     run = {"id": "r1", "status": "running"}

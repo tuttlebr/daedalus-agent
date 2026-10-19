@@ -148,7 +148,8 @@ def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
         return len(text) // 4
     try:
         encoding = tiktoken.get_encoding(encoding_name)
-        return len(encoding.encode(text))
+        # Page text such as "<|endoftext|>" is content, not a control token.
+        return len(encoding.encode(text, disallowed_special=()))
     except Exception as exc:
         logger.warning(
             "Failed to count tokens with tiktoken: %s. Using approximation.", exc
@@ -236,8 +237,6 @@ def _bytes_to_markdown(
     url: str,
     *,
     content_type: str = "",
-    token_limit: int | None = None,
-    truncation_msg: str = "",
 ) -> str:
     """Convert already-fetched bytes without giving MarkItDown network access."""
     tmp_path = None
@@ -250,16 +249,7 @@ def _bytes_to_markdown(
 
         result = MarkItDown(enable_plugins=True).convert(tmp_path)
         title_text = result.title or url
-        full_content = f"# {title_text}\n\n_Source: {url}_\n\n" + (
-            result.text_content or ""
-        )
-        if token_limit is not None:
-            full_content, was_truncated = _truncate_to_token_limit(
-                full_content, token_limit, truncation_msg
-            )
-            if was_truncated:
-                logger.info("Content from %s truncated to %d tokens", url, token_limit)
-        return full_content
+        return f"# {title_text}\n\n_Source: {url}_\n\n" + (result.text_content or "")
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -271,14 +261,13 @@ def _convert_fetched_resource(
     content_type: str,
     *,
     html: bool,
-    token_limit: int | None = None,
-    truncation_msg: str = "",
 ) -> str:
     """Convert already-fetched bytes locally; converters never receive a URL.
 
     HTML uses the shared article converter, as webscrape_tool does, so its
     charset comes from the original bytes and HTML declarations. Decoding to
     text first would replace legacy-encoded characters before conversion.
+    Callers apply their own bounds to the complete converted text.
     """
     markdown = _convert_html_article(content, url) if html else None
     if markdown is None:
@@ -287,15 +276,7 @@ def _convert_fetched_resource(
             url,
             # Sniffed HTML may lack a media type; keep an HTML local suffix.
             content_type="text/html" if html else content_type,
-            token_limit=token_limit,
-            truncation_msg=truncation_msg,
         )
-    if token_limit is not None:
-        markdown, was_truncated = _truncate_to_token_limit(
-            markdown, token_limit, truncation_msg
-        )
-        if was_truncated:
-            logger.info("Content from %s truncated to %d tokens", url, token_limit)
     return markdown
 
 
@@ -405,16 +386,15 @@ def _response_looks_like_html(response: httpx.Response) -> bool:
 
 async def _scrape_with_httpx_result(
     url: str,
-    token_limit: int | None = None,
-    truncation_msg: str = "",
+    *,
     allowed_schemes: list[str] | None = None,
     timeout=_HTTPX_TIMEOUT,
 ) -> tuple[str | None, str]:
     """Fetch and convert via httpx, returning ``(markdown, outcome)``.
 
     Outcomes are intentionally simple strings so callers can choose a fallback
-    without parsing log messages: ``ok``, ``blocked``, ``non_html``,
-    ``http_error``, or ``invalid``.
+    without parsing log messages: ``ok``, ``blocked``, ``http_error``, or
+    ``invalid``. The markdown is complete; callers select and bound it.
     """
     headers = {**_BROWSER_HEADERS, "User-Agent": _BROWSER_USER_AGENT}
     # follow_redirects=False so _get_following_safe_redirects can SSRF-validate
@@ -456,8 +436,6 @@ async def _scrape_with_httpx_result(
         url,
         response.headers.get("content-type", ""),
         html=html,
-        token_limit=token_limit,
-        truncation_msg=truncation_msg,
     )
     if not _is_valid_content(markdown):
         return markdown, "invalid"

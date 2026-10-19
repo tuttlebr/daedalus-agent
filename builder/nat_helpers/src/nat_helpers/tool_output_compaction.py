@@ -182,6 +182,9 @@ def _parse_structured_json(content: str) -> _ParsedJSON | None:
     for prefix, candidate, suffix in candidates:
         try:
             value = _json_loads(candidate.strip())
+            # An escaped lone surrogate decodes to text that can't be rendered
+            # as UTF-8 again, so the tool result stream couldn't send it.
+            _json_dumps(value).encode("utf-8")
         except (json.JSONDecodeError, _UnsafeJSON, TypeError, ValueError):
             continue
         return _ParsedJSON(value=value, prefix=prefix, suffix=suffix)

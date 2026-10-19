@@ -183,24 +183,21 @@ describe('conversations/[id] API handler', () => {
       });
     });
 
-    it('returns job data when conversation not found but job exists', async () => {
-      const jobData = {
-        messages: [{ role: 'assistant', content: 'Hello' }],
-        status: 'completed',
-      };
-      // First call (conversation key) returns null, second call (job key) returns jobData
-      (jsonGet as any)
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(jobData);
+    it('does not serve an unowned conversation-job record for a missing conversation', async () => {
+      // Nothing writes conversation-job:<id>; any such record is unowned and
+      // must not stand in for the user's missing conversation.
+      (jsonGet as any).mockImplementation(async (key: string) =>
+        key === 'daedalus:conversation-job:conv-1'
+          ? { messages: [{ role: 'assistant', content: 'private' }] }
+          : null,
+      );
       const { req, res } = createMockReqRes('GET', { id: 'conv-1' });
 
       await handler(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith({
-        conversationId: 'conv-1',
-        messages: jobData.messages,
-        status: 'completed',
+        error: 'Conversation not found',
       });
     });
 
@@ -322,6 +319,19 @@ describe('conversations/[id] API handler', () => {
         error: 'Forbidden: You do not have access to this conversation',
       });
     });
+
+    it.each([null, ['message'], 'conversation'])(
+      'rejects a non-object conversation body without writing: %j',
+      async (body) => {
+        (jsonGet as any).mockResolvedValue({ id: 'conv-1', updatedAt: 1 });
+        const { req, res } = createMockReqRes('PUT', { id: 'conv-1' }, body);
+
+        await handler(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(jsonSet).not.toHaveBeenCalled();
+      },
+    );
 
     it('returns 500 when jsonSet throws', async () => {
       (jsonGet as any).mockResolvedValue(null);

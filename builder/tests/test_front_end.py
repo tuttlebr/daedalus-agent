@@ -8,6 +8,7 @@ import types
 import pytest
 from nat_helpers import front_end
 from nat_helpers.front_end import attach_daedalus_routes
+from nat_helpers.internal_auth import DaedalusInternalAuthMiddleware
 
 
 @pytest.fixture(autouse=True)
@@ -65,7 +66,8 @@ def test_daedalus_routes_attach_to_only_the_selected_app():
 
     assert attach_daedalus_routes(app) is app
     assert len(app.included_routers) == 6
-    assert len(app.middleware) == 1
+    # Every attached route sits behind the internal identity middleware.
+    assert app.middleware == [DaedalusInternalAuthMiddleware]
     assert [path for path, _endpoint, _kwargs in app.routes] == [
         "/health/ready",
         "/v1/google-workspace/connections/{service_id}",
@@ -83,7 +85,7 @@ def test_daedalus_routes_attach_only_once():
     attach_daedalus_routes(app)
 
     assert len(app.included_routers) == 6
-    assert len(app.middleware) == 1
+    assert app.middleware == [DaedalusInternalAuthMiddleware]
     assert len(app.routes) == 2
 
 

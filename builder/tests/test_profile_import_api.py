@@ -22,7 +22,6 @@ from profile_import_api import (  # noqa: E402
     ProfileImportResult,
     build_profile_import_response,
     import_profile_memories,
-    router,
 )
 
 
@@ -69,10 +68,6 @@ def profile_request() -> ProfileImportRequest:
             ],
         }
     )
-
-
-def test_router_exists():
-    assert router is not None
 
 
 def test_rollback_route_matches_the_path_rust_proxies(monkeypatch):

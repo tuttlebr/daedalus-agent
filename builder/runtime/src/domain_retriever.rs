@@ -310,6 +310,14 @@ fn retained_domain_contracts() {
     )
     .unwrap();
     assert_eq!(settings.schema("domain_search"), CONTRACT["schema"]);
+    // CONTRACT is the production resource itself. The model-facing parameters
+    // must also match the catalogue frozen from the retained Python factory.
+    let catalog: Value =
+        serde_json::from_str(include_str!("../tests/fixtures/native-catalog.json")).unwrap();
+    assert_eq!(
+        settings.schema("domain_search")["parameters"],
+        catalog["domain_retriever_tool"]["schema"]
+    );
     for case in fixture["formatting"].as_array().unwrap() {
         let documents = case["documents"]
             .as_array()

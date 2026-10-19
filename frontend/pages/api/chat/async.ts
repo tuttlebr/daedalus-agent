@@ -780,8 +780,9 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
     let canceled = false;
     let workerOwnsFinalization = false;
     if (currentStatus && !isTerminalJobStatus(currentStatus.status)) {
-      // Signal before checking ownership: an OAuth handoff removes its payload
-      // then checks this flag. Either that owner or this request must finish it.
+      // Signal before checking ownership so a worker still holding the payload
+      // observes the stop. A live status without a payload has no worker owner
+      // (for example one parked by an earlier OAuth handoff); finish it here.
       await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
       const afterAbort = (await jsonGet(statusKey)) as AsyncJobStatus | null;
       workerOwnsFinalization =

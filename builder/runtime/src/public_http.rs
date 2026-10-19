@@ -500,6 +500,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn non_public_destinations_are_refused_before_connecting() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let hits = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = hits.clone();
+        let router = axum::Router::new().fallback(move || {
+            seen.fetch_add(1, Ordering::SeqCst);
+            async { "reachable" }
+        });
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = Client::anonymous(1., 1., 1024, HeaderMap::new()).unwrap();
+        // reqwest never resolves literal IPs, including WHATWG-normalized
+        // decimal and IPv4-mapped forms; hostnames pass the pinned resolver.
+        for url in [
+            format!("http://127.0.0.1:{port}/"),
+            format!("http://2130706433:{port}/"),
+            format!("http://[::ffff:127.0.0.1]:{port}/"),
+            format!("http://localhost:{port}/"),
+        ] {
+            let error = client.get(&url, &["http"]).await.err().expect(&url);
+            assert_eq!(error.class, "UnsafeURLError", "{url}: {}", error.message);
+        }
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
     #[ignore = "requires the disposable real DNS/TLS fixture"]
     async fn actual_public_http() {
         use base64::Engine;

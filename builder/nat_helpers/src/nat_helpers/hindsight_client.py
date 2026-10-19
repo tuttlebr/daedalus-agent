@@ -182,7 +182,9 @@ class HindsightClient:
                 headers=headers,
                 timeout=httpx.Timeout(timeout_seconds or self._timeout),
             )
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except httpx.RequestError as exc:
+            # Includes protocol, proxy, and decoding failures, such as a pooled
+            # keep-alive connection that the server closed.
             raise HindsightError("Hindsight is unavailable") from exc
         if response.status_code >= 400:
             raise HindsightError(

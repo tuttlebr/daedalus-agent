@@ -11,7 +11,6 @@ import {
   saveConversationForUser,
   readConversationForUser,
 } from '@/server/session/conversationStore';
-import { sessionKey, jsonGet } from '@/server/session/redis';
 
 export const config = {
   api: {
@@ -43,6 +42,15 @@ export default async function handler(
 
   if (req.method === 'PUT') {
     const updatedData = req.body;
+    // The body is merged over the stored record; anything but a JSON object
+    // would either throw or persist array indices as conversation fields.
+    if (
+      !updatedData ||
+      typeof updatedData !== 'object' ||
+      Array.isArray(updatedData)
+    ) {
+      return res.status(400).json({ error: 'Expected a conversation object' });
+    }
 
     try {
       // Server-authoritative timestamp
@@ -123,21 +131,6 @@ export default async function handler(
       if (conversationData) {
         return res.status(200).json(conversationData);
       }
-
-      // Check for any pending/completed async jobs for this conversation
-      const jobKey = sessionKey(['conversation-job', id]);
-      const jobData = await jsonGet(jobKey);
-
-      if (jobData && typeof jobData === 'object' && 'messages' in jobData) {
-        // Return the full conversation state from the job
-        return res.status(200).json({
-          conversationId: id,
-          messages: (jobData as any).messages || [],
-          status: (jobData as any).status || 'completed',
-        });
-      }
-
-      // No conversation found, return empty state
       return res.status(404).json({ error: 'Conversation not found' });
     } catch (error) {
       if (error instanceof ConversationWriteError)

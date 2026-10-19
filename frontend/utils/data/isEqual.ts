@@ -35,14 +35,27 @@ export function isEqual(a: unknown, b: unknown): boolean {
     return a.toString() === b.toString();
   }
 
-  // Handle plain objects (including React elements which are plain objects with $$typeof)
-  const keysA = Object.keys(a as Record<string, unknown>);
-  const keysB = Object.keys(b as Record<string, unknown>);
-
-  if (keysA.length !== keysB.length) return false;
-
   const objA = a as Record<string, unknown>;
   const objB = b as Record<string, unknown>;
+
+  // React elements are equal when they render the same thing. Their `_owner`
+  // is the rendering fiber in development builds: alternating, mutually
+  // referencing fibers that a structural walk never finishes comparing.
+  if ('$$typeof' in objA || '$$typeof' in objB) {
+    return (
+      objA.$$typeof === objB.$$typeof &&
+      objA.type === objB.type &&
+      objA.key === objB.key &&
+      objA.ref === objB.ref &&
+      isEqual(objA.props, objB.props)
+    );
+  }
+
+  // Handle plain objects
+  const keysA = Object.keys(objA);
+  const keysB = Object.keys(objB);
+
+  if (keysA.length !== keysB.length) return false;
 
   for (const key of keysA) {
     if (!Object.prototype.hasOwnProperty.call(objB, key)) return false;

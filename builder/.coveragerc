@@ -24,8 +24,9 @@ source =
     visual_media/src
     webscrape/src
 
+# Never omit by basename: smart_milvus/register.py is the domain retriever
+# that daedalus_runtime.tools.load_tool_factories() loads in production.
 omit =
-    */register.py
     tests/*
     conftest.py
 

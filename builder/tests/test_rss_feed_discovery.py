@@ -527,6 +527,50 @@ def test_url_shaped_feed_content_cannot_trigger_parser_fetch(monkeypatch, scheme
     asyncio.run(run())
 
 
+def test_feed_parser_receives_original_bytes_for_declared_encodings(monkeypatch):
+    """The parser honors XML declarations and BOMs only in the original bytes.
+
+    HTTPX decodes a response without an HTTP charset as UTF-8, replacing
+    legacy-encoded characters and making UTF-16 feeds unparseable.
+    """
+    body = (
+        '<?xml version="1.0" encoding="iso-8859-1"?>'
+        "<rss version='2.0'><channel><item><title>Müller in Zürich</title>"
+        "<link>https://8.8.8.8/article</link></item></channel></rss>"
+    ).encode("iso-8859-1")
+    parsed = []
+
+    def parse(source):
+        parsed.append(source)
+        return SimpleNamespace(
+            entries=[{"title": "Müller in Zürich", "link": "https://8.8.8.8/a"}]
+        )
+
+    async def run():
+        harness = FeedHarness()
+        async with harness.registered(
+            monkeypatch, feeds={"legacy": "https://8.8.8.8/legacy"}
+        ) as info:
+            monkeypatch.setattr(
+                rss,
+                "get_public_response_async",
+                AsyncMock(
+                    return_value=httpx.Response(
+                        200,
+                        content=body,
+                        headers={"content-type": "application/rss+xml"},
+                        request=httpx.Request("GET", "https://8.8.8.8/legacy"),
+                    )
+                ),
+            )
+            monkeypatch.setattr(rss.fastfeedparser, "parse", parse)
+            return json.loads(await info.fn(query="Zürich", mode="discover"))
+
+    result = asyncio.run(run())
+    assert parsed == [body]
+    assert result["results"][0]["status"] == "ok"
+
+
 def test_discovery_discards_feed_links_with_private_addresses_or_unsafe_schemes(
     monkeypatch,
 ):

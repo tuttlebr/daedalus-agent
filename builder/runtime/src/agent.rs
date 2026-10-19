@@ -594,7 +594,9 @@ impl Agent {
             };
             retry_attempt = 0;
             retrying_decode = false;
-            resume_text = false;
+            // The interrupted attempt's text is already visible; an empty
+            // continuation completes that answer rather than replacing it.
+            let resumed = std::mem::take(&mut resume_text);
             if completed.usage.is_reported() {
                 self.handle
                     .metrics
@@ -655,7 +657,7 @@ impl Agent {
                 if !self.handle.finish_if_idle(&self.inbox).await {
                     continue;
                 }
-                if partial.is_empty() {
+                if partial.is_empty() && !resumed {
                     bail!("Model completed without an answer");
                 }
                 if withhold_text {
@@ -1435,6 +1437,16 @@ mod tests {
         query: &str,
         scripts: Vec<Option<Vec<Value>>>,
     ) -> Outcome {
+        run_with_retries(functions, workflow, query, scripts, 0).await
+    }
+
+    async fn run_with_retries(
+        functions: Value,
+        workflow: Value,
+        query: &str,
+        scripts: Vec<Option<Vec<Value>>>,
+        max_retries: usize,
+    ) -> Outcome {
         let model = Arc::new(Model::default());
         model.scripts.lock().unwrap().extend(scripts);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1446,7 +1458,7 @@ mod tests {
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let mut raw = json!({
             "llms":{"main":{"base_url":format!("{base}/v1"),"api_key":"synthetic",
-                "model_name":"fixture","api_type":"responses","max_retries":0}},
+                "model_name":"fixture","api_type":"responses","max_retries":max_retries}},
             "functions":functions,
             "workflow":{"_type":"daedalus_rust_agent","llm_name":"main"}
         });
@@ -1633,5 +1645,31 @@ mod tests {
             "fallback ignored its configured deadline: {:?}",
             started.elapsed()
         );
+    }
+
+    #[tokio::test]
+    async fn empty_continuation_after_interrupted_answer_completes_the_run() {
+        // The first stream delivers the whole answer, then ends before its
+        // terminal event. The resumed attempt has nothing left to add.
+        let mut interrupted = completed(vec![text("Complete answer.")]).unwrap();
+        interrupted.truncate(3);
+        let outcome = run_with_retries(
+            clocks(),
+            json!({"tools":["clock"]}),
+            "Summarize the plan.",
+            vec![Some(interrupted), completed(vec![])],
+            1,
+        )
+        .await;
+        assert_eq!(outcome.requests.len(), 2);
+        assert!(
+            outcome.requests[1]["input"]
+                .to_string()
+                .contains("previous model stream was interrupted")
+        );
+        outcome.result.unwrap();
+        assert_eq!(outcome.stream.matches("Complete answer.").count(), 1);
+        assert!(outcome.stream.contains("\"finish_reason\":\"stop\""));
+        assert!(!outcome.stream.contains("event: error"));
     }
 }

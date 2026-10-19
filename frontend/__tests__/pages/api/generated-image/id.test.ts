@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   redisGet: vi.fn(),
   redisSmembers: vi.fn(),
   jsonGet: vi.fn(),
-  getOrSetSessionId: vi.fn(),
+  getStorageSessionId: vi.fn(),
   requireAuthenticatedUser: vi.fn(),
 }));
 
@@ -22,7 +22,7 @@ vi.mock('@/server/session/redis', () => ({
 }));
 
 vi.mock('@/server/session/_utils', () => ({
-  getOrSetSessionId: mocks.getOrSetSessionId,
+  getStorageSessionId: mocks.getStorageSessionId,
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
 }));
 
@@ -62,7 +62,7 @@ async function loadHandler(legacyPublic = 'true') {
 describe('/api/generated-image/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getOrSetSessionId.mockReturnValue('session-1');
+    mocks.getStorageSessionId.mockReturnValue('session-1');
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
     mocks.redisCall.mockResolvedValue(
       JSON.stringify([

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   store: new Map<string, any>(),
   buildBackendUrl: vi.fn(),
   getBackendHost: vi.fn(),
-  getOrSetSessionId: vi.fn(),
+  getStorageSessionId: vi.fn(),
   requireAuthenticatedUser: vi.fn(),
   resolveTimezoneFromHeaders: vi.fn(),
   withInternalBackendAuth: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock('@/utils/server/backendAuth', () => ({
 }));
 
 vi.mock('@/server/session/_utils', () => ({
-  getOrSetSessionId: mocks.getOrSetSessionId,
+  getStorageSessionId: mocks.getStorageSessionId,
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
 }));
 
@@ -98,7 +98,7 @@ describe('/api/images/jobs', () => {
         `http://backend.test${pathOverride}`,
     );
     mocks.getBackendHost.mockReturnValue('http://backend.test');
-    mocks.getOrSetSessionId.mockReturnValue('session-1');
+    mocks.getStorageSessionId.mockReturnValue('session-1');
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'alice' });
     mocks.resolveTimezoneFromHeaders.mockReturnValue('America/Detroit');
     mocks.withTimezoneHeader.mockImplementation(

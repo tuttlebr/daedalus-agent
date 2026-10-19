@@ -78,6 +78,14 @@ describe('utils/auth/session', () => {
     expect(mocks.del).not.toHaveBeenCalled();
   });
 
+  it('does not write back a configured session within the activity interval', async () => {
+    const session = { username: 'admin', lastActivity: Date.now() - 1_000 };
+    mocks.jsonGet.mockResolvedValue(session);
+    expect(await getSession(req, res)).toEqual(session);
+    expect(mocks.eval).not.toHaveBeenCalled();
+    expect(mocks.del).not.toHaveBeenCalled();
+  });
+
   it('createSession rotates the sid and stores the session under the new id', async () => {
     mocks.rotateSessionId.mockReturnValue({
       sid: 'new-sid',

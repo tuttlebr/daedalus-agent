@@ -1,6 +1,7 @@
 import {
   acceptConnection,
   initializeAuthenticatedConnection,
+  readStreamingStates,
   SharedRedisSubscriber,
   type ConnectionInitializationDependencies,
   type StreamingState,
@@ -226,6 +227,25 @@ describe('SharedRedisSubscriber', () => {
   });
 });
 
+describe('streaming state snapshot', () => {
+  it('rejects instead of reporting no active streams when Redis fails', async () => {
+    // The client replaces its streaming flags with this snapshot. An empty
+    // result after a Redis error would show running answers as idle; a
+    // rejection closes initialization with 1011 so the client reconnects.
+    const redis = {
+      smembers: vi.fn().mockResolvedValue(['conversation-1']),
+      eval: vi.fn().mockRejectedValue(new Error('LOADING')),
+    };
+    await expect(readStreamingStates(redis as any, 'alice')).rejects.toThrow(
+      'LOADING',
+    );
+    redis.smembers.mockRejectedValueOnce(new Error('connection lost'));
+    await expect(readStreamingStates(redis as any, 'alice')).rejects.toThrow(
+      'connection lost',
+    );
+  });
+});
+
 describe('authenticated WebSocket initialization', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -235,6 +255,7 @@ describe('authenticated WebSocket initialization', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('revalidates steering sessions and forwards only the saved owner job', async () => {
@@ -287,7 +308,6 @@ describe('authenticated WebSocket initialization', () => {
       }),
     );
     expect(fetcher).toHaveBeenCalledOnce();
-    vi.unstubAllGlobals();
   });
 
   it('installs lifecycle handlers and releases the user channel when subscribe rejects', async () => {
@@ -456,6 +476,54 @@ describe('authenticated WebSocket initialization', () => {
     expect(retainChannel).not.toHaveBeenCalled();
     expect(releaseChannel).not.toHaveBeenCalled();
   });
+
+  it.each([
+    {
+      kind: 'job',
+      message: { type: 'subscribe_job', jobId: 'job-foreign' },
+      overrides: {
+        getJobRequest: vi
+          .fn()
+          .mockResolvedValue({ jobId: 'job-foreign', userId: 'mallory' }),
+      },
+      error: 'Unauthorized job subscription',
+    },
+    {
+      kind: 'missing job',
+      message: { type: 'subscribe_job', jobId: 'job-missing' },
+      overrides: { getJobRequest: vi.fn().mockResolvedValue(null) },
+      error: 'Unauthorized job subscription',
+    },
+    {
+      kind: 'chat',
+      message: { type: 'subscribe_chat', conversationId: 'chat-foreign' },
+      overrides: { canSubscribeToChat: vi.fn().mockResolvedValue(false) },
+      error: 'Unauthorized chat subscription',
+    },
+  ])(
+    'rejects a $kind subscription the user does not own',
+    async ({ message, overrides, error }) => {
+      const socket = new FakeWebSocket();
+      const retainChannel = vi.fn().mockResolvedValue(undefined);
+      await initializeAuthenticatedConnection(
+        socket as unknown as WebSocket,
+        'alice',
+        'session-owner',
+        connectionDependencies({ ...overrides, retainChannel }),
+      );
+
+      socket.emit('message', Buffer.from(JSON.stringify(message)));
+
+      await vi.waitFor(() =>
+        expect(socket.sent.map((raw) => JSON.parse(raw))).toContainEqual({
+          type: 'error',
+          message: error,
+        }),
+      );
+      expect(retainChannel).not.toHaveBeenCalled();
+      socket.disconnect();
+    },
+  );
 
   it('coalesces duplicate chat subscriptions that validate concurrently', async () => {
     const socket = new FakeWebSocket();

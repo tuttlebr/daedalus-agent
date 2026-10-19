@@ -2,10 +2,7 @@ import { Logger } from '@/utils/logger';
 
 import { selectStreamBackendBaseUrl } from '@/server/chat/backendSelection';
 import { JOB_EXPIRY_SECONDS, sleep } from '@/server/chat/constants';
-import {
-  conversationJobGuardKey,
-  releaseConversationJobGuard,
-} from '@/server/chat/conversationJobGuard';
+import { conversationJobGuardKey } from '@/server/chat/conversationJobGuard';
 import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
 import {
   finalizeError,
@@ -33,10 +30,7 @@ import {
   type AsyncJobRequest,
   type AsyncJobStatus,
 } from '@/server/chat/types';
-import {
-  releaseUserJobGuard,
-  userJobGuardKey,
-} from '@/server/chat/userJobGuard';
+import { userJobGuardKey } from '@/server/chat/userJobGuard';
 import { positiveIntegerFromEnv } from '@/server/config/env';
 import {
   getRedis,
@@ -70,7 +64,6 @@ export interface StreamWorkerOptions {
 
 export type StreamQueueProcessOutcome =
   | 'completed'
-  | 'oauth_required'
   | 'recovered_as_error'
   | 'finalization_pending'
   | 'missing'
@@ -388,35 +381,10 @@ export async function processStreamQueueEntry(
         ? 'completed'
         : 'finalization_pending';
     }
-    if (status?.status === 'oauth_required') {
-      await releaseUserJobGuard(jobRequest.userId, entry.jobId);
-      await acknowledgeStreamQueueEntry(entry);
-      // DELETE sets abort before looking for the payload removed by ACK. If it
-      // still saw the payload, we own cancellation and have flushed the reader.
-      // Otherwise DELETE can finalize the handed-off job itself.
-      if (await jsonGet(abortKey(entry.jobId))) {
-        await finalizeError(entry.jobId, jobRequest, 'Job canceled by user');
-        return (await acknowledgeTerminalEntry(entry))
-          ? 'completed'
-          : 'finalization_pending';
-      }
-      if (jobRequest.conversationId) {
-        await releaseConversationJobGuard(
-          jobRequest.userId,
-          jobRequest.conversationId,
-          entry.jobId,
-        ).catch((error) => {
-          logger.warn(
-            `Job ${entry.jobId}: failed to release conversation guard after OAuth handoff`,
-            error,
-          );
-          return false;
-        });
-      }
-      return 'oauth_required';
-    }
     if (controller.signal.aborted) return 'interrupted';
 
+    // A live status, including one still awaiting OAuth, has no other owner:
+    // the backend run ended with this stream, so nothing can resume it.
     await finalizeError(
       entry.jobId,
       jobRequest,

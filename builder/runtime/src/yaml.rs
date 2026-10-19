@@ -1,11 +1,24 @@
 //! PyYAML SafeLoader scalar/merge compatibility using the YAML event parser.
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::LazyLock};
 use yaml_rust2::{
     parser::{Event, Parser},
     scanner::TScalarStyle,
 };
+
+// PyYAML's YAML 1.1 resolvers. Base-60 limits only the later components, and
+// a decimal exponent needs its sign (`1.5e3` stays a string).
+static SEXAGESIMAL_INT: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+$").unwrap());
+static SEXAGESIMAL_FLOAT: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*$").unwrap());
+static FLOAT: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"^(?:[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?)$",
+    )
+    .unwrap()
+});
 
 #[derive(Clone)]
 struct Node {
@@ -80,12 +93,7 @@ fn scalar(
                 i64::from_str_radix(&unsigned[1..], 8)
                     .ok()
                     .and_then(|n| n.checked_mul(sign))
-            } else if unsigned.contains(':')
-                && unsigned
-                    .split(':')
-                    .all(|p| p.parse::<u32>().is_ok_and(|n| n < 60))
-                && !unsigned.starts_with('0')
-            {
+            } else if SEXAGESIMAL_INT.is_match(&text) {
                 unsigned
                     .split(':')
                     .try_fold(0_i64, |a, b| {
@@ -97,7 +105,19 @@ fn scalar(
             };
             if let Some(n) = integer {
                 json!(n)
-            } else if clean.contains('.') && !clean.contains(':') {
+            } else if SEXAGESIMAL_FLOAT.is_match(&text) {
+                // PyYAML sums the parts from the least significant upward.
+                let mut value = 0.0;
+                let mut base = 1.0;
+                for part in unsigned.rsplit(':') {
+                    value += part.parse::<f64>().unwrap_or(f64::NAN) * base;
+                    base *= 60.0;
+                }
+                match value * sign as f64 {
+                    f if f.is_finite() => json!(f),
+                    _ => json!(text),
+                }
+            } else if FLOAT.is_match(&text) {
                 match clean.parse::<f64>() {
                     Ok(f) if f.is_finite() => json!(f),
                     _ => json!(text),
@@ -264,4 +284,62 @@ fn parse_with_strings(text: &str, non_string: Option<&regex::Regex>) -> Result<V
         bail!("Expected one configuration document");
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn float_scalars_resolve_like_pyyaml_safe_loader() {
+        // Expected values were produced by PyYAML 6 safe_load, not by Rust.
+        for (text, expected) in [
+            ("1.5e3", json!("1.5e3")),
+            ("1e+3", json!("1e+3")),
+            ("+.5", json!("+.5")),
+            ("-.5", json!("-.5")),
+            ("1.5e+3", json!(1500.0)),
+            (".5", json!(0.5)),
+            ("1.", json!(1.0)),
+            ("1_0.5", json!(10.5)),
+            ("12.5_0", json!(12.5)),
+            ("1.5E-2", json!(0.015)),
+            ("-0.0", json!(-0.0)),
+        ] {
+            assert_eq!(
+                parse(&format!("a: {text}")).unwrap()["a"],
+                expected,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn sexagesimal_scalars_resolve_like_pyyaml_safe_loader() {
+        // Expected values were produced by PyYAML 6 safe_load, not by Rust.
+        for (text, expected) in [
+            ("190:20:30", json!(685230)),
+            ("90:00", json!(5400)),
+            ("-1:30", json!(-90)),
+            ("+2:05", json!(125)),
+            ("12:34:56", json!(45296)),
+            ("1_0:30", json!(630)),
+            ("10:30", json!(630)),
+            ("1:2.5", json!(62.5)),
+            ("61:0.5", json!(3660.5)),
+            ("1:2:3.25", json!(3723.25)),
+            ("-1:30.5", json!(-90.5)),
+            ("1:005", json!("1:005")),
+            ("8080:80", json!("8080:80")),
+            ("0:30", json!("0:30")),
+            ("1:60", json!("1:60")),
+            ("1:0_5", json!("1:0_5")),
+        ] {
+            assert_eq!(
+                parse(&format!("a: {text}")).unwrap()["a"],
+                expected,
+                "{text}"
+            );
+        }
+    }
 }

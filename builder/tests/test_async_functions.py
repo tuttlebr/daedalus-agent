@@ -77,26 +77,6 @@ class TestConvertFetchedResource:
         self._convert(mock_md, legacy, content_type="text/html")
         assert mock_md.converted_bytes == legacy
 
-    def test_shared_html_converter_output_is_truncated(self):
-        import webscrape.webscrape_function as wsmod
-
-        markdown = "# Title\n\n_Source: https://example.com_\n\n" + "word " * 5000
-        original = wsmod.TIKTOKEN_AVAILABLE
-        try:
-            wsmod.TIKTOKEN_AVAILABLE = False
-            with patch.object(wsmod, "_convert_html_article", return_value=markdown):
-                result = wsmod._convert_fetched_resource(
-                    b"<html></html>",
-                    "https://example.com",
-                    "text/html",
-                    html=True,
-                    token_limit=20,
-                    truncation_msg="TRUNC",
-                )
-        finally:
-            wsmod.TIKTOKEN_AVAILABLE = original
-        assert result.startswith("# Title") and result.endswith("TRUNC")
-
     def test_documents_keep_their_media_type_and_generic_converter(self):
         import webscrape.webscrape_function as wsmod
 
@@ -117,23 +97,6 @@ class TestConvertFetchedResource:
             result
             == "# https://example.com\n\n_Source: https://example.com_\n\nPDF body"
         )
-
-    def test_with_token_limit(self):
-        import webscrape.webscrape_function as wsmod
-
-        mock_md = self._mock_md(title="Title", text_content="word " * 5000)
-        original = wsmod.TIKTOKEN_AVAILABLE
-        try:
-            wsmod.TIKTOKEN_AVAILABLE = False
-            result = self._convert(
-                mock_md,
-                b"<html>content</html>",
-                token_limit=20,
-                truncation_msg="TRUNC",
-            )
-        finally:
-            wsmod.TIKTOKEN_AVAILABLE = original
-        assert "TRUNC" in result
 
 
 # ---------------------------------------------------------------------------

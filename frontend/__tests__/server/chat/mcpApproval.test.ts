@@ -185,6 +185,23 @@ describe('button-based MCP approval handoff', () => {
     ).rejects.toBeInstanceOf(McpApprovalDecisionError);
   });
 
+  it('binds the record to the exact user even when key prefixes collide', async () => {
+    // The key prefix hashes the trimmed user ID, so this lookup finds alice's
+    // record; only the stored user_id binding can reject it.
+    await expect(
+      getMcpApprovalPreview(requestId, ` ${userId}`, redis as any),
+    ).rejects.toBeInstanceOf(McpApprovalDecisionError);
+    await expect(
+      resolveMcpApprovalDecision(
+        requestId,
+        'approved',
+        ` ${userId}`,
+        redis as any,
+      ),
+    ).rejects.toBeInstanceOf(McpApprovalDecisionError);
+    expect(redis.store.get(pendingKey)).toBe(pendingPayload());
+  });
+
   it('requires a second confirmation for administrative operations', () => {
     expect(
       requiresAdditionalMcpConfirmation({

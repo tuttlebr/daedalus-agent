@@ -3,6 +3,8 @@ module.exports = {
   content: [
     './pages/**/*.{js,ts,jsx,tsx}',
     './components/**/*.{js,ts,jsx,tsx}',
+    // Hooks render UI too, such as the save-file dialog in useFileSave.
+    './hooks/**/*.{js,ts,jsx,tsx}',
   ],
   darkMode: 'class',
   theme: {

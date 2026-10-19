@@ -109,8 +109,12 @@ function mergeIntermediateStep(
   const incomingId = incomingStep.payload?.UUID;
   if (!incomingId) return [...existingSteps, incomingStep];
 
+  // A tool's START and END share one UUID. Like normalizeSteps, replace only a
+  // redelivery of the same phase so the call keeps its input and start time.
   const existingIndex = existingSteps.findIndex(
-    (step) => step.payload?.UUID === incomingId,
+    (step) =>
+      step.payload?.UUID === incomingId &&
+      step.payload?.event_type === incomingStep.payload?.event_type,
   );
   if (existingIndex === -1) {
     return [...existingSteps, incomingStep];
@@ -224,18 +228,22 @@ export const ChatView = memo(() => {
       }
     >
   >({});
+  // Tokens report the same activity on every delivery. Keep the state object
+  // when nothing changed so they do not re-render the view between flushes.
   const setActivityText = useCallback((convId: string, text: string) => {
-    setActivityByConversation((current) => ({
-      ...current,
-      [convId]: { ...current[convId], text },
-    }));
+    setActivityByConversation((current) =>
+      current[convId]?.text === text
+        ? current
+        : { ...current, [convId]: { ...current[convId], text } },
+    );
   }, []);
   const setStreamAnnouncement = useCallback(
     (convId: string, announcement: string) => {
-      setActivityByConversation((current) => ({
-        ...current,
-        [convId]: { ...current[convId], announcement },
-      }));
+      setActivityByConversation((current) =>
+        current[convId]?.announcement === announcement
+          ? current
+          : { ...current, [convId]: { ...current[convId], announcement } },
+      );
     },
     [],
   );
@@ -521,12 +529,17 @@ export const ChatView = memo(() => {
     [],
   );
 
-  /** Returns whether the job's assistant message exists and was updated. */
+  /**
+   * Returns whether the job's assistant message exists and was updated.
+   * `jobId` records the owning job as the worker does in its saved copy;
+   * approvals, traces and recovery correlate the answer through it.
+   */
   const updateAssistantMessage = useCallback(
     (
       convId: string,
       updates: Partial<Message>,
       assistantMessageId?: string,
+      jobId?: string,
     ): boolean => {
       const conv = useConversationStore
         .getState()
@@ -558,6 +571,13 @@ export const ChatView = memo(() => {
       }
       if (nextUpdates.intermediateSteps === undefined) {
         delete nextUpdates.intermediateSteps;
+      }
+      if (jobId && target.metadata?.jobId !== jobId) {
+        nextUpdates.metadata = {
+          ...target.metadata,
+          ...nextUpdates.metadata,
+          jobId,
+        };
       }
 
       if (target.id) {
@@ -776,13 +796,17 @@ export const ChatView = memo(() => {
     };
   }, []);
 
-  useEffect(() => {
-    setOauthPrompts((current) =>
-      current.filter(
-        (prompt) => prompt.conversationId === selectedConversationId,
-      ),
-    );
-  }, [selectedConversationId]);
+  // Conversations removed from this tab (deleted here or on another device).
+  // Their jobs may still deliver events before cancellation takes effect.
+  const removedConversationIdsRef = useRef<Set<string>>(new Set());
+  const markStreaming = useCallback(
+    (convId: string) => {
+      if (!removedConversationIdsRef.current.has(convId)) {
+        setStreaming(convId, true);
+      }
+    },
+    [setStreaming],
+  );
 
   // Async chat hook - handles job submission, WebSocket streaming, polling fallback
   const { startAsyncJob, cancelJob, steerJob, jobStatusByConversationId } =
@@ -832,7 +856,7 @@ export const ChatView = memo(() => {
         }) => {
           const convId = event.conversationId || selectedIdRef.current;
           if (!convId) return;
-          setStreaming(convId, true);
+          markStreaming(convId);
           appendStreamingStep(
             convId,
             event.step as IntermediateStep,
@@ -840,7 +864,7 @@ export const ChatView = memo(() => {
           );
           scrollToBottomSoon();
         },
-        [appendStreamingStep, scrollToBottomSoon, setStreaming],
+        [appendStreamingStep, markStreaming, scrollToBottomSoon],
       ),
 
       onProgress: useCallback(
@@ -858,7 +882,7 @@ export const ChatView = memo(() => {
                   oauthPromptKey(prompt),
                 ),
             );
-            setStreaming(convId, true);
+            markStreaming(convId);
             setActivityText(convId, 'Authorization check');
             if (prompts.length === 0) {
               return;
@@ -895,55 +919,15 @@ export const ChatView = memo(() => {
             return;
           }
 
-          // Detect completion in onProgress as a safety net
-          // (onComplete may not fire if fullResponse is empty)
+          // useAsyncChat follows a terminal status with onComplete or onError
+          // in the same task (with an empty response too). Those callbacks
+          // finish and save the turn once.
           if (status.status === 'completed' || status.status === 'error') {
-            flushPendingStreamingUpdates(convId);
-            const store = useConversationStore.getState();
-            finishOAuthPromptsForJob(
-              convId,
-              status.jobId,
-              status.status === 'completed',
-            );
-            if (store.streamingConversationIds.has(convId)) {
-              // Final update with whatever content we have
-              const updated = updateAssistantMessage(
-                convId,
-                {
-                  ...(status.fullResponse || status.partialResponse
-                    ? {
-                        content: status.fullResponse || status.partialResponse,
-                      }
-                    : {}),
-                  intermediateSteps: status.intermediateSteps,
-                  ...(status.generationDurationMs !== undefined
-                    ? { generationDurationMs: status.generationDurationMs }
-                    : {}),
-                  ...(status.status === 'error'
-                    ? {
-                        errorMessages: buildMessageError(
-                          status.error || 'Response interrupted',
-                        ),
-                      }
-                    : {}),
-                },
-                status.assistantMessageId,
-              );
-              setStreaming(convId, false);
-              setActivityText(convId, '');
-              setStreamAnnouncement(
-                convId,
-                status.status === 'completed'
-                  ? 'Response complete'
-                  : 'Response interrupted',
-              );
-              persistFinishedTurn(convId, updated, status.assistantMessageId);
-            }
             return;
           }
 
           // Mark conversation as streaming
-          setStreaming(convId, true);
+          markStreaming(convId);
           if (status.status === 'streaming') {
             finishOAuthPromptsForJob(convId, status.jobId, true, true);
           }
@@ -966,16 +950,12 @@ export const ChatView = memo(() => {
           }
         },
         [
-          setStreaming,
-          updateAssistantMessage,
+          markStreaming,
           updateStreamingSteps,
           scrollToBottomSoon,
           finishOAuthPromptsForJob,
-          flushPendingStreamingUpdates,
-          persistFinishedTurn,
           queueStreamingUpdate,
           setActivityText,
-          setStreamAnnouncement,
         ],
       ),
 
@@ -1006,6 +986,7 @@ export const ChatView = memo(() => {
                 : {}),
             },
             meta?.assistantMessageId,
+            meta?.jobId,
           );
 
           // Stop streaming
@@ -1036,6 +1017,7 @@ export const ChatView = memo(() => {
             jobId?: string;
             conversationId?: string;
             assistantMessageId?: string;
+            generationDurationMs?: number;
           },
         ) => {
           const convId = context?.conversationId || selectedIdRef.current;
@@ -1059,13 +1041,15 @@ export const ChatView = memo(() => {
                   ? { content: context.partialResponse }
                   : {}),
                 intermediateSteps: context?.intermediateSteps,
+                ...(context?.generationDurationMs !== undefined
+                  ? { generationDurationMs: context.generationDurationMs }
+                  : {}),
                 errorMessages,
               },
               context?.assistantMessageId,
+              context?.jobId,
             );
-            if (!updated && context?.assistantMessageId) {
-              resyncConversation(convId, context.assistantMessageId, true);
-            }
+            persistFinishedTurn(convId, updated, context?.assistantMessageId);
           } else if (conv) {
             addMessage(convId, {
               role: 'assistant',
@@ -1089,7 +1073,7 @@ export const ChatView = memo(() => {
           addMessage,
           clearOpenedOAuthPromptsForConversation,
           flushPendingStreamingUpdates,
-          resyncConversation,
+          persistFinishedTurn,
           setActivityText,
           setStreamAnnouncement,
         ],
@@ -1099,9 +1083,48 @@ export const ChatView = memo(() => {
   const jobStatusRef = useRef(jobStatusByConversationId);
   jobStatusRef.current = jobStatusByConversationId;
 
-  // Handle message send
+  // A deleted conversation can no longer receive its answer: the worker
+  // discards writes to it. Stop that response instead of tracking it.
+  useEffect(
+    () =>
+      useConversationStore.subscribe(
+        (state) => state.conversations,
+        (conversations, previous) => {
+          const remaining = new Set(conversations.map(({ id }) => id));
+          const removed = removedConversationIdsRef.current;
+          for (const id of Array.from(removed)) {
+            if (remaining.has(id)) removed.delete(id);
+          }
+          for (const { id } of previous) {
+            if (remaining.has(id) || removed.has(id)) continue;
+            removed.add(id);
+            clearOpenedOAuthPromptsForConversation(id);
+            setOauthPrompts((current) =>
+              withoutOAuthPromptsForConversation(current, id),
+            );
+            void cancelJob(id)
+              .then(() => setStreaming(id, false))
+              .catch((error) => {
+                console.warn('Failed to stop a deleted conversation', error);
+              });
+          }
+        },
+      ),
+    [cancelJob, clearOpenedOAuthPromptsForConversation, setStreaming],
+  );
+
+  // Send to the conversation selected when the composer submitted, read from
+  // the store. Capturing the rendered copy would give the memoized composer a
+  // new callback for every streamed flush.
   const handleSend = useCallback(
     async (message: Message) => {
+      const selectedConversation = selectedConversationId
+        ? useConversationStore
+            .getState()
+            .conversations.find(
+              (conversation) => conversation.id === selectedConversationId,
+            )
+        : undefined;
       if (!selectedConversation) return;
       const convId = selectedConversation.id;
       isFollowingRef.current = true;
@@ -1194,7 +1217,7 @@ export const ChatView = memo(() => {
       scrollToBottom('auto');
     },
     [
-      selectedConversation,
+      selectedConversationId,
       addMessage,
       updateConversation,
       setStreaming,
@@ -1209,12 +1232,26 @@ export const ChatView = memo(() => {
     ],
   );
 
+  const handleSteer = useCallback(
+    async (instruction: string) => {
+      if (selectedConversationId) {
+        await steerJob(selectedConversationId, instruction);
+      }
+    },
+    [selectedConversationId, steerJob],
+  );
+
   const handleRetryMessage = useCallback(() => {
     if (!selectedConversation) return;
     const messages = selectedConversation.messages;
     let lastUser: Message | undefined;
     for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i].role === 'user') {
+      // Directions sent while a response ran are part of that turn, not its
+      // prompt; resending one would replace the question being retried.
+      if (
+        messages[i].role === 'user' &&
+        !messages[i].metadata?.steeringCommandId
+      ) {
         lastUser = messages[i];
         break;
       }
@@ -1242,8 +1279,8 @@ export const ChatView = memo(() => {
   const handleStop = useCallback(async () => {
     if (selectedConversationId) {
       flushPendingStreamingUpdates(selectedConversationId);
-      const stoppedMessageId =
-        jobStatusRef.current[selectedConversationId]?.assistantMessageId;
+      const stoppedJob = jobStatusRef.current[selectedConversationId];
+      const stoppedMessageId = stoppedJob?.assistantMessageId;
       try {
         await cancelJob(selectedConversationId);
       } catch (error) {
@@ -1255,6 +1292,9 @@ export const ChatView = memo(() => {
         setStreamAnnouncement(selectedConversationId, message);
         return;
       }
+      // Text delivered while cancellation was confirmed belongs to the
+      // stopped answer that is saved below.
+      flushPendingStreamingUpdates(selectedConversationId);
       setStreaming(selectedConversationId, false);
       setActivityText(selectedConversationId, '');
 
@@ -1270,6 +1310,7 @@ export const ChatView = memo(() => {
           selectedConversationId,
           { metadata: { ...stoppedMessage.metadata, stopped: true } },
           stoppedMessage.id,
+          stoppedJob?.jobId,
         );
         persistFinishedTurn(selectedConversationId, updated, stoppedMessageId);
       }
@@ -1539,11 +1580,7 @@ export const ChatView = memo(() => {
         <ChatInput
           onSend={handleSend}
           onStop={handleStop}
-          onSteer={
-            selectedConversationId
-              ? (instruction) => steerJob(selectedConversationId, instruction)
-              : undefined
-          }
+          onSteer={selectedConversationId ? handleSteer : undefined}
           isStreaming={isStreaming}
         />
       )}

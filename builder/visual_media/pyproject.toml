@@ -20,8 +20,5 @@ classifiers = ["Programming Language :: Python"]
 packages = ["visual_media"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-visual_media = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

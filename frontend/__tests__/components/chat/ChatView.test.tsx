@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   cancelJob: vi.fn(),
   saveConversation: vi.fn(),
   startAsyncJob: vi.fn(),
+  messageRenders: 0,
+  inputRenders: 0,
 }));
 
 vi.mock('@/hooks/useAsyncChat', () => ({
@@ -39,30 +41,45 @@ vi.mock('@/utils/app/api', async (importOriginal) => ({
   apiGet: mocks.apiGet,
 }));
 
-vi.mock('@/components/chat/ChatInput', () => ({
-  ChatInput: ({ onStop }: any) => (
-    <button data-testid="chat-input" onClick={onStop}>
-      Stop response
-    </button>
-  ),
-}));
+vi.mock('@/components/chat/ChatInput', async () => {
+  const { memo } = await import('react');
+  // The real ChatInput is memoized; keep that boundary observable here.
+  return {
+    ChatInput: memo(({ onStop }: any) => {
+      mocks.inputRenders += 1;
+      return (
+        <button data-testid="chat-input" onClick={onStop}>
+          Stop response
+        </button>
+      );
+    }),
+  };
+});
 
 vi.mock('@/components/chat/MessageBubble', () => ({
-  MessageBubble: ({ message, isStreaming, activityProgress }: any) => (
-    <div data-testid="message">
-      {message.content}
-      {isStreaming && (
-        <div data-testid="heartbeat">
-          {activityProgress?.text || 'Thinking...'}
-          <span data-testid="activity-categories">
-            {(message.intermediateSteps || [])
-              .map((step: any) => step.payload.event_type.split('_')[0])
-              .join(',')}
-          </span>
-        </div>
-      )}
-    </div>
-  ),
+  MessageBubble: ({ message, isStreaming, activityProgress, onRetry }: any) => {
+    mocks.messageRenders += 1;
+    return (
+      <div data-testid="message">
+        {message.content}
+        {onRetry && (
+          <button data-testid="retry" onClick={onRetry}>
+            Retry
+          </button>
+        )}
+        {isStreaming && (
+          <div data-testid="heartbeat">
+            {activityProgress?.text || 'Thinking...'}
+            <span data-testid="activity-categories">
+              {(message.intermediateSteps || [])
+                .map((step: any) => step.payload.event_type.split('_')[0])
+                .join(',')}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  },
 }));
 
 function renderChatView(): { root: Root; container: HTMLDivElement } {
@@ -81,6 +98,8 @@ describe('ChatView OAuth banner', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mocks.messageRenders = 0;
+    mocks.inputRenders = 0;
     localStorage.clear();
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     Object.defineProperty(Element.prototype, 'scrollTo', {
@@ -171,7 +190,8 @@ describe('ChatView OAuth banner', () => {
     expect(categories()).toBe('LLM');
 
     act(() => store.selectConversation('conv-1'));
-    expect(categories()).toBe('TOOL');
+    // The background tool's START and END both reached its own message.
+    expect(categories()).toBe('TOOL,TOOL');
     act(() => store.selectConversation('conv-2'));
     act(() =>
       mocks.asyncOptions.onComplete(
@@ -198,6 +218,174 @@ describe('ChatView OAuth banner', () => {
     expect(container.querySelector('[role="status"]')?.textContent).not.toBe(
       'Response complete',
     );
+    act(() => root.unmount());
+  });
+
+  it('keeps both phases of a tool call that shares one UUID during an OAuth wait', async () => {
+    const { root } = renderChatView();
+    const oauthWait = {
+      jobId: 'job-1',
+      status: 'oauth_required',
+      conversationId: 'conv-1',
+      assistantMessageId: 'assistant-1',
+      authUrl: 'https://accounts.google.com/auth',
+      oauthState: 'pending',
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    // The stream worker gives a tool's START and END the same UUID. While an
+    // authorization is pending, status progress does not replace the steps.
+    const phases = ['TOOL_START', 'TOOL_END'].map((eventType, index) => ({
+      parent_id: 'root',
+      payload: {
+        event_type: eventType,
+        event_timestamp: index + 1,
+        name: 'sibling_search',
+        UUID: 'tool-1',
+      },
+    }));
+    await act(async () => {
+      for (const step of phases) {
+        mocks.asyncOptions.onIntermediateStep({
+          conversationId: 'conv-1',
+          assistantMessageId: 'assistant-1',
+          step,
+        });
+        mocks.asyncOptions.onProgress(oauthWait);
+      }
+    });
+
+    const assistant =
+      useConversationStore.getState().conversations[0].messages[1];
+    expect(
+      assistant.intermediateSteps?.map((step) => step.payload.event_type),
+    ).toEqual(['TOOL_START', 'TOOL_END']);
+    act(() => root.unmount());
+  });
+
+  it('stops the response of a conversation deleted while it streams', async () => {
+    mocks.cancelJob.mockResolvedValue(undefined);
+    const { root } = renderChatView();
+    await act(async () => {
+      useConversationStore.getState().deleteConversation('conv-1');
+    });
+    expect(mocks.cancelJob).toHaveBeenCalledExactlyOnceWith('conv-1');
+
+    // Its remaining live events cannot mark the deleted chat as streaming,
+    // which would suppress conversation list refreshes until the job ended.
+    await act(async () => {
+      mocks.asyncOptions.onIntermediateStep({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        step: { payload: { event_type: 'TOOL_START', UUID: 'tool-1' } },
+      });
+    });
+    expect(
+      useConversationStore.getState().streamingConversationIds.has('conv-1'),
+    ).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it("keeps a background conversation's authorization prompt across switches", async () => {
+    const store = useConversationStore.getState();
+    store.addConversation({
+      id: 'conv-2',
+      name: 'Other chat',
+      folderId: null,
+      messages: [],
+    });
+    const { root } = renderChatView();
+    await act(async () => {
+      mocks.asyncOptions.onProgress({
+        jobId: 'job-1',
+        status: 'oauth_required',
+        conversationId: 'conv-1',
+        authUrl: 'https://accounts.google.com/auth?scope=gmail.readonly',
+        oauthState: 'gmail-state',
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    expect(document.body.textContent).toContain('Connect Gmail');
+
+    act(() => store.selectConversation('conv-2'));
+    expect(document.body.textContent).not.toContain('Connect Gmail');
+    // The job still waits for this authorization; its status is not re-sent.
+    act(() => store.selectConversation('conv-1'));
+    expect(document.body.textContent).toContain('Connect Gmail');
+    act(() => root.unmount());
+  });
+
+  it('retries the prompt rather than a direction sent while it ran', async () => {
+    const store = useConversationStore.getState();
+    store.setStreaming('conv-1', false);
+    store.updateConversation('conv-1', {
+      messages: [
+        { id: 'user-1', role: 'user', content: 'read my email' },
+        {
+          id: 'direction-1',
+          role: 'user',
+          content: 'only unread ones',
+          metadata: { steeringCommandId: 'direction-1', jobId: 'job-1' },
+        },
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: '',
+          errorMessages: {
+            message: 'Connection lost.',
+            category: 'network',
+            recoverable: true,
+            timestamp: 1,
+          },
+        },
+      ],
+    });
+    mocks.startAsyncJob.mockResolvedValue('job-2');
+    const { root } = renderChatView();
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>('[data-testid="retry"]')!
+        .click();
+    });
+
+    const [messages] = mocks.startAsyncJob.mock.calls[0];
+    expect(messages.at(-1)).toMatchObject({
+      role: 'user',
+      content: 'read my email',
+    });
+    act(() => root.unmount());
+  });
+
+  it('saves text that arrived while Stop was being confirmed', async () => {
+    let confirmStop!: () => void;
+    mocks.cancelJob.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          confirmStop = resolve;
+        }),
+    );
+    const { root, container } = renderChatView();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="chat-input"]')!
+        .click();
+    });
+    await act(async () => {
+      mocks.asyncOptions.onToken({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        content: 'Last words.',
+        responseStart: 0,
+      });
+      confirmStop();
+    });
+
+    const saved = mocks.saveConversation.mock.calls.at(-1)![0];
+    expect(saved.messages[1]).toMatchObject({
+      content: 'Last words.',
+      metadata: { stopped: true },
+    });
     act(() => root.unmount());
   });
 
@@ -604,6 +792,132 @@ describe('ChatView OAuth banner', () => {
     });
     expect(document.body.textContent).toContain('Hello world!');
 
+    act(() => root.unmount());
+  });
+
+  it.each([
+    [
+      'completion',
+      () =>
+        mocks.asyncOptions.onComplete('Approve?', [], Date.now(), 'conv-1', {
+          assistantMessageId: 'assistant-1',
+          jobId: 'job-1',
+        }),
+    ],
+    [
+      'error',
+      () =>
+        mocks.asyncOptions.onError('Backend disconnected', {
+          conversationId: 'conv-1',
+          assistantMessageId: 'assistant-1',
+          jobId: 'job-1',
+          partialResponse: 'Approve?',
+        }),
+    ],
+  ])(
+    'keeps the job identity on the answer it finishes (%s)',
+    async (_label, finish) => {
+      const { root } = renderChatView();
+      await act(async () => {
+        finish();
+      });
+      const assistant =
+        useConversationStore.getState().conversations[0].messages[1];
+      // The worker saves metadata.jobId with the answer; approvals, traces
+      // and recovery read it, and this copy is saved over that record.
+      expect(assistant.metadata?.jobId).toBe('job-1');
+      for (const [saved] of mocks.saveConversation.mock.calls) {
+        expect(saved.messages[1].metadata?.jobId).toBe('job-1');
+      }
+      act(() => root.unmount());
+    },
+  );
+
+  it.each(['completed', 'error'] as const)(
+    'saves a %s turn once when its terminal status precedes the outcome callback',
+    async (outcome) => {
+      const { root } = renderChatView();
+      const status = {
+        jobId: 'job-1',
+        status: outcome,
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        fullResponse: outcome === 'completed' ? 'Done.' : undefined,
+        partialResponse: 'Done.',
+        error: outcome === 'error' ? 'Backend disconnected' : undefined,
+        finalizedAt: 2,
+        createdAt: 1,
+        updatedAt: 2,
+      };
+      // useAsyncChat reports a terminal job_status through onProgress and
+      // then, in the same task, through onComplete or onError.
+      await act(async () => {
+        mocks.asyncOptions.onProgress(status);
+        if (outcome === 'completed') {
+          mocks.asyncOptions.onComplete('Done.', [], 2, 'conv-1', {
+            assistantMessageId: 'assistant-1',
+            jobId: 'job-1',
+          });
+        } else {
+          mocks.asyncOptions.onError('Backend disconnected', {
+            conversationId: 'conv-1',
+            assistantMessageId: 'assistant-1',
+            jobId: 'job-1',
+            partialResponse: 'Done.',
+            generationDurationMs: 4200,
+          });
+        }
+      });
+
+      expect(mocks.saveConversation).toHaveBeenCalledOnce();
+      const saved = mocks.saveConversation.mock.calls[0][0];
+      expect(saved.messages[1].content).toBe('Done.');
+      expect(Boolean(saved.messages[1].errorMessages)).toBe(
+        outcome === 'error',
+      );
+      expect(saved.messages[1].metadata?.jobId).toBe('job-1');
+      if (outcome === 'error') {
+        // The worker records the duration of a failed turn too.
+        expect(saved.messages[1].generationDurationMs).toBe(4200);
+      }
+      expect(
+        useConversationStore.getState().streamingConversationIds.has('conv-1'),
+      ).toBe(false);
+      act(() => root.unmount());
+    },
+  );
+
+  it('does not re-render the conversation for tokens between flushes', async () => {
+    const { root } = renderChatView();
+    const token = (content: string, responseStart: number) =>
+      mocks.asyncOptions.onToken({
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        content,
+        responseStart,
+      });
+    await act(async () => {
+      token('Hello', 0);
+      vi.advanceTimersByTime(0);
+    });
+    const rendersAfterFirstFlush = mocks.messageRenders;
+
+    // Each token arrives in its own WebSocket task.
+    for (let index = 0; index < 5; index += 1) {
+      await act(async () => {
+        token('!', 5 + index);
+      });
+    }
+    expect(mocks.messageRenders).toBe(rendersAfterFirstFlush);
+
+    await act(async () => {
+      vi.advanceTimersByTime(120);
+    });
+    expect(document.body.textContent).toContain('Hello!!!!!');
+    // Two bubbles (user and assistant) render once for the coalesced flush.
+    expect(mocks.messageRenders).toBe(rendersAfterFirstFlush + 2);
+    // Streamed text does not change the composer's props.
+    expect(mocks.inputRenders).toBe(1);
     act(() => root.unmount());
   });
 

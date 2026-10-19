@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import rss_feed.rss_feed_function as rss_mod
+from pydantic import ValidationError
 from rss_feed.rss_feed_function import (
     RssEntry,
     RssFeedFunctionConfig,
@@ -98,6 +99,34 @@ class TestTruncateText:
             # 0 * 4 = 0, so text[:0] = ""
             assert result == ""
 
+    def test_special_token_text_keeps_the_token_bound(self, monkeypatch):
+        """Article text such as "<|endoftext|>" is content, not an encode error.
+
+        tiktoken rejects special-token text unless disallowed_special=() is
+        passed; the character fallback then allowed four characters per token.
+        """
+
+        class Encoding:
+            # One token per character, like dense CJK text.
+            def encode(self, text, *, allowed_special=(), disallowed_special="all"):
+                if disallowed_special == "all" and "<|endoftext|>" in text:
+                    raise ValueError("disallowed special token")
+                return list(text)
+
+            def decode(self, tokens):
+                return "".join(tokens)
+
+        monkeypatch.setattr(rss_mod, "_can_use_tiktoken", lambda: True)
+        monkeypatch.setattr(
+            rss_mod,
+            "tiktoken",
+            MagicMock(get_encoding=lambda _name: Encoding()),
+            raising=False,
+        )
+        text = "Tokenizers emit <|endoftext|> between documents. " + "漢" * 2000
+
+        assert truncate_text(text, token_limit=100) == text[:100]
+
 
 # ---------------------------------------------------------------------------
 # Reranker passage helpers
@@ -186,7 +215,7 @@ class TestRssEntry:
         assert entry.description == "Summary of article"
 
     def test_model_validation(self):
-        with pytest.raises(Exception):  # missing required 'title'
+        with pytest.raises(ValidationError, match="title"):
             RssEntry(link="https://x.com")
 
 
@@ -209,7 +238,7 @@ class TestRssSearchRequest:
         assert req.description == "A test search"
 
     def test_missing_query_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError, match="query"):
             RssSearchRequest()
 
 

@@ -1,6 +1,7 @@
 import { IconX, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import React, { useState, useId } from 'react';
 
+import { safeExternalUrl } from '@/utils/app/externalUrl';
 import {
   ConsolidatedStep,
   formatDuration,
@@ -118,15 +119,6 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
     typeof parsedOutput === 'string'
       ? parsedOutput
       : parsedOutput?.summary || parsedOutput?.message || parsedOutput?.content;
-  const resultUrl = (value: unknown): string | undefined => {
-    if (typeof value !== 'string') return;
-    try {
-      const url = new URL(value);
-      return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined;
-    } catch {
-      return;
-    }
-  };
 
   return (
     <div className="min-h-0 min-w-0 flex flex-col">
@@ -189,7 +181,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
             {results.length > 0 && (
               <ul className="space-y-2 text-sm text-secondary">
                 {results.slice(0, 8).map((result, index) => {
-                  const url = resultUrl(result?.url || result?.link);
+                  const url = safeExternalUrl(result?.url || result?.link);
                   const rawTitle =
                     typeof result === 'string'
                       ? result

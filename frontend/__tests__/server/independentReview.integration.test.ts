@@ -512,6 +512,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
               },
               json,
             );
+          // An applied terminal claim writes its journal in the same script;
+          // nothing else in these schedules may create one.
+          let claimed = false;
           for (const operation of scenario.operations) {
             if (operation.op === 'finish') {
               const patch = encodeJob(operation.patch);
@@ -529,6 +532,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
                 },
               );
               expect(applied).toBe(operation.expect.result === 'applied');
+              claimed ||= applied;
             } else if (operation.op === 'callback') {
               expect(
                 await jobs.completeOAuthJobRequest(jobId, operation.request_id),
@@ -540,6 +544,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
               operation.expect.stored,
             );
             const journal = await jobs.getFinalizationJournal(jobId);
+            expect(Boolean(journal)).toBe(claimed);
             if (journal) {
               expect(decodeJob(journal.terminalStatus)).toEqual(
                 operation.expect.stored,

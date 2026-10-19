@@ -111,6 +111,79 @@ describe('Create image attachments', () => {
     },
   );
 
+  it.each(['removed', 'replaced'])(
+    'discards a mask that finishes uploading after Image 1 was %s',
+    async (change) => {
+      vi.stubGlobal(
+        'Image',
+        class {
+          naturalWidth = 2;
+          naturalHeight = 2;
+          onload?: () => void;
+          set src(_value: string) {
+            queueMicrotask(() => this.onload?.());
+          }
+        },
+      );
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mask');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+        drawImage: vi.fn(),
+        getImageData: () => ({ data: new Uint8ClampedArray(16) }),
+      } as unknown as CanvasRenderingContext2D);
+      let finishUpload!: () => void;
+      vi.mocked(uploadImage).mockReturnValue(
+        new Promise((resolve) => {
+          finishUpload = () =>
+            resolve({
+              imageId: 'mask',
+              sessionId: 'session',
+              mimeType: 'image/png',
+            });
+        }),
+      );
+      const image = (imageId: string) => ({
+        imageId,
+        sessionId: 'session',
+        mimeType: 'image/png',
+        width: 2,
+        height: 2,
+      });
+      useImagePanelStore.setState({ inputImages: [image('source')] });
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => root.render(<EditAssetsPanel />));
+        const input = container.querySelector<HTMLInputElement>(
+          'input[accept="image/png"]',
+        )!;
+        Object.defineProperty(input, 'files', {
+          configurable: true,
+          value: [new File(['png'], 'mask.png', { type: 'image/png' })],
+        });
+        await act(async () => {
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        await vi.waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(1));
+
+        await act(async () => {
+          if (change === 'removed')
+            useImagePanelStore.getState().removeInputImage('source');
+          else useImagePanelStore.setState({ inputImages: [image('another')] });
+        });
+        await act(async () => finishUpload());
+
+        expect(useImagePanelStore.getState().maskImage).toBeNull();
+        expect(container.textContent).toContain(
+          'Image 1 changed while the mask was uploading.',
+        );
+      } finally {
+        act(() => root.unmount());
+      }
+    },
+  );
+
   it('rejects an image over 30 MiB before reading or uploading it', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

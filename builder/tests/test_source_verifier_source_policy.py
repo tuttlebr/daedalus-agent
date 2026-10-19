@@ -4,6 +4,7 @@ import socket
 from functools import partial
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 
@@ -195,7 +196,7 @@ def test_fetch_source_rejects_redirect_to_internal(monkeypatch):
     client = _QueuedClient(responses)
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(mod.httpx, "AsyncClient", lambda *a, **k: client)
+        mp.setattr(httpx, "AsyncClient", lambda *a, **k: client)
         result = run(mod._fetch_source("https://example.com/redirector", config))
 
     assert result.status == "invalid_url"
@@ -216,7 +217,7 @@ def test_fetch_source_rejects_literal_internal_url():
         raise AssertionError("httpx client should not be constructed")
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(mod.httpx, "AsyncClient", _no_http)
+        mp.setattr(httpx, "AsyncClient", _no_http)
         result = run(
             mod._fetch_source("http://169.254.169.254/latest/meta-data/", config)
         )

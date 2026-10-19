@@ -36,6 +36,8 @@ def test_existing_one_hour_model_timeout_starts_after_env_expansion(
     monkeypatch.setenv("DAEDALUS_LLM_TIMEOUT", "3600")
 
     loaded = load_config(path)
+    # The deployment value, not the shorter default, must reach validation.
+    assert loaded["llms"]["main"]["request_timeout"] == "3600"
     validate_config(loaded, ToolRegistry(loaded))
 
 

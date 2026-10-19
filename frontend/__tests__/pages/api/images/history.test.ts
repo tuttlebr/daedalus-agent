@@ -8,12 +8,12 @@ const mocks = vi.hoisted(() => ({
   jsonGet: vi.fn(),
   jsonSetWithExpiry: vi.fn(),
   jsonDel: vi.fn(),
-  getOrSetSessionId: vi.fn(),
+  getStorageSessionId: vi.fn(),
   requireAuthenticatedUser: vi.fn(),
 }));
 
 vi.mock('@/server/session/_utils', () => ({
-  getOrSetSessionId: mocks.getOrSetSessionId,
+  getStorageSessionId: mocks.getStorageSessionId,
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
 }));
 
@@ -88,7 +88,7 @@ function entry(id = 'hist-1', outputImageIds = ['abc-123']) {
 describe('/api/images/history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getOrSetSessionId.mockReturnValue('session-1');
+    mocks.getStorageSessionId.mockReturnValue('session-1');
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'testuser' });
     mocks.redisEval.mockResolvedValue(
       ownerReply({ userId: 'testuser', sessionId: 'session-1' }),

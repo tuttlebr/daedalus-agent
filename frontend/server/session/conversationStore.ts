@@ -12,6 +12,10 @@ const SNAPSHOT = `${READ}
 -- READ_OWNED_CONVERSATION
 return {read(KEYS[1]), redis.call('SISMEMBER', KEYS[2], ARGV[1])}
 `;
+const RESERVATION = `${READ}
+-- READ_CONVERSATION_RESERVATION
+return {read(KEYS[1]), redis.call('SISMEMBER', KEYS[2], ARGV[1]), redis.call('TTL', KEYS[1])}
+`;
 const SAVE = `${READ}
 -- SAVE_OWNED_CONVERSATION: authorize and compare the same snapshot we replace.
 local raw = read(KEYS[1])
@@ -117,6 +121,23 @@ export async function reserveConversationForUser(
   id: string,
   name?: string,
 ) {
+  // Every chat turn reserves its conversation. A durable record already bound
+  // to this user needs no write: rewriting it unchanged sent the whole history
+  // through Redis twice before the job could be queued. The atomic snapshot
+  // authorizes it exactly as the save script would.
+  const [raw, member, ttl] = (await getRedis().eval(
+    RESERVATION,
+    2,
+    sessionKey(['conversation', id]),
+    sessionKey(['user', username, 'conversations']),
+    id,
+  )) as [string, number, number];
+  if (raw && member === 1 && ttl === -1) {
+    const current = JSON.parse(raw);
+    if (current?.ownerId === username && current.id === id) return current;
+  }
+  // New, legacy (unbound or expiring) and foreign records keep the
+  // compare-and-set path that creates, binds or rejects them.
   return saveConversationForUser(
     username,
     id,

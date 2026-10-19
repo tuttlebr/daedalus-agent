@@ -69,7 +69,9 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
   }, [readStatus]);
 
   useEffect(() => {
-    if (!['running', 'oauth_required'].includes(state)) return;
+    // Keep reading while the first status is unknown too: a transient failure
+    // would otherwise leave the decision buttons unreachable.
+    if (!['checking', 'running', 'oauth_required'].includes(state)) return;
     const timer = window.setInterval(() => {
       void readStatus().catch((statusError) => {
         setError(

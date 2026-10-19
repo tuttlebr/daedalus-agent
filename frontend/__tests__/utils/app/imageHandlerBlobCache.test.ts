@@ -110,4 +110,28 @@ describe('imageHandler blob cache', () => {
 
     expect(revokeObjectURL).toHaveBeenCalledWith(url);
   });
+
+  it('releases a temporary URL without dropping a later cached copy', async () => {
+    mockImageFetch(2 * 1024 * 1024);
+    const { fetchImageAsBlob, revokeImageBlob } = await import(
+      '@/utils/app/imageHandler'
+    );
+    const other = { imageId: 'other', sessionId: 'generated' };
+    const shared = { imageId: 'shared', sessionId: 'generated' };
+
+    const otherUrl = await fetchImageAsBlob(other);
+    // The cache is full of a referenced image, so this consumer gets a
+    // temporary URL that the cache does not own.
+    const temporaryUrl = await fetchImageAsBlob(shared);
+    revokeImageBlob('other', otherUrl);
+    vi.advanceTimersByTime(100);
+    // Another consumer now loads the same image into the freed cache.
+    const cachedUrl = await fetchImageAsBlob(shared);
+    expect(cachedUrl).not.toBe(temporaryUrl);
+
+    revokeImageBlob('shared', temporaryUrl);
+    vi.advanceTimersByTime(100);
+    expect(revokeObjectURL).toHaveBeenCalledWith(temporaryUrl);
+    expect(revokeObjectURL).not.toHaveBeenCalledWith(cachedUrl);
+  });
 });

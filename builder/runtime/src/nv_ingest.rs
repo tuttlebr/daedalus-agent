@@ -738,6 +738,7 @@ mod tests {
             calls: Vec<(Method, String, Option<Value>)>,
             reply: Value,
             block: bool,
+            unavailable: bool,
         }
         async fn peer(
             State(state): State<Arc<Mutex<Peer>>>,
@@ -745,7 +746,7 @@ mod tests {
             uri: Uri,
             bytes: Bytes,
         ) -> axum::response::Response {
-            let (fault, reply, block) = {
+            let (fault, reply, block, unavailable) = {
                 let mut state = state.lock().unwrap();
                 let body =
                     (!bytes.is_empty()).then(|| serde_json::from_slice::<Value>(&bytes).unwrap());
@@ -755,10 +756,13 @@ mod tests {
                 } else {
                     None
                 };
-                (fault, state.reply.clone(), state.block)
+                (fault, state.reply.clone(), state.block, state.unavailable)
             };
             if block {
                 tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+            if unavailable {
+                return (StatusCode::BAD_GATEWAY, axum::Json(json!({}))).into_response();
             }
             if let Some(code) = fault {
                 return (StatusCode::from_u16(code).unwrap(), axum::Json(json!({})))
@@ -826,6 +830,26 @@ mod tests {
             .unwrap_err();
         assert!(error.to_string().contains("timed out"));
         tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert_eq!(
+            state.lock().unwrap().calls.len(),
+            1,
+            "a hung submission must not be duplicated"
+        );
+        // A hung request cannot show whether expired work keeps retrying. Fail
+        // every attempt with a retryable status instead: the next submission
+        // is due one second after the first, after this deadline has passed.
+        {
+            let mut state = state.lock().unwrap();
+            state.calls.clear();
+            state.block = false;
+            state.unavailable = true;
+        }
+        let error = client
+            .extract(&job, Duration::from_millis(300))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
         assert_eq!(
             state.lock().unwrap().calls.len(),
             1,

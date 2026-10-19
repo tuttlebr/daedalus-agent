@@ -4,6 +4,7 @@ import { IconGift } from '@tabler/icons-react';
 import React, { memo } from 'react';
 
 import {
+  IMAGE_PRESETS,
   presetsForMode,
   applyPreset,
   type ImagePreset,
@@ -22,27 +23,35 @@ interface PresetsPopoverProps {
   disabled?: boolean;
 }
 
+const PRESET_PRESERVE_LISTS = new Set(
+  IMAGE_PRESETS.flatMap((preset) =>
+    preset.preserveList ? [preset.preserveList] : [],
+  ),
+);
+
+/**
+ * Apply a preset to the current Create draft from any entry point. A preset
+ * without a preserve list clears one that another preset supplied, but never
+ * discards a list the user wrote.
+ */
+export function applyPresetToDraft(preset: ImagePreset) {
+  const draft = useImagePanelStore.getState();
+  const { prompt, preserveList, setPrompt, setPreserveList, setParam } = draft;
+  const next = applyPreset(preset, prompt, draft.model, draft.mode);
+  setPrompt(next.prompt);
+  setPreserveList(
+    next.preserveList ??
+      (PRESET_PRESERVE_LISTS.has(preserveList.trim()) ? '' : preserveList),
+  );
+  (Object.keys(next.params) as (keyof ImageParams)[]).forEach((key) => {
+    setParam(key, next.params[key] as never);
+  });
+}
+
 export const PresetsPopover = memo(function PresetsPopover({
   disabled,
 }: PresetsPopoverProps) {
   const mode = useImagePanelStore(selectMode);
-  const model = useImagePanelStore((s) => s.model);
-
-  const handleApply = (preset: ImagePreset) => {
-    const { prompt, setPrompt, setPreserveList, setParam } =
-      useImagePanelStore.getState();
-    const {
-      prompt: nextPrompt,
-      preserveList: nextPreserve,
-      params: nextParams,
-    } = applyPreset(preset, prompt, model, mode);
-    setPrompt(nextPrompt);
-    setPreserveList(nextPreserve ?? '');
-    (Object.keys(nextParams) as (keyof ImageParams)[]).forEach((k) => {
-      setParam(k, nextParams[k] as never);
-    });
-  };
-
   const presets = presetsForMode(mode);
 
   return (
@@ -57,7 +66,11 @@ export const PresetsPopover = memo(function PresetsPopover({
         </DockIconTrigger>
       }
     >
-      <PresetsPanel mode={mode} presets={presets} onApply={handleApply} />
+      <PresetsPanel
+        mode={mode}
+        presets={presets}
+        onApply={applyPresetToDraft}
+      />
     </Popover>
   );
 });

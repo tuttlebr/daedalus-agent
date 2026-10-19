@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from io import BytesIO
@@ -205,6 +206,10 @@ def _document_size_error(document_base64: str, max_bytes: int) -> str | None:
 
 class DocumentStorageError(ValueError):
     """Safe error raised when an upload reference can't be loaded."""
+
+
+class UncertainVectorWriteError(RuntimeError):
+    """The SDK's Milvus write failed after it may have committed rows."""
 
 
 def _document_object_request_timeout_seconds() -> float:
@@ -1949,27 +1954,47 @@ class NvIngestDocumentProcessor:
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
                 )
+                ingest_thread = threading.get_ident()
+                write_started = False
+
+                def mark_write_started() -> None:
+                    nonlocal write_started
+                    if write_started:
+                        return
+                    write_started = True
+                    _emit_stage_from_thread(
+                        "indexing",
+                        filename,
+                        "NV-Ingest extraction finished; writing chunks to Milvus",
+                    )
+
+                # The SDK writes to Milvus after extraction, inside ingest().
+                # Observe that boundary directly: its INFO completion log is
+                # disabled at the service's default WARNING level.
+                writer = getattr(ingestor, "_vdb_bulk_upload", None)
+                write = getattr(writer, "run", None)
+                if callable(write):
+
+                    def observed_write(records: Any) -> Any:
+                        mark_write_started()
+                        return write(records)
+
+                    writer.run = observed_write
 
                 class _BatchFinishedHandler(logging.Handler):
                     def __init__(self) -> None:
                         super().__init__(level=logging.INFO)
-                        self._seen = False
 
                     def emit(self, record: logging.LogRecord) -> None:
-                        if self._seen:
+                        # The SDK logger is shared by concurrent ingestions.
+                        if write_started or record.thread != ingest_thread:
                             return
                         try:
                             message = record.getMessage()
                         except Exception:
                             return
-                        if "Batch processing finished" not in message:
-                            return
-                        self._seen = True
-                        _emit_stage_from_thread(
-                            "indexing",
-                            filename,
-                            ("NV-Ingest extraction finished; writing chunks to Milvus"),
-                        )
+                        if "Batch processing finished" in message:
+                            mark_write_started()
 
                 progress_log_handler = _BatchFinishedHandler()
                 client_logger = logging.getLogger("nv_ingest_client.client.client")
@@ -1988,6 +2013,10 @@ class NvIngestDocumentProcessor:
                         results, failures = ctx.ingest(
                             show_progress=False, return_failures=True
                         )
+                except Exception as exc:
+                    if write_started:
+                        raise UncertainVectorWriteError(str(exc)) from exc
+                    raise
                 finally:
                     client_logger.removeHandler(progress_log_handler)
                 _emit_stage_from_thread(
@@ -2050,6 +2079,11 @@ class NvIngestDocumentProcessor:
                         "is retained until it finishes. Do not retry blindly.",
                         filename=filename,
                     )
+                except UncertainVectorWriteError as e:
+                    # Rows may already be committed. Replaying extraction,
+                    # embedding, and the write would duplicate them.
+                    last_exc = e
+                    break
                 except Exception as e:
                     last_exc = e
                     if attempt < config.ingest_max_retries:
@@ -2074,10 +2108,9 @@ class NvIngestDocumentProcessor:
 
             if success_payload is None:
                 logger.error(
-                    "NV-Ingest processing error after %d attempts: %s",
-                    config.ingest_max_retries + 1,
+                    "NV-Ingest processing error: %s",
                     last_exc,
-                    exc_info=True,
+                    exc_info=last_exc,
                 )
                 return _failure(
                     f"Error processing document with NvIngest: {str(last_exc)}",
@@ -2803,103 +2836,6 @@ async def nv_ingest_function(
             )
         return result
 
-    async def nv_ingest_router(input_message: dict[str, Any]) -> str:
-        """Routes NV Ingest requests to the appropriate function."""
-        logger.info(
-            "nv_ingest_router called with input_message: %s", str(input_message)[:500]
-        )
-
-        if isinstance(input_message, dict):
-            if "input_message" in input_message and isinstance(
-                input_message["input_message"], dict
-            ):
-                inner_request = input_message["input_message"]
-            elif "request" in input_message and isinstance(
-                input_message["request"], dict
-            ):
-                inner_request = input_message["request"]
-            else:
-                inner_request = input_message
-
-            logger.info("Inner request structure: %s", str(inner_request)[:500])
-
-            metadata = inner_request.get("metadata", {})
-            if not isinstance(metadata, dict):
-                metadata = {}
-
-            def get_param(key: str, default: str | None = None) -> str | None:
-                value = inner_request.get(key)
-                if value:
-                    return value
-                return metadata.get(key, default)
-
-            try:
-                username = resolve_authenticated_user_id(get_param("username", ""))
-            except ValueError as exc:
-                logger.warning(
-                    "Denied document request without trusted identity: %s", exc
-                )
-                return f"Error: user document request denied: {exc}."
-
-            provenance = inner_request.get("provenance") or metadata.get("provenance")
-            if not isinstance(provenance, dict):
-                provenance = None
-
-            if "documentRefs" in inner_request:
-                documentRefs = inner_request.get("documentRefs")
-                logger.info(
-                    "Processing multiple documents: %d files",
-                    len(documentRefs) if isinstance(documentRefs, list) else 0,
-                )
-
-                async def run_batch() -> str:
-                    return await document_processor.process_multiple_documents(
-                        documentRefs=documentRefs,
-                        username=username,
-                        collection_name=get_param("collection_name"),
-                        collection_scope=get_param("collection_scope"),
-                        provenance=provenance,
-                        chunk_size=inner_request.get("chunk_size"),
-                        chunk_overlap=inner_request.get("chunk_overlap"),
-                    )
-
-                return await _run_idempotent_ingest(
-                    document_refs=documentRefs,
-                    username=username,
-                    collection_name=get_param("collection_name"),
-                    chunk_size=inner_request.get("chunk_size"),
-                    chunk_overlap=inner_request.get("chunk_overlap"),
-                    run=run_batch,
-                )
-
-            elif "documentRef" in inner_request:
-                document_ref = inner_request.get("documentRef")
-
-                async def run_single() -> str:
-                    ingest_result = await document_processor.process_document(
-                        documentRef=document_ref,
-                        username=username,
-                        collection_name=get_param("collection_name"),
-                        collection_scope=get_param("collection_scope"),
-                        provenance=provenance,
-                        chunk_size=inner_request.get("chunk_size"),
-                        chunk_overlap=inner_request.get("chunk_overlap"),
-                    )
-                    return format_single_doc_response(ingest_result)
-
-                return await _run_idempotent_ingest(
-                    document_refs=[document_ref],
-                    username=username,
-                    collection_name=get_param("collection_name"),
-                    chunk_size=inner_request.get("chunk_size"),
-                    chunk_overlap=inner_request.get("chunk_overlap"),
-                    run=run_single,
-                )
-
-            return await list_collections(username)
-
-        return "Error: input_message must be an object."
-
     async def search_documents(
         query: str,
         username: str,
@@ -2934,9 +2870,7 @@ async def nv_ingest_function(
     async def user_document_tool(
         operation: str = "search",
         query: str = "",
-        username: str = "",
         collection_name: str | None = None,
-        collection_scope: str | None = None,
         provenance: dict[str, Any] | None = None,
         documentRef: dict[str, Any] | None = None,
         documentRefs: list[dict[str, Any]] | None = None,
@@ -2944,17 +2878,15 @@ async def nv_ingest_function(
         filters: str | None = None,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
-        input_message: dict[str, Any] | None = None,
     ) -> str:
         """Ingest or search the user's uploaded documents.
+
+        Identity always comes from the authenticated request context.
 
         Args:
             operation: ingest, extract, search, or list_collections.
             query: Search query for operation='search'.
-            username: Deprecated direct-call identity assertion. The LLM-facing
-                schema omits it; HTTP requests use the trusted NAT context.
             collection_name: Optional explicit Milvus collection.
-            collection_scope: Optional expected scope, either shared or user.
             provenance: Optional audit metadata for ingestion requests.
             documentRef: Single uploaded document reference for operation='ingest'
                 or operation='extract'.
@@ -2963,11 +2895,7 @@ async def nv_ingest_function(
             filters: Optional Milvus filter expression.
             chunk_size: Optional ingest chunk size override.
             chunk_overlap: Optional ingest chunk overlap override.
-            input_message: Backward-compatible raw request object.
         """
-        if input_message is not None:
-            return await nv_ingest_router(input_message)
-
         op = (operation or "search").strip().lower()
         if op not in {"ingest", "extract", "search", "list_collections"}:
             return (
@@ -2976,7 +2904,7 @@ async def nv_ingest_function(
             )
 
         try:
-            effective_username = resolve_authenticated_user_id(username)
+            effective_username = resolve_authenticated_user_id()
         except ValueError as exc:
             logger.warning("Denied document request without trusted identity: %s", exc)
             return f"Error: user document request denied: {exc}."
@@ -2997,7 +2925,6 @@ async def nv_ingest_function(
                         documentRefs=documentRefs,
                         username=effective_username,
                         collection_name=collection_name,
-                        collection_scope=collection_scope,
                         provenance=provenance,
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
@@ -3018,7 +2945,6 @@ async def nv_ingest_function(
                         documentRef=documentRef,
                         username=effective_username,
                         collection_name=collection_name,
-                        collection_scope=collection_scope,
                         provenance=provenance,
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,

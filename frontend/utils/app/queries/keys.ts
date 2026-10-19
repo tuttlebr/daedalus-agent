@@ -8,11 +8,4 @@ export const queryKeys = {
   images: {
     history: ['images', 'history'] as const,
   },
-  conversations: {
-    all: ['conversations'] as const,
-    detail: (id: string) => ['conversations', id] as const,
-  },
-  session: {
-    registry: ['session', 'registry'] as const,
-  },
 } as const;

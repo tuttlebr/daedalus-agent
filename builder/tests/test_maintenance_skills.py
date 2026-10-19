@@ -58,6 +58,30 @@ def test_commands_placeholders_and_code_blocks_are_not_paths(tmp_path):
     ]
 
 
+def test_retired_root_files_are_reported(tmp_path):
+    # Root files carry no directory separator but are still repository paths.
+    root = fixture_repo(
+        tmp_path,
+        "Read `Makefile`, `docker-compose.yaml`, `.pre-commit-config.yaml` "
+        "and `references/guide.md`.\n",
+    )
+
+    assert skills_module.check(root) == [
+        ".agents/skills/demo/references/guide.md: missing path docker-compose.yaml",
+        ".agents/skills/demo/references/guide.md: missing path .pre-commit-config.yaml",
+    ]
+
+
+def test_blank_spans_make_options_and_variables_are_not_references(tmp_path):
+    root = fixture_repo(
+        tmp_path,
+        "Indent with ` ` and run `make -j4 builder` or "
+        "`make builder MIGRATION_PYTHON=python3`; `nat_helpers` is a name.\n",
+    )
+
+    assert skills_module.check(root) == []
+
+
 def test_skill_name_must_match_its_directory(tmp_path):
     root = fixture_repo(tmp_path, "")
     write(root / ".agents/skills/demo/SKILL.md", "---\nname: other\n---\n")

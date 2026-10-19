@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => {
   }
 
   return {
-    getOrSetSessionId: vi.fn(() => 'current-session'),
+    getStorageSessionId: vi.fn(() => 'current-session'),
     requireAuthenticatedUser: vi.fn(),
     validateDocumentRefsForUser: vi.fn(),
     DocumentRefAccessError: MockDocumentRefAccessError,
@@ -47,7 +47,7 @@ vi.mock('@/utils/server/backendAuth', () => ({
 }));
 
 vi.mock('@/server/session/_utils', () => ({
-  getOrSetSessionId: mocks.getOrSetSessionId,
+  getStorageSessionId: mocks.getStorageSessionId,
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
 }));
 

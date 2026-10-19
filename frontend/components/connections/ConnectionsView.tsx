@@ -6,7 +6,7 @@ import {
   IconRefresh,
   IconShieldLock,
 } from '@tabler/icons-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiDelete, apiGet } from '@/utils/app/api';
 import type { GoogleWorkspaceConnection } from '@/utils/app/googleWorkspace';
@@ -33,19 +33,24 @@ export function ConnectionsView() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [resettingService, setResettingService] = useState<string | null>(null);
+  // A reset response is newer than any status read already in flight.
+  const statusVersion = useRef(0);
 
   const refresh = useCallback(async () => {
+    const version = ++statusVersion.current;
     setLoading(true);
     setError(null);
     try {
       const response = await apiGet<ConnectionsResponse>(
         '/api/google-workspace/connections',
       );
-      setConnections(response.connections);
+      if (version === statusVersion.current)
+        setConnections(response.connections);
     } catch {
-      setError('Connection status is temporarily unavailable.');
+      if (version === statusVersion.current)
+        setError('Connection status is temporarily unavailable.');
     } finally {
-      setLoading(false);
+      if (version === statusVersion.current) setLoading(false);
     }
   }, []);
 
@@ -69,7 +74,9 @@ export function ConnectionsView() {
         const response = await apiDelete<ResetResponse>(
           `/api/google-workspace/connections?service=${connection.id}`,
         );
+        statusVersion.current++;
         setConnections(response.connections);
+        setLoading(false);
         setNotice(
           `${connection.label} authorization cleared. Go to Chat and retry the request to start a fresh Google sign-in.`,
         );

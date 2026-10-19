@@ -21,7 +21,7 @@ const PAGE_SIZE = 30;
 
 export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
   // Lane filter lives in the persisted UI store so the selection survives
-  // switching views (which unmounts this component) and reloads.
+  // reloads.
   const storedLane = useUISettingsStore((s) => s.autonomyLaneFilter);
   const setLane = useUISettingsStore((s) => s.setAutonomyLaneFilter);
   const lane: LaneFilter = (['all', ...laneOrder()] as string[]).includes(

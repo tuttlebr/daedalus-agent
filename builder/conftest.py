@@ -145,6 +145,13 @@ def pytest_configure(config):
         "integration: test requires real backing services (e.g. Redis); "
         "skipped unless PYTEST_USE_REAL_REDIS=1 (run via `make test-integration`).",
     )
+    # The integration gate selects only these tests. Skipping all of them
+    # would report success without exercising real Redis.
+    selected = (config.getoption("markexpr") or "").strip()
+    if selected == "integration" and not _USE_REAL_REDIS:
+        raise pytest.UsageError(
+            "-m integration requires PYTEST_USE_REAL_REDIS=1 and a reachable REDIS_URL"
+        )
 
 
 def pytest_collection_modifyitems(config, items):

@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
     unsubscribeFromJob: vi.fn(),
     subscribeToChat: vi.fn(),
     unsubscribeFromChat: vi.fn(),
+    steerJob: vi.fn(),
     on: vi.fn((type: string, handler: (data: any) => void) => {
       const set = handlers.get(type) || new Set<(data: any) => void>();
       set.add(handler);
@@ -141,21 +142,25 @@ function Probe({
   return null;
 }
 
-function renderProbe(options: Parameters<typeof useAsyncChat>[0]) {
+function renderProbe(
+  options: Parameters<typeof useAsyncChat>[0],
+  { strict = false }: { strict?: boolean } = {},
+) {
   let api: UseAsyncChatApi | null = null;
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
+  const probe = (
+    <Probe
+      options={options}
+      onApi={(nextApi) => {
+        api = nextApi;
+      }}
+    />
+  );
 
   act(() => {
-    root.render(
-      <Probe
-        options={options}
-        onApi={(nextApi) => {
-          api = nextApi;
-        }}
-      />,
-    );
+    root.render(strict ? <React.StrictMode>{probe}</React.StrictMode> : probe);
   });
 
   return {
@@ -331,6 +336,114 @@ describe('useAsyncChat streaming callbacks', () => {
         }),
       );
     });
+    act(() => root.unmount());
+  });
+
+  it('reconciles a job that finished during a brief disconnection on reconnect', async () => {
+    const onComplete = vi.fn();
+    const { root, api } = renderProbe({
+      userId: 'alice',
+      onComplete,
+      pollingInterval: 3000,
+    });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    const statusReads = () =>
+      mocks.fetchWithTimeoutMock.mock.calls.filter(
+        ([url]) => url === '/api/chat/async?jobId=job-1',
+      ).length;
+    const readsBefore = statusReads();
+    mocks.fetchWithTimeoutMock.mockImplementation(async () =>
+      response({
+        jobId: 'job-1',
+        status: 'completed',
+        conversationId: 'conv-1',
+        fullResponse: 'Finished while offline.',
+        finalizedAt: 2,
+        createdAt: 1,
+        updatedAt: 2,
+      }),
+    );
+
+    // The terminal job_status was published while the socket was down, and
+    // the socket returned before the next fallback poll.
+    mocks.manager.isConnected = false;
+    await act(async () => {
+      emit('disconnected', undefined);
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    mocks.manager.isConnected = true;
+    await act(async () => {
+      emit('connected', { userId: 'alice', streamingStates: {} });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(statusReads()).toBe(readsBefore + 1);
+    expect(onComplete).toHaveBeenCalledWith(
+      'Finished while offline.',
+      undefined,
+      2,
+      'conv-1',
+      expect.objectContaining({ jobId: 'job-1' }),
+    );
+    act(() => root.unmount());
+  });
+
+  it('reports the failed job identity and duration with a terminal error', async () => {
+    const onError = vi.fn();
+    const { root, api } = renderProbe({ userId: 'alice', onError });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    await act(async () => {
+      emit('job_status', {
+        jobId: 'job-1',
+        status: 'error',
+        error: 'Backend disconnected',
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        partialResponse: 'Partial answer',
+        generationDurationMs: 4200,
+        finalizedAt: 2,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+    });
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      'Backend disconnected',
+      expect.objectContaining({
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        assistantMessageId: 'assistant-1',
+        partialResponse: 'Partial answer',
+        generationDurationMs: 4200,
+      }),
+    );
+    act(() => root.unmount());
+  });
+
+  it('keeps handling live events after effects are re-run', async () => {
+    // Strict Mode and Fast Refresh unmount and re-run effects in place.
+    const onToken = vi.fn();
+    const { root, api } = renderProbe(
+      { userId: 'alice', onToken },
+      { strict: true },
+    );
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    await act(async () => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'Live',
+        responseStart: 0,
+      });
+    });
+    expect(onToken).toHaveBeenCalledWith(
+      expect.objectContaining({ partialResponse: 'Live' }),
+    );
     act(() => root.unmount());
   });
 
@@ -593,6 +706,44 @@ describe('useAsyncChat streaming callbacks', () => {
       await api.cancelJob('conv-1');
     });
     expect(mocks.manager.unsubscribeFromJob).toHaveBeenCalledWith('job-1');
+    act(() => root.unmount());
+  });
+
+  it('retries an unconfirmed direction with the same command ID', async () => {
+    const { root, api } = renderProbe({ userId: 'alice' });
+    await act(async () => {
+      await api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    const commandIds = () =>
+      mocks.manager.steerJob.mock.calls.map(([, , commandId]) => commandId);
+    mocks.manager.steerJob.mockRejectedValueOnce(
+      new Error('Delivery was not confirmed. Retry this direction.'),
+    );
+    await act(async () => {
+      await expect(api.steerJob('conv-1', 'Focus on storage')).rejects.toThrow(
+        'not confirmed',
+      );
+    });
+    mocks.manager.steerJob.mockResolvedValue(undefined);
+    await act(async () => {
+      // The backend may have applied the first attempt; retrying must not
+      // apply the same direction twice.
+      await api.steerJob('conv-1', 'Focus on storage');
+    });
+    expect(mocks.manager.steerJob.mock.calls[1].slice(0, 2)).toEqual([
+      'job-1',
+      'Focus on storage',
+    ]);
+    expect(commandIds()[1]).toBe(commandIds()[0]);
+
+    await act(async () => {
+      // A confirmed direction sent again is a new, deliberate command.
+      await api.steerJob('conv-1', 'Focus on storage');
+    });
+    expect(new Set(commandIds()).size).toBe(2);
+    await expect(api.steerJob('conv-2', 'Elsewhere')).rejects.toThrow(
+      'No active response',
+    );
     act(() => root.unmount());
   });
 

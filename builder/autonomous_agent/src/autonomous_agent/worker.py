@@ -247,6 +247,19 @@ def run_once(
         response = backend.call(messages, execution_id=execution_id, abort=abort)
         run["metrics"]["responseChars"] = len(response or "")
 
+        # A dashboard Stop also sets ``abort``. Classify it before a lost
+        # lease, as the RunAbortedError path does: the loop leaves "aborted"
+        # requests in processing, so the next owner would run them again.
+        if store.cancel_requested(user_id, run["id"]):
+            run["status"] = "cancelled"
+            run["completedAt"] = now_ms()
+            run["summary"] = "Run cancelled after backend returned."
+            store.upsert_run(user_id, run)
+            store.log_event(
+                user_id, run["id"], "run_cancelled", run["summary"], level="warn"
+            )
+            return run
+
         # F-016: the lease was lost while this run was in flight, so another
         # worker may now own this user. Abort before writing any shared state
         # (feed / workspace) to avoid clobbering the new owner.
@@ -264,16 +277,6 @@ def run_once(
             store.upsert_run(user_id, run)
             store.log_event(
                 user_id, run["id"], "run_aborted", run["summary"], level="warn"
-            )
-            return run
-
-        if store.cancel_requested(user_id, run["id"]):
-            run["status"] = "cancelled"
-            run["completedAt"] = now_ms()
-            run["summary"] = "Run cancelled after backend returned."
-            store.upsert_run(user_id, run)
-            store.log_event(
-                user_id, run["id"], "run_cancelled", run["summary"], level="warn"
             )
             return run
 

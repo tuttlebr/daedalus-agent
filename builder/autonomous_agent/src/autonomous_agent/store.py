@@ -546,6 +546,17 @@ class RedisStore:
             )
         processing_key = key(user_id, "processing")
         queue_key = key(user_id, "queue")
+        if self.redis.llen(processing_key):
+            # Close interrupted records first, so a failure here leaves the
+            # requests in processing for the next reclaim to retry both.
+            try:
+                self._abort_interrupted_runs(user_id)
+            except WorkerLeaseLost:
+                self._lease_tokens.pop(user_id, None)
+                self._lease_ttls.pop(user_id, None)
+                raise RuntimeError(
+                    "cannot reclaim processing work after losing the lease"
+                ) from None
         moved = self.redis.eval(
             """
             if redis.call("GET", KEYS[1]) ~= ARGV[1] then
@@ -578,6 +589,44 @@ class RedisStore:
             with contextlib.suppress(Exception):
                 self.redis.delete(self._processing_claim_key(user_id, raw))
         return len(moved)
+
+    def _abort_interrupted_runs(self, user_id: str) -> None:
+        """Close run records left "running" when their worker stopped mid-run.
+
+        Only the lease owner calls this, before it starts a run of its own, so
+        no live worker can still be executing them. Their requests are queued
+        again and run under new records. The dashboard treats the newest
+        "running" record as the active run, so one left behind stays "live".
+        """
+
+        if not any(
+            isinstance(run, dict) and run.get("status") == "running"
+            for run in self.list_runs(user_id)
+        ):
+            return
+        timestamp = now_ms()
+        summary = (
+            "Run was interrupted before it finished; its request was queued again."
+        )
+
+        def mutate(current: list[dict[str, Any]]):
+            runs, aborted = [], []
+            for run in current:
+                if isinstance(run, dict) and run.get("status") == "running":
+                    run = {
+                        **run,
+                        "status": "aborted",
+                        "summary": summary,
+                        "completedAt": timestamp,
+                        "updatedAt": timestamp,
+                    }
+                    aborted.append(run)
+                runs.append(run)
+            return (runs if aborted else UNCHANGED), aborted
+
+        for run in self.atomic_update(key(user_id, "runs"), mutate, lease_user=user_id):
+            self.publish(user_id, "autonomy_status", {"run": run})
+            self.log_event(user_id, run["id"], "run_aborted", summary, level="warn")
 
     def acquire_lease(self, user_id: str, ttl_seconds: int = 60) -> bool:
         token = f"{os.getpid()}:{uuid.uuid4().hex}"

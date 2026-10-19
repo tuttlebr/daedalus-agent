@@ -48,8 +48,6 @@ mod memory_api;
 mod memory_tools;
 #[cfg(test)]
 mod migration;
-#[cfg(test)]
-mod migration_spikes;
 mod milvus;
 mod milvus_index;
 mod milvus_index_proto;
@@ -94,7 +92,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -270,12 +268,12 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
         run_id: run_id.clone(),
         sender,
     };
-    let cleanup_headers = headers.clone();
-    let legacy_preparation = app.preparation.is_none();
-    let cleanup_http = app.http.clone();
-    let cleanup_url = format!("{}/runtime/run", app.tools_url);
-    let metrics_handle = handle.clone();
-    let mut cancellation = handle.cancellation.subscribe();
+    let cleanup = app.preparation.is_none().then(|| {
+        app.http
+            .delete(format!("{}/runtime/run", app.tools_url))
+            .headers(headers.clone())
+    });
+    let supervisor = handle.clone();
     let agent = Agent {
         http: app.http.clone(),
         tools_url: app.tools_url.clone(),
@@ -294,103 +292,8 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     let span = tracing::error_span!("agent_run", run_id = %run_id);
     tokio::spawn(
         async move {
-            let started = Instant::now();
             tracing::info!(event = "run_started", streaming, message_count);
-            let result = tokio::select! {
-                biased;
-                _ = cancellation.wait_for(|cancelled| *cancelled) => {
-                    tracing::info!(event = "cancellation_received");
-                    Err(anyhow::anyhow!("Run cancelled by user"))
-                },
-                _ = events.sender.closed() => Err(anyhow::anyhow!("Client disconnected")),
-                result = tokio::time::timeout(Duration::from_secs(1800), agent.run(body)) => {
-                    result.unwrap_or_else(|_| Err(anyhow::anyhow!("Agent run timed out")))
-                },
-            };
-            let outcome = if result.is_ok() {
-                "completed"
-            } else {
-                "failed"
-            };
-            let mut log_outcome = outcome;
-            if let Err(failure) = result {
-                // Provider exceptions can contain full requests or credentials.
-                // Only application-owned diagnostics cross the logging/UI boundary.
-                let details = logging::failure(&failure);
-                let message = match failure.root_cause().to_string().as_str() {
-                    "Run cancelled by user" => "Run cancelled by user",
-                    "Agent run timed out" => "Agent run timed out",
-                    "Agent iteration limit reached" => "Agent iteration limit reached",
-                    "Repeated identical tool failure" => "Repeated identical tool failure",
-                    "Invalid or repeated tool call ID" => "Invalid or repeated tool call ID; the rejected batch was not executed",
-                    "Tool arguments remained invalid after correction" => "Tool arguments remained invalid after correction; the rejected batches were not executed",
-                    "Required tool did not complete successfully" => "Required tool did not complete successfully; no answer was accepted",
-                    "Model response did not complete" => "Model response did not complete",
-                    "Model request timed out" => "Model request timed out",
-                    "Client disconnected" => "Client disconnected",
-                    _ if details.phase == "model_stream" && details.kind == "json" => {
-                        "Model response could not be decoded; completed output has been preserved"
-                    }
-                    _ if details.phase == "model_stream" && details.retryable => {
-                        "Model stream interrupted after retry limit; completed output has been preserved"
-                    }
-                    _ => "Agent execution failed; completed output has been preserved",
-                };
-                log_outcome = match message {
-                    "Run cancelled by user" => "cancelled",
-                    "Client disconnected" => "disconnected",
-                    _ => "failed",
-                };
-                if log_outcome == "failed" {
-                    tracing::warn!(
-                        event = "run_failed",
-                        phase = details.phase,
-                        error_kind = details.kind,
-                        http_status = details.status,
-                        retryable = details.retryable,
-                        reason = message
-                    );
-                }
-                // A stopped or disconnected consumer must not block cleanup
-                // on a full output channel.
-                let _ = tokio::time::timeout(Duration::from_secs(1), async {
-                    let _ = events.event("error", json!({"error":{"message":message}})).await;
-                    let _ = events.finish("error").await;
-                }).await;
-            }
-            let metrics = metrics_handle.metrics.snapshot();
-            if let Some(mut telemetry_span) = metrics_handle.telemetry.lock().await.take() {
-                telemetry::finish(&mut telemetry_span,log_outcome,&metrics);
-            }
-            tracing::info!(
-                event = "run_finished",
-                outcome = log_outcome,
-                elapsed_ms = started.elapsed().as_millis() as u64,
-                model_calls = metrics["model_calls"].as_u64(),
-                tool_calls = metrics["tool_calls"].as_u64(),
-                input_tokens = metrics["input_tokens"].as_u64(),
-                output_tokens = metrics["output_tokens"].as_u64(),
-                reported_usage_calls = metrics["reported_usage_calls"].as_u64()
-            );
-            if legacy_preparation {
-            let cleanup = cleanup_http
-                .delete(cleanup_url)
-                .headers(cleanup_headers)
-                .json(&json!({"outcome":outcome,"metrics":metrics}))
-                .timeout(Duration::from_secs(2))
-                .send()
-                .await
-                .and_then(reqwest::Response::error_for_status);
-            if let Err(error) = cleanup {
-                let details = logging::failure(&error.into());
-                tracing::warn!(
-                    event = "run_cleanup_failed",
-                    error_kind = details.kind,
-                    http_status = details.status
-                );
-            }
-            }
-            runs.lock().await.remove(&run_id);
+            supervise(runs, run_id, supervisor, events, agent.run(body), cleanup).await;
         }
         .instrument(span),
     );
@@ -429,6 +332,124 @@ async fn chat(State(app): State<App>, mut headers: HeaderMap, Json(body): Json<V
     Json(json!({"object":"chat.completion","choices":[{"index":0,
         "message":{"role":"assistant","content":content},"finish_reason":"stop"}]}))
     .into_response()
+}
+
+/// Owns an admitted run until it ends. Every outcome, including a panic in
+/// agent or native tool code, reaches the terminal event and releases the
+/// user's slot; an unwound task would block its conversation until restart.
+async fn supervise(
+    runs: Runs,
+    run_id: String,
+    handle: Arc<RunHandle>,
+    events: Events,
+    run: impl std::future::Future<Output = anyhow::Result<()>>,
+    cleanup: Option<reqwest::RequestBuilder>,
+) {
+    let started = Instant::now();
+    let mut cancellation = handle.cancellation.subscribe();
+    let run = std::panic::AssertUnwindSafe(tokio::time::timeout(Duration::from_secs(1800), run))
+        .catch_unwind();
+    let result = tokio::select! {
+        biased;
+        _ = cancellation.wait_for(|cancelled| *cancelled) => {
+            tracing::info!(event = "cancellation_received");
+            Err(anyhow::anyhow!("Run cancelled by user"))
+        },
+        _ = events.sender.closed() => Err(anyhow::anyhow!("Client disconnected")),
+        result = run => match result {
+            Ok(result) => result.unwrap_or_else(|_| Err(anyhow::anyhow!("Agent run timed out"))),
+            // A panic payload can quote private values; report only the fact.
+            Err(_) => Err(anyhow::anyhow!("Agent execution panicked")),
+        },
+    };
+    let outcome = if result.is_ok() {
+        "completed"
+    } else {
+        "failed"
+    };
+    let mut log_outcome = outcome;
+    if let Err(failure) = result {
+        // Provider exceptions can contain full requests or credentials.
+        // Only application-owned diagnostics cross the logging/UI boundary.
+        let details = logging::failure(&failure);
+        let message = match failure.root_cause().to_string().as_str() {
+            "Run cancelled by user" => "Run cancelled by user",
+            "Agent run timed out" => "Agent run timed out",
+            "Agent iteration limit reached" => "Agent iteration limit reached",
+            "Repeated identical tool failure" => "Repeated identical tool failure",
+            "Invalid or repeated tool call ID" => {
+                "Invalid or repeated tool call ID; the rejected batch was not executed"
+            }
+            "Required tool did not complete successfully" => {
+                "Required tool did not complete successfully; no answer was accepted"
+            }
+            "Model response did not complete" => "Model response did not complete",
+            "Model request timed out" => "Model request timed out",
+            "Client disconnected" => "Client disconnected",
+            _ if details.phase == "model_stream" && details.kind == "json" => {
+                "Model response could not be decoded; completed output has been preserved"
+            }
+            _ if details.phase == "model_stream" && details.retryable => {
+                "Model stream interrupted after retry limit; completed output has been preserved"
+            }
+            _ => "Agent execution failed; completed output has been preserved",
+        };
+        log_outcome = match message {
+            "Run cancelled by user" => "cancelled",
+            "Client disconnected" => "disconnected",
+            _ => "failed",
+        };
+        if log_outcome == "failed" {
+            tracing::warn!(
+                event = "run_failed",
+                phase = details.phase,
+                error_kind = details.kind,
+                http_status = details.status,
+                retryable = details.retryable,
+                reason = message
+            );
+        }
+        // A stopped or disconnected consumer must not block cleanup
+        // on a full output channel.
+        let _ = tokio::time::timeout(Duration::from_secs(1), async {
+            let _ = events
+                .event("error", json!({"error":{"message":message}}))
+                .await;
+            let _ = events.finish("error").await;
+        })
+        .await;
+    }
+    let metrics = handle.metrics.snapshot();
+    if let Some(mut telemetry_span) = handle.telemetry.lock().await.take() {
+        telemetry::finish(&mut telemetry_span, log_outcome, &metrics);
+    }
+    tracing::info!(
+        event = "run_finished",
+        outcome = log_outcome,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        model_calls = metrics["model_calls"].as_u64(),
+        tool_calls = metrics["tool_calls"].as_u64(),
+        input_tokens = metrics["input_tokens"].as_u64(),
+        output_tokens = metrics["output_tokens"].as_u64(),
+        reported_usage_calls = metrics["reported_usage_calls"].as_u64()
+    );
+    if let Some(cleanup) = cleanup {
+        let cleanup = cleanup
+            .json(&json!({"outcome":outcome,"metrics":metrics}))
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status);
+        if let Err(error) = cleanup {
+            let details = logging::failure(&error.into());
+            tracing::warn!(
+                event = "run_cleanup_failed",
+                error_kind = details.kind,
+                http_status = details.status
+            );
+        }
+    }
+    runs.lock().await.remove(&run_id);
 }
 
 async fn control(
@@ -834,6 +855,43 @@ mod tests {
             status(&runs, &run("carol", "", false)),
             Some(StatusCode::TOO_MANY_REQUESTS)
         );
+    }
+
+    async fn defective_run() -> anyhow::Result<()> {
+        panic!("synthetic agent defect")
+    }
+
+    #[tokio::test]
+    async fn a_panicking_run_ends_its_stream_and_releases_its_slot() {
+        let runs: Runs = Arc::default();
+        let handle = run("alice", "conversation", false);
+        runs.lock().await.insert("defective".into(), handle.clone());
+        let (sender, mut receiver) = mpsc::channel(8);
+        let events = Events {
+            run_id: "defective".into(),
+            sender,
+        };
+        let supervisor = tokio::spawn(supervise(
+            runs.clone(),
+            "defective".into(),
+            handle,
+            events,
+            defective_run(),
+            None,
+        ));
+        let mut stream = String::new();
+        while let Some(bytes) = receiver.recv().await {
+            stream.push_str(&String::from_utf8_lossy(&bytes));
+        }
+        supervisor
+            .await
+            .expect("the supervisor contains agent panics");
+        assert!(stream.contains("event: error"), "{stream}");
+        assert!(stream.contains("\"finish_reason\":\"error\""), "{stream}");
+        assert!(stream.ends_with("data: [DONE]\n\n"), "{stream}");
+        // The conversation and the user's slot are available again.
+        let next = run("alice", "conversation", false);
+        assert!(admission_rejection(&*runs.lock().await, "next", &next).is_none());
     }
 
     #[tokio::test]

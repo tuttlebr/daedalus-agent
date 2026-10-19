@@ -341,6 +341,31 @@ def test_unstructured_or_unsafe_content_passes_through(content):
     assert result.content == content
 
 
+@pytest.mark.parametrize("row_count", [12, 120])
+def test_escaped_lone_surrogate_is_not_decoded_into_unencodable_output(row_count):
+    # ASCII JSON can carry an escaped half of a truncated emoji. Decoding and
+    # re-rendering it puts a raw surrogate into the result, which the tool
+    # service's UTF-8 response stream cannot encode.
+    rows = _large_rows()[:row_count]
+    rows[0]["title"] = "truncated \ud83d"
+    original = json.dumps({"items": rows}, indent=2)
+    original.encode("utf-8")
+
+    result = _run(
+        optimize_tool_content(
+            original,
+            tool_name="list_workers",
+            query="Which worker failed?",
+            user_id="user-a",
+            store=MemoryStore(),  # type: ignore[arg-type]
+            settings=_settings(),
+        )
+    )
+
+    assert result.content == original
+    assert result.mode == "unchanged"
+
+
 def test_tagged_json_is_compacted_without_dropping_wrapper():
     original = f"<searchresults>{json.dumps(_large_rows(), indent=2)}</searchresults>"
     result = _run(

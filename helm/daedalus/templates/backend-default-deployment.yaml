@@ -9,7 +9,8 @@ metadata:
     {{- include "daedalus.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend-default
 spec:
-  replicas: {{ .Values.backend.default.replicas | default 2 }}
+  {{- /* `default` would turn an explicit 0 into a second RWO-claim pod. */}}
+  replicas: {{ if kindIs "invalid" .Values.backend.default.replicas }}1{{ else }}{{ .Values.backend.default.replicas }}{{ end }}
   revisionHistoryLimit: 3
   minReadySeconds: 10
   strategy:

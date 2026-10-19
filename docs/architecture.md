@@ -49,8 +49,11 @@ current bounds and the next optimization candidates.
 Each authenticated user can submit up to five chats concurrently across tabs
 and frontend instances. Redis atomically reserves a slot before enqueueing,
 including pending jobs, and the owning worker renews that reservation while
-running. Finalization, OAuth handoff and failed submission release it. Separate
-conversations run independently; each conversation retains one active response.
+running. Finalization and failed submission release it. A run awaiting OAuth
+keeps its slot; if its stream ends first, the job ends with an error that keeps
+its streamed output.
+Separate conversations run independently; each conversation retains one active
+response.
 The Rust service also enforces five interactive runs per user within its process.
 Scheduled autonomy runs, which carry the trusted `autonomy` execution scope, use a
 separate per-user pool there, as they do not consume the frontend's chat slots;

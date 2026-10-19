@@ -15,7 +15,7 @@ import {
 const identity = vi.hoisted(() => ({ username: '' }));
 vi.mock('@/server/session/_utils', () => ({
   requireAuthenticatedUser: async () => identity,
-  getOrSetSessionId: () => 'history-review-session',
+  getStorageSessionId: () => 'history-review-session',
 }));
 
 describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(

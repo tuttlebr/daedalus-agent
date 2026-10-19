@@ -3,21 +3,31 @@ import {
   uploadDocument,
 } from '@/utils/app/documentHandler';
 
+import { UPLOAD_LIMITS } from '@/constants/uploadLimits';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 describe('documentHandler multipart upload', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('rejects an oversized raw file before fetch', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     const file = new File(['12345'], 'large.pdf', {
       type: 'application/pdf',
     });
+    // Report the configured limit plus one byte without allocating it.
+    Object.defineProperty(file, 'size', {
+      value: UPLOAD_LIMITS.DOCUMENT_SERVER_LIMIT_BYTES + 1,
+    });
 
     expect(() => assertDocumentFileSize(file, 4)).toThrow(
+      'exceeds the server upload limit',
+    );
+    await expect(uploadDocument(file)).rejects.toThrow(
       'exceeds the server upload limit',
     );
     expect(fetchMock).not.toHaveBeenCalled();

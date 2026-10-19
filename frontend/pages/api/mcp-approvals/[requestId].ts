@@ -26,6 +26,7 @@ import { createHash } from 'node:crypto';
 const APPROVAL_STATUS_TTL_SECONDS = 7 * 24 * 60 * 60;
 const EXECUTION_START_TIMEOUT_MS = 135_000;
 const EXECUTION_POLL_TIMEOUT_MS = 15_000;
+const TERMINAL_STATUSES = ['completed', 'failed', 'denied'];
 
 interface ApprovalExecutionState {
   requestId: string;
@@ -235,10 +236,15 @@ async function handlePost(
       typeof payload.oauthState === 'string' ? payload.oauthState : undefined,
     updatedAt: Date.now(),
   };
+  // The backend waits for fast operations, so execute can already be final.
+  // Polling skips terminal states; record the audit result here instead.
+  const terminal = TERMINAL_STATUSES.includes(state.status);
+  if (terminal) state.resultLogged = true;
   if (state.oauthState && state.authUrl) {
     await saveOAuthCallbackTarget(state.oauthState, backendBaseUrl, requestId);
   }
   await persistState(state);
+  if (terminal) logApprovalEvent('result', userId, approval, state.status);
   return res.status(response.status).json({
     status: state.status,
     authUrl: state.authUrl,
@@ -268,7 +274,7 @@ async function handleGet(
   if (
     !state.executionId ||
     !state.backendBaseUrl ||
-    ['completed', 'failed', 'denied'].includes(state.status)
+    TERMINAL_STATUSES.includes(state.status)
   ) {
     return res.status(200).json({
       status: state.status,
@@ -316,7 +322,7 @@ async function handleGet(
       // request was in flight. Never replace it with an older observation.
       if (
         current.executionId !== state.executionId ||
-        ['completed', 'failed', 'denied'].includes(current.status)
+        TERMINAL_STATUSES.includes(current.status)
       )
         return current;
       const next = {
@@ -334,9 +340,7 @@ async function handleGet(
         error: typeof payload.error === 'string' ? payload.error : undefined,
         updatedAt: Date.now(),
       };
-      shouldLog =
-        !next.resultLogged &&
-        ['completed', 'failed', 'denied'].includes(next.status);
+      shouldLog = !next.resultLogged && TERMINAL_STATUSES.includes(next.status);
       if (shouldLog) next.resultLogged = true;
       return next;
     },

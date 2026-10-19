@@ -135,12 +135,20 @@ describe('sanitizeSchema', () => {
   describe('safe attributes', () => {
     const globalAttrs = sanitizeSchema.attributes?.['*'] ?? [];
 
-    it('allows className on all elements', () => {
-      expect(globalAttrs).toContain('className');
+    it('does not allow arbitrary classes on all elements', () => {
+      expect(globalAttrs).not.toContain('className');
+      expect(globalAttrs).not.toContain('class');
     });
 
-    it('allows class on all elements', () => {
-      expect(globalAttrs).toContain('class');
+    it('limits span and div classes to math wrappers', () => {
+      for (const tag of ['span', 'div'] as const) {
+        expect(sanitizeSchema.attributes?.[tag]).toContainEqual([
+          'className',
+          'math',
+          'math-inline',
+          'math-display',
+        ]);
+      }
     });
 
     it('does not allow inline style on all elements', () => {

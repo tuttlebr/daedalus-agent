@@ -48,6 +48,15 @@ describe('server/rateLimit', () => {
     expect(result.allowed).toBe(true);
   });
 
+  it('allows the final hit at exactly the configured limit', async () => {
+    mocks.increment.mockResolvedValue([3, 42]);
+    await expect(checkRateLimit(rule, 'user-a')).resolves.toEqual({
+      allowed: true,
+      remaining: 0,
+      retryAfterSeconds: 0,
+    });
+  });
+
   it('blocks once the count exceeds the limit and reports retryAfter', async () => {
     mocks.increment.mockResolvedValue([4, 42]);
     const result = await checkRateLimit(rule, 'user-a');

@@ -94,10 +94,13 @@ repos:
         exclude: '(^helm/.*/templates/)|(^charts/.*/templates/)'
       - id: helm-lint-daedalus
         name: Helm lint daedalus
-        entry: helm lint helm/daedalus
+        # `helm lint` logs template `fail`/`required` errors without failing,
+        # and override allowlist guards trigger only on real values. Render
+        # the defaults and the deployed values as `make helm` does.
+        entry: bash -c 'helm lint helm/daedalus && helm template daedalus helm/daedalus >/dev/null && helm template daedalus helm/daedalus -f custom-values.yaml >/dev/null' --
         language: system
         pass_filenames: false
-        files: ^helm/daedalus/
+        files: ^(helm/daedalus/|custom-values\.yaml$)
 
   # Python-specific hooks
   - repo: https://github.com/astral-sh/ruff-pre-commit

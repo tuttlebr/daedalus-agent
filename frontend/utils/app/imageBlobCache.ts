@@ -200,13 +200,14 @@ class ImageBlobCache {
   }
 
   revoke(imageId: string, url?: string) {
+    // A consumer that received a temporary URL never held a cache reference,
+    // even if another consumer has since cached the same image.
+    if (url && this.temporaryUrls.delete(url)) {
+      URL.revokeObjectURL(url);
+      return;
+    }
     if (!this.cache.has(imageId)) {
-      if (url && this.temporaryUrls.delete(url)) {
-        URL.revokeObjectURL(url);
-      } else if (
-        imageId.startsWith('blob:') &&
-        this.temporaryUrls.delete(imageId)
-      ) {
+      if (imageId.startsWith('blob:') && this.temporaryUrls.delete(imageId)) {
         URL.revokeObjectURL(imageId);
       } else if (url?.startsWith('blob:') && !this.isCachedUrl(url)) {
         URL.revokeObjectURL(url);

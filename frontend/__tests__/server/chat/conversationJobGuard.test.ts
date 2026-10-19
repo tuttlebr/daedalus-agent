@@ -177,6 +177,33 @@ describe('conversation job guard', () => {
     );
   });
 
+  it('retries acquisition when the owner is released between SET NX and GET', async () => {
+    const { redis, store } = fakeRedis();
+    const key = conversationJobGuardKey('user-1', 'conversation-1');
+    store.set(key, 'finishing-owner');
+    redis.get.mockImplementationOnce(async () => {
+      // The previous job releases its guard after SET NX failed.
+      store.delete(key);
+      return null;
+    });
+
+    const result = await acquireConversationJobGuard(
+      'user-1',
+      'conversation-1',
+      'job-2',
+      redis,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        acquired: true,
+        guard: expect.objectContaining({ jobId: 'job-2' }),
+      }),
+    );
+    expect(JSON.parse(store.get(key)!)).toMatchObject({ jobId: 'job-2' });
+    expect(redis.set).toHaveBeenCalledTimes(2);
+  });
+
   it('fails closed when an existing guard is malformed', async () => {
     const { redis, store } = fakeRedis();
     store.set(conversationJobGuardKey('user-1', 'conversation-1'), 'not-json');

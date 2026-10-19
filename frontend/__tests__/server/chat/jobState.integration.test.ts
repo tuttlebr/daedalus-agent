@@ -94,5 +94,80 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         await client.del(key);
       }
     });
+
+    it.each(['plain', 'json'])(
+      'rebuilds a %s terminal claim when a live update lands after its snapshot read',
+      async (format) => {
+        const jobId = `terminal-race-${process.pid}-${Date.now()}-${format}`;
+        const key = redis.sessionKey(['async-job-status', jobId]);
+        const journalKey = state.finalizationJournalKey(jobId);
+        const initial = JSON.stringify({
+          jobId,
+          status: 'streaming',
+          partialResponse: 'older',
+          createdAt: 1,
+          updatedAt: 1,
+        });
+        if (format === 'plain') await client.set(key, initial, 'EX', 120);
+        else await client.call('JSON.SET', key, '$', initial);
+        let injected = false;
+        const evaluate = client.eval.bind(client);
+        const spy = vi
+          .spyOn(client, 'eval')
+          .mockImplementation(async (...args: any[]) => {
+            const result = await evaluate(
+              ...(args as Parameters<typeof client.eval>),
+            );
+            if (
+              !injected &&
+              args[2] === key &&
+              String(args[0]).includes('READ_JOB_STATUS_SNAPSHOT')
+            ) {
+              injected = true;
+              await state.updateJobStatus(jobId, {
+                partialResponse: 'newer',
+                updatedAt: 2,
+              });
+            }
+            return result;
+          });
+        try {
+          await expect(
+            state.claimTerminalJobStatus(
+              jobId,
+              {
+                status: 'error',
+                error: 'stopped',
+                updatedAt: 3,
+                finalizedAt: 3,
+              },
+              {
+                version: 1,
+                state: 'pending',
+                jobId,
+                finalizationId: `${jobId}-error`,
+                outcome: 'error',
+                userId: 'terminal-race-user',
+                finalizedAt: 3,
+              },
+            ),
+          ).resolves.toBe(true);
+          expect(injected).toBe(true);
+          // The claim must compare its snapshot: a terminal write built from
+          // the older read would silently discard the concurrent update.
+          expect(await redis.jsonGet(key)).toMatchObject({
+            status: 'error',
+            partialResponse: 'newer',
+            finalizedAt: 3,
+          });
+          expect(
+            (await state.getFinalizationJournal(jobId))?.terminalStatus,
+          ).toMatchObject({ partialResponse: 'newer' });
+        } finally {
+          spy.mockRestore();
+          await client.del(key, journalKey);
+        }
+      },
+    );
   },
 );

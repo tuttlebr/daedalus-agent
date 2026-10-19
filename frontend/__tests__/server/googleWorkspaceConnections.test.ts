@@ -7,7 +7,7 @@ import {
 } from '@/server/googleWorkspaceConnections';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
@@ -50,6 +50,10 @@ describe('Google Workspace connection state', () => {
   beforeEach(() => {
     mocks.exec.mockReset();
     mocks.pipeline.mockReset().mockReturnValue({ exec: mocks.exec });
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it('uses the same stable NAT user hash and an isolated service bucket', () => {
@@ -131,7 +135,7 @@ describe('Google Workspace connection state', () => {
   });
 
   it('resets through the trusted backend using the stable NAT identity', async () => {
-    process.env.DAEDALUS_INTERNAL_API_TOKEN = 'internal-test-token';
+    vi.stubEnv('DAEDALUS_INTERNAL_API_TOKEN', 'internal-test-token');
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({

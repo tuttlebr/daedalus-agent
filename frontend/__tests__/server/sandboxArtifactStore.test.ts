@@ -112,6 +112,31 @@ describe('sandbox artifact object storage', () => {
     expect(mocks.putDocumentObject).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    '',
+    '/etc/passwd',
+    '../escape.html',
+    'travel/../../escape.html',
+    'travel/./alaska.html',
+    'travel//alaska.html',
+    'travel/',
+    'nul\0byte.txt',
+  ])(
+    'rejects an unsafe artifact path %j before storing anything',
+    async (filePath) => {
+      await expect(
+        storeSandboxArtifact({
+          ownerId: 'alice',
+          conversationId: 'conversation-1',
+          filePath,
+          content: Buffer.from('ready'),
+        }),
+      ).rejects.toThrow('Sandbox artifact path is invalid');
+      expect(mocks.putDocumentObject).not.toHaveBeenCalled();
+      expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+    },
+  );
+
   it('retains an upload for expiry when metadata persistence fails', async () => {
     mocks.jsonSetWithExpiry.mockRejectedValueOnce(new Error('redis failed'));
 

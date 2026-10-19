@@ -39,7 +39,7 @@ import {
   jsonGet,
   jsonSetWithExpiry,
 } from '@/server/session/redis';
-import { createECDH, randomBytes } from 'node:crypto';
+import { createECDH, createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -184,6 +184,10 @@ describe('chat/async backend pinning helpers', () => {
         if (script.includes('READ_OWNED_CONVERSATION')) {
           const value = await jsonGet(args[0]);
           return [value ? JSON.stringify(value) : '', 1];
+        }
+        if (script.includes('READ_CONVERSATION_RESERVATION')) {
+          const value = await jsonGet(args[0]);
+          return [value ? JSON.stringify(value) : '', 1, value ? -1 : -2];
         }
         if (script.includes('SAVE_OWNED_CONVERSATION')) {
           await jsonSetWithExpiry(
@@ -1858,6 +1862,7 @@ describe('chat/async backend pinning helpers', () => {
       updatedAt: staleAt,
       conversationId: undefined,
     };
+    const original = structuredClone(jobStatus);
     const jobRequest = {
       jobId: 'job-stale',
       executionMode: 'stream',
@@ -1884,14 +1889,16 @@ describe('chat/async backend pinning helpers', () => {
       nowSpy.mockRestore();
     }
 
+    // The in-memory store keeps object references; compare with a snapshot so
+    // an in-place status rewrite cannot also change the expectation.
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(jobStatus);
+    expect(res.json).toHaveBeenCalledWith(original);
     expect(jsonSetWithExpiry).not.toHaveBeenCalledWith(
       'daedalus:async-job-abort:job-stale',
       true,
       3600,
     );
-    expect(store.get('daedalus:async-job-status:job-stale')).toEqual(jobStatus);
+    expect(store.get('daedalus:async-job-status:job-stale')).toEqual(original);
   });
 });
 
@@ -1986,7 +1993,9 @@ function makeSseResponse(
 // Back jsonGet/jsonSetWithExpiry/jsonDel with an in-memory map (the existing
 // pattern, factored out) so background writes are observable after draining.
 function wireRedisStore(initial: Record<string, any> = {}) {
-  const store = new Map<string, any>(Object.entries(initial));
+  // Redis returns copies. Cloning JSON values keeps an in-place rewrite by the
+  // route from also changing a test's fixture or expectation.
+  const store = new Map<string, any>(Object.entries(structuredClone(initial)));
   mocks.redisGet.mockImplementation(async (key: string) =>
     store.has(key) ? store.get(key) : null,
   );
@@ -2006,11 +2015,11 @@ function wireRedisStore(initial: Record<string, any> = {}) {
     return removed;
   });
   (jsonGet as any).mockImplementation(async (key: string) =>
-    store.has(key) ? store.get(key) : null,
+    store.has(key) ? structuredClone(store.get(key)) : null,
   );
   (jsonSetWithExpiry as any).mockImplementation(
     async (key: string, value: any) => {
-      store.set(key, value);
+      store.set(key, structuredClone(value));
     },
   );
   (jsonDel as any).mockImplementation(async (key: string) => {
@@ -2032,6 +2041,10 @@ function wireRedisStore(initial: Record<string, any> = {}) {
     if (script.includes('READ_OWNED_CONVERSATION')) {
       const value = store.get(args[2]);
       return [value ? JSON.stringify(value) : '', 1];
+    }
+    if (script.includes('READ_CONVERSATION_RESERVATION')) {
+      const value = store.get(args[2]);
+      return [value ? JSON.stringify(value) : '', 1, value ? -1 : -2];
     }
     if (script.includes('SAVE_OWNED_CONVERSATION')) {
       const value = store.get(args[2]);
@@ -2115,7 +2128,7 @@ function wireRedisStore(initial: Record<string, any> = {}) {
       const journalKey = args[2] as string;
       const raw = store.get(journalKey);
       if (!raw) return null;
-      if (raw !== args[3]) return 0;
+      if (createHash('sha1').update(raw).digest('hex') !== args[3]) return 0;
       store.set(journalKey, args[4]);
       for (let index = 6; index < args.length; index += 2) {
         await mocks.publisher.publish(args[index], args[index + 1]);
@@ -2458,6 +2471,57 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(mocks.redisXadd).not.toHaveBeenCalled();
     },
   );
+
+  it("rejects a turn for another user's conversation and releases its claims", async () => {
+    const foreign = {
+      id: 'conv-foreign',
+      ownerId: 'otheruser',
+      name: 'Private',
+      messages: [{ id: 'secret', role: 'user', content: 'Private history' }],
+    };
+    const store = wireRedisStore({
+      'daedalus:conversation:conv-foreign': foreign,
+    });
+    const res = makeRes();
+
+    await handler(
+      {
+        method: 'POST',
+        headers: { cookie: 'sid=current-session' },
+        body: {
+          conversationId: 'conv-foreign',
+          messages: [{ id: 'u1', role: 'user', content: 'Show my history' }],
+        },
+      } as any,
+      res,
+    );
+
+    // A foreign ID must never be admitted as an empty new history.
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Forbidden: You do not have access to this conversation',
+    });
+    expect(store.get('daedalus:conversation:conv-foreign')).toEqual(foreign);
+    expect(
+      [...store.keys()].filter((key) => key.startsWith('daedalus:async-')),
+    ).toEqual([]);
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
+    expect(mocks.redisEval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('ZREM'"),
+      1,
+      'daedalus:async-user-jobs:testuser',
+      expect.any(String),
+    );
+    expect(mocks.redisEval).toHaveBeenCalledWith(
+      expect.stringContaining('RELEASE_CONVERSATION_JOB_GUARD'),
+      1,
+      expect.any(String),
+      'testuser',
+      'conv-foreign',
+      expect.any(String),
+    );
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -3161,16 +3225,13 @@ describe('chat/async streaming + finalize (characterization)', () => {
   });
 
   it.each(['data: [DONE]\n', ''])(
-    'keeps oauth_required prompts when the stream closes without content (%j)',
+    'finalizes an OAuth prompt when the stream closes without content (%j)',
     async (terminal) => {
-      const { jobId, statusKey, store } = await runStreamTurn(
-        [
-          'event: oauth_required\n',
-          'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
-          terminal,
-        ],
-        { expectNoFinalize: true },
-      );
+      const { jobId, statusKey, store } = await runStreamTurn([
+        'event: oauth_required\n',
+        'data: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n',
+        terminal,
+      ]);
 
       const oauthUpdate = publishedEvents()
         .filter((e) => e.channel === `job:${jobId}:status`)
@@ -3189,10 +3250,23 @@ describe('chat/async streaming + finalize (characterization)', () => {
       ]);
       expect(oauthUpdate.progress).toBe(0);
 
+      // The backend's callback wait ended with its stream; no later owner can
+      // resume this job, so its prompt must not remain pending.
       const status = store.get(statusKey);
-      expect(status?.status).toBe('oauth_required');
-      expect(status?.finalizedAt).toBeUndefined();
-      expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBeUndefined();
+      expect(status).toMatchObject(
+        terminal
+          ? {
+              status: 'completed',
+              fullResponse: '[No response was generated]',
+            }
+          : {
+              status: 'error',
+              error: 'Backend response stream ended before completion',
+            },
+      );
+      expect(status?.finalizedAt).toEqual(expect.any(Number));
+      expect(status?.authUrl).toBeUndefined();
+      expect(status?.oauthRequests).toBeUndefined();
     },
   );
 

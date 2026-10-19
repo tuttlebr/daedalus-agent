@@ -248,7 +248,6 @@ def test_parallel_failures_preserve_edition_and_only_stop_further_rendering(tmp_
             assert run.attempts["briefing"] == 2
             assert run.terminal_reason is None
             assert run.terminal_content is None
-            assert run.stop_reason is None
             assert all(not result["passed"] for result in results)
             assert all(not result["terminal"] for result in results)
             assert all(result["edition"] == invalid for result in results)
@@ -405,7 +404,7 @@ def test_missing_advertised_capability_recovers_before_any_staging(
             assert [call["operation"] for call in sandbox.calls] == ["list_commands"]
             assert not any(method == "POST" for method, _ in sandbox.http_calls)
             assert not list(tmp_path.iterdir())
-            assert run.outcome_metadata("completed")["artifact_validated"] is True
+            assert run.terminal_reason == "validated_artifact"
 
     asyncio.run(scenario())
 
@@ -438,10 +437,8 @@ def test_schema_failure_reports_all_errors_without_transport_recovery(
             assert result["errors_truncated"] is False
             assert any("description" in error for error in result["errors"])
             assert any("unexpected" in error for error in result["errors"])
-            assert (
-                run.outcome_metadata("completed")["fallback_reason"]
-                == "validation_failed"
-            )
+            assert run.briefing_execution["failure_type"] == "validation"
+            assert run.terminal_reason is None
             local.assert_not_awaited()
 
     asyncio.run(scenario())

@@ -137,6 +137,8 @@ export function MemoryCenter() {
 
   const refreshSequence = useRef(0);
   const detailSequence = useRef(0);
+  // Each editor opening is a session; a save only closes the editor it began in.
+  const editSession = useRef(0);
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
@@ -201,6 +203,10 @@ export function MemoryCenter() {
       if (sequence === refreshSequence.current) setLoading(false);
     }
   }, [memoryType, offset, submittedQuery, tab]);
+  // Mutations finish after the user may have changed tab, page or search.
+  // Reload what is on screen, not the view captured when the request began.
+  const refreshCurrent = useRef(refresh);
+  refreshCurrent.current = refresh;
 
   useEffect(() => {
     void refresh();
@@ -223,8 +229,16 @@ export function MemoryCenter() {
     else setSubmittedQuery(query.trim());
   };
 
+  const openEditor = (memory: MemoryFact) => {
+    editSession.current++;
+    setError(null);
+    setEditing(memory);
+    setEditText(memory.text);
+  };
+
   const editMemory = async () => {
     if (!editing || !editText.trim()) return;
+    const session = editSession.current;
     setWorkingId(editing.id);
     setError(null);
     try {
@@ -236,11 +250,11 @@ export function MemoryCenter() {
           body: JSON.stringify({ text: editText.trim() }),
         },
       );
-      setEditing(null);
+      if (session === editSession.current) setEditing(null);
       setNotice(
         'Memory updated. Derived observations will refresh in the background.',
       );
-      await refresh();
+      await refreshCurrent.current();
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : 'Update failed.',
@@ -272,7 +286,7 @@ export function MemoryCenter() {
         },
       );
       setNotice('Memory forgotten and removed from future recall.');
-      await refresh();
+      await refreshCurrent.current();
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : 'Forget failed.',
@@ -337,7 +351,7 @@ export function MemoryCenter() {
       });
       setSelectedSource(null);
       setNotice('Source and its extracted memories were deleted.');
-      await refresh();
+      await refreshCurrent.current();
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : 'Delete failed.',
@@ -362,7 +376,7 @@ export function MemoryCenter() {
       setSelectedPage(null);
       setSelectedSource(null);
       setNotice('All memories were cleared.');
-      await refresh();
+      await refreshCurrent.current();
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : 'Clear failed.',
@@ -701,11 +715,7 @@ export function MemoryCenter() {
                           type="button"
                           aria-label="Edit memory"
                           className="rounded-lg p-2 text-dark-text-muted hover:bg-fill/[0.05] hover:text-dark-text-primary"
-                          onClick={() => {
-                            setError(null);
-                            setEditing(memory);
-                            setEditText(memory.text);
-                          }}
+                          onClick={() => openEditor(memory)}
                         >
                           <IconEdit size={17} />
                         </button>

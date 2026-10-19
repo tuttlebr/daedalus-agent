@@ -4,6 +4,7 @@ import { isSandboxArtifactDownloadUrl } from '@/utils/app/sandboxArtifactDownloa
 import { isEqual } from '@/utils/data/isEqual';
 import { Logger } from '@/utils/logger';
 
+import { ErrorBoundary } from '@/components/error/ErrorBoundary';
 import { Image } from '@/components/markdown/Image';
 import { LazyChart } from '@/components/markdown/LazyChart';
 import { LazyCodeBlock } from '@/components/markdown/LazyCodeBlock';
@@ -20,6 +21,30 @@ type MarkdownComponentProps = {
   href?: string;
   [key: string]: any;
 };
+
+// Rich blocks render untrusted model/tool JSON through third-party renderers.
+// Contain their render failures to the block; the nearest boundary would
+// otherwise replace the whole app, and the saved message would repeat it.
+const RichBlockBoundary = ({
+  source,
+  label,
+  children,
+}: {
+  source: string;
+  label: string;
+  children: React.ReactNode;
+}) => (
+  <ErrorBoundary
+    resetKey={source}
+    fallback={
+      <p role="note" className="my-2 text-sm text-muted">
+        {label} could not be displayed.
+      </p>
+    }
+  >
+    {children}
+  </ErrorBoundary>
+);
 
 export const getReactMarkDownCustomComponents = (
   _messageIndex = 0,
@@ -111,7 +136,11 @@ export const getReactMarkDownCustomComponents = (
             }
 
             const payload = JSON.parse(payloadString);
-            return payload ? <LazyChart payload={payload} /> : null;
+            return payload ? (
+              <RichBlockBoundary source={payloadString} label="This chart">
+                <LazyChart payload={payload} />
+              </RichBlockBoundary>
+            ) : null;
           } catch (error) {
             logger.error('Failed to parse chart payload:', error);
             return null;
@@ -141,7 +170,14 @@ export const getReactMarkDownCustomComponents = (
             }
 
             const payload = JSON.parse(payloadString);
-            return payload ? <LazySearchResults payload={payload} /> : null;
+            return payload ? (
+              <RichBlockBoundary
+                source={payloadString}
+                label="These search results"
+              >
+                <LazySearchResults payload={payload} />
+              </RichBlockBoundary>
+            ) : null;
           } catch (error) {
             logger.error('Failed to parse search results payload:', error);
             return null;

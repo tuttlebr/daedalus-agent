@@ -1091,17 +1091,16 @@ def test_backend_client_streams_through_loaded_workflow_by_default(monkeypatch):
     assert kwargs["headers"]["x-daedalus-execution-id"] == "request-123"
 
 
-def test_autonomous_jobs_reuse_chat_google_authorization_identity():
-    # Match the independent frontend Chat/Connections identity fixtures. A raw
-    # username here creates another NAT user with no access to Chat's grants.
+def test_autonomous_jobs_carry_identity_only_in_the_trusted_user_header():
+    # Rust and the Python rollback derive per-user grants, including Chat's
+    # Google authorization, from x-user-id. Neither reads the retired NAT
+    # session cookie, so the worker must not imply a second identity source.
     alice = make_backend("alice")._headers()
-    assert alice["Cookie"] == (
-        "nat-session=daedalus-user-2bd806c97f0e00af1a1fc3328fa763a9"
-    )
     assert alice["x-user-id"] == "alice"
     assert alice["x-daedalus-execution-scope"] == "autonomy"
     assert "x-daedalus-approval-token" not in alice
-    assert make_backend("bob")._headers()["Cookie"] != alice["Cookie"]
+    assert not any(name.lower() == "cookie" for name in alice)
+    assert make_backend("bob")._headers()["x-user-id"] == "bob"
 
 
 def test_make_backend_uses_canonical_base_url_env(monkeypatch):
@@ -1359,6 +1358,47 @@ def test_dashboard_cancel_reaches_open_backend_request_promptly():
     assert not thread.is_alive(), "cancellation waited for the lease heartbeat"
     assert time.monotonic() - cancelled_at < 3
     assert result["run"]["status"] == "cancelled"
+    assert store.events[-1]["type"] == "run_cancelled"
+
+
+def test_cancellation_racing_a_returned_response_is_recorded_as_cancelled(
+    monkeypatch,
+):
+    # The heartbeat sets the shared abort event for a dashboard Stop as well as
+    # for a lost lease. When the backend response completes in that window, the
+    # run must still be the user's cancellation: the worker loop leaves an
+    # "aborted" request in processing, and the next lease owner reruns it.
+    from autonomous_agent import worker
+
+    monkeypatch.setattr(worker, "CANCEL_POLL_SECONDS", 0.02)
+
+    class ReturnsAfterAbortBackend(FakeBackend):
+        def call(self, messages, *, execution_id="", abort=None):
+            assert abort is not None
+            assert abort.wait(timeout=5), "cancellation never set abort"
+            return super().call(messages, execution_id=execution_id, abort=abort)
+
+    store = _CancellableStore()
+    store.cancel_flag.set()
+    backend = ReturnsAfterAbortBackend(
+        json.dumps(
+            {
+                "summary": "Finished as the user cancelled.",
+                "feed_items": [{"title": "Late", "bluf": "Must not publish."}],
+            }
+        )
+    )
+
+    run = run_with_lease_heartbeat(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"id": "request-cancel-race", "trigger": "manual"},
+        lease_ttl=60,
+    )
+
+    assert run["status"] == "cancelled"
+    assert store.feed == []
     assert store.events[-1]["type"] == "run_cancelled"
 
 

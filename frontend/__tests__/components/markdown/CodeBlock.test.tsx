@@ -68,4 +68,32 @@ describe('code display and export preserve string content', () => {
       expect(await readBlob(mocks.saveFile.mock.calls[0][0])).toBe(expected);
     },
   );
+
+  it.each([
+    ['json', '{"id": 12345678901234567890, "name": "snowflake"}'],
+    ['json', '{"price": 1.50, "scale": 1e3}'],
+    ['json', '{"text": "caf\\u00e9", "path": "a\\/b"}'],
+    ['json', '{"key": 1, "key": 2}'],
+    ['text', '9007199254740993'],
+  ])(
+    'never rewrites %s values that JSON cannot round-trip: %s',
+    async (language, value) => {
+      act(() => root.render(<CodeBlock language={language} value={value} />));
+      expect(container.querySelector('pre code')?.textContent).toBe(value);
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Copy code"]')!
+          .click();
+      });
+      expect(mocks.writeText).toHaveBeenCalledWith(value);
+    },
+  );
+
+  it('still pretty-prints compact JSON whose values round-trip exactly', () => {
+    const value = '{"a":[1,2.5,-3],"b":{"c":"two  spaces","d":null}}';
+    act(() => root.render(<CodeBlock language="json" value={value} />));
+    expect(container.querySelector('pre code')?.textContent).toBe(
+      JSON.stringify(JSON.parse(value), null, 2),
+    );
+  });
 });

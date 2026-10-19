@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
   'review security regressions with disposable Redis',
@@ -79,6 +79,74 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       });
     }
 
+    // Every submission reserves its conversation; an owned history must not be
+    // resent and rewritten unchanged on the chat submission path.
+    it('reserves an owned conversation without rewriting it', async () => {
+      const id = `${prefix}-owned`;
+      const ck = key('conversation', id);
+      const evaluate = vi.spyOn(client, 'eval');
+      const saves = () =>
+        evaluate.mock.calls.filter(([script]) =>
+          String(script).includes('SAVE_OWNED_CONVERSATION'),
+        ).length;
+      try {
+        const created = await store.reserveConversationForUser(user, id);
+        expect(saves()).toBe(1);
+        const reserved = await store.reserveConversationForUser(user, id);
+        expect(reserved).toEqual(created);
+        expect(await redis.jsonGet(ck)).toEqual(created);
+        expect(saves()).toBe(1);
+        await expect(
+          store.reserveConversationForUser(attacker, id),
+        ).rejects.toMatchObject({ reason: 'forbidden' });
+      } finally {
+        evaluate.mockRestore();
+      }
+    });
+
+    for (const json of [false, true]) {
+      it(`reserves an owned ${
+        json ? 'RedisJSON' : 'string'
+      } conversation without rewriting its history`, async () => {
+        const id = `${prefix}-owned-${json}`;
+        const ck = key('conversation', id);
+        const owned = {
+          id,
+          ownerId: user,
+          name: 'Owned',
+          messages: [{ role: 'user', content: 'Owned history '.repeat(100) }],
+          updatedAt: 3,
+        };
+        if (json) await client.call('JSON.SET', ck, '$', JSON.stringify(owned));
+        else await client.set(ck, JSON.stringify(owned));
+        await client.sadd(key('user', user, 'conversations'), id);
+        const evaluate = vi.spyOn(client, 'eval');
+        try {
+          expect(await store.reserveConversationForUser(user, id)).toEqual(
+            owned,
+          );
+          // Each chat turn reserves its conversation; an unchanged owned
+          // record must not be copied back through Redis.
+          expect(
+            evaluate.mock.calls.filter(([script]) =>
+              String(script).includes('SAVE_OWNED_CONVERSATION'),
+            ),
+          ).toEqual([]);
+        } finally {
+          evaluate.mockRestore();
+        }
+        await client.sadd(key('user', attacker, 'conversations'), id);
+        await expect(
+          store.reserveConversationForUser(attacker, id),
+        ).rejects.toMatchObject({ reason: 'forbidden' });
+        // An expiring record still takes the write that makes it durable.
+        await client.expire(ck, 600);
+        expect(await store.reserveConversationForUser(user, id)).toEqual(owned);
+        expect(await client.ttl(ck)).toBe(-1);
+        expect(await redis.jsonGet(ck)).toEqual(owned);
+      });
+    }
+
     it('allows exactly one owner when distinct users concurrently create the same ID', async () => {
       const id = `${prefix}-claim`;
       key('conversation', id);
@@ -89,9 +157,11 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       expect(
         results.filter((result) => result.status === 'fulfilled'),
       ).toHaveLength(1);
-      expect(
-        results.filter((result) => result.status === 'rejected'),
-      ).toHaveLength(1);
+      expect(results.filter((result) => result.status === 'rejected')).toEqual([
+        expect.objectContaining({
+          reason: expect.objectContaining({ reason: 'forbidden' }),
+        }),
+      ]);
       const record = await redis.jsonGet(key('conversation', id));
       const loser = record.ownerId === user ? attacker : user;
       expect(

@@ -42,7 +42,7 @@ import {
 } from '@/server/jobSubmission';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
-  getOrSetSessionId,
+  getStorageSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
 import { jsonDel, jsonGet, sessionKey } from '@/server/session/redis';
@@ -597,7 +597,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return res.status(400).json({ error: 'Invalid image mode' });
   }
 
-  const sessionId = getOrSetSessionId(req, res);
+  const sessionId = getStorageSessionId(req, res);
   const userId = session.username;
   const submissionId = body.submissionId;
   if (submissionId !== undefined && !validSubmissionId(submissionId)) {

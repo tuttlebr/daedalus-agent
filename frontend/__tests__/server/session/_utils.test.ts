@@ -3,6 +3,7 @@ import { getSession } from '@/utils/auth/session';
 import {
   clearSessionCookie,
   getOrSetSessionId,
+  getStorageSessionId,
   readSessionId,
   requireAuthenticatedUser,
   rotateSessionId,
@@ -31,6 +32,10 @@ function makeReqRes(
   const setHeader = vi.fn();
   const res = { setHeader } as any;
   return { req, res, setHeader };
+}
+
+function pick({ req, res }: ReturnType<typeof makeReqRes>) {
+  return [req, res] as const;
 }
 
 function getSetCookie(setHeader: ReturnType<typeof vi.fn>): string | undefined {
@@ -64,6 +69,21 @@ describe('server/session/_utils session cookie helpers', () => {
     expect(cookie).toContain('HttpOnly');
     expect(cookie?.toLowerCase()).toContain('samesite=strict');
     expect(cookie).toContain('Max-Age=604800');
+  });
+
+  it('derives a stable upload scope that does not reveal the session credential', () => {
+    const sid = '6f1c0f0e-2d4b-4c5a-9e7f-0123456789ab';
+    const first = getStorageSessionId(...pick(makeReqRes(`sid=${sid}`)));
+    const again = getStorageSessionId(...pick(makeReqRes(`sid=${sid}`)));
+    const other = getStorageSessionId(
+      ...pick(makeReqRes('sid=11111111-2222-4333-8444-555555555555')),
+    );
+
+    expect(first).toBe(again);
+    expect(first).not.toBe(other);
+    expect(first).not.toContain(sid);
+    // Storage keys and backend references accept only one safe path segment.
+    expect(first).toMatch(/^[A-Za-z0-9._-]{1,128}$/);
   });
 
   it('rotateSessionId mints a NEW sid on login and reports the previous one (fixation fix)', () => {

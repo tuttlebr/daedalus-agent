@@ -5,7 +5,7 @@ import { validateVideoMagicBytes } from '@/utils/app/magicBytes';
 import { buildContentDisposition } from '@/server/contentDisposition';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
-  getOrSetSessionId,
+  getStorageSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
 import {
@@ -19,6 +19,7 @@ import crypto from 'crypto';
 
 const VIDEO_EXPIRY_SECONDS = 60 * 60 * 24 * 7; // 7 days
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB limit
+const MAX_FILENAME_CHARS = 512;
 
 // Supported video formats (from visual_media_function.py analyze path)
 // Codecs: H264, H265, VP8, VP9, FLV
@@ -196,21 +197,33 @@ export default async function handler(
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
-  const sessionId = getOrSetSessionId(req, res);
+  const sessionId = getStorageSessionId(req, res);
   const userId = session.username;
 
   if (req.method === 'POST') {
     if (!(await enforceRateLimit(res, VIDEO_UPLOAD_RATE_LIMIT, userId))) return;
     // Store video
     try {
-      const { base64Data, filename, mimeType } = req.body;
+      const { base64Data, filename, mimeType } = req.body ?? {};
 
-      if (!base64Data) {
+      if (typeof base64Data !== 'string' || !base64Data) {
         return res.status(400).json({ error: 'No video data provided' });
       }
 
       if (!filename) {
         return res.status(400).json({ error: 'No filename provided' });
+      }
+      // The name is replayed in every download header; reject values that
+      // cannot be encoded instead of storing a video that always fails to load.
+      if (
+        typeof filename !== 'string' ||
+        filename.length > MAX_FILENAME_CHARS ||
+        /[\u0000-\u001f\u007f]|\p{Cs}/u.test(filename)
+      ) {
+        return res.status(400).json({ error: 'Invalid filename' });
+      }
+      if (mimeType !== undefined && typeof mimeType !== 'string') {
+        return res.status(400).json({ error: 'Invalid video MIME type' });
       }
 
       const videoId = await storeVideo(

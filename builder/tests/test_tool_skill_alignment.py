@@ -86,6 +86,15 @@ def test_all_skill_tool_references_resolve_to_exposed_capabilities():
         assert references <= available, (path, references - available)
 
 
+def test_skill_maintenance_guide_names_real_workflow_tool_lists():
+    """The skill guide's catalog checks must name the lists the runtime reads."""
+    workflow = configuration()["workflow"]
+    guide = (ROOT / "skills/AGENTS.md").read_text()
+    named = set(re.findall(r"`([a-z_]*tools)`", guide))
+    assert named, "skills/AGENTS.md no longer names the workflow tool lists"
+    assert named <= {key for key, value in workflow.items() if isinstance(value, list)}
+
+
 def test_skill_call_examples_use_arguments_the_registered_schema_accepts():
     """A skill's ``tool(arg=...)`` example must survive the real argument contract.
 

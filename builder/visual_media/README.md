@@ -18,23 +18,26 @@ inline. When `n > 1`, one markdown ref per line is returned.
 
 ## Configuration
 
-Default config lives in [`src/visual_media/configs/config.yml`](src/visual_media/configs/config.yml).
+Register the tool under `functions` in the workflow YAML; the deployed
+`visual_media_tool` in `backend/tool-calling-config.yaml` is the reference.
+Defaults:
 
 ```yaml
-workflow:
-  _type: visual_media
-  redis_url: redis://redis:6379
-  generation_api_endpoint: null
-  generation_api_key: null
-  generation_model: gpt-image-2.5-sunburst
-  edit_api_endpoint: null
-  edit_api_key: null
-  edit_model: gpt-image-2.5-sunburst
-  comprehension_api_endpoint: http://localhost:8000
-  comprehension_api_key: null
-  comprehension_model: nvidia/NVIDIA-Nemotron-Nano-12B-v2
-  quality: auto
-  n: 1
+functions:
+  visual_media_tool:
+    _type: visual_media
+    redis_url: redis://redis:6379
+    generation_api_endpoint: null
+    generation_api_key: null
+    generation_model: gpt-image-2.5-sunburst
+    edit_api_endpoint: null
+    edit_api_key: null
+    edit_model: gpt-image-2.5-sunburst
+    comprehension_api_endpoint: http://localhost:8000
+    comprehension_api_key: null
+    comprehension_model: nvidia/NVIDIA-Nemotron-Nano-12B-v2
+    image_timeout: 300.0
+    comprehension_timeout: 300.0
 ```
 
 Important fields:
@@ -77,7 +80,7 @@ visual_media(
 ) -> str
 ```
 
-The backend derives media ownership from trusted NAT request metadata. A
+The backend derives media ownership from the authenticated request context. A
 legacy direct caller may still supply `user_id`, but it is only an equality
 assertion and is intentionally absent from the LLM-facing schema.
 

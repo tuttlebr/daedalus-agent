@@ -150,23 +150,19 @@ class TestWrapMilvusResults:
 
 
 # ---------------------------------------------------------------------------
-# MilvusRetriever — construction and bind
+# MilvusRetriever — construction
 # ---------------------------------------------------------------------------
 
 
 class TestMilvusRetrieverConstruction:
-    def _make_retriever(self, use_iterator=False, database_name=None):
+    def _make_retriever(self, database_name=None):
         mock_client = MagicMock()
         mock_client.list_collections.return_value = ["test_collection"]
-        # For use_iterator check
-        if use_iterator:
-            mock_client.search_iterator = MagicMock()
         mock_embedder = MagicMock()
         return MilvusRetriever(
             client=mock_client,
             embedder=mock_embedder,
             content_field="text",
-            use_iterator=use_iterator,
             database_name=database_name,
         )
 
@@ -174,64 +170,9 @@ class TestMilvusRetrieverConstruction:
         retriever = self._make_retriever()
         assert retriever.content_field == "text"
 
-    def test_use_iterator_false_uses_search(self):
-        retriever = self._make_retriever(use_iterator=False)
-        assert "_search" in retriever._search_func.__name__
-
-    def test_use_iterator_true_uses_search_iterator(self):
-        retriever = self._make_retriever(use_iterator=True)
-        assert "iterator" in retriever._search_func.__name__
-
-    def test_use_iterator_no_support_raises(self):
-        mock_client = MagicMock(spec=[])  # No search_iterator attr
-        with pytest.raises(ValueError, match="search iterator"):
-            MilvusRetriever(
-                client=mock_client,
-                embedder=MagicMock(),
-                use_iterator=True,
-            )
-
     def test_database_name_stored(self):
         retriever = self._make_retriever(database_name="mydb")
         assert retriever._database_name == "mydb"
-
-
-class TestMilvusRetrieverBind:
-    def _make_retriever(self):
-        mock_client = MagicMock()
-        mock_client.list_collections.return_value = []
-        return MilvusRetriever(
-            client=mock_client,
-            embedder=MagicMock(),
-            content_field="text",
-        )
-
-    def test_bind_stores_params(self):
-        retriever = self._make_retriever()
-        retriever.bind(collection_name="mycol", top_k=5)
-        assert "collection_name" in retriever._bound_params
-        assert "top_k" in retriever._bound_params
-
-    def test_bind_ignores_query_param(self):
-        retriever = self._make_retriever()
-        retriever.bind(query="should be ignored", top_k=10)
-        assert "query" not in retriever._bound_params
-        assert "top_k" in retriever._bound_params
-
-    def test_get_unbound_params_excludes_bound(self):
-        retriever = self._make_retriever()
-        retriever.bind(collection_name="col", top_k=5)
-        unbound = retriever.get_unbound_params()
-        assert "collection_name" not in unbound
-        assert "top_k" not in unbound
-        assert "query" in unbound
-
-    def test_get_unbound_params_default(self):
-        retriever = self._make_retriever()
-        unbound = retriever.get_unbound_params()
-        assert "query" in unbound
-        assert "collection_name" in unbound
-        assert "top_k" in unbound
 
 
 # ---------------------------------------------------------------------------
@@ -376,51 +317,6 @@ class TestSearchTimeout:
         retriever, _ = self._retriever(0.05, embed=_slow_embed)
         with pytest.raises(TimeoutError):
             asyncio.run(retriever.search(query="q", collection_name="col", top_k=3))
-
-
-# ---------------------------------------------------------------------------
-# F-004 — iterator search tolerates schema with no 'fields'
-# ---------------------------------------------------------------------------
-
-
-class TestIteratorSchemaWithoutFields:
-    def _make_iterator_retriever(self, describe_return):
-        client = MagicMock()
-        client.list_collections.return_value = ["col"]
-        client.describe_collection.return_value = describe_return
-        client.search_iterator = MagicMock()
-        # Iterator immediately returns an empty batch so the search completes.
-        empty_batch = MagicMock()
-        empty_batch.get_res.return_value = [[]]
-        empty_batch.__len__.return_value = 0
-        client.search_iterator.return_value.next.return_value = empty_batch
-        embedder = MagicMock()
-        embedder.embed_query.return_value = [0.1, 0.2]
-        retriever = MilvusRetriever(
-            client=client,
-            embedder=embedder,
-            content_field="text",
-            use_iterator=True,
-        )
-        return retriever, client
-
-    def test_schema_missing_fields_does_not_crash(self):
-        # describe_collection returns a schema with NO 'fields' key.
-        retriever, client = self._make_iterator_retriever({})
-        result = asyncio.run(
-            retriever.search(query="q", collection_name="col", top_k=3)
-        )
-        assert result.results == []
-        # output_fields ended up empty because schema had no fields
-        assert client.search_iterator.call_args.kwargs["output_fields"] == []
-
-    def test_schema_fields_none_does_not_crash(self):
-        # describe_collection returns {"fields": None}.
-        retriever, _ = self._make_iterator_retriever({"fields": None})
-        result = asyncio.run(
-            retriever.search(query="q", collection_name="col", top_k=3)
-        )
-        assert result.results == []
 
 
 # ---------------------------------------------------------------------------

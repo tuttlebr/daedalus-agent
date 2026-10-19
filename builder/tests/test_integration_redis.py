@@ -110,13 +110,16 @@ def test_autonomous_lease_fences_live_reclaim_and_recovers_after_expiry():
     lease_key = autonomy_key(user_id, "lease")
     try:
         assert worker_a.acquire_lease(user_id, ttl_seconds=1)
+        stale_token = worker_a._lease_tokens[user_id]
         worker_a.redis.lpush(queue_key, json.dumps({"id": "request-1"}))
         assert worker_a.dequeue(user_id, timeout=0) == {"id": "request-1"}
+        worker_a.upsert_run(user_id, {"id": "interrupted", "status": "running"})
 
         assert worker_b.acquire_lease(user_id, ttl_seconds=5) is False
         with pytest.raises(RuntimeError, match="owning the lease"):
             worker_b.reclaim_processing(user_id)
         assert worker_a.redis.llen(processing_key) == 1
+        assert worker_a.list_runs(user_id)[0]["status"] == "running"
 
         deadline = time.monotonic() + 3
         while worker_a.redis.exists(lease_key) and time.monotonic() < deadline:
@@ -125,9 +128,20 @@ def test_autonomous_lease_fences_live_reclaim_and_recovers_after_expiry():
 
         assert worker_b.acquire_lease(user_id, ttl_seconds=5)
         assert worker_b.reclaim_processing(user_id) == 1
+        # The stopped owner's record no longer appears to be the live run.
+        assert worker_b.list_runs(user_id)[0]["status"] == "aborted"
         assert worker_b.reclaim_processing(user_id) == 0
         assert worker_a.refresh_lease(user_id, ttl_seconds=5) is False
         assert worker_b.dequeue(user_id, timeout=0) == {"id": "request-1"}
+        # A worker paused past expiry still holds its old token and in-flight
+        # copy. The Redis-side fences, not local state, must stop it from
+        # acknowledging or requeueing the replacement's claimed work.
+        worker_a._lease_tokens[user_id] = stale_token
+        assert worker_a.complete(user_id) is False
+        with pytest.raises(RuntimeError, match="after losing the lease"):
+            worker_a.reclaim_processing(user_id)
+        assert worker_b.redis.llen(processing_key) == 1
+        assert worker_b.redis.llen(queue_key) == 0
         assert worker_b.complete(user_id) is True
         assert worker_b.redis.llen(processing_key) == 0
     finally:
@@ -319,6 +333,42 @@ def test_autonomous_local_write_idempotency_is_atomic_in_real_redis(monkeypatch)
         key = asyncio.run(scenario())
         client.delete(key)
     finally:
+        client.close()
+
+
+def test_expired_idempotency_owner_cannot_complete_successor_reservation(monkeypatch):
+    from nat_helpers.idempotency import complete_operation, reserve_operation
+
+    url = os.environ["REDIS_URL"]
+    client = redis.from_url(url, decode_responses=True)
+    monkeypatch.setenv("REDIS_URL", url)
+    request = {
+        "user_id": "alice",
+        "execution_id": f"idempotency-expiry-itest-{uuid.uuid4().hex}",
+        "operation": "add_memory",
+        "arguments": {"memory": "one exact write"},
+    }
+    keys = []
+
+    async def scenario():
+        expired = await reserve_operation(**request)
+        assert expired.acquired
+        keys.append(expired.key)
+        # The first owner's reservation expires while its write is still running.
+        client.pexpire(expired.key, 0)
+        successor = await reserve_operation(**request)
+        assert successor.acquired
+        assert not await complete_operation(expired, "stale result")
+        assert json.loads(client.get(successor.key))["state"] == "in_progress"
+        assert await complete_operation(successor, "applied")
+        replay = await reserve_operation(**request)
+        assert replay.stored_result == "applied"
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        if keys:
+            client.delete(*keys)
         client.close()
 
 

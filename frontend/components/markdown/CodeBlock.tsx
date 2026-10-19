@@ -5,7 +5,7 @@ import {
   IconDownload,
   IconEye,
 } from '@tabler/icons-react';
-import { FC, memo, useEffect, useState } from 'react';
+import { FC, memo, useEffect, useMemo, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 
 import { useFileSave } from '@/hooks/useFileSave';
@@ -18,6 +18,44 @@ import {
 import classNames from 'classnames';
 
 const HTML_PREVIEW_LANGUAGES = new Set(['html', 'htm']);
+const JSON_WHITESPACE = new Set([' ', '\t', '\n', '\r']);
+
+/** JSON text with insignificant whitespace (outside strings) removed. */
+function compactJsonText(source: string): string {
+  let compact = '';
+  let inString = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      compact += char;
+      if (char === '\\') compact += source[++index] ?? '';
+      else if (char === '"') inString = false;
+    } else if (char === '"') {
+      inString = true;
+      compact += char;
+    } else if (!JSON_WHITESPACE.has(char)) {
+      compact += char;
+    }
+  }
+  return compact;
+}
+
+/**
+ * Pretty-print JSON only when re-serializing reproduces every token. Large
+ * integers, number spellings, escapes and duplicate keys otherwise change in
+ * the displayed, copied and downloaded code.
+ */
+function formatCodeValue(value: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return value;
+  }
+  return JSON.stringify(parsed) === compactJsonText(value)
+    ? JSON.stringify(parsed, null, 2)
+    : value;
+}
 
 interface Props {
   language: string;
@@ -40,13 +78,7 @@ export const CodeBlock: FC<Props> = memo(
       setShowPreview(isHtml && defaultPreview);
     }, [defaultPreview, isHtml, value]);
 
-    const formattedValue = (() => {
-      try {
-        return JSON.stringify(JSON.parse(value), null, 2);
-      } catch {
-        return value; // Return the original value if parsing fails
-      }
-    })();
+    const formattedValue = useMemo(() => formatCodeValue(value), [value]);
 
     const copyToClipboard = (e: React.MouseEvent) => {
       e?.preventDefault();

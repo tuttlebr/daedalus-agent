@@ -270,7 +270,8 @@ def truncate_text(text: str, token_limit: int = 1000) -> str:
     if _can_use_tiktoken():
         try:
             encoder = tiktoken.get_encoding("cl100k_base")
-            tokens = encoder.encode(text)
+            # Article text such as "<|endoftext|>" is content, as in _count_tokens.
+            tokens = encoder.encode(text, disallowed_special=())
 
             if len(tokens) <= token_limit:
                 return text
@@ -471,11 +472,14 @@ async def rss_feed_function(config: RssFeedFunctionConfig, builder: ToolRegistry
                     response.raise_for_status()
                     fetched_at = datetime.now(UTC)
                 with phase_timing("daedalus.rss.feed_parse", {"feed_scope": scope}):
-                    content = response.text
+                    # Parse the original bytes: the parser honors BOMs and XML
+                    # encoding declarations, which HTTPX's UTF-8 default for a
+                    # response without an HTTP charset would corrupt.
+                    content = response.content
                     # parse(str) also accepts URLs and would fetch them through
                     # its own unguarded client. This response is already fetched
                     # content; it must never introduce another network request.
-                    if content.startswith(("http://", "https://")):
+                    if content.startswith((b"http://", b"https://")):
                         raise ValueError("RSS response must contain feed content.")
                     parsed = await asyncio.to_thread(fastfeedparser.parse, content)
                     entries = []

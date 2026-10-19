@@ -1,5 +1,30 @@
 // @vitest-environment node
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { WebSocket } from 'ws';
+
+class FakeSocket extends EventEmitter {
+  readyState: number = WebSocket.OPEN;
+  readonly sent: string[] = [];
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.disconnect();
+  }
+
+  disconnect(): void {
+    if (this.readyState === WebSocket.CLOSED) return;
+    this.readyState = WebSocket.CLOSED;
+    this.emit('close', 1000, Buffer.from(''));
+  }
+
+  messages(): any[] {
+    return this.sent.map((raw) => JSON.parse(raw));
+  }
+}
 
 describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
   'WebSocket connect state with real Redis',
@@ -68,6 +93,86 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       });
       expect(await ws.readStreamingStates(client, `${user}-none`)).toEqual({});
     });
+
+    it.each([
+      ['an owned member conversation', 'owned', true],
+      ['a legacy member conversation without an owner', 'legacy', true],
+      ['a member conversation owned by another user', 'foreign', false],
+      ['a live stream the user started', 'live', true],
+      ['a live-stream record naming another user', 'foreign-live', false],
+      ['an unknown conversation', 'unknown', false],
+    ] as const)(
+      'authorizes chat tokens for %s from stored ownership',
+      async (_label, kind, allowed) => {
+        // The default dependencies read the same Redis as production.
+        const owner = `${user}-chat-${kind}`;
+        const id = (name: string) => `${owner}-${name}`;
+        const conversationId = id(kind);
+        const conversations = `user:${owner}:conversations`;
+        keys.push(conversations);
+        await client.sadd(
+          conversations,
+          id('owned'),
+          id('legacy'),
+          id('foreign'),
+        );
+        for (const [name, ownerId] of [
+          ['owned', owner],
+          ['legacy', undefined],
+          ['foreign', other],
+        ] as const) {
+          keys.push(`conversation:${id(name)}`);
+          await client.set(
+            `conversation:${id(name)}`,
+            JSON.stringify({ id: id(name), ownerId }),
+          );
+        }
+        await client.set(
+          streamingKey(owner, id('live')),
+          JSON.stringify(state(owner, id('live'))),
+        );
+        await client.set(
+          streamingKey(owner, id('foreign-live')),
+          JSON.stringify(state(other, id('foreign-live'))),
+        );
+
+        const socket = new FakeSocket();
+        await ws.initializeAuthenticatedConnection(
+          socket as any,
+          owner,
+          `sid-${owner}`,
+        );
+        try {
+          expect(socket.messages()[0]).toMatchObject({ type: 'connected' });
+          socket.emit(
+            'message',
+            Buffer.from(
+              JSON.stringify({ type: 'subscribe_chat', conversationId }),
+            ),
+          );
+          const token = { type: 'token', conversationId, content: 'secret' };
+          if (allowed) {
+            // Publish until the real subscription delivers the token.
+            await vi.waitFor(async () => {
+              await client.publish(
+                `user:${owner}:chat:${conversationId}:tokens`,
+                JSON.stringify(token),
+              );
+              expect(socket.messages()).toContainEqual(token);
+            });
+          } else {
+            await vi.waitFor(() =>
+              expect(socket.messages()).toContainEqual({
+                type: 'error',
+                message: 'Unauthorized chat subscription',
+              }),
+            );
+          }
+        } finally {
+          socket.disconnect();
+        }
+      },
+    );
 
     it('reads conversation sets larger than one script batch', async () => {
       const owner = `${user}-many`;

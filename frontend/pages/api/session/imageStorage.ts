@@ -2,13 +2,12 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
-  getOrSetSessionId,
+  getStorageSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
 import {
   getRedis,
   sessionKey,
-  jsonGet,
   jsonDel,
   jsonSetWithExpiry,
 } from '@/server/session/redis';
@@ -81,22 +80,29 @@ function generateImageId(): string {
   return crypto.randomBytes(16).toString('hex');
 }
 
-function mimeTypeForFormat(
-  format: string | undefined,
-  fallback: string,
-): string {
-  if (!format) return fallback;
-  const formatToMime: Record<string, string> = {
-    png: 'image/png',
-    jpeg: 'image/jpeg',
-    jpg: 'image/jpeg',
-    webp: 'image/webp',
-    gif: 'image/gif',
-    svg: 'image/svg+xml',
-    avif: 'image/avif',
-    heif: 'image/heif',
-  };
-  return formatToMime[format] || fallback;
+type ImageMetadata = Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>;
+
+// Originals in these formats are displayed byte-for-byte. Any other decodable
+// format (SVG, TIFF, ...) stores its normalized derivative, so the served
+// Content-Type never comes from the client's label.
+const BROWSER_DISPLAY_MIME_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+};
+
+// sharp reports AVIF as an AV1-compressed HEIF container. It decodes AV1
+// itself; only HEVC-based HEIC/HEIF needs the separate decoder.
+function isAvif(metadata: ImageMetadata | undefined): boolean {
+  return metadata?.format === 'heif' && metadata.compression === 'av1';
+}
+
+function displayMimeTypeFor(metadata: ImageMetadata): string | undefined {
+  if (isAvif(metadata)) return 'image/avif';
+  return metadata.format
+    ? BROWSER_DISPLAY_MIME_TYPES[metadata.format]
+    : undefined;
 }
 
 const HEIC_HEIF_BRANDS = new Set([
@@ -250,9 +256,7 @@ async function processImage(
 
   const claimsHeicMimeType = /^image\/hei[cf]$/i.test(mimeType);
   const hasHeicBrand = hasHeicOrHeifBrand(buffer);
-  let sourceMetadata:
-    | Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>
-    | undefined;
+  let sourceMetadata: ImageMetadata | undefined;
   try {
     sourceMetadata = await sharp(buffer).metadata();
   } catch (error) {
@@ -260,7 +264,7 @@ async function processImage(
   }
   const requiresHeicNormalization =
     hasHeicBrand ||
-    sourceMetadata?.format === 'heif' ||
+    (sourceMetadata?.format === 'heif' && !isAvif(sourceMetadata)) ||
     (claimsHeicMimeType && sourceMetadata === undefined);
 
   try {
@@ -282,12 +286,11 @@ async function processImage(
         metadata.hasAlpha,
       );
       // SVG is an active document when opened directly on our authenticated
-      // origin. Persist the inert derivative instead of its executable source.
-      storedBuffer = metadata.format === 'svg' ? normalized.buffer : buffer;
-      actualMimeType =
-        metadata.format === 'svg'
-          ? normalized.mimeType
-          : mimeTypeForFormat(metadata.format, mimeType);
+      // origin, and other formats may not render at all. Persist the inert
+      // derivative instead of their source.
+      const displayMimeType = displayMimeTypeFor(metadata);
+      storedBuffer = displayMimeType ? buffer : normalized.buffer;
+      actualMimeType = displayMimeType ?? normalized.mimeType;
       editBuffer = normalized.buffer;
       editMimeType = normalized.mimeType;
     }
@@ -421,24 +424,77 @@ export async function storeImage(
   return { imageId, mimeType: processed.mimeType };
 }
 
-// Retrieve image from Redis
+// A record holds the original plus edit, VLM and thumbnail derivatives (about
+// 11 MB for a 12 MP photo). Serving one view must not read, transfer and parse
+// the rest: locally a whole-record JSON.GET took ~110 ms and blocked Redis,
+// versus under 1 ms for the thumbnail paths. Legacy plain-string records are
+// still read whole.
+const READ_IMAGE_FIELDS_LUA = `
+-- READ_IMAGE_FIELDS
+local reply = redis.call('TYPE', KEYS[1])
+local kind = type(reply) == 'table' and reply['ok'] or reply
+if kind == 'none' then return false end
+if kind == 'string' then return {'string', redis.call('GET', KEYS[1])} end
+if not string.find(string.lower(kind), 'rejson', 1, true) then return false end
+return {'json', redis.call('JSON.GET', KEYS[1], unpack(ARGV))}
+`;
+
+const IMAGE_VIEW_FIELDS = [
+  'id',
+  'userId',
+  'sessionId',
+  'mimeType',
+  'thumbnailMimeType',
+  'width',
+  'height',
+] as const;
+
+async function readImageFields(
+  key: string,
+  fields: readonly (keyof StoredImage)[],
+): Promise<Partial<StoredImage> | null> {
+  const reply = (await getRedis().eval(
+    READ_IMAGE_FIELDS_LUA,
+    1,
+    key,
+    ...fields.map((field) => `$.${field}`),
+  )) as [string, string | null] | null;
+  if (!reply?.[1]) return null;
+  const parsed = JSON.parse(reply[1]);
+  if (reply[0] === 'string') return parsed as StoredImage;
+  const record: Partial<StoredImage> = {};
+  for (const field of fields) {
+    const values = parsed[`$.${field}`];
+    if (Array.isArray(values) && values.length > 0) {
+      (record as Record<string, unknown>)[field] = values[0];
+    }
+  }
+  return record.id || record.data || record.thumbnail ? record : null;
+}
+
+// Retrieve one view (display data or thumbnail) of an image from Redis.
 export async function getImage(
   sessionId: string,
   imageId: string,
   userId?: string,
-): Promise<StoredImage | null> {
-  // Try user-specific key first if userId is provided
-  if (userId) {
-    const userKey = sessionKey(['user', userId, 'image', imageId]);
-    const userImage = (await jsonGet(userKey)) as StoredImage | null;
-    if (userImage) {
-      return userImage;
+  view: 'data' | 'thumbnail' = 'data',
+): Promise<Partial<StoredImage> | null> {
+  const keys = [
+    // Try user-specific key first if userId is provided
+    ...(userId ? [sessionKey(['user', userId, 'image', imageId])] : []),
+    // Fall back to session-specific key (for backward compatibility)
+    sessionKey(['image', sessionId, imageId]),
+  ];
+  for (const key of keys) {
+    const image = await readImageFields(key, [...IMAGE_VIEW_FIELDS, view]);
+    if (!image) continue;
+    // Images at or below thumbnail size have no thumbnail; serve the original.
+    if (view === 'thumbnail' && !image.thumbnail && image.data === undefined) {
+      image.data = (await readImageFields(key, ['id', 'data']))?.data;
     }
+    return image;
   }
-
-  // Fall back to session-specific key (for backward compatibility)
-  const key = sessionKey(['image', sessionId, imageId]);
-  return (await jsonGet(key)) as StoredImage | null;
+  return null;
 }
 
 // Delete image from Redis
@@ -538,17 +594,20 @@ export default async function handler(
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
-  const sessionId = getOrSetSessionId(req, res);
+  const sessionId = getStorageSessionId(req, res);
   const userId = session.username;
 
   if (req.method === 'POST') {
     if (!(await enforceRateLimit(res, IMAGE_UPLOAD_RATE_LIMIT, userId))) return;
     // Store image
     try {
-      const { base64Data, mimeType } = req.body;
+      const { base64Data, mimeType } = req.body ?? {};
 
-      if (!base64Data) {
+      if (typeof base64Data !== 'string' || !base64Data) {
         return res.status(400).json({ error: 'No image data provided' });
+      }
+      if (mimeType !== undefined && typeof mimeType !== 'string') {
+        return res.status(400).json({ error: 'Invalid image MIME type' });
       }
 
       const stored = await storeImage(sessionId, userId, base64Data, mimeType);
@@ -582,7 +641,12 @@ export default async function handler(
     const wantThumbnail = thumbnail === 'true' || thumbnail === '1';
 
     try {
-      const image = await getImage(targetSessionId, imageId, userId);
+      const image = await getImage(
+        targetSessionId,
+        imageId,
+        userId,
+        wantThumbnail ? 'thumbnail' : 'data',
+      );
 
       if (!image) {
         return res.status(404).json({ error: 'Image not found' });
@@ -594,10 +658,10 @@ export default async function handler(
 
       // Determine which version to return
       const useThumbnail = wantThumbnail && image.thumbnail;
-      let imageData = useThumbnail ? image.thumbnail! : image.data;
+      let imageData = (useThumbnail ? image.thumbnail : image.data) as string;
       let imageMimeType = useThumbnail
         ? image.thumbnailMimeType || 'image/jpeg'
-        : image.mimeType;
+        : image.mimeType || 'application/octet-stream';
       // Old records may still contain SVG originals. Never serve those as
       // active same-origin documents during the retention/migration window.
       if (/^image\/svg\+xml(?:;|$)/i.test(imageMimeType)) {
@@ -615,7 +679,7 @@ export default async function handler(
       res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
 
       // Add headers to indicate thumbnail availability and image dimensions
-      if (image.thumbnail) {
+      if (image.thumbnail || image.thumbnailMimeType) {
         res.setHeader('X-Has-Thumbnail', 'true');
       }
       if (image.width && image.height) {
@@ -656,7 +720,7 @@ export default async function handler(
 }
 
 function canAccessStoredImage(
-  image: StoredImage,
+  image: Partial<StoredImage>,
   currentSessionId: string,
   currentUserId: string,
 ): boolean {

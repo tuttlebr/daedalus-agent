@@ -15,11 +15,12 @@ import {
   claimTerminalJobStatus,
   clearOAuthStatusFields,
   getFinalizationJournal,
-  markFinalizationPhase,
+  markFinalizationPhases,
   publishFinalizationEvents,
   setMemoryRetentionReceipt,
   withFinalizationLock,
   type FinalizationEvent,
+  type FinalizationJournalPhase,
   type JobFinalizationJournal,
   type NewJobFinalizationJournal,
 } from './jobState';
@@ -252,24 +253,18 @@ function buildFinalizationEvents(
 
 async function requirePhase(
   journal: JobFinalizationJournal,
-  phase:
-    | 'conversationAppliedAt'
-    | 'conversationSuppressedAt'
-    | 'memoryRetentionAttemptedAt'
-    | 'streamingStateClearedAt'
-    | 'streamStateClearedAt'
-    | 'conversationGuardReleasedAt'
-    | 'completedAt',
+  ...phases: FinalizationJournalPhase[]
 ): Promise<JobFinalizationJournal> {
-  const updated = await markFinalizationPhase(
+  const updated = await markFinalizationPhases(
     journal.jobId,
     journal.finalizationId,
-    phase,
+    phases,
     Date.now(),
   );
   if (!updated) {
+    const marked = phases.join(', ');
     throw new Error(
-      `Job ${journal.jobId}: finalization journal changed while marking ${phase}`,
+      `Job ${journal.jobId}: finalization journal changed while marking ${marked}`,
     );
   }
   return updated;
@@ -405,44 +400,48 @@ export async function resumePendingFinalization(
       }
     }
 
-    if (!journal.streamingStateClearedAt) {
-      if (journal.conversation) {
-        await clearStreamingState(
-          journal.userId,
-          journal.conversation.id,
-          jobId,
-        );
-      }
-      journal = await requirePhase(journal, 'streamingStateClearedAt');
-    }
-
-    if (!journal.streamStateClearedAt) {
-      await clearStreamState(jobId);
-      journal = await requirePhase(journal, 'streamStateClearedAt');
-    }
-
-    if (!journal.conversationGuardReleasedAt) {
-      await releaseUserJobGuard(journal.userId, journal.jobId);
-      if (journal.conversation) {
-        await releaseConversationJobGuard(
-          journal.userId,
-          journal.conversation.id,
-          journal.jobId,
-        );
-      }
-      journal = await requirePhase(journal, 'conversationGuardReleasedAt');
-    }
-
     // Everything the browser needs is now durable, and a follow-up turn can
     // safely acquire the conversation guard. Publish completion before optional
     // retention work so a slow or unavailable memory service never extends the
     // UI's "Generating response" state.
     if (!journal.eventsPublishedAt) {
+      // Each cleanup is an owner-checked delete that is safe to repeat after a
+      // crash. Recording them with the publication avoids rewriting the whole
+      // journal, which carries the conversation history, once per cleanup.
+      const cleanup: FinalizationJournalPhase[] = [];
+      const pending: Promise<unknown>[] = [];
+      if (!journal.streamingStateClearedAt) {
+        cleanup.push('streamingStateClearedAt');
+        if (journal.conversation)
+          pending.push(
+            clearStreamingState(journal.userId, journal.conversation.id, jobId),
+          );
+      }
+      if (!journal.streamStateClearedAt) {
+        cleanup.push('streamStateClearedAt');
+        pending.push(clearStreamState(jobId));
+      }
+      if (!journal.conversationGuardReleasedAt) {
+        cleanup.push('conversationGuardReleasedAt');
+        pending.push(releaseUserJobGuard(journal.userId, journal.jobId));
+        if (journal.conversation)
+          pending.push(
+            releaseConversationJobGuard(
+              journal.userId,
+              journal.conversation.id,
+              journal.jobId,
+            ),
+          );
+      }
+      for (const result of await Promise.allSettled(pending)) {
+        if (result.status === 'rejected') throw result.reason;
+      }
       const updated = await publishFinalizationEvents(
         journal.jobId,
         journal.finalizationId,
         buildFinalizationEvents(journal, conversation),
         Date.now(),
+        cleanup,
       );
       if (!updated) {
         throw new Error(
@@ -488,7 +487,11 @@ export async function resumePendingFinalization(
         // a tight finalization loop.
         logger.warn(`Job ${jobId}: Automatic memory retention failed`, error);
       }
-      journal = await requirePhase(journal, 'memoryRetentionAttemptedAt');
+      journal = await requirePhase(
+        journal,
+        'memoryRetentionAttemptedAt',
+        'completedAt',
+      );
     }
 
     if (!journal.completedAt) {

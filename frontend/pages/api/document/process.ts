@@ -10,7 +10,7 @@ import { postToBackend } from '@/utils/server/httpProxy';
 
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
-  getOrSetSessionId,
+  getStorageSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
 import {
@@ -64,7 +64,7 @@ export default async function handler(
   try {
     const session = await requireAuthenticatedUser(req, res);
     if (!session) return;
-    const sessionId = getOrSetSessionId(req, res);
+    const sessionId = getStorageSessionId(req, res);
     const username = session.username;
     const timezone = resolveTimezoneFromHeaders(req.headers);
 

@@ -299,11 +299,20 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
             .await
             .is_error
     );
-    assert!(
-        !manager
-            .call("fixture__inspect", &json!({"value":2}), "alice", "", &emit)
-            .await
-            .is_error
+    // Stop drops the call; its transport and uncertain session must go with it
+    // rather than leaving the next call queued behind the abandoned request.
+    let initialized = count(&peer, "initialize");
+    let resumed = tokio::time::timeout(
+        Duration::from_secs(5),
+        manager.call("fixture__inspect", &json!({"value":2}), "alice", "", &emit),
+    )
+    .await
+    .expect("a stopped call must not hold its session");
+    assert!(!resumed.is_error);
+    assert_eq!(
+        count(&peer, "initialize"),
+        initialized + 1,
+        "A stopped call's session is replaced"
     );
     manager.close();
     server.abort();

@@ -94,6 +94,11 @@ describe('MCP OAuth redirect API', () => {
       'text/html; charset=utf-8',
     );
     expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', 'inline');
+    // The callback page reflects a one-time authorization exchange.
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Cache-Control',
+      'no-cache, no-store',
+    );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith('<html>connected</html>');
   });
@@ -141,6 +146,10 @@ describe('MCP OAuth redirect API', () => {
       expect(response.setHeader).toHaveBeenCalledWith(
         'Content-Disposition',
         'inline',
+      );
+      expect(response.setHeader).toHaveBeenCalledWith(
+        'Cache-Control',
+        'no-cache, no-store',
       );
     }
     expect(fetchWithTimeout).not.toHaveBeenCalled();

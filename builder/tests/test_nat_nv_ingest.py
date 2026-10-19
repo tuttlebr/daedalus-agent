@@ -414,33 +414,42 @@ class TestCollectionResolution:
         )
 
 
-def test_user_document_tool_rejects_legacy_cross_user_assertion(monkeypatch):
+@pytest.mark.parametrize(
+    "forged",
+    [
+        {"username": "mallory"},
+        {"user_id": "mallory"},
+        {"collection_scope": "shared"},
+        {"input_message": {"username": "mallory", "documentRef": {}}},
+    ],
+)
+def test_user_document_tool_rejects_caller_identity_and_raw_requests(
+    monkeypatch, forged
+):
+    from pydantic import ValidationError
+
     async def _run():
         import nat_nv_ingest.nat_nv_ingest as mod
 
-        def _trusted_identity(asserted=""):
-            if asserted and asserted != "alice":
-                raise ValueError(
-                    "supplied user identity does not match the authenticated request"
-                )
+        identities = []
+
+        def _trusted_identity(*args):
+            identities.append(args)
             return "alice"
 
         monkeypatch.setattr(mod, "resolve_authenticated_user_id", _trusted_identity)
         generator = nv_ingest_function(NvIngestFunctionConfig(), MagicMock())
-        function_info = await generator.__anext__()
+        tool = await generator.__anext__()
         try:
-            return await function_info.fn(
-                operation="search",
-                query="show me private documents",
-                username="mallory",
-            )
+            with pytest.raises(ValidationError):
+                await tool.ainvoke(
+                    {"operation": "search", "query": "private documents", **forged}
+                )
         finally:
             await generator.aclose()
+        return identities
 
-    result = asyncio.run(_run())
-
-    assert "denied" in result.lower()
-    assert "does not match" in result.lower()
+    assert asyncio.run(_run()) == []
 
 
 def test_user_document_tool_lists_only_callers_collection_and_shared_allowlist(
@@ -507,13 +516,14 @@ def test_user_document_tool_rejects_shared_ingest_before_storage(monkeypatch):
             lambda _asserted="": "alice",
         )
         generator = nv_ingest_function(NvIngestFunctionConfig(), MagicMock())
-        function_info = await generator.__anext__()
+        tool = await generator.__anext__()
         try:
-            return await function_info.fn(
-                operation="ingest",
-                documentRef={"documentId": "doc-1", "sessionId": "session-1"},
-                collection_name="nvidia",
-                collection_scope="shared",
+            return await tool.ainvoke(
+                {
+                    "operation": "ingest",
+                    "documentRef": {"documentId": "doc-1", "sessionId": "session-1"},
+                    "collection_name": "nvidia",
+                }
             )
         finally:
             await generator.aclose()
@@ -1828,3 +1838,171 @@ def test_recreated_batch_retains_every_successful_document(
     assert overlaps == [expected_overlap] * len(expected)
     if not missing_first:
         assert f"with {expected_overlap} overlap" in output
+
+
+class _VectorWriteSDK:
+    """A stateful NV-Ingest boundary: extraction, then the SDK's vector writer."""
+
+    def __init__(self, *, extraction_failures=0, write_failures=0):
+        self.extraction_failures = extraction_failures
+        self.write_failures = write_failures
+        self.builds = 0
+        self.rows = []
+
+    def ingestor_class(self):
+        sdk = self
+
+        class Writer:
+            def run(self, records):
+                # Rows can be committed before the SDK reports a later batch,
+                # flush, or index failure.
+                sdk.rows.extend(entry["metadata"]["content"] for entry in records[0])
+                if sdk.write_failures:
+                    sdk.write_failures -= 1
+                    raise ConnectionError("Milvus Insert failed with gRPC status 14")
+                return records
+
+        class Ingestor:
+            def __init__(self, client):
+                sdk.builds += 1
+                self._vdb_bulk_upload = None
+
+            def buffers(self, buffers):
+                return self
+
+            def extract(self, **kwargs):
+                return self
+
+            def filter(self, **kwargs):
+                return self
+
+            def split(self, **kwargs):
+                return self
+
+            def dedup(self):
+                return self
+
+            def embed(self):
+                return self
+
+            def vdb_upload(self, **kwargs):
+                self._vdb_bulk_upload = Writer()
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def ingest(self, **kwargs):
+                if sdk.extraction_failures:
+                    sdk.extraction_failures -= 1
+                    raise RuntimeError("NV-Ingest job submission failed")
+                results = [
+                    [
+                        {
+                            "document_type": "text",
+                            "metadata": {
+                                "content": "Synthetic chunk",
+                                "content_metadata": {"page_number": 0},
+                            },
+                        }
+                    ]
+                ]
+                import logging
+
+                # The real SDK logs completion from the calling thread before
+                # its writer runs; the service leaves INFO disabled by default.
+                logging.getLogger("nv_ingest_client.client.client").info(
+                    "Batch processing finished. Success: 1, Failures: 0."
+                )
+                self._vdb_bulk_upload.run(results)
+                return results, [[]]
+
+        return Ingestor
+
+
+def _process_with_sdk(monkeypatch, sdk):
+    import base64
+    import json
+    from unittest.mock import AsyncMock
+
+    import nat_nv_ingest.nat_nv_ingest as mod
+
+    monkeypatch.setattr(mod, "Ingestor", sdk.ingestor_class())
+    monkeypatch.setattr(mod, "_validate_embedding_dimension", lambda *_: None)
+    processor = mod.NvIngestDocumentProcessor(
+        mod.NvIngestFunctionConfig(ingest_max_retries=2, ingest_retry_delay=0)
+    )
+    redis_client = MagicMock()
+    redis_client.execute_command.return_value = json.dumps(
+        {
+            "userId": "alice",
+            "filename": "upload.txt",
+            "data": base64.b64encode(b"text").decode(),
+        }
+    )
+    monkeypatch.setattr(processor, "_get_redis", AsyncMock(return_value=redis_client))
+    monkeypatch.setattr(processor, "_get_nv_client", AsyncMock(return_value=object()))
+    events = []
+
+    async def progress(event):
+        events.append(event)
+
+    result = asyncio.run(
+        processor.process_document(
+            documentRef={"documentId": "doc", "sessionId": "session"},
+            username="alice",
+            progress_callback=progress,
+        )
+    )
+    return result, [event["phase"] for event in events]
+
+
+def test_uncertain_vector_write_is_not_replayed(monkeypatch):
+    """A writer failure can follow committed rows; replay would duplicate them."""
+    sdk = _VectorWriteSDK(write_failures=1)
+
+    result, phases = _process_with_sdk(monkeypatch, sdk)
+
+    assert sdk.builds == 1
+    assert sdk.rows == ["Synthetic chunk"]
+    assert result["status"] == "failure"
+    assert result["error"] == (
+        "Error processing document with NvIngest: "
+        "Milvus Insert failed with gRPC status 14"
+    )
+    assert "retrying" not in phases
+
+
+def test_failure_before_vector_write_is_still_retried(monkeypatch):
+    sdk = _VectorWriteSDK(extraction_failures=1)
+
+    result, phases = _process_with_sdk(monkeypatch, sdk)
+
+    assert sdk.builds == 2
+    assert sdk.rows == ["Synthetic chunk"]
+    assert result["status"] == "success"
+    assert phases.count("retrying") == 1
+
+
+@pytest.mark.parametrize("level", ["WARNING", "INFO"])
+def test_indexing_progress_does_not_depend_on_sdk_log_level(monkeypatch, level):
+    """Production inherits WARNING; INFO must not emit a second phase."""
+    import logging
+
+    client_logger = logging.getLogger("nv_ingest_client.client.client")
+    previous = client_logger.level
+    # setLevel also clears the logging module's isEnabledFor cache.
+    client_logger.setLevel(getattr(logging, level))
+    try:
+        sdk = _VectorWriteSDK()
+        result, phases = _process_with_sdk(monkeypatch, sdk)
+    finally:
+        client_logger.setLevel(previous)
+
+    assert result["status"] == "success"
+    assert phases.count("indexing") == 1
+    assert phases.index("processing") < phases.index("indexing")
+    assert phases.index("indexing") < phases.index("postprocessing")

@@ -344,39 +344,7 @@ describe('durable stream worker entry processing', () => {
     );
   });
 
-  it('releases the conversation guard after acknowledging an OAuth handoff', async () => {
-    mocks.startBackgroundStreamReader.mockImplementation(
-      async (jobId: string, ...args: any[]) => {
-        await args[3].beforeBackendRequest();
-        const key = `daedalus:async-job-status:${jobId}`;
-        const current = mocks.store.get(key);
-        mocks.store.set(key, {
-          ...current,
-          status: 'oauth_required',
-          authUrl: 'https://example.test/oauth',
-        });
-      },
-    );
-
-    await expect(
-      processStreamQueueEntry(entry, options, undefined, 'owner-oauth'),
-    ).resolves.toBe('oauth_required');
-
-    expect(mocks.releaseUserJobGuard).toHaveBeenCalledWith('testuser', 'job-1');
-    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
-    expect(mocks.releaseConversationJobGuard).toHaveBeenCalledWith(
-      'testuser',
-      'conv-1',
-      'job-1',
-    );
-    expect(
-      mocks.acknowledgeStreamQueueEntry.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      mocks.releaseConversationJobGuard.mock.invocationCallOrder[0],
-    );
-  });
-
-  it('finishes cancellation racing the OAuth handoff acknowledgement', async () => {
+  it('finalizes a job the reader left awaiting OAuth instead of parking it', async () => {
     mocks.startBackgroundStreamReader.mockImplementation(
       async (jobId: string, ...args: any[]) => {
         await args[3].beforeBackendRequest();
@@ -388,19 +356,22 @@ describe('durable stream worker entry processing', () => {
         });
       },
     );
-    mocks.acknowledgeStreamQueueEntry.mockImplementation(async () => {
-      mocks.store.set('daedalus:async-job-abort:job-1', true);
-    });
+
     await expect(
       processStreamQueueEntry(entry, options, undefined, 'owner-oauth'),
-    ).resolves.toBe('completed');
-    expect(mocks.store.get('daedalus:async-job-status:job-1').status).toBe(
-      'error',
-    );
+    ).resolves.toBe('recovered_as_error');
+
+    // Finalization releases the slots; the worker never acknowledges a live
+    // job, which would leave it with no owner to reach a terminal state.
     expect(mocks.finalizeError).toHaveBeenCalledWith(
       'job-1',
       expect.anything(),
-      'Job canceled by user',
+      'The backend stream ended without producing a terminal result.',
+    );
+    expect(mocks.releaseUserJobGuard).not.toHaveBeenCalled();
+    expect(mocks.releaseConversationJobGuard).not.toHaveBeenCalled();
+    expect(mocks.finalizeError.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.acknowledgeStreamQueueEntry.mock.invocationCallOrder[0],
     );
   });
 

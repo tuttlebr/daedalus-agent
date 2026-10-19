@@ -246,7 +246,7 @@ mod tests {
     fn input() -> Build {
         Build {
             append_to_collection: false,
-            bytes: b"Synthetic".to_vec(),
+            bytes: bytes::Bytes::from_static(b"Synthetic"),
             filename: "fixture.txt".into(),
             collection_name: "private_collection".into(),
             chunk_size: json!(1024),

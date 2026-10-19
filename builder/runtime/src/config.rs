@@ -482,10 +482,28 @@ mod concurrency_tests {
                 configured(kind, json!(4)).unwrap().tool_concurrency("test"),
                 4
             );
-            for invalid in [json!(0), json!(9), json!(true), json!(1.5), json!("4")] {
+            for invalid in [
+                json!(0),
+                json!(9),
+                json!(-1),
+                json!(true),
+                json!(1.5),
+                json!("4"),
+                json!(null),
+            ] {
                 assert!(configured(kind, invalid).is_err());
             }
+            let mut unset = configured(kind, json!(1)).unwrap();
+            unset.raw["functions"]["test"]
+                .as_object_mut()
+                .unwrap()
+                .remove("max_concurrency");
+            assert_eq!(unset.tool_concurrency("test"), 1);
         }
+        // MCP calls and native stateful tools stay serial.
+        let config = configured("source_verifier", json!(8)).unwrap();
+        assert_eq!(config.tool_concurrency("mcp__read"), 1);
+        assert!(configured("nat_nv_ingest", json!(8)).is_err());
         // A custom tool cannot opt into overlapping shared state.
         assert_eq!(
             configured("fixture_stateful", json!(8))

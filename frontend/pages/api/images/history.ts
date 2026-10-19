@@ -10,7 +10,7 @@ import {
 } from '@/server/images/historyStore';
 import { imageHistoryKey } from '@/server/images/requestHelpers';
 import {
-  getOrSetSessionId,
+  getStorageSessionId,
   requireAuthenticatedUser,
 } from '@/server/session/_utils';
 import { getRedis, jsonGet } from '@/server/session/redis';
@@ -323,7 +323,7 @@ export default async function handler(
   const session = await requireAuthenticatedUser(req, res);
   if (!session) return;
 
-  const sessionId = getOrSetSessionId(req, res);
+  const sessionId = getStorageSessionId(req, res);
   const userId = session.username;
   const key = imageHistoryKey(userId, sessionId);
 

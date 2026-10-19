@@ -360,43 +360,42 @@ export async function readStreamingStates(
   redis: Redis,
   userId: string,
 ): Promise<Record<string, StreamingState>> {
+  // Redis errors propagate: the client replaces its streaming flags with this
+  // snapshot, so an empty result would show running answers as idle.
+  // Initialization closes with 1011 instead and the client reconnects.
   const states: Record<string, StreamingState> = {};
-  try {
-    const conversationIds = await redis.smembers(
-      sessionKey(['user', userId, 'conversations']),
-    );
-    for (
-      let offset = 0;
-      offset < conversationIds.length;
-      offset += STREAMING_STATE_READ_BATCH
-    ) {
-      const keys = conversationIds
-        .slice(offset, offset + STREAMING_STATE_READ_BATCH)
-        .map((conversationId) =>
-          sessionKey([
-            'streaming',
-            'user',
-            userId,
-            'conversation',
-            conversationId,
-          ]),
-        );
-      const values = (await redis.eval(
-        READ_STREAMING_STATES_LUA,
-        keys.length,
-        ...keys,
-      )) as Array<string | null>;
-      for (const raw of values) {
-        try {
-          const state = parseRedisJsonResult<StreamingState>(raw);
-          if (state?.conversationId) states[state.conversationId] = state;
-        } catch {
-          // Skip a malformed record; other conversations remain visible.
-        }
+  const conversationIds = await redis.smembers(
+    sessionKey(['user', userId, 'conversations']),
+  );
+  for (
+    let offset = 0;
+    offset < conversationIds.length;
+    offset += STREAMING_STATE_READ_BATCH
+  ) {
+    const keys = conversationIds
+      .slice(offset, offset + STREAMING_STATE_READ_BATCH)
+      .map((conversationId) =>
+        sessionKey([
+          'streaming',
+          'user',
+          userId,
+          'conversation',
+          conversationId,
+        ]),
+      );
+    const values = (await redis.eval(
+      READ_STREAMING_STATES_LUA,
+      keys.length,
+      ...keys,
+    )) as Array<string | null>;
+    for (const raw of values) {
+      try {
+        const state = parseRedisJsonResult<StreamingState>(raw);
+        if (state?.conversationId) states[state.conversationId] = state;
+      } catch {
+        // Skip a malformed record; other conversations remain visible.
       }
     }
-  } catch (err) {
-    console.error('[WS] Error getting streaming states:', err);
   }
 
   return states;

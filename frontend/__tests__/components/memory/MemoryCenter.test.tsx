@@ -210,4 +210,115 @@ describe('Memory Center curation', () => {
     );
     expect(container.textContent).not.toContain('Memory forgotten');
   });
+
+  function deferredResponse(body: unknown) {
+    let resolve!: () => void;
+    const promise = new Promise<{ ok: boolean; json: () => Promise<unknown> }>(
+      (done) => {
+        resolve = () => done({ ok: true, json: async () => body });
+      },
+    );
+    return { promise, resolve };
+  }
+
+  function clickButton(label: string) {
+    const button = Array.from(container.querySelectorAll('button')).find(
+      (candidate) =>
+        candidate.textContent === label ||
+        candidate.getAttribute('aria-label') === label,
+    );
+    expect(button).toBeDefined();
+    return act(async () => button!.click());
+  }
+
+  it('refreshes the tab on screen after a mutation started on another tab', async () => {
+    items = [
+      {
+        id: 'fact-1',
+        text: 'Fact to forget',
+        fact_type: 'world',
+        state: 'valid',
+      },
+    ];
+    const forget = deferredResponse({ state: 'invalidated' });
+    const sources = deferredResponse({
+      items: [{ id: 'source-from-chat', memory_unit_count: 2 }],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    });
+    const listMemories = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return forget.promise;
+      if (url.startsWith('/api/memory/sources?')) return sources.promise;
+      return listMemories(url, init);
+    });
+    await showMemories();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Forget memory"]')!
+        .click();
+    });
+    await clickButton('Sources');
+    await act(async () => forget.resolve());
+    await act(async () => sources.resolve());
+
+    expect(container.textContent).toContain('source-from-chat');
+    expect(container.textContent).toContain('1 sources');
+  });
+
+  it('keeps a newer edit open when an earlier save finishes', async () => {
+    items = [
+      { id: 'fact-1', text: 'First fact', fact_type: 'world', state: 'valid' },
+      { id: 'fact-2', text: 'Second fact', fact_type: 'world', state: 'valid' },
+    ];
+    const save = deferredResponse({ id: 'fact-1' });
+    const listMemories = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      init?.method === 'PATCH' ? save.promise : listMemories(url, init),
+    );
+    await showMemories();
+    const type = (text: string) =>
+      act(async () => {
+        const textarea = document.querySelector<HTMLTextAreaElement>(
+          'textarea[aria-label="Memory text"]',
+        )!;
+        Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          'value',
+        )!.set!.call(textarea, text);
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+
+    await act(async () => {
+      card('First fact')
+        .querySelector<HTMLButtonElement>('[aria-label="Edit memory"]')!
+        .click();
+    });
+    await type('First fact, corrected');
+    await act(async () => {
+      Array.from(document.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Save memory')!
+        .click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Close editor"]')!
+        .click();
+    });
+    await act(async () => {
+      card('Second fact')
+        .querySelector<HTMLButtonElement>('[aria-label="Edit memory"]')!
+        .click();
+    });
+    await type('Unsaved second draft');
+    await act(async () => save.resolve());
+
+    expect(
+      document.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="Memory text"]',
+      )?.value,
+    ).toBe('Unsaved second draft');
+  });
 });

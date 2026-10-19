@@ -407,6 +407,16 @@ function MaskSection({
           );
         }
         const ref = await ingest(file, metadata);
+        // Image 1 can be removed or replaced during the upload. The mask was
+        // validated against the earlier image and must not pair with another.
+        if (
+          useImagePanelStore.getState().inputImages[0]?.imageId !==
+          firstImage?.imageId
+        ) {
+          throw new Error(
+            'Image 1 changed while the mask was uploading. Add the mask again.',
+          );
+        }
         onChange(ref);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Upload failed');

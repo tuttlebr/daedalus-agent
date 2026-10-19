@@ -383,6 +383,36 @@ class TestTruncateToTokenLimit:
         finally:
             webscrape_mod.TIKTOKEN_AVAILABLE = original
 
+    def test_special_token_text_keeps_the_token_bound(self, monkeypatch):
+        """Page text such as "<|endoftext|>" is ordinary content, not an error.
+
+        tiktoken rejects special-token text unless disallowed_special=() is
+        passed. A rejected count fell back to len // 4, which undercounts dense
+        text and returned pages several times over the configured bound.
+        """
+
+        class Encoding:
+            # One token per character, like dense CJK text.
+            def encode(self, text, *, allowed_special=(), disallowed_special="all"):
+                if disallowed_special == "all" and "<|endoftext|>" in text:
+                    raise ValueError("disallowed special token")
+                return list(text)
+
+        monkeypatch.setattr(webscrape_mod, "TIKTOKEN_AVAILABLE", True)
+        monkeypatch.setattr(
+            webscrape_mod,
+            "tiktoken",
+            MagicMock(get_encoding=lambda _name: Encoding()),
+            raising=False,
+        )
+        text = "Tokenizers emit <|endoftext|> between documents. " + "漢" * 2000
+
+        result, truncated = _truncate_to_token_limit(text, 100, "TRUNC")
+
+        assert truncated
+        assert result.endswith("TRUNC")
+        assert len(result) <= 100
+
 
 # ---------------------------------------------------------------------------
 # _response_looks_like_html

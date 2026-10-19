@@ -9,7 +9,6 @@ curated collections and reuses the `MilvusRetriever` search implementation.
 - Vector search against Milvus collections
 - Optional non-default Milvus database prefixes
 - Configurable content and vector field names
-- Optional iterator-based retrieval for larger result sets
 - Optional reranking through an external reranker endpoint
 - Per-domain routing through `domain_retriever` (e.g. `nvidia`, `semianalysis`, `kubernetes`, `veterinarian`, `mentalhealth`)
 

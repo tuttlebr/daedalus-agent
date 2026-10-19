@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 let server: Server | undefined;
 afterEach(async () => {
+  vi.unstubAllGlobals();
   server?.closeAllConnections();
   if (server)
     await new Promise<void>((resolve) => server!.close(() => resolve()));
@@ -50,11 +51,24 @@ describe('fetch body lifetime', () => {
   it('cleans up the caller listener when a body is explicitly canceled', async () => {
     const controller = new AbortController();
     const removed = vi.spyOn(controller.signal, 'removeEventListener');
+    // One available chunk and then a stall: once it is buffered no read is in
+    // flight, so only cancellation itself can release the listener.
+    const source = new ReadableStream<Uint8Array>({
+      start(stream) {
+        stream.enqueue(new TextEncoder().encode('{'));
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(source)),
+    );
     const response = await fetchWithTimeout(
-      await stalledBody(),
+      'http://fixture.invalid/stalled',
       { signal: controller.signal },
       1000,
     );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(removed).not.toHaveBeenCalled();
     await response.body!.cancel();
     expect(removed).toHaveBeenCalledWith('abort', expect.any(Function));
   });

@@ -11,31 +11,17 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Image optimization configuration
+  // Image optimization configuration. /_next/image is unauthenticated and the
+  // app renders no remote next/image sources, so allow no remote patterns: a
+  // pattern would let any visitor make the server fetch (and follow redirects
+  // from) those hosts, and a port-less localhost pattern matches every port.
   images: {
     // Enable modern image formats
     formats: ['image/avif', 'image/webp'],
-    // Allow images from these domains
-    remotePatterns: [
-      {
-        protocol: 'http',
-        hostname: 'localhost',
-      },
-      {
-        protocol: 'https',
-        hostname: '*.nvidia.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '*.nvcf.nvidia.com',
-      },
-    ],
     // Device sizes for responsive images
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048],
     // Image sizes for responsive images
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
-    // Minimize layout shift with blur placeholder
-    dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   // Extend proxy timeout so long-running API routes (document processing)

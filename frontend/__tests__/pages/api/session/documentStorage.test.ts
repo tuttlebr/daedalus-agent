@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => {
     eval: vi.fn(),
     expire: vi.fn(),
     getDocumentObject: vi.fn(),
-    getOrSetSessionId: vi.fn(),
+    getStorageSessionId: vi.fn(),
     jsonDel: vi.fn(),
     jsonGet: vi.fn(),
     jsonSetWithExpiry: vi.fn(),
@@ -69,7 +69,7 @@ vi.mock('@/server/rateLimit', () => ({
 }));
 
 vi.mock('@/server/session/_utils', () => ({
-  getOrSetSessionId: mocks.getOrSetSessionId,
+  getStorageSessionId: mocks.getStorageSessionId,
   requireAuthenticatedUser: mocks.requireAuthenticatedUser,
 }));
 
@@ -140,7 +140,7 @@ describe('/api/session/documentStorage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.enforceRateLimit.mockResolvedValue(true);
-    mocks.getOrSetSessionId.mockReturnValue('session-1');
+    mocks.getStorageSessionId.mockReturnValue('session-1');
     mocks.requireAuthenticatedUser.mockResolvedValue({ username: 'alice' });
     mocks.eval.mockResolvedValue(1);
     mocks.expire.mockResolvedValue(1);

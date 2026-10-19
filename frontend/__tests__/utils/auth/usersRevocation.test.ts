@@ -53,17 +53,21 @@ describe('configured login eligibility across process restarts', () => {
   });
 
   it('rejects removed persisted credentials and preserves their historical record', async () => {
-    records.set('user:removed', {
+    const removed = {
       id: 'old',
       username: 'removed',
       name: 'Former user',
       createdAt: 1,
       passwordHash: await bcrypt.hash('old-password', 4),
-    });
+    };
+    // Legacy and current credential records both outlive configuration.
+    records.set('user:removed', removed);
+    records.set('auth-user:removed', removed);
     const users = await import('@/utils/auth/users');
     await users.initializeUsers();
     expect(await users.verifyCredentials('removed', 'old-password')).toBeNull();
     expect(records.has('user:removed')).toBe(true);
+    expect(records.has('auth-user:removed')).toBe(true);
     expect(
       await users.verifyCredentials('current', 'current-password'),
     ).toMatchObject({ username: 'current' });

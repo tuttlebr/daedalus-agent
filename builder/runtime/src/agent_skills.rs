@@ -918,6 +918,47 @@ mod tests {
         }
     }
     #[test]
+    fn resources_and_scripts_stay_inside_their_skill_directory() {
+        let root =
+            std::env::temp_dir().join(format!("daedalus-skill-escape-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("alpha")).unwrap();
+        std::fs::create_dir_all(root.join("alpha-private")).unwrap();
+        std::fs::write(
+            root.join("alpha/SKILL.md"),
+            "---\nname: alpha\ndescription: Synthetic skill.\n---\nBody\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("alpha-private/secret.sh"), "echo secret\n").unwrap();
+        std::os::unix::fs::symlink("../alpha-private", root.join("alpha/sibling")).unwrap();
+        let parser = Parser::discover(&root).unwrap();
+        let absolute = root.join("alpha-private/secret.sh");
+        // A sibling directory shares the skill directory's string prefix.
+        for relative in [
+            absolute.to_str().unwrap(),
+            "../alpha-private/secret.sh",
+            "sibling/secret.sh",
+        ] {
+            let (text, loaded) = parser
+                .load(
+                    "alpha",
+                    Some(relative),
+                    "2026-10-14T12:00:00Z".parse().unwrap(),
+                )
+                .unwrap();
+            assert_eq!(
+                text,
+                format!("Error: Resource path escapes the skill directory: {relative}")
+            );
+            assert!(loaded.is_empty());
+            let error = parser.contained("alpha", relative, true).unwrap_err();
+            assert!(
+                error.to_string().starts_with("Script path escapes"),
+                "{error}"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn retained_parser_and_loading() {
         let fixture = fixture();
         let base =

@@ -32,7 +32,6 @@ from itertools import islice
 from typing import Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-import httpx
 from daedalus_runtime.tools import (
     LLMFramework,
     ToolConfig,
@@ -44,10 +43,12 @@ from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import BaseModel, ConfigDict, Field
 from source_verifier.critic import CriticResponseError, LLMClaimCritic
 from webscrape.webscrape_function import (
+    _count_tokens,
     _httpx_timeout_from_seconds,
     _is_challenge_page,
     _is_valid_content,
     _scrape_with_httpx_result,
+    _truncate_to_token_limit,
     _validate_url,
 )
 
@@ -195,6 +196,31 @@ def _claim_focused_excerpt(
     return excerpt[:max_chars], True
 
 
+def _verification_excerpt(
+    content: str,
+    claim: str,
+    max_chars: int,
+    max_tokens: int,
+) -> tuple[str, bool]:
+    """Select claim evidence from the whole source within both model bounds.
+
+    Selection must see the complete converted source; truncating to the token
+    budget first would keep only the beginning and discard the claim-dense and
+    final spans. Dense text can exceed the token budget within the character
+    budget, so reselect proportionally before the final hard token bound.
+    """
+    excerpt, truncated = _claim_focused_excerpt(content, claim, max_chars)
+    tokens = _count_tokens(excerpt)
+    if tokens <= max_tokens:
+        return excerpt, truncated
+    chars = max(256, len(excerpt) * max_tokens * 9 // (tokens * 10))
+    excerpt, _ = _claim_focused_excerpt(content, claim, chars)
+    excerpt, _ = _truncate_to_token_limit(
+        excerpt, max_tokens, "\n\n[Source content truncated for verification]"
+    )
+    return excerpt, True
+
+
 def _default_source_registry() -> list[dict[str, Any]]:
     """Default Daedalus source registry used by plan_sources."""
     return [
@@ -324,9 +350,8 @@ def _default_source_registry() -> list[dict[str, Any]]:
 class FetchResult:
     """Result of fetching a source URL."""
 
-    status: str  # ok, unreachable, forbidden, challenge_page, invalid_url, empty
+    status: str  # ok, unreachable, challenge_page, invalid_url
     content: str | None = None
-    status_code: int | None = None
     error: str | None = None
 
 
@@ -461,14 +486,12 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
     except UnsafeURLError as exc:
         return FetchResult(status="invalid_url", error=str(exc))
 
-    truncation_msg = "\n\n[Source content truncated for verification]"
-
     try:
+        # Keep the complete converted source: verify_claim selects evidence
+        # before applying the model's character and token bounds.
         content, outcome = await asyncio.wait_for(
             _scrape_with_httpx_result(
                 normalized_url,
-                token_limit=config.max_fetch_tokens,
-                truncation_msg=truncation_msg,
                 allowed_schemes=["http", "https"],
                 timeout=_httpx_timeout_from_seconds(config.fetch_timeout),
             ),
@@ -491,17 +514,6 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
         return FetchResult(
             status="unreachable", error=f"Fetch timed out after {config.fetch_timeout}s"
         )
-    except httpx.HTTPStatusError as exc:
-        code = exc.response.status_code
-        if code == 403:
-            return FetchResult(
-                status="forbidden", status_code=403, error="HTTP 403 Forbidden"
-            )
-        if code == 404:
-            return FetchResult(
-                status="unreachable", status_code=404, error="HTTP 404 Not Found"
-            )
-        return FetchResult(status="unreachable", status_code=code, error=f"HTTP {code}")
     except Exception as exc:
         return FetchResult(status="unreachable", error=str(exc))
 
@@ -1023,11 +1035,14 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                 }
             )
 
-        content = fetch.content or ""
-        content, source_truncated = _claim_focused_excerpt(
-            content,
+        # Selection and token counting scan the whole source; keep that CPU
+        # work off the event loop shared by concurrent tool calls.
+        content, source_truncated = await asyncio.to_thread(
+            _verification_excerpt,
+            fetch.content or "",
             claim,
             config.max_source_chars,
+            config.max_fetch_tokens,
         )
 
         try:

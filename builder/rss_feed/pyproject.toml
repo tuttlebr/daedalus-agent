@@ -23,8 +23,5 @@ classifiers = ["Programming Language :: Python"]
 packages = ["rss_feed"]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-rss_feed = ["configs/*.yml", "configs/*.yaml"]
-
 [tool.uv]
 config-settings = { editable_mode = "compat" }

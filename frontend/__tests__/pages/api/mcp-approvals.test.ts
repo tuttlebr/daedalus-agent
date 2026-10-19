@@ -124,4 +124,46 @@ describe('MCP approval rejection', () => {
       expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('audits an approved operation that completes before execute returns', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.mocked(fetchWithTimeout).mockResolvedValue(
+      new Response(
+        JSON.stringify({ status: 'completed', executionId: 'execution-1' }),
+        { status: 200 },
+      ),
+    );
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+      setHeader: vi.fn(),
+    } as any;
+
+    try {
+      await handler(
+        {
+          method: 'POST',
+          query: { requestId: 'approval_request_12345' },
+          body: { decision: 'approved' },
+        } as any,
+        res,
+      );
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const results = info.mock.calls.filter(
+        ([message]) => message === '[SECURITY] MCP approval result',
+      );
+      expect(results).toHaveLength(1);
+      expect(results[0][1]).toMatchObject({
+        actor: 'alice',
+        value: 'completed',
+        toolName: 'inspect',
+      });
+      // A later poll returns the terminal state without logging it again.
+      const saved = vi.mocked(jsonSetWithExpiry).mock.calls.at(-1)![1];
+      expect(saved).toMatchObject({ status: 'completed', resultLogged: true });
+    } finally {
+      info.mockRestore();
+    }
+  });
 });

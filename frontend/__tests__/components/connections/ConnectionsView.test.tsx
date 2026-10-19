@@ -142,4 +142,39 @@ describe('ConnectionsView authorization semantics', () => {
 
     act(() => root.unmount());
   });
+
+  it('does not let a status read from before a reset restore the cleared authorization', async () => {
+    const { root, container } = await renderView();
+    const staleStatus = mocks.apiGet.mock.results[0].value;
+    let finishRefresh!: () => void;
+    mocks.apiGet.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishRefresh = () => resolve(staleStatus);
+      }).then((value) => value),
+    );
+    const button = (label: string) =>
+      Array.from(container.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent === label,
+      )!;
+
+    await act(async () => {
+      button('Refresh').click();
+    });
+    await act(async () => {
+      button('Reconnect').click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      finishRefresh();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(
+      '0 of 2 services have saved authorization',
+    );
+    expect(container.textContent).not.toContain('Saved, unverified');
+    expect(container.textContent).not.toContain('Checking saved');
+
+    act(() => root.unmount());
+  });
 });
