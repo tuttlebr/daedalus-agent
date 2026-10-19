@@ -74,6 +74,19 @@ describe('validateZipMagicBytes', () => {
     expect(validateZipMagicBytes(buf)).toBe(false);
   });
 
+  it.each([
+    [0x03, 0x06],
+    [0x03, 0x08],
+    [0x05, 0x04],
+    [0x05, 0x08],
+    [0x07, 0x04],
+    [0x07, 0x06],
+  ])('rejects mismatched ZIP marker bytes %i %i', (third, fourth) => {
+    expect(
+      validateZipMagicBytes(Buffer.from([0x50, 0x4b, third, fourth])),
+    ).toBe(false);
+  });
+
   it('works for DOCX-like files (ZIP-based office formats)', () => {
     // A real DOCX starts with PK\x03\x04
     const buf = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]);

@@ -22,7 +22,6 @@ import {
 } from '@/utils/app/clean';
 import { saveConversation, loadConversation } from '@/utils/app/conversation';
 import { dedupeConversationsById } from '@/utils/app/conversationList';
-import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 import { getWorkflowName } from '@/utils/app/helper';
 import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 
@@ -118,35 +117,30 @@ const Home = () => {
     enabled: true,
     onConversationUpdated: useCallback(
       (conversation: Conversation) => {
-        const sanitizedConversation =
-          sanitizeConversationAssistantReplays(conversation);
         // Never overwrite a conversation that is actively streaming —
         // the frontend is the authority on its messages during streaming.
         if (
           useConversationStore
             .getState()
-            .streamingConversationIds.has(sanitizedConversation.id)
+            .streamingConversationIds.has(conversation.id)
         ) {
           return;
         }
 
         const current = conversationsRef.current.find(
-          (c) => c.id === sanitizedConversation.id,
+          (c) => c.id === conversation.id,
         );
         if (current) {
           // Only apply if incoming data is at least as recent as local state
           // to prevent stale sync events from overwriting newer local updates
           // (e.g. auto-naming that happened after the initial save started)
-          const incomingTime = sanitizedConversation.updatedAt || 0;
+          const incomingTime = conversation.updatedAt || 0;
           const currentTime = current.updatedAt || 0;
           if (incomingTime >= currentTime) {
-            updateConversationInStore(
-              sanitizedConversation.id,
-              sanitizedConversation,
-            );
+            updateConversationInStore(conversation.id, conversation);
           }
         } else {
-          addConversation(sanitizedConversation);
+          addConversation(conversation);
         }
       },
       [updateConversationInStore, addConversation],

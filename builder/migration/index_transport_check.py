@@ -68,6 +68,7 @@ def main(args):
                     "pipeline_cases": live_cases if cases == "all" else 1,
                     "pipeline_failed_jobs": 2 if cases == "all" else 0,
                     "pipeline_invalid_chunks": 1 if cases == "all" else 0,
+                    "pipeline_append_override": 1 if cases == "all" else 0,
                     "pipeline_serialization_failures": 3 if cases == "all" else 0,
                     "pipeline_row_order_failures": 1 if cases == "all" else 0,
                     "pipeline_cleanup_failures": 2 if cases == "all" else 0,

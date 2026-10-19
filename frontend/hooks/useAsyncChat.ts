@@ -426,7 +426,13 @@ export const useAsyncChat = (
         ...baseStatus,
         ...updates,
         jobId,
-        status: updates.status ?? baseStatus.status,
+        // Tokens and steps from parallel work cannot resolve an OAuth wait.
+        // Authoritative job_status updates bypass this live-event merge.
+        status:
+          updates.status === 'streaming' &&
+          baseStatus.status === 'oauth_required'
+            ? 'oauth_required'
+            : updates.status ?? baseStatus.status,
         createdAt: updates.createdAt ?? baseStatus.createdAt,
         conversationId:
           conversationId || updates.conversationId || baseStatus.conversationId,

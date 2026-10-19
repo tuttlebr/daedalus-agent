@@ -51,4 +51,17 @@ spec:
         - protocol: TCP
           port: {{ .Values.backend.default.port }}
     {{- end }}
+    {{- if .Values.nginx.config.voiceStudioProxy.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.nginx.config.voiceStudioProxy.serviceNamespace | quote }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: voice-studio
+              app.kubernetes.io/component: app
+      ports:
+        - protocol: TCP
+          port: {{ .Values.nginx.config.voiceStudioProxy.servicePort }}
+    {{- end }}
 {{- end }}

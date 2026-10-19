@@ -28,7 +28,7 @@ import {
   debugReplayLog,
 } from './debugReplay';
 import { finalizeError, finalizeSuccess } from './finalization';
-import { abortKey, clearOAuthStatusFields, updateJobStatus } from './jobState';
+import { abortKey, markJobStreaming, recordOAuthJobRequest } from './jobState';
 import { validateModelProfile } from './modelProfile';
 import { buildNatRequestHeaders } from './natMessages';
 import { sanitizeSandboxArtifactStep } from './sandboxArtifacts';
@@ -158,41 +158,6 @@ function extractOAuthRequiredPayload(
 
 function oauthRequestId(authUrl: string, oauthState?: string): string {
   return oauthState ? `${oauthState}:${authUrl}` : authUrl;
-}
-
-function mergeOAuthRequests(
-  status: AsyncJobStatus | null,
-  nextRequest: OAuthRequest,
-): OAuthRequest[] {
-  const existing = Array.isArray(status?.oauthRequests)
-    ? status.oauthRequests
-    : status?.authUrl
-    ? [
-        {
-          id: oauthRequestId(status.authUrl, status.oauthState),
-          authUrl: status.authUrl,
-          ...(status.oauthState ? { oauthState: status.oauthState } : {}),
-          service: inferGoogleWorkspaceService(status.authUrl),
-        },
-      ]
-    : [];
-  const byId = new Map(existing.map((request) => [request.id, request]));
-  byId.set(nextRequest.id, nextRequest);
-  return Array.from(byId.values());
-}
-
-function hasPersistedOAuthRequest(
-  status: AsyncJobStatus | null,
-  request: OAuthRequest,
-): boolean {
-  if (status?.status !== 'oauth_required') return false;
-  if (status.oauthRequests?.some((candidate) => candidate.id === request.id)) {
-    return true;
-  }
-  return (
-    status.authUrl === request.authUrl &&
-    status.oauthState === request.oauthState
-  );
 }
 
 /**
@@ -419,21 +384,7 @@ export async function startBackgroundStreamReader(
       if (!force && now - lastStatusFlushMs < STREAM_STATUS_FLUSH_INTERVAL_MS)
         return;
       lastStatusFlushMs = now;
-      const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
-      const keepOAuthPrompt =
-        currentStatus?.status === 'oauth_required' &&
-        !partialResponse.trim() &&
-        (Boolean(currentStatus.authUrl) ||
-          Boolean(currentStatus.oauthRequests?.length));
-      await updateJobStatus(
-        jobId,
-        {
-          status: keepOAuthPrompt ? 'oauth_required' : 'streaming',
-          ...(keepOAuthPrompt ? {} : clearOAuthStatusFields()),
-          updatedAt: now,
-        },
-        { publish: false },
-      );
+      await markJobStreaming(jobId, now);
     };
 
     while (true) {
@@ -653,25 +604,10 @@ export async function startBackgroundStreamReader(
                   jobId,
                 );
               }
-              const currentStatus = (await jsonGet(
-                statusKey,
-              )) as AsyncJobStatus | null;
-              const oauthRequests = mergeOAuthRequests(
-                currentStatus,
-                oauthPayload,
-              );
-              await updateJobStatus(jobId, {
-                status: 'oauth_required',
-                authUrl: oauthPayload.authUrl,
-                oauthState: oauthPayload.oauthState,
-                oauthRequests,
-                progress: 0,
-                updatedAt: Date.now(),
-              });
-              const persistedStatus = (await jsonGet(
-                statusKey,
-              )) as AsyncJobStatus | null;
-              if (!hasPersistedOAuthRequest(persistedStatus, oauthPayload)) {
+              // The atomic write is the persistence receipt. A callback may
+              // consume the prompt immediately after it commits; rereading it
+              // here would misclassify that successful authorization as failure.
+              if (!(await recordOAuthJobRequest(jobId, oauthPayload))) {
                 throw new Error('OAuth prompt status was not persisted');
               }
             } catch (error) {

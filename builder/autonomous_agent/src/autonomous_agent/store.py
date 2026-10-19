@@ -15,6 +15,11 @@ from .models import default_config, new_event, now_ms
 # Returned by an ``atomic_update`` mutation that leaves the stored value as-is.
 UNCHANGED = object()
 
+
+class WorkerLeaseLost(RuntimeError):
+    """A state write was rejected because this worker no longer owns the user."""
+
+
 # Mirror the dashboard's sanitizer (frontend/server/autonomy/store.ts): the
 # worker must not turn a legacy, direct, or environment-seeded value into a
 # degenerate scheduling loop that the UI itself would never accept.
@@ -176,6 +181,7 @@ class RedisStore:
         retries: int = 5,
         empty: Any = list,
         also: Any = None,
+        lease_user: str | None = None,
     ) -> Any:
         """Optimistically read-modify-write a JSON value under WATCH/MULTI.
 
@@ -192,10 +198,19 @@ class RedisStore:
         result)`` queues further commands that must commit atomically with the
         write. Falls back to a plain read-modify-write only when the Redis client
         does not expose ``pipeline`` (keeps non-transactional test fakes working).
+        When ``lease_user`` is provided, WATCH also covers that user's lease and
+        every attempt verifies its owner token. Expiry or transfer before EXEC
+        rejects the stale write, including retries after projection contention.
         """
         expected_type = type(empty())
+        lease_key = key(lease_user, "lease") if lease_user is not None else None
+        lease_token = self._lease_tokens.get(lease_user) if lease_key else None
+        if lease_key and not lease_token:
+            raise WorkerLeaseLost("Worker lease was lost before persisting output.")
         pipeline_factory = getattr(self.redis, "pipeline", None)
         if not callable(pipeline_factory):
+            if lease_key:
+                raise RuntimeError("Lease-fenced writes require Redis transactions")
             current = self.json_get(redis_key)
             new_value, result = mutate(
                 current if isinstance(current, expected_type) else empty()
@@ -213,6 +228,12 @@ class RedisStore:
             pipe = pipeline_factory()
             try:
                 pipe.watch(redis_key)
+                if lease_key:
+                    pipe.watch(lease_key)
+                    if pipe.get(lease_key) != lease_token:
+                        raise WorkerLeaseLost(
+                            "Worker lease was lost before persisting output."
+                        )
                 redis_type = self._redis_type_name(pipe.type(redis_key))
                 is_string = redis_type == "string"
                 is_json = self._is_redis_json_type(redis_type)
@@ -274,8 +295,23 @@ class RedisStore:
         value = self.redis.get(redis_key)
         return str(value) if value is not None else None
 
-    def set_text(self, redis_key: str, value: str) -> None:
-        self.redis.set(redis_key, value)
+    def set_text(
+        self, redis_key: str, value: str, *, lease_user: str | None = None
+    ) -> None:
+        if lease_user is None:
+            self.redis.set(redis_key, value)
+            return
+        token = self._lease_tokens.get(lease_user)
+        if not token or not self.redis.eval(
+            "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end; "
+            "redis.call('SET', KEYS[2], ARGV[2]); return 1",
+            2,
+            key(lease_user, "lease"),
+            redis_key,
+            token,
+            value,
+        ):
+            raise WorkerLeaseLost("Worker lease was lost before persisting output.")
 
     def publish(self, user_id: str, event_type: str, data: dict[str, Any]) -> None:
         event = {"type": event_type, "timestamp": now_ms(), "data": data}
@@ -304,7 +340,9 @@ class RedisStore:
         goals = self.json_get(key(user_id, "goals"), [])
         return goals if isinstance(goals, list) else []
 
-    def mark_goal_run(self, user_id: str, goal_id: str, timestamp: int) -> None:
+    def mark_goal_run(
+        self, user_id: str, goal_id: str, timestamp: int, *, require_lease: bool = False
+    ) -> None:
         """Record a goal attempt so scheduled runs can rotate across goals."""
 
         def mutate(current: list[dict[str, Any]]):
@@ -317,7 +355,11 @@ class RedisStore:
                 goals.append(goal)
             return goals, changed
 
-        changed = self.atomic_update(key(user_id, "goals"), mutate)
+        changed = self.atomic_update(
+            key(user_id, "goals"),
+            mutate,
+            lease_user=user_id if require_lease else None,
+        )
         if changed:
             self.publish(user_id, "autonomy_status", {"goalsUpdated": True})
 
@@ -373,7 +415,7 @@ class RedisStore:
         return feed[:limit] if limit is not None else feed
 
     def append_feed_items(
-        self, user_id: str, items: list[dict[str, Any]]
+        self, user_id: str, items: list[dict[str, Any]], *, require_lease: bool = False
     ) -> list[dict[str, Any]]:
         """Store new feed items, dropping ones that repeat recent feed entries.
 
@@ -408,7 +450,11 @@ class RedisStore:
             stored = kept[:max_items]
             return (kept + feed)[:max_items], stored
 
-        stored = self.atomic_update(key(user_id, "feed"), mutate)
+        stored = self.atomic_update(
+            key(user_id, "feed"),
+            mutate,
+            lease_user=user_id if require_lease else None,
+        )
         if stored:
             self.publish(user_id, "autonomy_feed_updated", {"items": stored})
         return stored

@@ -1131,3 +1131,66 @@ test('custom image dimensions have persistent labels and recoverable validation'
     path: testInfo.outputPath('custom-size-large-text.png'),
   });
 });
+
+test('LaTeX renders alongside unchanged code and JSON exports', async ({
+  page,
+}) => {
+  const code = '\\(x^2\\)';
+  const json = JSON.stringify({
+    message: "It's ready",
+    command: "echo 'hello'",
+  });
+  const conversation = {
+    id: 'math-and-code',
+    name: 'Math and code',
+    folderId: null,
+    messages: [
+      {
+        role: 'assistant' as const,
+        content: [
+          'Price: $5 to $10. Formula: \\(x^2\\).',
+          '\\[y^2\\]',
+          `\`\`\`latex\n${code}\n\`\`\``,
+          `\`\`\`json\n${json}\n\`\`\``,
+        ].join('\n\n'),
+      },
+    ],
+  };
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          (window as any).__copiedCode = value;
+        },
+      },
+    });
+  });
+  await openApp(page, [conversation]);
+  await page.route('**/api/session/selectedConversation', (route) =>
+    route.fulfill({ json: conversation }),
+  );
+  await page.reload();
+  const response = page.locator('.chat-bubble-assistant');
+  await expect(response.locator('.katex')).toHaveCount(2);
+  await expect(response.locator('.katex-display')).toHaveCount(1);
+  await expect(response).toContainText('Price: $5 to $10.');
+  const blocks = response.locator('.codeblock');
+  await expect(blocks).toHaveCount(2);
+  await expect(blocks.nth(0).locator('pre code')).toHaveText(code);
+  await expect(blocks.nth(1).locator('pre code')).toHaveText(
+    JSON.stringify(JSON.parse(json), null, 2),
+  );
+  const expand = page.getByRole('button', {
+    name: 'Show Full Response',
+    exact: true,
+  });
+  if (await expand.isVisible()) await expand.click();
+  await blocks
+    .nth(1)
+    .getByRole('button', { name: 'Copy code', exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__copiedCode))
+    .toBe(JSON.stringify(JSON.parse(json), null, 2));
+});

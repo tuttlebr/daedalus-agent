@@ -2,7 +2,6 @@ import { apiGet, apiPut, apiPost, ConflictError } from '@/utils/app/api';
 
 import { Conversation } from '@/types/chat';
 
-import { sanitizeConversationAssistantReplays } from './conversationReplay';
 import {
   restoreMessageImages,
   cleanMessagesForStorage,
@@ -46,12 +45,10 @@ function notifySync(
 export const saveConversation = async (conversation: Conversation) => {
   try {
     // Persist complete history; only the browser's selection cache is bounded.
-    const cleanedConversation = sanitizeConversationAssistantReplays(
-      stripBase64Content({
-        ...conversation,
-        messages: cleanMessagesForStorage(conversation.messages),
-      }),
-    );
+    const cleanedConversation = stripBase64Content({
+      ...conversation,
+      messages: cleanMessagesForStorage(conversation.messages),
+    });
 
     cacheSelectedConversation(cleanedConversation);
 
@@ -100,9 +97,7 @@ export const loadConversation = async (): Promise<Conversation | null> => {
     );
     if (conversation) {
       // Strip any base64 content that might have been stored
-      const cleanedConversation = sanitizeConversationAssistantReplays(
-        stripBase64Content(conversation),
-      );
+      const cleanedConversation = stripBase64Content(conversation);
 
       if (cleanedConversation && cleanedConversation.messages) {
         // Restore image references in loaded messages

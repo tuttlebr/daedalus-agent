@@ -25,6 +25,77 @@ async function openSettings(page: import('@playwright/test').Page) {
     : page.getByRole('dialog');
 }
 
+test('image masks accept a single transparent pixel and reject opaque PNGs', async ({
+  page,
+}) => {
+  await openApp(page);
+  const pngs = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1024;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 1024, 1024);
+    const opaque = canvas.toDataURL('image/png').split(',')[1];
+    // Pixel 1 lies between the old validator's every-20th-pixel samples.
+    ctx.clearRect(1, 0, 1, 1);
+    return { opaque, sparse: canvas.toDataURL('image/png').split(',')[1] };
+  });
+  const uploads: string[] = [];
+  await page.route('**/api/session/imageStorage', async (route) => {
+    const payload = route.request().postDataJSON();
+    uploads.push(payload.base64Data);
+    await route.fulfill({
+      json: {
+        imageId: `image-${uploads.length}`,
+        sessionId: 'mask-test',
+        mimeType: 'image/png',
+      },
+    });
+  });
+  await page.route('**/api/session/imageStorage?*', (route) =>
+    route.fulfill({
+      contentType: 'image/png',
+      body: Buffer.from(pngs.opaque, 'base64'),
+    }),
+  );
+  await navigate(page, 'Create');
+  await page.getByRole('radio', { name: 'Edit', exact: true }).check();
+  let assets = page.getByRole('tabpanel', { name: 'Create' });
+  if (page.viewportSize()!.width < 768) {
+    await page
+      .getByRole('button', { name: 'Edit assets', exact: true })
+      .click();
+    assets = page.getByRole('dialog', { name: 'Edit assets' });
+  }
+  await assets.locator('input[type="file"][multiple]').setInputFiles({
+    name: 'source.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(pngs.opaque, 'base64'),
+  });
+  await expect(
+    assets.getByRole('button', { name: '+ Add mask', exact: true }),
+  ).toBeEnabled();
+  const mask = assets.locator('input[accept="image/png"]');
+  await mask.setInputFiles({
+    name: 'opaque.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(pngs.opaque, 'base64'),
+  });
+  await expect(
+    assets.getByText('Mask must include transparent pixels.', { exact: true }),
+  ).toBeVisible();
+  expect(uploads).toEqual([pngs.opaque]);
+  await mask.setInputFiles({
+    name: 'sparse.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(pngs.sparse, 'base64'),
+  });
+  await expect(
+    assets.getByRole('button', { name: 'Remove mask', exact: true }),
+  ).toBeVisible();
+  expect(uploads).toEqual([pngs.opaque, pngs.sparse]);
+});
+
 test('Create settings reflow, use equal control heights, and preserve collapsed drafts', async ({
   page,
 }, testInfo) => {

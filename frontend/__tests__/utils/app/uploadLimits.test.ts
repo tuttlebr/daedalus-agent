@@ -1,3 +1,5 @@
+import { admitUploadBatch, type UploadKind } from '@/utils/app/uploadBatch';
+
 import { describe, expect, it, vi } from 'vitest';
 
 function fileLike(name: string, type: string, size = 0): File {
@@ -70,7 +72,7 @@ describe('UPLOAD_LIMITS env overrides', () => {
 
     expect(envLimits.IMAGE_MAX_SIZE_BYTES).toBe(30 * 1024 * 1024);
     expect(envLimits.VIDEO_MAX_SIZE_BYTES).toBe(90 * 1024 * 1024);
-    expect(envLimits.DOCUMENT_MAX_SIZE_BYTES).toBe(300 * 1024 * 1024);
+    expect(envLimits.DOCUMENT_MAX_SIZE_BYTES).toBe(200 * 1024 * 1024);
     expect(envLimits.MAX_IMAGES_PER_BATCH).toBe(4);
     expect(envLimits.MAX_DOCUMENTS_PER_BATCH).toBe(250);
     expect(envLimits.MAX_VIDEOS_PER_BATCH).toBe(2);
@@ -87,6 +89,47 @@ describe('UPLOAD_LIMITS env overrides', () => {
 
     expect(envLimits.DOCUMENT_MAX_SIZE_BYTES).toBe(200 * 1024 * 1024);
     expect(envLimits.MAX_DOCUMENTS_PER_BATCH).toBe(20);
+  });
+
+  it.each(['0.5', '9007199254740992', '1e308'])(
+    'keeps uploads usable when integer settings are invalid: %s',
+    async (value) => {
+      const { UPLOAD_LIMITS: envLimits } = await importUploadLimitsWithEnv({
+        NEXT_PUBLIC_UPLOAD_MAX_IMAGES_PER_BATCH: value,
+        NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH: value,
+        NEXT_PUBLIC_UPLOAD_MAX_VIDEOS_PER_BATCH: value,
+        NEXT_PUBLIC_UPLOAD_IMAGE_COMPRESSION_THRESHOLD_KB: value,
+        NEXT_PUBLIC_UPLOAD_MAX_EXTRACTED_TEXT_CHARS: value,
+      });
+
+      const candidates: UploadKind[] = ['image', 'document', 'video', 'video'];
+      const result = admitUploadBatch(
+        candidates,
+        (kind) => kind,
+        { image: 0, document: 0, video: 0 },
+        {
+          image: envLimits.MAX_IMAGES_PER_BATCH,
+          document: envLimits.MAX_DOCUMENTS_PER_BATCH,
+          video: envLimits.MAX_VIDEOS_PER_BATCH,
+        },
+      );
+
+      expect(result.accepted).toEqual(['image', 'document', 'video']);
+      expect(result.rejected).toEqual({ image: 0, document: 0, video: 1 });
+      expect(envLimits.MAX_IMAGES_PER_BATCH).toBe(15);
+      expect(envLimits.MAX_DOCUMENTS_PER_BATCH).toBe(20);
+      expect(envLimits.MAX_VIDEOS_PER_BATCH).toBe(1);
+      expect(envLimits.IMAGE_COMPRESSION_THRESHOLD_KB).toBe(2000);
+      expect(envLimits.MAX_EXTRACTED_TEXT_CHARS).toBe(128000);
+    },
+  );
+
+  it('retains rounding down for usable fractional integer settings', async () => {
+    const { UPLOAD_LIMITS: envLimits } = await importUploadLimitsWithEnv({
+      NEXT_PUBLIC_UPLOAD_MAX_DOCUMENTS_PER_BATCH: '3.9',
+    });
+
+    expect(envLimits.MAX_DOCUMENTS_PER_BATCH).toBe(3);
   });
 
   it('does not apply base64 overhead to the configured raw image size', async () => {
@@ -107,4 +150,26 @@ describe('UPLOAD_LIMITS env overrides', () => {
     expect(envLimits.IMAGE_MAX_SIZE_BYTES).toBe(30 * 1024 * 1024);
     expect(envLimits.IMAGE_MAX_SIZE_MB).toBe(30);
   });
+
+  it.each([
+    ['document', 200],
+    ['video', 100],
+  ] as const)(
+    'does not admit a %s larger than the route ceiling despite public overrides',
+    async (kind, ceilingMb) => {
+      const { validateFileSize: validateWithOverrides } =
+        await importUploadLimitsWithEnv({
+          NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB: '1000',
+          NEXT_PUBLIC_UPLOAD_VIDEO_SERVER_LIMIT_MB: '1000',
+        });
+      const ceiling = ceilingMb * 1024 * 1024;
+
+      expect(
+        validateWithOverrides(fileLike('upload', '', ceiling), kind),
+      ).toEqual({ valid: true });
+      expect(
+        validateWithOverrides(fileLike('upload', '', ceiling + 1), kind),
+      ).toMatchObject({ valid: false });
+    },
+  );
 });

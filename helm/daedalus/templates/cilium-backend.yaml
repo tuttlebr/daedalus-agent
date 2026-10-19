@@ -161,7 +161,7 @@ spec:
             app.kubernetes.io/instance: {{ $.Release.Name }}
       toPorts:
         - ports:
-            - port: {{ $.Values.frontend.service.port | quote }}
+            - port: {{ $.Values.frontend.port | quote }}
               protocol: TCP
     {{- end }}
 

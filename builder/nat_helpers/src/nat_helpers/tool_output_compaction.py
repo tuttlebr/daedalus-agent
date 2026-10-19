@@ -18,6 +18,7 @@ import re
 import time
 import zlib
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from nat_helpers.redis_url import close_redis_client, redis_url_from_env
@@ -105,11 +106,25 @@ def _reject_non_finite(value: str) -> None:
     raise _UnsafeJSON(f"non-finite JSON number: {value}")
 
 
+def _lossless_float(value: str) -> float:
+    parsed = float(value)
+    try:
+        rendered = str(parsed)
+        if math.isfinite(parsed) and (
+            value == rendered or Decimal(value) == Decimal(rendered)
+        ):
+            return parsed
+    except InvalidOperation:
+        pass
+    raise _UnsafeJSON("JSON number cannot be normalized without changing its value")
+
+
 def _json_loads(value: str) -> Any:
     return json.loads(
         value,
         object_pairs_hook=_reject_duplicate_keys,
         parse_constant=_reject_non_finite,
+        parse_float=_lossless_float,
     )
 
 

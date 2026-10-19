@@ -470,6 +470,64 @@ test('cancels active backend work through the durable job endpoint', async ({
   ).toBeVisible();
 });
 
+test('keeps pending OAuth visible through sibling output and preserves that output on Stop', async ({
+  page,
+}) => {
+  let siblingFinished = false;
+  page.on('websocket', (socket) => {
+    socket.on('framereceived', ({ payload }) => {
+      const text = typeof payload === 'string' ? payload : payload.toString();
+      if (
+        text.includes('chat_intermediate_step') &&
+        text.includes('oauth-sibling')
+      )
+        siblingFinished = true;
+    });
+  });
+  await login(page);
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/chat/async'),
+  );
+  await sendMessage(page, 'E2E_OAUTH_SIBLING');
+  const { jobId } = await (await created).json();
+  const connect = page.getByRole('button', {
+    name: 'Connect Google Workspace',
+    exact: true,
+  });
+  await expect(connect).toBeVisible();
+  await expect.poll(() => siblingFinished).toBe(true);
+  const answer = 'Accepted output from the sibling tool.';
+  await expect(page.getByText(answer, { exact: true })).toBeVisible();
+  await expect(connect).toBeVisible();
+  const waiting = JSON.parse(
+    (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
+  );
+  expect(waiting).toMatchObject({
+    status: 'oauth_required',
+    oauthState: 'e2e-pending',
+  });
+  await page.getByRole('button', { name: 'Stop generating' }).click();
+  await expect
+    .poll(
+      async () =>
+        JSON.parse(
+          (
+            await browserGet(page, `/api/chat/async?jobId=${jobId}`)
+          ).body,
+        ).status,
+    )
+    .toBe('error');
+  const stopped = JSON.parse(
+    (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
+  );
+  expect(stopped.partialResponse).toBe(answer);
+  await expect(connect).toBeHidden();
+  await page.reload();
+  await expect(page.getByText(answer, { exact: true })).toBeVisible();
+});
+
 test('preserves assistant text and research evidence after a late error and reload', async ({
   page,
 }) => {
@@ -601,11 +659,12 @@ test('rejects a second active job for the same conversation', async ({
   expect((await cancelResponse).ok()).toBeTruthy();
 });
 
-test('streams a multipart document to S3 storage and reads the stored bytes', async ({
+test('streams a Unicode multipart document to S3 storage and reads the stored bytes', async ({
   page,
 }) => {
   await login(page);
-  const contents = 'deterministic document bytes for the S3 browser test\n';
+  const filename = 'e2e-文档🙂.txt';
+  const contents = 'a'.repeat(1023) + '文档🙂\n';
   const uploadResponse = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -613,7 +672,7 @@ test('streams a multipart document to S3 storage and reads the stored bytes', as
   );
 
   await page.locator('input[type="file"]').setInputFiles({
-    name: 'e2e-document.txt',
+    name: filename,
     mimeType: 'text/plain',
     buffer: Buffer.from(contents),
   });
@@ -626,9 +685,7 @@ test('streams a multipart document to S3 storage and reads the stored bytes', as
     userId: string;
   };
   expect(reference.userId).toBe('e2e-user');
-  await expect(
-    page.getByText('e2e-document.txt', { exact: true }).last(),
-  ).toBeVisible();
+  await expect(page.getByText(filename, { exact: true }).last()).toBeVisible();
   await expect(
     page.locator('select option[value="e2e_user_private"]'),
   ).toHaveText('E2E private knowledge base');

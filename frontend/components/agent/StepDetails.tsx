@@ -8,10 +8,7 @@ import {
   OPERATION_LABELS,
   parseStepOutput,
 } from '@/utils/app/intermediateSteps';
-import {
-  normalizeLatexDelimiters,
-  containsLatex,
-} from '@/utils/app/latexNormalizer';
+import { containsLatex } from '@/utils/app/latexNormalizer';
 
 import {
   getEventState,
@@ -38,8 +35,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
     if (data === undefined || data === null) return null;
 
     if (typeof data === 'string') {
-      const normalizedContent = normalizeLatexDelimiters(data);
-      const hasLatex = containsLatex(normalizedContent);
+      const hasLatex = containsLatex(data);
       const hasMarkdown = /[#*`\[\]_~]/.test(data) || hasLatex;
 
       if (hasMarkdown || hasLatex) {
@@ -54,7 +50,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               className="bg-fill/5 p-3 rounded-lg overflow-x-auto border border-separator/70"
             >
               <MarkdownRenderer
-                content={normalizedContent}
+                content={data}
                 className="prose prose-sm dark:prose-invert max-w-none"
                 enableMath={true}
               />

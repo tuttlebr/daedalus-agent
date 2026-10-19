@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass
 from itertools import islice
 from typing import Any, Literal
@@ -507,7 +508,11 @@ async def _fetch_source(url: str, config: SourceVerifierConfig) -> FetchResult:
 
 def _normalize_audit_url(url: str) -> str:
     """Normalize a URL for citation-audit comparison."""
-    parsed = urlparse(url.strip())
+    try:
+        parsed = urlparse(url.strip())
+    except ValueError:
+        # Keep malformed inputs available for the safety audit to reject.
+        return url.strip()
     query = urlencode(
         sorted(
             (key, value)
@@ -851,13 +856,13 @@ def _tool_hints(source_id: str, question: str) -> list[dict[str, str]]:
 
 
 def _safe_audit_url(url: str) -> tuple[bool, str | None]:
-    parsed = urlparse(url.strip())
-    hostname = (parsed.hostname or "").lower()
-    if hostname in _PLACEHOLDER_HOSTS:
-        return False, "placeholder_url"
     try:
+        parsed = urlparse(url.strip())
+        hostname = (parsed.hostname or "").lower()
+        if hostname in _PLACEHOLDER_HOSTS:
+            return False, "placeholder_url"
         validate_public_url(url, check_dns=True)
-    except UnsafeURLError as exc:
+    except ValueError as exc:
         return False, f"unsafe_url: {exc}"
     return True, None
 
@@ -979,8 +984,12 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
                 }
             )
 
-        parsed_url = urlparse(source_url.strip())
-        hostname = (parsed_url.hostname or "").lower()
+        try:
+            parsed_url = urlparse(source_url.strip())
+            hostname = (parsed_url.hostname or "").lower()
+        except ValueError:
+            # _fetch_source returns the structured invalid_url verdict.
+            hostname = ""
         if hostname in _PLACEHOLDER_HOSTS:
             return json.dumps(
                 {
@@ -1296,11 +1305,25 @@ async def source_verifier_function(config: SourceVerifierConfig, builder: ToolRe
             for line in reference_lines
             if (line_match := _CITATION_LINE_RE.match(line))
         ]
+        number_counts = Counter(number for number, _urls, _line in citations)
         safety = await _audit_url_safety(
-            [urls[0] for _number, urls, _line in citations if urls]
+            [
+                urls[0]
+                for number, urls, _line in citations
+                if urls and number_counts[number] == 1
+            ]
         )
 
         for number, urls, line in citations:
+            if number_counts[number] > 1:
+                invalid.append(
+                    {
+                        "number": number,
+                        "reason": "duplicate_citation_number",
+                        "line": line.strip(),
+                    }
+                )
+                continue
             if not urls:
                 invalid.append(
                     {

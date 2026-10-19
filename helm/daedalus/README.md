@@ -407,3 +407,15 @@ exportfs -ra
 - [`values.yaml`](values.yaml) for the default chart values
 - [`../../custom-values.yaml`](../../custom-values.yaml) for the maintainer's home deployment settings
 - [Operations reference](../../docs/operations.md) for deployment and rollout verification
+
+### Service and container ports
+
+`frontend.port` and `backend.default.port` select the application listeners and
+NetworkPolicy destination ports. Their respective `service.port` values select
+the ports used by nginx and other callers of the ClusterIP Services. The chart
+sets the frontend listener `PORT`, `BACKEND_PORT` for Service requests, and
+`BACKEND_POD_PORT` for direct pod discovery and OAuth callbacks. These explicit
+values take precedence over the workload envFrom Secrets. For an external backend,
+set the ports in `frontend.env.overrides` and, when different,
+`frontend.streamWorker.env.overrides`; omitting `BACKEND_POD_PORT` there preserves
+the existing single-port override.

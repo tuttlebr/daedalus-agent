@@ -49,16 +49,21 @@ def _required_data(secret: dict, namespace: str, name: str, key: str) -> str:
 
 
 def target_manifests(args: argparse.Namespace, milvus: dict, minio: dict) -> list[dict]:
-    if (args.source_milvus_namespace, args.source_milvus_secret) == (
-        args.target_namespace,
-        args.target_milvus_secret,
-    ) or (args.source_minio_namespace, args.source_minio_secret) in {
+    sources = {
+        (args.source_milvus_namespace, args.source_milvus_secret),
+        (args.source_minio_namespace, args.source_minio_secret),
+    }
+    targets = {
+        (args.target_namespace, args.target_milvus_secret),
         (args.target_namespace, args.target_minio_secret),
         (args.target_namespace, args.target_document_secret),
-    }:
+    }
+    if sources & targets:
         raise SyncError(
             "a target Secret must not overwrite an authoritative source Secret"
         )
+    if len(targets) != 3:
+        raise SyncError("target Secrets must have distinct names")
 
     password = _required_data(
         milvus,

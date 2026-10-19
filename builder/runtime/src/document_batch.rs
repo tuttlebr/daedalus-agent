@@ -32,6 +32,8 @@ pub struct Request {
 }
 #[derive(Clone, Serialize)]
 pub struct DocumentRequest {
+    #[serde(skip)]
+    pub append_to_collection: bool,
     #[serde(rename = "documentRef")]
     pub reference: Value,
     pub username: String,
@@ -315,12 +317,13 @@ pub async fn run(
         pages: 0,
     };
     let reporter = state.reporter.clone();
-    let one = |index: usize| {
+    let one = |index: usize, append_to_collection: bool| {
         let reference = refs[index - 1].clone();
         let reporter = reporter.clone();
         let process = process.clone();
         let sem = sem.clone();
         let request = DocumentRequest {
+            append_to_collection,
             reference,
             username: request.username.clone(),
             collection_name: collection.clone(),
@@ -346,13 +349,17 @@ pub async fn run(
         }
     };
     state.reporter.emit(Value::Null,None,"queued",json!({"message":format!("Queued {total} document{} for ingestion",if total==1 {""} else {"s"})})).await;
-    let prefix = usize::from(options.recreate_collection && total > 1);
-    if prefix == 1 {
-        let (index, name, outcome) = one(1).await?;
+    let mut prefix = 0;
+    // A failed document may not have reached the writer. Establish the new
+    // collection with a successful serial document before appending in parallel.
+    while options.recreate_collection && prefix < total && state.successful.is_empty() {
+        prefix += 1;
+        let (index, name, outcome) = one(prefix, false).await?;
         let timed_out = timeout(&outcome);
         state.accumulate(name, index, outcome).await;
         if timed_out {
-            state.skip(&refs, 1).await?;
+            state.skip(&refs, prefix).await?;
+            break;
         }
     }
     let mut skipped = state.successful.len() + state.failed.len() >= total;
@@ -363,7 +370,7 @@ pub async fn run(
         let stop = (start + batch_size).min(total);
         if concurrency == 1 {
             for index in start..stop {
-                let (index, name, outcome) = one(index + 1).await?;
+                let (index, name, outcome) = one(index + 1, true).await?;
                 let timed_out = timeout(&outcome);
                 state.accumulate(name, index, outcome).await;
                 if timed_out {
@@ -375,7 +382,7 @@ pub async fn run(
         } else {
             // Gather a full internal batch before accumulating outcomes, and
             // retain input order even if later documents finish first.
-            for result in join_all((start..stop).map(|index| one(index + 1))).await {
+            for result in join_all((start..stop).map(|index| one(index + 1, true))).await {
                 let (index, name, outcome) = result?;
                 let timed_out = timeout(&outcome);
                 state.accumulate(name, index, outcome).await;
@@ -406,7 +413,9 @@ pub async fn run(
         pages: state.pages,
         collection: &collection,
         chunk_size: &selected(request.chunk_size, &options.chunk_size),
-        chunk_overlap: &selected(request.chunk_overlap, &options.chunk_overlap),
+        chunk_overlap: &request
+            .chunk_overlap
+            .unwrap_or_else(|| options.chunk_overlap.clone()),
     }
     .render())
 }
@@ -519,8 +528,20 @@ mod tests {
                 Some(progress),
             )
             .await;
+            let mut expected = case["expected"].clone();
+            if name == "chunk-overrides" {
+                // Correct the frozen baseline's zero-as-default bug; retain
+                // every other byte, pipeline argument, and progress event.
+                assert_eq!(case["request"]["chunk_overlap"], 0);
+                expected["ok"] = json!(
+                    expected["ok"]
+                        .as_str()
+                        .unwrap()
+                        .replace("with 150 overlap", "with 0 overlap")
+                );
+            }
             match result {
-                Ok(output) => assert_eq!(json!({"ok":output}), case["expected"], "{name}"),
+                Ok(output) => assert_eq!(json!({"ok":output}), expected, "{name}"),
                 Err(error) => assert_eq!(
                     error.to_string(),
                     case["expected"]["message"].as_str().unwrap(),
@@ -550,6 +571,69 @@ mod tests {
                 "peak: {name}"
             );
             assert_eq!(active.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn recreation_preserves_all_successful_documents() {
+        for missing_first in [false, true] {
+            for concurrency in [1, 3] {
+                for batch_size in [1, 3] {
+                    let rows = Arc::new(Mutex::new(vec!["old".to_string()]));
+                    let writes = Arc::new(Mutex::new(Vec::new()));
+                    let process: Process = {
+                        let rows = rows.clone();
+                        let writes = writes.clone();
+                        Arc::new(move |request, _| {
+                            let rows = rows.clone();
+                            let writes = writes.clone();
+                            Box::pin(async move {
+                                let name = request.reference["documentId"].as_str().unwrap();
+                                if missing_first && name == "a" {
+                                    return Err(ProcessError {
+                                        message: "Missing".into(),
+                                        timeout: false,
+                                    });
+                                }
+                                tokio::task::yield_now().await;
+                                let mut rows = rows.lock().unwrap();
+                                if !request.append_to_collection {
+                                    rows.clear();
+                                }
+                                rows.push(name.into());
+                                writes.lock().unwrap().push(!request.append_to_collection);
+                                Ok(Outcome {
+                                    status: "success".into(),
+                                    filename: json!(name),
+                                    chunks: 1,
+                                    pages: 1,
+                                    failures: 0,
+                                    error: String::new(),
+                                })
+                            })
+                        })
+                    };
+                    let request = serde_json::from_value(json!({"documentRefs":[{"documentId":"a"},{"documentId":"b"},{"documentId":"c"}],"username":"alice"})).unwrap();
+                    let options = Options {
+                        recreate_collection: true,
+                        batch_concurrency: concurrency,
+                        max_documents_per_batch: batch_size,
+                        ..Options::default()
+                    };
+                    let output = run(&options, request, process, None).await.unwrap();
+                    let expected = if missing_first {
+                        vec!["b", "c"]
+                    } else {
+                        vec!["a", "b", "c"]
+                    };
+                    let mut actual = rows.lock().unwrap().clone();
+                    actual.sort();
+                    assert_eq!(actual, expected, "{output}");
+                    let writes = writes.lock().unwrap();
+                    assert!(writes[0]);
+                    assert!(writes[1..].iter().all(|recreate| !recreate));
+                }
+            }
         }
     }
 

@@ -202,6 +202,72 @@ describe('useAsyncChat streaming callbacks', () => {
     document.body.innerHTML = '';
   });
 
+  it.each([false, true])(
+    'keeps OAuth visible during sibling steps with preceding tokens: %s',
+    async (withToken) => {
+      const onProgress = vi.fn();
+      const probe = renderProbe({ userId: 'alice', onProgress });
+      try {
+        await act(async () => {
+          await probe.api.startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+        });
+        const status = {
+          jobId: 'job-1',
+          conversationId: 'conv-1',
+          createdAt: 1,
+          updatedAt: 2,
+        };
+        const prompt = {
+          authUrl: 'https://accounts.google.com/auth',
+          oauthState: 'pending',
+          oauthRequests: [
+            { id: 'pending', authUrl: 'https://accounts.google.com/auth' },
+          ],
+        };
+        const step = {
+          jobId: 'job-1',
+          conversationId: 'conv-1',
+          step: { name: 'Sibling completed' },
+        };
+        act(() => {
+          emit('job_status', {
+            ...status,
+            status: 'oauth_required',
+            ...prompt,
+          });
+          if (withToken)
+            emit('chat_token', {
+              jobId: 'job-1',
+              conversationId: 'conv-1',
+              content: 'Sibling answer.',
+              responseStart: 0,
+            });
+          emit('chat_intermediate_step', step);
+        });
+        expect(onProgress).toHaveBeenLastCalledWith(
+          expect.objectContaining({ status: 'oauth_required', ...prompt }),
+        );
+        expect(probe.api.jobStatusByConversationId['conv-1']).toMatchObject({
+          status: 'oauth_required',
+          ...prompt,
+        });
+        // Only the authoritative callback status clears the pending prompt.
+        act(() => {
+          emit('job_status', { ...status, updatedAt: 3, status: 'streaming' });
+          emit('chat_intermediate_step', step);
+        });
+        expect(onProgress).toHaveBeenLastCalledWith(
+          expect.objectContaining({ status: 'streaming' }),
+        );
+        expect(
+          probe.api.jobStatusByConversationId['conv-1'].oauthRequests,
+        ).toBeUndefined();
+      } finally {
+        act(() => probe.root.unmount());
+      }
+    },
+  );
+
   it('queues live subscriptions during disconnection and resumes token delivery', async () => {
     mocks.manager.isConnected = false;
     const onToken = vi.fn();

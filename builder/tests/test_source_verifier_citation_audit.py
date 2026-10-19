@@ -159,6 +159,69 @@ def test_reference_resolving_to_private_address_is_rejected(public_dns):
     assert public_dns == ["wiki.internal.test"]
 
 
+@pytest.mark.parametrize(
+    "second_url",
+    [
+        "https://docs.nvidia.com/cuda/",
+        "https://developer.nvidia.com/cuda-toolkit",
+        "https://example.com/fake",
+    ],
+)
+def test_duplicate_citation_numbers_are_rejected_and_removed(second_url):
+    async def scenario():
+        audit = await _audit_fn()
+        answer = (
+            "Ambiguous claim [1]. Independent claim [3].\n\n## References\n"
+            "- [1] First - https://developer.nvidia.com/cuda-toolkit\n"
+            f"- [1] Second - {second_url}\n"
+            "- [3] Independent - https://developer.nvidia.com/blog/"
+        )
+        result = json.loads(await audit(answer_markdown=answer))
+        repaired = json.loads(await audit(answer_markdown=result["repaired_markdown"]))
+        return result, repaired
+
+    result, repaired = run(scenario())
+    assert result["passed"] is False
+    assert any(
+        item["reason"] == "duplicate_citation_number"
+        for item in result["invalid_citations"]
+    )
+    assert result["valid_citations"] == [
+        {"number": 3, "url": "https://developer.nvidia.com/blog/"}
+    ]
+    assert "First" not in result["repaired_markdown"]
+    assert "Second" not in result["repaired_markdown"]
+    assert "Ambiguous claim ." in result["repaired_markdown"]
+    assert "Independent claim [1]." in result["repaired_markdown"]
+    assert repaired["passed"] is True
+
+
+@pytest.mark.parametrize("with_references", [True, False])
+@pytest.mark.parametrize("with_ledger", [True, False])
+def test_malformed_reference_url_returns_a_failed_audit(with_references, with_ledger):
+    async def scenario():
+        audit = await _audit_fn()
+        url = "https://[broken/source"
+        answer = (
+            f"Claim [1].\n\n## References\n- [1] Source - {url}"
+            if with_references
+            else f"Claim {url}"
+        )
+        return json.loads(
+            await audit(
+                answer_markdown=answer,
+                source_urls_json=json.dumps([url]) if with_ledger else "",
+                require_references=with_references,
+            )
+        )
+
+    result = run(scenario())
+    assert result["passed"] is False
+    assert any(
+        item["reason"].startswith("unsafe_url:") for item in result["invalid_citations"]
+    )
+
+
 @pytest.mark.parametrize("with_references", [True, False])
 def test_reference_dns_does_not_stall_the_event_loop(monkeypatch, with_references):
     """Each reference performs blocking DNS; other tool calls must keep running."""

@@ -284,6 +284,7 @@ impl Processor {
                     &processor.locks,
                     &options,
                     document_process::Request {
+                        append_to_collection: request.append_to_collection,
                         reference: request.reference,
                         username: request.username,
                         collection_name: Some(request.collection_name),

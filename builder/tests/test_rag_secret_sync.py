@@ -80,3 +80,49 @@ def test_rejects_target_that_would_overwrite_source():
             {"data": {"password": encoded("milvus-secret")}},
             {"data": {"accesskey": encoded("access"), "secretkey": encoded("secret")}},
         )
+
+
+@pytest.mark.parametrize(
+    "source", ["milvus-root-credentials", "milvus-minio-credentials"]
+)
+@pytest.mark.parametrize(
+    "target", ["target_milvus_secret", "target_minio_secret", "target_document_secret"]
+)
+def test_no_destination_can_alias_either_authoritative_source(
+    source, target, monkeypatch
+):
+    sources = {
+        "milvus-root-credentials": {"data": {"password": encoded("milvus-secret")}},
+        "milvus-minio-credentials": {
+            "data": {"accesskey": encoded("access"), "secretkey": encoded("secret")}
+        },
+    }
+    monkeypatch.setattr(
+        sync_rag, "_kubectl_json", lambda namespace, name: sources[name]
+    )
+    applied = []
+    monkeypatch.setattr(
+        sync_rag.subprocess,
+        "run",
+        lambda *a, **kw: applied.append(kw) or argparse.Namespace(returncode=0),
+    )
+    with pytest.raises(sync_rag.SyncError, match="must not overwrite"):
+        sync_rag.sync(args(target_namespace="milvus", **{target: source}))
+    assert applied == []
+
+
+@pytest.mark.parametrize(
+    "first,second",
+    [
+        ("target_milvus_secret", "target_minio_secret"),
+        ("target_milvus_secret", "target_document_secret"),
+        ("target_minio_secret", "target_document_secret"),
+    ],
+)
+def test_rejects_destinations_that_would_replace_each_other(first, second):
+    with pytest.raises(sync_rag.SyncError, match="distinct"):
+        sync_rag.target_manifests(
+            args(**{first: "same-secret", second: "same-secret"}),
+            {"data": {"password": encoded("milvus-secret")}},
+            {"data": {"accesskey": encoded("access"), "secretkey": encoded("secret")}},
+        )

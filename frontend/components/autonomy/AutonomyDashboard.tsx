@@ -79,6 +79,9 @@ export function AutonomyDashboard() {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const stateRef = useRef(state);
+  const refreshVersionsRef = useRef<Partial<Record<DashboardResource, number>>>(
+    {},
+  );
   const pendingResourcesRef = useRef<Set<DashboardResource>>(new Set());
   const scheduledRefreshRef = useRef<number | null>(null);
   const latestEventRunIdRef = useRef<string | null>(null);
@@ -101,6 +104,16 @@ export function AutonomyDashboard() {
       eventRunId?: string | null,
     ) => {
       const requested = new Set(resources);
+      // Full loads and targeted WebSocket refreshes can finish out of order.
+      // Track each resource independently so a newer feed does not discard
+      // unrelated goals from an older full load.
+      const versions = new Map(
+        [...requested].map((resource) => {
+          const version = (refreshVersionsRef.current[resource] ?? 0) + 1;
+          refreshVersionsRef.current[resource] = version;
+          return [resource, version];
+        }),
+      );
       const [config, goals, runs, queue, feed] = await Promise.all([
         requested.has('config')
           ? fetchJson<AutonomyConfig>('/api/autonomy/config')
@@ -140,7 +153,14 @@ export function AutonomyDashboard() {
       }
 
       setState((current) => {
-        const next = { ...current, ...patch };
+        const latestPatch = Object.fromEntries(
+          Object.entries(patch).filter(
+            ([resource]) =>
+              versions.get(resource as DashboardResource) ===
+              refreshVersionsRef.current[resource as DashboardResource],
+          ),
+        );
+        const next = { ...current, ...latestPatch };
         stateRef.current = next;
         return next;
       });

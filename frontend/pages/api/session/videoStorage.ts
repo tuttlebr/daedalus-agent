@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 
 import { validateVideoMagicBytes } from '@/utils/app/magicBytes';
 
+import { buildContentDisposition } from '@/server/contentDisposition';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getOrSetSessionId,
@@ -265,7 +266,7 @@ export default async function handler(
       if (video.filename) {
         res.setHeader(
           'Content-Disposition',
-          `inline; filename="${video.filename}"`,
+          buildContentDisposition(video.filename, 'inline'),
         );
       }
 

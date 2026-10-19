@@ -2,6 +2,7 @@ import {
   consolidateSteps,
   flattenSteps,
   getOutcomeSummary,
+  normalizeSteps,
 } from '@/utils/app/intermediateSteps';
 
 import {
@@ -36,6 +37,57 @@ function event(
 }
 
 describe('activity operation consolidation', () => {
+  it('retains both phases sharing a UUID and deduplicates replays within each phase', () => {
+    const start = event(Type.TOOL_START, 'call-1', 10, {
+      input: { query: 'deployment' },
+    });
+    const end = event(Type.TOOL_END, 'call-1', 12, { output: 'done' });
+    const staleEnd = event(Type.TOOL_END, 'call-1', 11, { output: 'stale' });
+    const normalized = normalizeSteps([start, end, start, staleEnd]);
+    expect(normalized.map((step) => step.payload.event_type)).toEqual([
+      Type.TOOL_START,
+      Type.TOOL_END,
+    ]);
+    const [completed] = consolidateSteps(normalized, true);
+    expect(completed.input).toEqual({ query: 'deployment' });
+    expect(completed.output).toBe('done');
+    expect(completed.duration).toBe(2000);
+    expect(completed.status).toBe('completed');
+  });
+
+  it('pairs concurrent calls by their shared UUID when they finish out of order', () => {
+    const steps = consolidateSteps(
+      [
+        event(Type.TOOL_START, 'first', 10, { input: 'first input' }),
+        event(Type.TOOL_START, 'second', 11, { input: 'second input' }),
+        event(Type.TOOL_END, 'second', 12, { output: 'second output' }),
+        event(Type.TOOL_END, 'first', 13, { output: 'first output' }),
+      ],
+      true,
+    );
+    expect(
+      steps.map(({ id, input, output, duration }) => ({
+        id,
+        input,
+        output,
+        duration,
+      })),
+    ).toEqual([
+      {
+        id: 'first',
+        input: 'first input',
+        output: 'first output',
+        duration: 3000,
+      },
+      {
+        id: 'second',
+        input: 'second input',
+        output: 'second output',
+        duration: 1000,
+      },
+    ]);
+  });
+
   it('preserves identity and start arguments when a tool result arrives', () => {
     const start = event(Type.TOOL_START, 'start', 10, {
       input: { query: 'deployment' },

@@ -20,8 +20,9 @@ export function validateZipMagicBytes(buffer: Buffer): boolean {
   return (
     buffer[0] === 0x50 &&
     buffer[1] === 0x4b &&
-    (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07) &&
-    (buffer[3] === 0x04 || buffer[3] === 0x06 || buffer[3] === 0x08)
+    ((buffer[2] === 0x03 && buffer[3] === 0x04) ||
+      (buffer[2] === 0x05 && buffer[3] === 0x06) ||
+      (buffer[2] === 0x07 && buffer[3] === 0x08))
   );
 }
 
@@ -73,10 +74,14 @@ export function validateHtmlContent(buffer: Buffer): boolean {
   );
 }
 
-export function validateTextContent(buffer: Buffer): boolean {
+export function validateTextContent(buffer: Buffer, isPrefix = false): boolean {
   if (buffer.includes(0)) return false;
   try {
-    new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    // A sniffed prefix may end inside a valid multibyte character. Complete
+    // short files still require a complete final character.
+    new TextDecoder('utf-8', { fatal: true }).decode(buffer, {
+      stream: isPrefix,
+    });
     return true;
   } catch {
     return false;
@@ -87,7 +92,11 @@ export function validateTextContent(buffer: Buffer): boolean {
  * Validate that a buffer matches the expected MIME type.
  * Returns true if valid, false if magic bytes don't match.
  */
-export function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
+export function validateMagicBytes(
+  buffer: Buffer,
+  mimeType: string,
+  isPrefix = false,
+): boolean {
   const mime = mimeType.toLowerCase();
 
   if (mime === 'application/pdf') {
@@ -117,7 +126,7 @@ export function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
     mime === 'text/markdown' ||
     mime === 'text/x-markdown'
   ) {
-    return validateTextContent(buffer);
+    return validateTextContent(buffer, isPrefix);
   }
 
   // Unknown type — allow (no validation rule)

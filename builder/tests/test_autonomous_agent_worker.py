@@ -81,14 +81,14 @@ class FakeStore:
     def list_feed(self, user_id, limit=None):
         return self.feed[:limit] if limit is not None else self.feed
 
-    def append_feed_items(self, user_id, items):
+    def append_feed_items(self, user_id, items, *, require_lease=False):
         # Mirror the real store: de-duplicate against the existing feed and
         # return only the items that were actually stored.
         kept, _dropped = dedupe_feed_items(items, self.feed, now=now_ms())
         self.feed = kept + self.feed
         return kept
 
-    def mark_goal_run(self, user_id, goal_id, timestamp):
+    def mark_goal_run(self, user_id, goal_id, timestamp, *, require_lease=False):
         for goal in self.goals:
             if goal.get("id") == goal_id:
                 goal["lastRunAt"] = timestamp
@@ -99,7 +99,7 @@ class FakeStore:
     def get_text(self, key):
         return self.text.get(key)
 
-    def set_text(self, key, value):
+    def set_text(self, key, value, *, lease_user=None):
         self.text[key] = value
 
 

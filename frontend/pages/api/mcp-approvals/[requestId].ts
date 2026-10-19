@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { buildBackendUrlFromBase } from '@/utils/app/backendApi';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 
+import { updateJsonAtomically } from '@/server/atomicJson';
 import {
   getNatBaseUrl,
   resolveAsyncBackendBaseUrls,
@@ -305,36 +306,59 @@ async function handleGet(
     });
   }
 
-  state.status =
-    typeof payload.status === 'string' ? payload.status : state.status;
-  state.authUrl =
-    typeof payload.auth_url === 'string' ? payload.auth_url : state.authUrl;
-  state.oauthState =
-    typeof payload.oauth_state === 'string'
-      ? payload.oauth_state
-      : state.oauthState;
-  state.error = typeof payload.error === 'string' ? payload.error : undefined;
-  state.updatedAt = Date.now();
-  if (
-    !state.resultLogged &&
-    ['completed', 'failed', 'denied'].includes(state.status)
-  ) {
-    logApprovalEvent('result', userId, state.approval, state.status);
-    state.resultLogged = true;
+  let shouldLog = false;
+  const updated = await updateJsonAtomically<ApprovalExecutionState>(
+    statusKey(userId, requestId),
+    (current) => {
+      shouldLog = false;
+      if (!current || current.userId !== userId) return null;
+      // Another poll may have committed a terminal result while this backend
+      // request was in flight. Never replace it with an older observation.
+      if (
+        current.executionId !== state.executionId ||
+        ['completed', 'failed', 'denied'].includes(current.status)
+      )
+        return current;
+      const next = {
+        ...current,
+        status:
+          typeof payload.status === 'string' ? payload.status : current.status,
+        authUrl:
+          typeof payload.auth_url === 'string'
+            ? payload.auth_url
+            : current.authUrl,
+        oauthState:
+          typeof payload.oauth_state === 'string'
+            ? payload.oauth_state
+            : current.oauthState,
+        error: typeof payload.error === 'string' ? payload.error : undefined,
+        updatedAt: Date.now(),
+      };
+      shouldLog =
+        !next.resultLogged &&
+        ['completed', 'failed', 'denied'].includes(next.status);
+      if (shouldLog) next.resultLogged = true;
+      return next;
+    },
+    APPROVAL_STATUS_TTL_SECONDS,
+  );
+  if (!updated)
+    return res.status(404).json({ error: 'Approval status has expired' });
+  if (shouldLog) {
+    logApprovalEvent('result', userId, updated.approval, updated.status);
   }
-  if (state.oauthState && state.authUrl) {
+  if (updated.oauthState && updated.authUrl) {
     await saveOAuthCallbackTarget(
-      state.oauthState,
-      state.backendBaseUrl,
+      updated.oauthState,
+      updated.backendBaseUrl!,
       requestId,
     );
   }
-  await persistState(state);
   return res.status(200).json({
-    status: state.status,
-    authUrl: state.authUrl,
-    error: state.error,
-    approval: state.approval,
+    status: updated.status,
+    authUrl: updated.authUrl,
+    error: updated.error,
+    approval: updated.approval,
   });
 }
 

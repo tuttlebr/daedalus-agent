@@ -2,10 +2,6 @@ import {
   buildBackendBaseUrlForMode,
   buildBackendUrlFromBase,
 } from '@/utils/app/backendApi';
-import {
-  sanitizeConversationAssistantReplays,
-  stripReplayedAssistantPrefix,
-} from '@/utils/app/conversationReplay';
 import { isMcpApprovalMarkerMessage } from '@/utils/app/mcpApproval';
 import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 import { Logger } from '@/utils/logger';
@@ -53,6 +49,7 @@ import {
 import { verifyConversationOwnership } from '@/server/session/conversationOwnership';
 import {
   ConversationWriteError,
+  readConversationForUser,
   saveConversationForUser,
 } from '@/server/session/conversationStore';
 import {
@@ -101,7 +98,7 @@ function conversationFromJournal(
       : {}),
   };
 
-  return sanitizeConversationAssistantReplays({
+  return {
     id: finalization.id,
     name: finalization.name,
     folderId: null,
@@ -110,19 +107,22 @@ function conversationFromJournal(
     isPartial: finalization.isPartial,
     ...(finalization.error ? { error: finalization.error } : {}),
     completedAt: journal.finalizedAt,
-  });
+  };
 }
 
 /**
- * The job owns the turn it appends, not conversation metadata. Its name was
- * captured at submission; a record saved after that (for example a sidebar
- * rename while a long run was active) carries the user's newer choice.
+ * The job owns the turn it appends. Keep the saved folder and any name changed
+ * since submission, including when a finalization resumes after saving.
  */
-function withNewerSavedName(
+function withSavedMetadata(
   current: Record<string, any> | null,
   conversation: Conversation,
   submittedAt: number | undefined,
 ): Conversation {
+  const result = {
+    ...conversation,
+    folderId: current?.folderId ?? conversation.folderId,
+  };
   const savedName = current?.name;
   if (
     typeof savedName === 'string' &&
@@ -131,9 +131,9 @@ function withNewerSavedName(
     typeof submittedAt === 'number' &&
     Number(current?.updatedAt) > submittedAt
   ) {
-    return { ...conversation, name: savedName };
+    return { ...result, name: savedName };
   }
-  return conversation;
+  return result;
 }
 
 async function applyConversationState(
@@ -147,7 +147,7 @@ async function applyConversationState(
       journal.userId,
       journal.conversation.id,
       (current) => {
-        applied = withNewerSavedName(
+        applied = withSavedMetadata(
           current,
           conversation,
           journal.terminalStatus?.createdAt,
@@ -174,12 +174,13 @@ async function applyConversationState(
     selectedConversationKey,
     (selectedConversation) => {
       if (selectedConversation?.id !== applied.id) return null;
-      return sanitizeConversationAssistantReplays({
+      return {
         ...selectedConversation,
         messages: applied.messages,
         name: applied.name,
+        folderId: applied.folderId,
         updatedAt: journal.finalizedAt,
-      });
+      };
     },
     CONVERSATION_EXPIRY_SECONDS,
   );
@@ -380,6 +381,28 @@ export async function resumePendingFinalization(
         conversation = applied;
       }
       journal = await requirePhase(journal, 'conversationAppliedAt');
+    } else if (conversation) {
+      // The journal keeps the submitted name. A crash after the save must not
+      // publish it over a newer rename, or republish a deleted conversation.
+      try {
+        const current = await readConversationForUser(
+          journal.userId,
+          conversation.id,
+        );
+        conversation = current
+          ? withSavedMetadata(
+              current,
+              conversation,
+              journal.terminalStatus?.createdAt,
+            )
+          : null;
+      } catch (error) {
+        if (!(error instanceof ConversationWriteError)) throw error;
+        conversation = null;
+      }
+      if (!conversation) {
+        journal = await requirePhase(journal, 'conversationSuppressedAt');
+      }
     }
 
     if (!journal.streamingStateClearedAt) {
@@ -529,12 +552,8 @@ export async function finalizeSuccess(
   rawOutput: string,
 ): Promise<boolean> {
   const accumulatedSteps = await getStreamSteps(jobId);
-  const finalOutput = stripReplayedAssistantPrefix(
-    rawOutput,
-    jobRequest.messages || [],
-  );
   const outputWithArtifacts = attachSandboxArtifacts(
-    finalOutput,
+    rawOutput,
     sandboxArtifactsFromSteps(accumulatedSteps),
   );
   let processedContent = outputWithArtifacts;
@@ -635,11 +654,9 @@ export async function finalizeError(
 
   const statusKey = sessionKey(['async-job-status', jobId]);
   const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
-  const partialResponse = stripReplayedAssistantPrefix(
+  const partialResponse =
     streamSnapshot?.response ??
-      (await getStreamResponse(jobId, currentStatus?.partialResponse || '')),
-    jobRequest.messages || [],
-  );
+    (await getStreamResponse(jobId, currentStatus?.partialResponse || ''));
   let intermediateSteps = await getStreamSteps(
     jobId,
     currentStatus?.intermediateSteps || [],

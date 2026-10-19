@@ -17,15 +17,30 @@ async def execute(request):
         os.environ.pop(name, None)
     os.environ.update(request["environment"])
     if request["operation"] == "reserve":
+        compatibility = (
+            {
+                "contract": request["contract"],
+                "legacy_arguments": request.get("legacy_arguments"),
+            }
+            if request.get("contract")
+            else {}
+        )
         reservation = await idempotency.reserve_operation(
             user_id=request["user"],
             execution_id=request["execution"],
             operation="ingest_user_documents",
             arguments=request["arguments"],
+            **compatibility,
         )
+        observation = dataclasses.asdict(reservation)
+        if observation.get("contract") is None:
+            observation.pop("contract", None)
+        result = observation.get("stored_result")
+        if isinstance(result, str) and any(0xD800 <= ord(c) <= 0xDFFF for c in result):
+            observation["stored_result"] = {"$codepoints": list(map(ord, result))}
         return {
             "acquired": reservation.acquired,
-            "reservation": dataclasses.asdict(reservation),
+            "reservation": observation,
         }
     return {
         "completed": await idempotency.complete_operation(

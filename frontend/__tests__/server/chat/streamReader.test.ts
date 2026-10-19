@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   publish: vi.fn(),
   finalizeSuccess: vi.fn(),
   finalizeError: vi.fn(),
-  updateJobStatus: vi.fn(),
+  markJobStreaming: vi.fn(),
 }));
 
 vi.mock('@/server/chat/streamState', () => ({
@@ -33,8 +33,8 @@ vi.mock('@/server/chat/finalization', () => ({
 }));
 vi.mock('@/server/chat/jobState', () => ({
   abortKey: (jobId: string) => `async-job-abort:${jobId}`,
-  clearOAuthStatusFields: () => ({}),
-  updateJobStatus: mocks.updateJobStatus,
+  markJobStreaming: mocks.markJobStreaming,
+  recordOAuthJobRequest: vi.fn(),
 }));
 vi.mock('@/server/session/redis', () => ({
   getPublisher: () => ({ publish: mocks.publish }),
@@ -110,7 +110,7 @@ describe('backend stream reader persistence', () => {
     mocks.publish.mockReset().mockResolvedValue(1);
     mocks.finalizeSuccess.mockReset().mockResolvedValue(true);
     mocks.finalizeError.mockReset().mockResolvedValue(true);
-    mocks.updateJobStatus.mockReset().mockResolvedValue(undefined);
+    mocks.markJobStreaming.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {

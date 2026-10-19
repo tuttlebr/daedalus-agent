@@ -111,7 +111,7 @@ spec:
               app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - protocol: TCP
-          port: {{ .Values.frontend.service.port }}
+          port: {{ .Values.frontend.port }}
     {{- end }}
     # Allow access to Phoenix tracing (phoenix namespace)
     - to:

@@ -15,6 +15,8 @@ use std::{future::Future, time::Duration};
 
 #[derive(Deserialize)]
 pub struct Request {
+    #[serde(skip)]
+    pub append_to_collection: bool,
     #[serde(rename = "documentRef")]
     pub reference: Value,
     pub username: String,
@@ -62,6 +64,7 @@ pub struct Outcome {
 }
 #[derive(Clone)]
 pub struct Build {
+    pub append_to_collection: bool,
     pub bytes: Vec<u8>,
     pub filename: String,
     pub collection_name: String,
@@ -366,6 +369,7 @@ pub async fn run<S: Services>(
         }
     };
     let input = Build {
+        append_to_collection: request.append_to_collection,
         bytes,
         filename: filename.clone(),
         collection_name: collection.clone(),
@@ -375,7 +379,6 @@ pub async fn run<S: Services>(
             .unwrap_or_else(|| options.chunk_size.clone()),
         chunk_overlap: request
             .chunk_overlap
-            .filter(truthy)
             .unwrap_or_else(|| options.chunk_overlap.clone()),
     };
     // max() also gives Python's max(1.0, NaN) fallback; clamp() would retain NaN.
@@ -666,9 +669,35 @@ mod tests {
             let observed = fake.observed.lock().unwrap();
             assert_eq!(json!(observed.events), case["events"], "{}", case["name"]);
             assert_eq!(json!(observed.reads), case["reads"], "{}", case["name"]);
-            assert_eq!(json!(observed.builds), case["builds"], "{}", case["name"]);
+            let mut expected_builds = case["builds"].clone();
+            if case["name"] == "chunk-overrides" {
+                // The retained snapshot replaced explicit zero with 150.
+                assert_eq!(case["request"]["chunk_overlap"], 0);
+                expected_builds[0]["chunk_overlap"] = json!(0);
+            }
+            assert_eq!(json!(observed.builds), expected_builds, "{}", case["name"]);
         }
     }
+    #[tokio::test]
+    async fn zero_overlap_reaches_the_pipeline() {
+        let data = fixture();
+        let mut case = data["cases"][0].clone();
+        case["request"]["chunk_overlap"] = json!(0);
+        let fake = Fake::new(&data, &case);
+        let actual = run(
+            &fake,
+            &Collections::default(),
+            &Options::default(),
+            serde_json::from_value(case["request"].clone()).unwrap(),
+            None,
+        )
+        .await;
+        assert_eq!(actual.status, "success");
+        let observed = fake.observed.lock().unwrap();
+        assert_eq!(observed.builds.len(), 1);
+        assert_eq!(observed.builds[0]["chunk_overlap"], 0);
+    }
+
     #[tokio::test]
     async fn unencodable_markdown_keeps_success_counts_without_replaying_writes() {
         let data = fixture();

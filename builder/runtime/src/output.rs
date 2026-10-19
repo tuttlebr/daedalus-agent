@@ -300,12 +300,56 @@ impl<'de> serde::Deserialize<'de> for Unique {
         d.deserialize_any(Visitor)
     }
 }
+fn decimal_parts(token: &str) -> Option<(bool, String, i64)> {
+    let negative = token.starts_with('-');
+    let unsigned = token.trim_start_matches('-');
+    let (mantissa, exponent) = unsigned.split_once(['e', 'E']).unwrap_or((unsigned, "0"));
+    let fraction = mantissa.split_once('.').map_or(0, |(_, tail)| tail.len());
+    let digits = mantissa.replace('.', "");
+    let digits = digits.trim_start_matches('0');
+    let significant = digits.trim_end_matches('0');
+    if significant.is_empty() {
+        return Some((negative, String::new(), 0));
+    }
+    let exponent = exponent
+        .parse::<i64>()
+        .ok()?
+        .checked_sub(fraction as i64)?
+        .checked_add((digits.len() - significant.len()) as i64)?;
+    Some((negative, significant.into(), exponent))
+}
+
+fn numbers_are_lossless(value: &Value) -> bool {
+    match value {
+        Value::Number(number) => {
+            let token = number.to_string();
+            if !token.contains(['.', 'e', 'E']) {
+                return true; // Arbitrary-precision integers are never rounded.
+            }
+            number.as_f64().is_some_and(|number| {
+                let rendered = python_float(number);
+                if token == rendered {
+                    return true;
+                }
+                let before = decimal_parts(&token);
+                before.is_some() && before == decimal_parts(&rendered)
+            })
+        }
+        Value::Array(items) => items.iter().all(numbers_are_lossless),
+        Value::Object(fields) => fields.values().all(numbers_are_lossless),
+        _ => true,
+    }
+}
+
 fn parsed(content: &str) -> Option<(Value, String, String)> {
     fn decode(text: &str) -> Option<Value> {
         // The first pass rejects duplicate keys. Parse the ordinary Value only
         // afterward so arbitrary precision number tokens keep their exact value.
         serde_json::from_str::<Unique>(text).ok()?;
-        serde_json::from_str(text).ok()
+        let value = serde_json::from_str(text).ok()?;
+        // Float formatting must not overflow, underflow, or round a decimal.
+        // Unsafe payloads pass through verbatim without relying on the cache.
+        numbers_are_lossless(&value).then_some(value)
     }
     if let Some(value) = decode(content.trim()) {
         return Some((value, String::new(), String::new()));
@@ -346,7 +390,9 @@ pub fn compact(value: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
-        Value::Number(number) if number.is_f64() => python_float(number.as_f64().unwrap()),
+        Value::Number(number) if number.is_f64() && numbers_are_lossless(value) => {
+            python_float(number.as_f64().unwrap())
+        }
         _ => value.to_string(),
     }
 }
@@ -596,6 +642,60 @@ pub fn preview(content: &str, tool: &str, query: &str, s: &Settings) -> (String,
 #[cfg(test)]
 mod retrieval_tests {
     use super::*;
+
+    #[test]
+    fn lossless_compaction_preserves_numbers_that_float_would_change() {
+        let config = Config::new(json!({"llms":{"main":{"base_url":"http://model.invalid", "model_name":"fixture"}}, "workflow":{"_type":"daedalus_rust_agent", "llm_name":"main"}}), Default::default()).unwrap();
+        let settings = Settings::new(&config);
+        for token in [
+            "1e-999",
+            "-1e-999",
+            "1.000000000000000000001",
+            "1e999",
+            "-1e999",
+        ] {
+            let number: Value = serde_json::from_str(token).unwrap();
+            assert_eq!(
+                compact(&number),
+                number.to_string(),
+                "direct serializer: {token}"
+            );
+            let body = format!("{{\n{}\"value\":{token}\n}}", " ".repeat(300));
+            for original in [
+                body.clone(),
+                format!("<result>{body}</result>"),
+                format!("```json\n{body}\n```"),
+            ] {
+                let (result, reversible) =
+                    preview(&original, "numeric_result", "exact values", &settings);
+                assert_eq!(result, original, "{token}");
+                assert!(reversible.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn exact_numeric_values_still_allow_lossless_minification() {
+        let config = Config::new(json!({"llms":{"main":{"base_url":"http://model.invalid", "model_name":"fixture"}}, "workflow":{"_type":"daedalus_rust_agent", "llm_name":"main"}}), Default::default()).unwrap();
+        let settings = Settings::new(&config);
+        for (token, expected) in [
+            ("1.2500", "1.25"),
+            ("1.25e+04", "12500.0"),
+            ("1e+20", "1e+20"),
+            ("0e-999", "0.0"),
+            ("-0.0000", "-0.0"),
+            (
+                "1234567890123456789012345678901234567890",
+                "1234567890123456789012345678901234567890",
+            ),
+        ] {
+            let original = format!("{{\n{}\"value\":{token}\n}}", " ".repeat(300));
+            let (result, reversible) =
+                preview(&original, "numeric_result", "exact values", &settings);
+            assert_eq!(result, format!("{{\"value\":{expected}}}"));
+            assert!(reversible.is_none());
+        }
+    }
 
     #[test]
     fn research_preview_is_explicit_and_recovers_unicode_evidence() {

@@ -27,14 +27,6 @@ vi.mock('@/hooks/useWebSocket', () => ({
   }),
 }));
 
-vi.mock('@/components/autonomy/AutonomyFeed', () => ({
-  AutonomyFeed: () => <div data-testid="feed" />,
-}));
-
-vi.mock('@/components/autonomy/StatusStrip', () => ({
-  StatusStrip: React.forwardRef(() => <div data-testid="status" />),
-}));
-
 vi.mock('@/components/autonomy/WorkspaceDrawer', () => ({
   WorkspaceDrawer: () => <div data-testid="workspace" />,
 }));
@@ -172,4 +164,66 @@ describe('AutonomyDashboard refresh strategy', () => {
     expect(container.textContent).not.toContain('Showing the last saved');
     act(() => root.unmount());
   });
+
+  it.each(['config', 'feed'])(
+    'keeps a newer %s update when the initial full refresh finishes last',
+    async (resource) => {
+      let releaseGoals!: () => void;
+      const goals = new Promise<Response>((resolve) => {
+        releaseGoals = () =>
+          resolve({ ok: true, json: async () => [] } as Response);
+      });
+      const requests = new Map<string, number>();
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = String(input);
+        const count = (requests.get(url) || 0) + 1;
+        requests.set(url, count);
+        if (url.endsWith('/goals') && count === 1) return goals;
+        const body = url.endsWith('/config')
+          ? { enabled: count === 1 }
+          : url.endsWith('/feed')
+          ? [
+              {
+                id: `item-${count}`,
+                title: count === 1 ? 'Initial feed item' : 'New feed item',
+                bluf: 'Fixture evidence',
+                createdAt: Date.now(),
+                lane: 'known',
+              },
+            ]
+          : [];
+        return { ok: true, json: async () => body } as Response;
+      });
+      const { root, container } = renderDashboard();
+      try {
+        await flushRequests();
+        act(() => {
+          if (resource === 'config')
+            mocks.wsOptions.onAutonomyStatus({ config: true });
+          else mocks.wsOptions.onAutonomyFeedUpdated({});
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(50);
+        });
+        await flushRequests();
+        expect(requests.get(`/api/autonomy/${resource}`)).toBe(2);
+        await act(async () => {
+          releaseGoals();
+        });
+        await flushRequests();
+        expect(container.textContent).toContain(
+          resource === 'config' ? 'paused' : 'idle',
+        );
+        expect(container.textContent).toContain(
+          resource === 'feed' ? 'New feed item' : 'Initial feed item',
+        );
+        if (resource === 'feed')
+          expect(container.textContent).not.toContain('Initial feed item');
+      } finally {
+        releaseGoals();
+        await flushRequests();
+        act(() => root.unmount());
+      }
+    },
+  );
 });

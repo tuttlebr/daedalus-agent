@@ -236,7 +236,9 @@ def workspace_key(user_id: str, name: str) -> str:
     return f"autonomous:{user_id}:workspace:{name}"
 
 
-def load_workspace(store: Any, user_id: str) -> dict[str, str]:
+def load_workspace(
+    store: Any, user_id: str, *, require_lease: bool = False
+) -> dict[str, str]:
     workspace: dict[str, str] = {}
     for name, seed_path in WORKSPACE_FILES.items():
         key = workspace_key(user_id, name)
@@ -247,7 +249,7 @@ def load_workspace(store: Any, user_id: str) -> dict[str, str]:
         seed = read_seed(name, seed_path)
         workspace[name] = seed
         if seed:
-            store.set_text(key, seed)
+            store.set_text(key, seed, lease_user=user_id if require_lease else None)
     return workspace
 
 

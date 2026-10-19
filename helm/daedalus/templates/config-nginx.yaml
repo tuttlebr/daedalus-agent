@@ -11,12 +11,12 @@ data:
 {{- $frontendHost := printf "%s-frontend.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace -}}
 {{- $frontendSvc := (lookup "v1" "Service" .Release.Namespace (printf "%s-frontend" (include "daedalus.fullname" .))) -}}
 {{- $frontendUpstreamHost := dig "spec" "clusterIP" $frontendHost ($frontendSvc | default dict) -}}
-{{- $_ := set . "_frontendHTTPUpstream" (printf "http://%s:3000" $frontendUpstreamHost) -}}
+{{- $_ := set . "_frontendHTTPUpstream" (printf "http://%s:%v" $frontendUpstreamHost .Values.frontend.service.port) -}}
 {{- $_ := set . "_frontendWSUpstream" (printf "http://%s:3001" $frontendUpstreamHost) -}}
 {{- $backendDefaultHost := printf "%s-backend-default.%s.svc.cluster.local" (include "daedalus.fullname" .) .Release.Namespace -}}
 {{- $backendDefaultSvc := (lookup "v1" "Service" .Release.Namespace (printf "%s-backend-default" (include "daedalus.fullname" .))) -}}
 {{- $backendDefaultUpstreamHost := dig "spec" "clusterIP" $backendDefaultHost ($backendDefaultSvc | default dict) -}}
-{{- $_ := set . "_backendDefaultUpstream" (printf "http://%s:%v" $backendDefaultUpstreamHost .Values.backend.default.port) -}}
+{{- $_ := set . "_backendDefaultUpstream" (printf "http://%s:%v" $backendDefaultUpstreamHost .Values.backend.default.service.port) -}}
 {{ tpl (printf "%s" (include "nginx.frontend.conf.template" .)) . | nindent 4 }}
 {{- else }}
 {{ .Values.nginx.config.rawConf | nindent 4 }}

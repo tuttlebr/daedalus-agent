@@ -53,10 +53,6 @@ vi.mock('@/utils/app/imageHandler', () => ({
   extractImageReferences: vi.fn().mockReturnValue([]),
 }));
 
-vi.mock('@/server/session/sanitize', () => ({
-  clampConversations: vi.fn((arr: any[]) => arr),
-}));
-
 // --- Helpers ---
 
 function createMockReqRes(method: string, query: any = {}, body: any = {}) {

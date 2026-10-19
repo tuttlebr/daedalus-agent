@@ -14,6 +14,8 @@ const BACKEND_API_PATH = process.env.BACKEND_API_PATH || '/v1/chat/completions';
 
 // Default backend port
 export const BACKEND_PORT = process.env.BACKEND_PORT || '8000';
+// Pod discovery bypasses the Service's port mapping.
+export const BACKEND_POD_PORT = process.env.BACKEND_POD_PORT || BACKEND_PORT;
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;

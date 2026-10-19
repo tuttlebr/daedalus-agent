@@ -35,7 +35,11 @@ import {
 } from '@/server/chat/natMessages';
 import { buildSourcePolicyMessage } from '@/server/chat/sourcePolicy';
 import { forwardCancellation } from '@/server/chat/steering';
-import { enqueueStreamJob, streamPayloadKey } from '@/server/chat/streamQueue';
+import {
+  enqueueStreamJob,
+  loadStreamQueuePayload,
+  streamPayloadKey,
+} from '@/server/chat/streamQueue';
 import { getStreamResponse, getStreamSteps } from '@/server/chat/streamState';
 import {
   ApiRouteError,
@@ -767,16 +771,24 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
     const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
 
     let canceled = false;
-    const workerOwnsFinalization =
-      ['stream', 'document_ingest'].includes(jobRequest.executionMode ?? '') &&
-      (currentStatus?.status === 'pending' ||
-        currentStatus?.status === 'streaming');
+    let workerOwnsFinalization = false;
     if (currentStatus && !isTerminalJobStatus(currentStatus.status)) {
+      // Signal before checking ownership: an OAuth handoff removes its payload
+      // then checks this flag. Either that owner or this request must finish it.
+      await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
+      const afterAbort = (await jsonGet(statusKey)) as AsyncJobStatus | null;
+      workerOwnsFinalization =
+        ['stream', 'document_ingest'].includes(
+          jobRequest.executionMode ?? '',
+        ) &&
+        (afterAbort?.status === 'pending' ||
+          ((afterAbort?.status === 'streaming' ||
+            afterAbort?.status === 'oauth_required') &&
+            Boolean(await loadStreamQueuePayload(jobId))));
       if (workerOwnsFinalization) {
         // Let the stream owner flush accepted output before claiming the
         // terminal snapshot. The durable queue also handles queued jobs and
         // worker replacement; keep its request/payload available until then.
-        await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
         canceled = true;
         // The durable abort remains authoritative if the run is queued or the
         // backend is unreachable. Active runs also get an immediate signal.

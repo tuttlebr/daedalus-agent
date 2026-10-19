@@ -3,6 +3,7 @@ import handler, {
   config,
 } from '@/pages/api/session/documentStorage';
 
+import { validateHeaderValue } from 'node:http';
 import { PassThrough, Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -235,6 +236,51 @@ describe('/api/session/documentStorage', () => {
     expect(mocks.putDocumentObject).not.toHaveBeenCalled();
   });
 
+  it.each(['é', '文', '🙂'])(
+    'accepts UTF-8 text with %s crossing the sniffed prefix boundary',
+    async (character) => {
+      const file = Buffer.from('a'.repeat(1023) + character + ' tail');
+      const storedChunks: Buffer[] = [];
+      mocks.putDocumentObject.mockImplementation(async ({ source }) => {
+        for await (const chunk of source) storedChunks.push(chunk);
+        return { bucket: 'documents', etag: 'etag-1' };
+      });
+      const res = response();
+
+      await handler(multipartRequest(file, 'notes.md', 'text/markdown'), res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(Buffer.concat(storedChunks)).toEqual(file);
+    },
+  );
+
+  it.each([
+    Buffer.from([0x61, 0xc3]),
+    Buffer.concat([Buffer.alloc(1023, 0x61), Buffer.from([0xc3])]),
+    Buffer.concat([Buffer.from([0x61, 0xff]), Buffer.alloc(1100, 0x61)]),
+  ])('rejects invalid UTF-8 within the inspected text', async (file) => {
+    const res = response();
+    await handler(multipartRequest(file, 'notes.txt', 'text/plain'), res);
+
+    expect(res.status).toHaveBeenCalledWith(415);
+    expect(mocks.putDocumentObject).not.toHaveBeenCalled();
+  });
+
+  it('rejects mismatched ZIP signature bytes in an Office upload', async () => {
+    const res = response();
+    await handler(
+      multipartRequest(
+        Buffer.from([0x50, 0x4b, 0x03, 0x06, 0x14, 0x00]),
+        'paper.docx',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ),
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(415);
+    expect(mocks.putDocumentObject).not.toHaveBeenCalled();
+  });
+
   it('rejects a MIME mismatch before opening object storage', async () => {
     const res = response();
     await handler(multipartRequest(Buffer.from('not a pdf')), res);
@@ -411,6 +457,37 @@ describe('/api/session/documentStorage', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith(payload);
     expect(mocks.getDocumentObject).not.toHaveBeenCalled();
+  });
+
+  it('downloads a Unicode filename using an ASCII header and UTF-8 filename parameter', async () => {
+    const payload = Buffer.from('document text');
+    mocks.jsonGet.mockResolvedValue({
+      id: 'doc-1',
+      data: payload.toString('base64'),
+      filename: '文档🙂.txt',
+      mimeType: 'text/plain',
+      size: payload.length,
+      sessionId: 'session-1',
+      userId: 'alice',
+    });
+    const res = response();
+    // Next.js sends these values through Node's actual HTTP header validator.
+    res.setHeader.mockImplementation(validateHeaderValue);
+    res.send = vi.fn().mockReturnThis();
+
+    await handler(
+      { method: 'GET', headers: {}, query: { documentId: 'doc-1' } } as any,
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith(payload);
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Disposition',
+      `attachment; filename="____.txt"; filename*=UTF-8''${encodeURIComponent(
+        '文档🙂.txt',
+      )}`,
+    );
   });
 
   it('checks ownership before deleting the object and metadata', async () => {

@@ -494,7 +494,12 @@ class AppendOnlyMigrationAudit:
             }
             record["event_hash"] = _fingerprint(record)
             encoded = (_canonical_json(record) + "\n").encode("utf-8")
-            os.write(fd, encoded)
+            pending = memoryview(encoded)
+            while pending:
+                written = os.write(fd, pending)
+                if written <= 0:
+                    raise MigrationStateError("migration audit write made no progress")
+                pending = pending[written:]
             os.fsync(fd)
             return record
         finally:

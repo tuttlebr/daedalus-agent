@@ -1,4 +1,8 @@
-import { BACKEND_PORT, getBackendHost } from '@/utils/app/backendApi';
+import {
+  BACKEND_PORT,
+  BACKEND_POD_PORT,
+  getBackendHost,
+} from '@/utils/app/backendApi';
 
 import {
   jsonDel,
@@ -42,12 +46,14 @@ export function isAllowedOAuthBackendBaseUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
     const port = parsed.port || (parsed.protocol === 'http:' ? '80' : '');
-    const allowedHost =
-      parsed.hostname === getBackendHost() || isPrivatePodIPv4(parsed.hostname);
+    const allowedTarget =
+      parsed.hostname === getBackendHost()
+        ? port === String(BACKEND_PORT)
+        : isPrivatePodIPv4(parsed.hostname) &&
+          port === String(BACKEND_POD_PORT);
     return (
       parsed.protocol === 'http:' &&
-      port === String(BACKEND_PORT) &&
-      allowedHost &&
+      allowedTarget &&
       parsed.username === '' &&
       parsed.password === '' &&
       parsed.pathname === '/' &&

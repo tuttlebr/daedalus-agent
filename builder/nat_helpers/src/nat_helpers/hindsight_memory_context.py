@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import re
+import secrets
 import time
 from typing import Any
 
@@ -283,6 +284,7 @@ async def _session_brief(
     user_cache_id = _digest(derive_bank_id(user_id))
     conversation_cache_id = _digest(conversation_id)
     cache_key = f"daedalus:memory:session:v1:{user_cache_id}:{conversation_cache_id}"
+    generation_key = f"daedalus:memory:generation:v1:{user_cache_id}"
     lock_key = (
         f"daedalus:memory:session-lock:v1:{user_cache_id}:{conversation_cache_id}"
     )
@@ -315,6 +317,7 @@ async def _session_brief(
         )
         if not should_refresh:
             return str(cached.get("text") or "")
+        generation = await redis.get(generation_key) or ""
         owns_lock = bool(await redis.set(lock_key, "1", nx=True, ex=60))
         if not owns_lock:
             return str(cached.get("text") or "")
@@ -334,16 +337,24 @@ async def _session_brief(
             max_tokens=800,
         )
         bounded_text = text[:2400]
-        await redis.set(
+        # Clear changes the generation before scanning caches. A reflection
+        # that started earlier must not recreate deleted context, even when
+        # its cache key did not exist when the deletion scan ran.
+        stored = await redis.eval(
+            "if (redis.call('GET',KEYS[1]) or '') ~= ARGV[1] then return 0 end; "
+            "redis.call('SET',KEYS[2],ARGV[2],'EX',ARGV[3]); return 1",
+            2,
+            generation_key,
             cache_key,
+            generation,
             json.dumps(
                 {"text": bounded_text, "reflected_at": now},
                 ensure_ascii=False,
                 separators=(",", ":"),
             ),
-            ex=_SESSION_TTL_SECONDS,
+            _SESSION_TTL_SECONDS,
         )
-        return bounded_text
+        return bounded_text if stored else ""
     except Exception:
         logger.debug("Session reflection cache unavailable", exc_info=True)
         return str(cached.get("text") or "")
@@ -365,6 +376,11 @@ async def clear_user_memory_caches(user_id: str) -> None:
     user_cache_id = _digest(derive_bank_id(user_id))
     redis = await _redis_client()
     try:
+        # Persist the fence: expiry could authorize an older in-flight writer
+        # again. Only a user who clears memory needs this small routing record.
+        await redis.set(
+            f"daedalus:memory:generation:v1:{user_cache_id}", secrets.token_hex(16)
+        )
         keys = [f"daedalus:memory:bootstrap:{bootstrap_cache_id}"]
         for pattern in (
             f"daedalus:memory:session:v1:{user_cache_id}:*",

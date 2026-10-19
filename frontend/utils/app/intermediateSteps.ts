@@ -167,17 +167,20 @@ function extractOutput(step: IntermediateStep): any {
 
 /** Normalize once at the UI boundary; messages remain the source of truth per turn. */
 export function normalizeSteps(steps: any[]): IntermediateStep[] {
-  const byId = new Map<string, IntermediateStep>();
+  const byEvent = new Map<string, IntermediateStep>();
   for (const raw of steps) {
     const step = raw?.payload?.event_type ? raw : migrateOldStepFormat(raw);
     if (!step?.payload?.UUID) continue;
-    const previous = byId.get(step.payload.UUID);
+    // A call can use one UUID for both START and END. Deduplicate deliveries
+    // within a phase without dropping the other half of the operation.
+    const key = JSON.stringify([step.payload.UUID, step.payload.event_type]);
+    const previous = byEvent.get(key);
     if (
       previous &&
       previous.payload.event_timestamp > step.payload.event_timestamp
     )
       continue;
-    byId.set(step.payload.UUID, {
+    byEvent.set(key, {
       ...step,
       parent_id: step.parent_id || 'root',
       function_ancestry: step.function_ancestry || {
@@ -188,7 +191,7 @@ export function normalizeSteps(steps: any[]): IntermediateStep[] {
       },
     });
   }
-  return [...byId.values()];
+  return [...byEvent.values()];
 }
 
 export function flattenSteps(steps: ConsolidatedStep[]): ConsolidatedStep[] {
@@ -315,16 +318,24 @@ export function consolidateSteps(
       const queue = startQueues.get(key);
 
       if (queue && queue.length > 0) {
-        // Pair with earliest unpaired START
-        // If END has span_event_timestamp, prefer the START whose timestamp matches
-        let matchIdx = 0;
-        if (step.payload.span_event_timestamp && queue.length > 1) {
+        // Shared call UUIDs identify concurrent operations even if they finish
+        // out of order. Backends with separate event UUIDs use the span time,
+        // then the earliest unpaired START when neither identity is available.
+        let matchIdx = queue.findIndex(
+          (start) => start.payload.UUID === step.payload.UUID,
+        );
+        if (
+          matchIdx < 0 &&
+          step.payload.span_event_timestamp &&
+          queue.length > 1
+        ) {
           const spanTs = step.payload.span_event_timestamp;
           const bestIdx = queue.findIndex(
             (s) => Math.abs(s.payload.event_timestamp - spanTs) < 0.01,
           );
           if (bestIdx >= 0) matchIdx = bestIdx;
         }
+        if (matchIdx < 0) matchIdx = 0;
         const matchedStart = queue.splice(matchIdx, 1)[0];
         pairs.push({ start: matchedStart, end: step });
       } else {

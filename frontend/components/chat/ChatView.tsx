@@ -18,7 +18,6 @@ import { getWebSocketManager } from '@/services/websocket';
 import { apiGet } from '@/utils/app/api';
 import { cleanConversationHistory } from '@/utils/app/clean';
 import { saveConversation } from '@/utils/app/conversation';
-import { sanitizeMessageContentFromPriorAssistant } from '@/utils/app/conversationReplay';
 import { buildMessageError } from '@/utils/app/errorCategory';
 import { cleanMessagesForLLM } from '@/utils/app/imageHandler';
 import { getFriendlyName } from '@/utils/app/intermediateSteps';
@@ -556,12 +555,6 @@ export const ChatView = memo(() => {
         ) {
           delete nextUpdates.intermediateSteps;
         }
-      }
-      if (typeof nextUpdates.content === 'string') {
-        nextUpdates.content = sanitizeMessageContentFromPriorAssistant(
-          nextUpdates.content,
-          conv.messages.slice(0, targetIndex),
-        );
       }
       if (nextUpdates.intermediateSteps === undefined) {
         delete nextUpdates.intermediateSteps;

@@ -1,4 +1,5 @@
 import {
+  BACKEND_POD_PORT,
   buildBackendBaseUrl,
   buildBackendBaseUrlForMode,
   buildBackendUrlFromBase,
@@ -66,7 +67,7 @@ export async function resolveAsyncBackendBaseUrls(): Promise<string[]> {
     }
 
     return shuffleItems(uniqueIps).map((backendHost) =>
-      buildBackendBaseUrl({ backendHost }),
+      buildBackendBaseUrl({ backendHost, port: BACKEND_POD_PORT }),
     );
   } catch (error: any) {
     logger.warn(

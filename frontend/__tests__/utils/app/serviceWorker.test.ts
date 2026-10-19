@@ -26,13 +26,47 @@ class MemoryCache {
   }
 }
 
-function worker() {
-  const buckets = new Map<string, MemoryCache>();
+// IndexedDB is a persistence boundary. Keep its request callbacks asynchronous
+// and share the stored records across separate worker VM lifetimes.
+function metadataStore() {
+  const records = new Map<string, Record<string, any>>();
+  function request<T>(operation: () => T) {
+    const result: { result?: T; onsuccess?: () => void } = {};
+    queueMicrotask(() => {
+      result.result = operation();
+      result.onsuccess?.();
+    });
+    return result;
+  }
+  const store = {
+    getAll: () =>
+      request(() => [...records.values()].map((value) => ({ ...value }))),
+    put: (value: Record<string, any>) =>
+      request(() => records.set(value.url, { ...value })),
+    delete: (url: string) => request(() => records.delete(url)),
+    clear: () => request(() => records.clear()),
+  };
+  const indexedDB = {
+    open: () =>
+      request(() => ({ transaction: () => ({ objectStore: () => store }) })),
+  };
+  return { indexedDB, records };
+}
+
+function worker(
+  options: {
+    buckets?: Map<string, MemoryCache>;
+    indexedDB?: ReturnType<typeof metadataStore>['indexedDB'];
+    usageRatio?: number;
+  } = {},
+) {
+  const buckets = options.buckets ?? new Map<string, MemoryCache>();
   const cache = (name: string) => {
     if (!buckets.has(name)) buckets.set(name, new MemoryCache());
     return buckets.get(name)!;
   };
   const handlers = new Map<string, ((event: any) => void)[]>();
+  const timers = new Map<number, () => void>();
   const fetch = vi.fn(
     async (_request: Request, _init?: RequestInit) => new Response('NEW'),
   );
@@ -53,9 +87,21 @@ function worker() {
     Response,
     caches,
     fetch,
+    indexedDB: options.indexedDB,
+    navigator: {
+      storage: {
+        estimate: async () => ({
+          usage: (options.usageRatio ?? 0) * 100,
+          quota: 100,
+        }),
+      },
+    },
     console: { log() {}, warn() {}, error() {} },
-    setInterval() {},
+    setInterval(callback: () => void, interval: number) {
+      timers.set(interval, callback);
+    },
     self: {
+      ...(options.indexedDB ? { indexedDB: options.indexedDB } : {}),
       location: { origin },
       clients: { claim() {} },
       addEventListener: (type: string, handler: (event: any) => void) => {
@@ -80,10 +126,79 @@ function worker() {
   }
   const request = (url: string, init?: RequestInit) =>
     dispatch('fetch', { request: new Request(key(url), init) });
-  return { cache, caches, fetch, dispatch, request };
+  return { cache, caches, fetch, dispatch, request, buckets, timers };
 }
 
 describe('service worker cache upgrades', () => {
+  it('keeps the image limit when responses finish concurrently', async () => {
+    const storage = metadataStore();
+    const sw = worker(storage);
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        sw.request(`/image-${index}.png`),
+      ),
+    );
+    expect(sw.cache(runtimeName).entries.size).toBe(10);
+    expect(storage.records.size).toBe(10);
+  });
+  it('keeps other cached images when refreshing an entry at capacity', async () => {
+    const sw = worker();
+    for (let index = 0; index < 10; index++)
+      await sw.request(`/image-${index}.png`);
+    await sw.request('/image-9.png');
+    expect(sw.cache(runtimeName).entries.size).toBe(10);
+    expect(await sw.cache(runtimeName).match('/image-0.png')).toBeDefined();
+  });
+  it('restores runtime image accounting after the worker restarts without install', async () => {
+    const storage = metadataStore();
+    const first = worker(storage);
+    for (let index = 0; index < 10; index++)
+      await first.request(`/image-${index}.png`);
+    expect(storage.records.size).toBe(10);
+    const second = worker({ ...storage, buckets: first.buckets });
+    await second.request('/image-10.png');
+    expect(second.cache(runtimeName).entries.size).toBe(10);
+    expect(storage.records.size).toBe(10);
+    expect(
+      await second.cache(runtimeName).match('/image-10.png'),
+    ).toBeDefined();
+  });
+
+  it.each([0.69, 0.75])(
+    'cleans runtime images only above 70%% storage usage (%s)',
+    async (usageRatio) => {
+      const sw = worker({ usageRatio });
+      for (let index = 0; index < 10; index++)
+        await sw.request(`/image-${index}.png`);
+      await sw
+        .cache(precacheName)
+        .put(branding.assets['/favicon.png'], new Response('BRAND'));
+      await sw.timers.get(5 * 60_000)!();
+      await vi.waitFor(() =>
+        expect(sw.cache(runtimeName).entries.size).toBe(
+          usageRatio > 0.7 ? 2 : 10,
+        ),
+      );
+      expect(
+        await sw.cache(precacheName).match(branding.assets['/favicon.png']),
+      ).toBeDefined();
+    },
+  );
+
+  it('expires persisted runtime entries on activation after a worker restart', async () => {
+    const storage = metadataStore();
+    const first = worker(storage);
+    await first.request('/old.png');
+    await first.request('/recent.png');
+    storage.records.get(key('/old.png'))!.timestamp =
+      Date.now() - 2 * 24 * 60 * 60_000;
+    const second = worker({ ...storage, buckets: first.buckets });
+    await second.dispatch('activate');
+    expect(await second.cache(runtimeName).match('/old.png')).toBeUndefined();
+    expect(await second.cache(runtimeName).match('/recent.png')).toBeDefined();
+    expect(storage.records.size).toBe(1);
+  });
+
   it('refreshes the precache entry it reads instead of shadowing a runtime copy', async () => {
     const sw = worker();
     const url = branding.assets['/icons/icon-192x192.png'];

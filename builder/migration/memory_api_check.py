@@ -2,6 +2,7 @@
 """Public memory API parity through real images, Hindsight HTTP and TLS/ACL Redis."""
 
 import argparse
+import concurrent.futures
 import copy
 import hashlib
 import json
@@ -41,6 +42,10 @@ class MemoryApiPeers(MemoryPeers):
         self.started = threading.Event()
         self.disconnected = threading.Event()
         self.release = threading.Event()
+        self.reflection_started = threading.Event()
+        self.release_reflection = threading.Event()
+        self.block_reflection = False
+        self.reflection_text = "Synthetic session brief"
 
     def state(self, key):
         if key not in self.banks:
@@ -215,7 +220,12 @@ class MemoryApiPeers(MemoryPeers):
                         )
                     }
                 elif suffix == "reflect":
-                    result = {"text": "Synthetic session brief"}
+                    result = {"text": peers.reflection_text}
+                    if peers.block_reflection:
+                        peers.reflection_started.set()
+                        if not peers.release_reflection.wait(20):
+                            self.reply({"error": "reflection barrier expired"}, 504)
+                            return True
                 elif suffix.startswith("memories/") and self.command == "PATCH":
                     key = unquote(suffix.rsplit("/", 1)[1])
                     item = next(
@@ -589,6 +599,83 @@ def exercise(image, redis_image, *, rust, minimal, disabled=False):
     return records
 
 
+def check_reflection_clear_race(image, redis_image, *, rust, minimal):
+    """Clearing memory must fence an older synthesis in either runtime."""
+    peers = MemoryApiPeers()
+    with environment(
+        image,
+        redis_image,
+        minimal=minimal,
+        peers=peers,
+        extra_env=lambda _: {
+            "DAEDALUS_PREPARATION": "rust" if rust else "python",
+            "DAEDALUS_AUTHORIZATION": "rust" if rust else "python",
+            "DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS": "15",
+        },
+    ) as env:
+        client, base, headers = (env[key] for key in ("client", "base", "headers"))
+        user = headers["x-user-id"]
+        key = (
+            "daedalus:memory:session:v1:"
+            + digest(bank(user))
+            + ":"
+            + digest("clear-race")
+        )
+        other_key = key.replace(digest(bank(user)), digest(bank("synthetic-bob")))
+        env["redis"].set(other_key, "other user's cached summary", ex=90)
+        peers.block_reflection = True
+        peers.reflection_text = "Synthetic pre-deletion summary"
+
+        def chat():
+            response = client.post(
+                base + "/v1/chat/completions",
+                headers=headers | {"x-conversation-id": "clear-race"},
+                json={
+                    "stream": False,
+                    "messages": [
+                        {"role": "user", "content": "BASIC Summarize my memory"}
+                    ],
+                },
+            )
+            require(response.status_code == 200, "Reflection chat failed")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(chat)
+            try:
+                require(peers.reflection_started.wait(10), "Reflection never started")
+                cleared = client.post(
+                    base + "/v1/memories/clear",
+                    headers=headers,
+                    json={"confirmation": "DELETE ALL MY MEMORIES"},
+                )
+                require(cleared.status_code == 200, "Concurrent memory clear failed")
+            finally:
+                peers.release_reflection.set()
+            pending.result(timeout=20)
+        require(
+            env["redis"].get(key) is None, "Old reflection resurrected cleared memory"
+        )
+        require(
+            env["redis"].get(other_key) == b"other user's cached summary",
+            "Memory clear crossed users",
+        )
+        require(
+            "Synthetic pre-deletion summary" not in json.dumps(peers.requests),
+            "Cleared summary entered the model request",
+        )
+        peers.block_reflection = False
+        peers.reflection_text = "Synthetic post-deletion summary"
+        chat()
+        require(
+            json.loads(env["redis"].get(key))["text"] == peers.reflection_text,
+            "New reflections stopped caching after memory clear",
+        )
+    print(
+        f"Memory reflection/clear race passed: rust={rust}, minimal={minimal}",
+        flush=True,
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ["image", "full-image", "baseline", "redis-image"]:
@@ -607,6 +694,7 @@ if __name__ == "__main__":
                 old == new,
                 f"Public memory parity failed at case {i}:\nexpected={old}\nactual={new}",
             )
+        check_reflection_clear_race(image, args.redis_image, rust=rust, minimal=minimal)
     disabled = exercise(
         args.full_image, args.redis_image, rust=False, minimal=False, disabled=True
     )

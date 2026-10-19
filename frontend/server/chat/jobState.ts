@@ -1,7 +1,8 @@
+import { inferGoogleWorkspaceService } from '@/utils/app/googleWorkspace';
 import { Logger } from '@/utils/logger';
 
 import { FINALIZER_LOCK_TTL_MS, JOB_EXPIRY_SECONDS, sleep } from './constants';
-import type { AsyncJobStatus } from './types';
+import type { AsyncJobStatus, OAuthRequest } from './types';
 
 import { getRedis, sessionKey } from '@/server/session/redis';
 import { v4 as uuidv4 } from 'uuid';
@@ -120,6 +121,40 @@ export async function completeOAuthJobRequest(
       authUrl: nextRequest?.authUrl,
       oauthState: nextRequest?.oauthState,
       oauthRequests: remaining.length ? remaining : undefined,
+      updatedAt: Date.now(),
+    };
+  });
+}
+
+/** Merge against the committed snapshot so a concurrent callback is not undone. */
+export async function recordOAuthJobRequest(
+  jobId: string,
+  request: OAuthRequest,
+): Promise<boolean> {
+  return mutateLiveJobStatus(jobId, (current) => {
+    const existing = Array.isArray(current.oauthRequests)
+      ? current.oauthRequests
+      : current.authUrl
+      ? [
+          {
+            id: current.oauthState
+              ? `${current.oauthState}:${current.authUrl}`
+              : current.authUrl,
+            authUrl: current.authUrl,
+            oauthState: current.oauthState,
+            service: inferGoogleWorkspaceService(current.authUrl),
+          },
+        ]
+      : [];
+    const requests = new Map(existing.map((item) => [item.id, item]));
+    requests.set(request.id, request);
+    return {
+      ...current,
+      status: 'oauth_required',
+      authUrl: request.authUrl,
+      oauthState: request.oauthState,
+      oauthRequests: [...requests.values()],
+      progress: 0,
       updatedAt: Date.now(),
     };
   });
@@ -269,8 +304,10 @@ async function mutateLiveJobStatus(
     if (typeof snapshot !== 'string') return false;
     const current = JSON.parse(snapshot) as AsyncJobStatus;
     const updated = mutate(current);
-    if (!updated || JSON.stringify(updated) === JSON.stringify(current))
-      return false;
+    if (!updated) return false;
+    // An identical live snapshot is already persisted (for example duplicate
+    // OAuth events in one clock tick). It is a successful receipt, not failure.
+    if (JSON.stringify(updated) === JSON.stringify(current)) return true;
     const applied = await client.eval(
       UPDATE_LIVE_JOB_STATUS_LUA,
       1,
@@ -307,6 +344,31 @@ export async function updateJobStatus(
     jobId,
     (current) => ({ ...current, ...updates }),
     options.publish !== false,
+  );
+}
+
+/** Content from one parallel tool does not resolve another tool's OAuth wait.
+ * Derive progress from the same snapshot we replace, so a callback cannot be
+ * undone by a worker that read its prompt just before the callback completed.
+ */
+export async function markJobStreaming(
+  jobId: string,
+  updatedAt: number,
+): Promise<void> {
+  await mutateLiveJobStatus(
+    jobId,
+    (current) => {
+      const awaitingOAuth =
+        current.status === 'oauth_required' &&
+        (Boolean(current.authUrl) || Boolean(current.oauthRequests?.length));
+      return {
+        ...current,
+        status: awaitingOAuth ? 'oauth_required' : 'streaming',
+        ...(awaitingOAuth ? {} : clearOAuthStatusFields()),
+        updatedAt,
+      };
+    },
+    false,
   );
 }
 

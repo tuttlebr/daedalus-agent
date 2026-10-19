@@ -63,8 +63,7 @@ async function readImageFileMetadata(file: File): Promise<LocalImageMetadata> {
         ctx.drawImage(img, 0, 0);
         const data = ctx.getImageData(0, 0, width, height).data;
         const pixelCount = width * height;
-        const step = Math.max(1, Math.floor(pixelCount / 50_000));
-        for (let pixel = 0; pixel < pixelCount; pixel += step) {
+        for (let pixel = 0; pixel < pixelCount; pixel++) {
           if (data[pixel * 4 + 3] < 255) {
             hasAlpha = true;
             break;

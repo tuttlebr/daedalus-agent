@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 import { positiveIntegerFromEnv } from '@/server/config/env';
+import { buildContentDisposition } from '@/server/contentDisposition';
 import {
   buildDocumentObjectKey,
   deleteDocumentObject,
@@ -188,20 +189,6 @@ const DOC_UPLOAD_RATE_LIMIT = ruleFromEnv(
   60,
 );
 
-function safeDownloadFilename(filename: string): string {
-  const fallback = filename
-    .replace(/[\u0000-\u001f\u007f"\\/]/g, '_')
-    .slice(0, 200);
-  return fallback || 'document';
-}
-
-function encodeRfc5987(value: string): string {
-  return encodeURIComponent(value).replace(
-    /[!'()*]/g,
-    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-}
-
 function setDownloadHeaders(
   res: NextApiResponse,
   document: StoredDocument,
@@ -210,9 +197,7 @@ function setDownloadHeaders(
   res.setHeader('Content-Length', String(document.size));
   res.setHeader(
     'Content-Disposition',
-    `attachment; filename="${safeDownloadFilename(
-      document.filename,
-    )}"; filename*=UTF-8''${encodeRfc5987(document.filename)}`,
+    buildContentDisposition(document.filename),
   );
   res.setHeader('Cache-Control', 'private, max-age=3600');
 }

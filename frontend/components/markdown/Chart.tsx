@@ -1,6 +1,6 @@
 // Import html-to-image for generating images
 import { IconDownload } from '@tabler/icons-react';
-import React from 'react';
+import React, { useRef } from 'react';
 import toast from 'react-hot-toast';
 
 import dynamic from 'next/dynamic';
@@ -55,6 +55,7 @@ const seriesColors = [
 ];
 
 const Chart = (props: any) => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const { saveFile, fileSaveDialog } = useFileSave();
   const data = props?.payload;
   const {
@@ -83,7 +84,7 @@ const Chart = (props: any) => {
 
   const handleDownload = async () => {
     try {
-      const chartElement = document.getElementById(`chart-${Label}`);
+      const chartElement = chartRef.current;
       if (chartElement) {
         logger.info('Generating image to download...');
         const blob = await htmlToImage.toBlob(chartElement, {
@@ -103,7 +104,7 @@ const Chart = (props: any) => {
       case 'BarChart':
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
-            <BarChart id={`chart-BarChart-${Label}`} data={Data}>
+            <BarChart data={Data}>
               <CartesianGrid
                 stroke="var(--border-subtle)"
                 strokeDasharray="3 3"
@@ -131,7 +132,7 @@ const Chart = (props: any) => {
       case 'LineChart':
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
-            <LineChart id={`chart-LineChart-${Label}`} data={Data}>
+            <LineChart data={Data}>
               <CartesianGrid
                 stroke="var(--border-subtle)"
                 strokeDasharray="3 3"
@@ -159,7 +160,7 @@ const Chart = (props: any) => {
       case 'PieChart':
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
-            <PieChart id={`chart-PieChart-${Label}`}>
+            <PieChart>
               <Tooltip
                 contentStyle={{
                   background: 'var(--bg-surface-raised)',
@@ -194,7 +195,7 @@ const Chart = (props: any) => {
       case 'AreaChart':
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
-            <AreaChart id={`chart-AreaChart-${Label}`} data={Data}>
+            <AreaChart data={Data}>
               <CartesianGrid
                 stroke="var(--border-subtle)"
                 strokeDasharray="3 3"
@@ -227,7 +228,7 @@ const Chart = (props: any) => {
       case 'RadarChart':
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
-            <RadarChart id={`chart-RadarChart-${Label}`} data={Data}>
+            <RadarChart data={Data}>
               <PolarGrid stroke="var(--border-subtle)" />
               <PolarAngleAxis
                 stroke="var(--text-secondary)"
@@ -253,7 +254,7 @@ const Chart = (props: any) => {
       case 'ScatterChart':
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
-            <ScatterChart id={`chart-ScatterChart-${Label}`}>
+            <ScatterChart>
               <CartesianGrid stroke="var(--border-subtle)" />
               <XAxis
                 stroke="var(--text-secondary)"
@@ -289,7 +290,7 @@ const Chart = (props: any) => {
       case 'ComposedChart':
         return (
           <ResponsiveContainer width="100%" height={300} className={'p-2'}>
-            <ComposedChart id={`chart-ComposedChart-${Label}`} data={Data}>
+            <ComposedChart data={Data}>
               <CartesianGrid
                 stroke="var(--border-subtle)"
                 strokeDasharray="3 3"
@@ -377,10 +378,7 @@ const Chart = (props: any) => {
 
         return (
           <ResponsiveContainer width="100%" height={420} className={'p-2'}>
-            <ScatterChart
-              id={`chart-QuadrantChart-${Label}`}
-              margin={{ top: 20, right: 30, bottom: 30, left: 30 }}
-            >
+            <ScatterChart margin={{ top: 20, right: 30, bottom: 30, left: 30 }}>
               <CartesianGrid
                 stroke="var(--border-subtle)"
                 strokeDasharray="3 3"
@@ -518,7 +516,7 @@ const Chart = (props: any) => {
       >
         <IconDownload size={20} />
       </button>
-      <div className="pt-4 bg-panel" id={`chart-${Label}`}>
+      <div className="pt-4 bg-panel" ref={chartRef}>
         <div className="pl-4">{Label}</div>
         {renderChart()}
       </div>

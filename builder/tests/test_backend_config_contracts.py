@@ -1821,8 +1821,6 @@ def test_llm_sandbox_tool_is_optional_top_level_tool():
 
 def test_sandbox_artifact_publication_is_wired_to_the_frontend_service():
     deployment = BACKEND_DEPLOYMENT_TEMPLATE.read_text(encoding="utf-8")
-    standard_policy = NETWORK_POLICY_BACKEND_TEMPLATE.read_text(encoding="utf-8")
-    cilium_policy = CILIUM_BACKEND_TEMPLATE.read_text(encoding="utf-8")
     compose = DOCKER_COMPOSE.read_text(encoding="utf-8")
 
     assert "DAEDALUS_ARTIFACT_PUBLISH_URL" in deployment
@@ -1833,10 +1831,8 @@ def test_sandbox_artifact_publication_is_wired_to_the_frontend_service():
         "DAEDALUS_ARTIFACT_PUBLISH_URL=http://frontend:3000"
         "/api/internal/sandboxArtifacts"
     ) in compose
-    for policy in (standard_policy, cilium_policy):
-        assert "Trusted callback" in policy or "sandbox adapter" in policy
-        assert "frontend.service.port" in policy
-        assert "app.kubernetes.io/component: frontend" in policy
+    # Rendered policy coverage in test_nginx_routes_helm verifies the callback's
+    # pod port separately from the Service port used by this URL.
 
 
 def test_workflow_uses_configured_internet_search_providers():

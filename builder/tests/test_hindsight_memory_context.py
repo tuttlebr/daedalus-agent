@@ -215,6 +215,14 @@ def test_session_brief_reflects_only_for_explicit_synthesis(monkeypatch):
         async def delete(self, key):
             self.values.pop(key, None)
 
+        async def eval(
+            self, _script, _count, generation_key, key, generation, value, _ttl
+        ):
+            if self.values.get(generation_key, "") != generation:
+                return 0
+            self.values[key] = value
+            return 1
+
     class FakeClient:
         def __init__(self):
             self.queries = []
@@ -264,6 +272,9 @@ def test_clear_user_memory_caches_removes_bootstrap_and_all_user_sessions(monkey
     patterns = []
 
     class FakeRedis:
+        async def set(self, *_args):
+            return True
+
         async def scan_iter(self, *, match, count):
             patterns.append((match, count))
             yield f"{match[:-1]}conversation"

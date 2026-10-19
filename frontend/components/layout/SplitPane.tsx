@@ -63,13 +63,26 @@ export const SplitPane = memo(
       setUserSessionItem('chatbarWidth', String(widthRef.current));
     }, []);
 
+    useEffect(() => {
+      if (!showChatbar) {
+        setIsResizing(false);
+        return;
+      }
+      if (!isResizing) return;
+      const { cursor, userSelect } = document.body.style;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      return () => {
+        document.body.style.cursor = cursor;
+        document.body.style.userSelect = userSelect;
+      };
+    }, [isResizing, showChatbar]);
+
     const handlePointerDown = useCallback(
       (e: React.PointerEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
         setIsResizing(true);
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
       },
       [],
     );
@@ -77,18 +90,17 @@ export const SplitPane = memo(
     const handlePointerMove = useCallback(
       (e: React.PointerEvent<HTMLDivElement>) => {
         if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-        applyWidth(e.clientX);
+        widthRef.current = applyWidth(e.clientX);
       },
       [applyWidth],
     );
 
     const handlePointerUp = useCallback(
       (e: React.PointerEvent<HTMLDivElement>) => {
-        if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-        e.currentTarget.releasePointerCapture(e.pointerId);
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
         setIsResizing(false);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
         persistWidth();
       },
       [persistWidth],
@@ -155,6 +167,7 @@ export const SplitPane = memo(
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            onLostPointerCapture={handlePointerUp}
             onKeyDown={handleKeyDown}
             onDoubleClick={handleDoubleClick}
             role="separator"

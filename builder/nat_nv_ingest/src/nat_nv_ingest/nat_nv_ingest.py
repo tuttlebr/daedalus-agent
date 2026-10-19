@@ -181,12 +181,12 @@ def _apply_char_limit(raw_md: str, char_limit: int | None) -> tuple[str, bool]:
 def _estimated_decoded_size(document_base64: str) -> int:
     """Estimate the decoded byte length of a base64 string without decoding.
 
-    Base64 encodes 3 bytes per 4 characters; padding ('=') reduces the count.
+    Count data characters: the decoder accepts redundant trailing padding after
+    complete quartets, which must not reduce the size estimate.
     Used to reject oversized uploads before allocating the decoded bytes.
     """
-    encoded = document_base64.strip()
-    padding = encoded.count("=")
-    return (len(encoded) * 3) // 4 - padding
+    encoded = document_base64.strip().rstrip("=")
+    return (len(encoded) * 3) // 4
 
 
 def _document_size_error(document_base64: str, max_bytes: int) -> str | None:
@@ -1724,9 +1724,16 @@ class NvIngestDocumentProcessor:
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
         progress_callback: ProgressCallback | None = None,
+        *,
+        append_to_collection: bool = False,
     ) -> IngestResult:
         """Processes a document from Redis and ingests it into Milvus."""
-        config = self.config
+        # A batch recreates once, then appends without mutating shared settings.
+        config = (
+            self.config.model_copy(update={"recreate_collection": False})
+            if append_to_collection
+            else self.config
+        )
         logger.info(
             "process_document called with: documentRef=%s, username=%s, collection_name=%s",
             documentRef,
@@ -1735,7 +1742,7 @@ class NvIngestDocumentProcessor:
         )
 
         chunk_size = chunk_size or config.chunk_size
-        chunk_overlap = chunk_overlap or config.chunk_overlap
+        chunk_overlap = config.chunk_overlap if chunk_overlap is None else chunk_overlap
 
         collection_name = resolve_user_collection_name(
             collection_name,
@@ -2204,7 +2211,7 @@ class NvIngestDocumentProcessor:
             )
         start_time = time.time()
 
-        sync_prefix = 1 if config.recreate_collection and total_documents > 1 else 0
+        sync_prefix = 0
         concurrency = max(1, config.batch_concurrency)
         sem = asyncio.Semaphore(concurrency)
 
@@ -2303,6 +2310,7 @@ class NvIngestDocumentProcessor:
                         chunk_size=chunk_size,
                         chunk_overlap=chunk_overlap,
                         progress_callback=_doc_progress,
+                        append_to_collection=bool(successful_documents),
                     )
                 logger.info(
                     "Document %d completed in %.2fs: status=%s chunks=%d pages=%d",
@@ -2410,7 +2418,15 @@ class NvIngestDocumentProcessor:
             ),
         )
 
-        for idx in range(sync_prefix):
+        # Failed documents may never reach the writer. Keep the prefix serial
+        # until a successful write establishes the replacement collection.
+        while (
+            config.recreate_collection
+            and sync_prefix < total_documents
+            and not successful_documents
+        ):
+            idx = sync_prefix
+            sync_prefix += 1
             _idx, ref_filename, outcome = await _one(idx + 1, documentRefs[idx])
             status_event = _accumulate(ref_filename, outcome)
             await _emit_progress(
@@ -2503,7 +2519,9 @@ class NvIngestDocumentProcessor:
             total_pages=total_pages,
             collection_name=collection_name,
             chunk_size=chunk_size or config.chunk_size,
-            chunk_overlap=chunk_overlap or config.chunk_overlap,
+            chunk_overlap=config.chunk_overlap
+            if chunk_overlap is None
+            else chunk_overlap,
         )
 
         total_time = time.time() - start_time
@@ -2737,16 +2755,25 @@ async def nv_ingest_function(
             )
             from nat_helpers.idempotency import reserve_operation
 
+            arguments = {
+                "collection": resolved_collection,
+                "documents": immutable_refs,
+                "chunkSize": chunk_size or config.chunk_size,
+                "chunkOverlap": config.chunk_overlap
+                if chunk_overlap is None
+                else chunk_overlap,
+            }
             reservation = await reserve_operation(
                 user_id=username,
                 execution_id=execution_id,
                 operation="ingest_user_documents",
-                arguments={
-                    "collection": resolved_collection,
-                    "documents": immutable_refs,
-                    "chunkSize": chunk_size or config.chunk_size,
-                    "chunkOverlap": chunk_overlap or config.chunk_overlap,
-                },
+                arguments=arguments,
+                contract="document-overlap-v2",
+                legacy_arguments=(
+                    {**arguments, "chunkOverlap": config.chunk_overlap}
+                    if chunk_overlap == 0 and config.chunk_overlap != 0
+                    else None
+                ),
             )
         except Exception as exc:
             logger.exception("Unable to reserve autonomous document ingest")

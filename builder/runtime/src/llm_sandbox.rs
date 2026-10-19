@@ -1589,15 +1589,12 @@ impl Tool {
         if data["truncated"] == true {
             return error("Sandbox truncated the collected artifact; the file was not published.");
         }
-        let missing = data
-            .get("missingFiles")
-            .ok_or_else(|| crate::document_search::Failure::new("KeyError"))?;
         let files = data
             .get("files")
-            .ok_or_else(|| crate::document_search::Failure::new("KeyError"))?
-            .as_array()
-            .unwrap();
-        if crate::config::truthy(missing) || files.len() != 1 {
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if data.get("missingFiles").is_some_and(crate::config::truthy) || files.len() != 1 {
             return error(
                 "Sandbox did not return exactly one requested artifact; the file was not published.",
             );

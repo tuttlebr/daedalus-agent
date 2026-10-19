@@ -277,6 +277,36 @@ class TestNvIngestFunctionConfig:
         assert "render_as_pdf" not in FakeIngestor.extract_kwargs
 
 
+@pytest.mark.parametrize("raw", [b"ABC", b"ABCDEF"])
+@pytest.mark.parametrize("padding", [4, 64])
+def test_legacy_document_size_cap_counts_data_not_redundant_padding(
+    monkeypatch, raw, padding
+):
+    import base64
+
+    encoded = base64.b64encode(raw).decode() + "=" * padding
+    record = {"data": encoded, "filename": "legacy.txt"}
+    monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", str(len(raw) - 1))
+    with pytest.raises(DocumentStorageError, match="maximum allowed size"):
+        asyncio.run(
+            _load_document_bytes(
+                document_record=record,
+                document_id="document",
+                session_id="session",
+                username="alice",
+            )
+        )
+    monkeypatch.setenv("DOCUMENT_INGEST_MAX_SIZE_BYTES", str(len(raw)))
+    assert asyncio.run(
+        _load_document_bytes(
+            document_record=record,
+            document_id="document",
+            session_id="session",
+            username="alice",
+        )
+    ) == (raw, "legacy.txt")
+
+
 class TestCollectionResolution:
     def test_normalizes_collection_parts(self):
         assert normalize_collection_part("Brandon Smith@example.com") == (
@@ -1682,3 +1712,103 @@ class TestDocumentObjectStorage:
                     username="alice",
                 )
             )
+
+
+@pytest.mark.parametrize("concurrency", [1, 3])
+@pytest.mark.parametrize("batch_size", [1, 3])
+@pytest.mark.parametrize("missing_first", [False, True])
+@pytest.mark.parametrize("chunk_overlap", [None, 0])
+def test_recreated_batch_retains_every_successful_document(
+    monkeypatch, concurrency, batch_size, missing_first, chunk_overlap
+):
+    """Use the real batch/processor/builder through a stateful SDK boundary."""
+    import asyncio
+    import base64
+    import json
+    from unittest.mock import AsyncMock, MagicMock
+
+    import nat_nv_ingest.nat_nv_ingest as mod
+
+    rows = ["old.txt"]
+    writes = []
+    overlaps = []
+
+    class Ingestor:
+        def __init__(self, client):
+            pass
+
+        def buffers(self, buffers):
+            self.filename = buffers[0][0]
+            return self
+
+        def extract(self, **kwargs):
+            return self
+
+        def filter(self, **kwargs):
+            return self
+
+        def split(self, **kwargs):
+            overlaps.append(kwargs["chunk_overlap"])
+            return self
+
+        def dedup(self):
+            return self
+
+        def embed(self):
+            return self
+
+        def vdb_upload(self, **kwargs):
+            self.recreate = kwargs["recreate"]
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def ingest(self, **kwargs):
+            if self.recreate:
+                rows.clear()
+            rows.append(self.filename)
+            writes.append(self.recreate)
+            return [[{"metadata": {"content": self.filename}}]], [[]]
+
+    monkeypatch.setattr(mod, "Ingestor", Ingestor)
+    monkeypatch.setattr(mod, "_validate_embedding_dimension", lambda *_: None)
+    config = mod.NvIngestFunctionConfig(
+        recreate_collection=True,
+        batch_concurrency=concurrency,
+        max_documents_per_batch=batch_size,
+    )
+    processor = mod.NvIngestDocumentProcessor(config)
+    records = {
+        f"document:s:d{i}": json.dumps(
+            {
+                "userId": "alice",
+                "filename": f"{i}.txt",
+                "data": base64.b64encode(b"text").decode(),
+            }
+        )
+        for i in range(3)
+        if i != 0 or not missing_first
+    }
+    redis = MagicMock()
+    redis.execute_command.side_effect = lambda _command, key, *_: records.get(key)
+    monkeypatch.setattr(processor, "_get_redis", AsyncMock(return_value=redis))
+    monkeypatch.setattr(processor, "_get_nv_client", AsyncMock(return_value=object()))
+    output = asyncio.run(
+        processor.process_multiple_documents(
+            documentRefs=[{"documentId": f"d{i}", "sessionId": "s"} for i in range(3)],
+            username="alice",
+            chunk_overlap=chunk_overlap,
+        )
+    )
+    expected = [f"{i}.txt" for i in range(int(missing_first), 3)]
+    assert sorted(rows) == expected, output
+    assert writes == [True] + [False] * (len(expected) - 1)
+    assert config.recreate_collection is True
+    expected_overlap = config.chunk_overlap if chunk_overlap is None else chunk_overlap
+    assert overlaps == [expected_overlap] * len(expected)
+    if not missing_first:
+        assert f"with {expected_overlap} overlap" in output

@@ -259,7 +259,13 @@ export async function parseMultipartDocument(
     }
     buffered = Buffer.concat([buffered, chunk]);
   }
-  if (!validateMagicBytes(buffered.subarray(0, prefixLength), mimeType)) {
+  if (
+    !validateMagicBytes(
+      buffered.subarray(0, prefixLength),
+      mimeType,
+      size > prefixLength,
+    )
+  ) {
     throw new MultipartDocumentError(
       415,
       'File content does not match claimed MIME type',

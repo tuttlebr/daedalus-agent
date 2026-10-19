@@ -665,3 +665,33 @@ def test_operator_cli_migrates_then_records_a_reasoned_rollback(
     rolled_back = json.loads(capsys.readouterr().out)
     assert rolled_back["state"] == "rolled_back"
     assert rolled_back["migration_id"] == migrated["migration_id"]
+
+
+def test_audit_append_completes_short_filesystem_writes(tmp_path, monkeypatch):
+    import milvus_collection_migration as migration
+
+    original_write = migration.os.write
+    writes = []
+
+    def short_write(fd, data):
+        size = original_write(fd, data[:17])
+        writes.append(size)
+        return size
+
+    monkeypatch.setattr(migration.os, "write", short_write)
+    audit = AppendOnlyMigrationAudit(tmp_path / "audit.jsonl")
+    first = audit.append({"event": "migration_started", "subject": "alice"})
+    second = audit.append({"event": "migration_verified", "subject": "alice"})
+
+    assert audit.read() == [first, second]
+    assert len(writes) > 2
+    assert second["previous_hash"] == first["event_hash"]
+
+
+def test_audit_append_rejects_a_write_without_progress(tmp_path, monkeypatch):
+    import milvus_collection_migration as migration
+
+    monkeypatch.setattr(migration.os, "write", lambda *_: 0)
+    audit = AppendOnlyMigrationAudit(tmp_path / "audit.jsonl")
+    with pytest.raises(MigrationStateError, match="write made no progress"):
+        audit.append({"event": "migration_verified"})

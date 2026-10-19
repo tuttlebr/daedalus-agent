@@ -755,3 +755,46 @@ def test_window_ms_for_days_clamps_and_defaults():
     assert window_ms_for_days(None) == DEFAULT_WINDOW_DAYS * DAY_MS
     assert window_ms_for_days("nonsense") == DEFAULT_WINDOW_DAYS * DAY_MS
     assert window_ms_for_days(9999) == MAX_WINDOW_DAYS * DAY_MS
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com:bad/report",
+        "https://example.com:70000/report",
+        "https://[invalid/report",
+    ],
+)
+def test_malformed_source_does_not_abort_feed_deduplication(url):
+    assert normalize_url(url) == ""
+    kept, dropped = dedupe_feed_items([_item(sourceUrl=url)], [], now=NOW)
+    assert len(kept) == 1
+    assert dropped == []
+
+
+def test_query_value_delimiters_do_not_collapse_distinct_source_documents():
+    existing = _item(
+        id="prior",
+        title="GPU status",
+        bluf="Devices online",
+        body="Healthy nodes",
+        sourceUrl="https://example.com/report?region=east%26topic%3Dcompute",
+    )
+    candidate = _item(
+        id="new",
+        title="Storage outage",
+        bluf="Disk unavailable",
+        body="Restore backup",
+        sourceUrl="https://example.com/report?topic=compute&region=east",
+    )
+    assert normalize_url(existing["sourceUrl"]) != normalize_url(candidate["sourceUrl"])
+    kept, dropped = dedupe_feed_items([candidate], [existing], now=NOW)
+    assert kept == [candidate]
+    assert dropped == []
+
+
+def test_encoded_source_normalization_is_idempotent_and_digest_is_only_host():
+    url = "https://example.com?topic=compute%26region%3Deast&label=caf%C3%A9+notes"
+    normalized = normalize_url(url)
+    assert normalize_url(normalized) == normalized
+    assert url_domain(url) == "example.com"

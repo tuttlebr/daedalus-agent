@@ -132,6 +132,107 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
     },
   );
 
+  it('does not restart backend execution for a fresh duplicate after lease loss', async () => {
+    const redis = await import('@/server/session/redis');
+    const state = await import('@/server/chat/jobState');
+    const streamState = await import('@/server/chat/streamState');
+    const reader = await import('@/server/chat/streamReader');
+    const worker = await import('@/server/chat/streamWorker');
+    const duplicateJob = `${jobId}-duplicate`;
+    const requestKey = redis.sessionKey(['async-job-request', duplicateJob]);
+    const statusKey = redis.sessionKey(['async-job-status', duplicateJob]);
+    const backend = vi
+      .spyOn(reader, 'startBackgroundStreamReader')
+      .mockRejectedValue(new Error('Backend execution must not be repeated'));
+    const entries: string[] = [];
+    try {
+      await redis.jsonSetWithExpiry(
+        requestKey,
+        {
+          jobId: duplicateJob,
+          userId: 'duplicate-user',
+          executionMode: 'stream',
+          natBaseUrl: 'http://127.0.0.1:1',
+          messages: [],
+        },
+        120,
+      );
+      await redis.jsonSetWithExpiry(
+        statusKey,
+        {
+          jobId: duplicateJob,
+          status: 'streaming',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+        120,
+      );
+      const payload = {
+        messagesForNat: [],
+        verifiedUsername: 'duplicate-user',
+      };
+      entries.push(await queue.enqueueStreamJob(duplicateJob, payload));
+      await queue.readNewStreamJobs(client, 'original-worker', 1, 100);
+      expect(
+        await queue.acquireStreamLease(duplicateJob, 'original', 30000, client),
+      ).toBe(true);
+      expect(
+        await queue.markBackendRequestStarted(duplicateJob, 'original', client),
+      ).toBe(true);
+      await streamState.appendStreamResponseDelta(
+        duplicateJob,
+        'Already accepted output',
+        0,
+      );
+      await queue.releaseStreamLease(duplicateJob, 'original', client);
+
+      // A lost XADD reply can be retried by Redis transport. Its new stream ID
+      // has never been delivered, although this job has already called backend.
+      entries.push(await queue.enqueueStreamJob(duplicateJob, payload));
+      const [duplicate] = await queue.readNewStreamJobs(
+        client,
+        'replacement-worker',
+        1,
+        100,
+      );
+      expect(duplicate.reclaimed).toBe(false);
+      await expect(
+        worker.processStreamQueueEntry(
+          duplicate,
+          worker.streamWorkerOptionsFromEnv(),
+          undefined,
+          'replacement',
+        ),
+      ).resolves.toBe('recovered_as_error');
+      expect(backend).not.toHaveBeenCalled();
+      expect(await redis.jsonGet(statusKey)).toMatchObject({
+        status: 'error',
+        partialResponse: 'Already accepted output',
+        error: expect.stringContaining('was not replayed'),
+      });
+    } finally {
+      backend.mockRestore();
+      if (entries.length) {
+        await client.xack(
+          queue.STREAM_QUEUE_KEY,
+          queue.STREAM_QUEUE_GROUP,
+          ...entries,
+        );
+        await client.xdel(queue.STREAM_QUEUE_KEY, ...entries);
+      }
+      await client.del(
+        requestKey,
+        statusKey,
+        queue.streamPayloadKey(duplicateJob),
+        queue.streamLeaseKey(duplicateJob),
+        queue.streamBackendStartedKey(duplicateJob),
+        state.finalizationJournalKey(duplicateJob),
+        state.abortKey(duplicateJob),
+        streamState.streamResponseKey(duplicateJob),
+      );
+    }
+  });
+
   it('keeps long-running job recovery state alive only for the lease owner', async () => {
     const { sessionKey } = await import('@/server/session/redis');
     const state = await import('@/server/chat/streamState');

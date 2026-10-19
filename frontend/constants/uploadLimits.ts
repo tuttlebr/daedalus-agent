@@ -54,7 +54,8 @@ function positiveNumberFromEnv(names: EnvName[], fallback: number): number {
 }
 
 function positiveIntegerFromEnv(names: EnvName[], fallback: number): number {
-  return Math.floor(positiveNumberFromEnv(names, fallback));
+  const parsed = Math.floor(positiveNumberFromEnv(names, fallback));
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function mbToBytes(mb: number): number {
@@ -90,12 +91,18 @@ const SERVER_IMAGE_LIMIT = Math.min(
 const SERVER_VIDEO_LIMIT = mbToBytes(
   positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_VIDEO_SERVER_LIMIT_MB'], 100),
 );
-const SERVER_DOCUMENT_LIMIT = mbToBytes(
-  positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB'], 200),
+// documentStorage caps its configurable limit at 200 MiB; videoStorage has a
+// fixed 100 MiB ceiling. Public overrides must not admit unsupported sizes.
+const SERVER_DOCUMENT_LIMIT = Math.min(
+  mbToBytes(
+    positiveNumberFromEnv(['NEXT_PUBLIC_UPLOAD_DOCUMENT_SERVER_LIMIT_MB'], 200),
+  ),
+  200 * MB,
 );
 const IMAGE_MAX_SIZE_BYTES = SERVER_IMAGE_LIMIT;
-const VIDEO_MAX_SIZE_BYTES = Math.floor(
-  SERVER_VIDEO_LIMIT * BASE64_OVERHEAD_FACTOR,
+const VIDEO_MAX_SIZE_BYTES = Math.min(
+  Math.floor(SERVER_VIDEO_LIMIT * BASE64_OVERHEAD_FACTOR),
+  100 * MB,
 );
 const DOCUMENT_MAX_SIZE_BYTES = SERVER_DOCUMENT_LIMIT;
 

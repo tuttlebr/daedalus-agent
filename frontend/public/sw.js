@@ -83,7 +83,9 @@ class CacheManager {
   constructor(cacheName, maxSize, maxItems) {
     this.cacheName = cacheName;
     this.cacheMetadata = new Map();
-    this.memoryPressureThreshold = 70.0; // 70% memory usage triggers cleanup
+    this.memoryPressureThreshold = 0.7; // 70% storage usage triggers cleanup
+    this.initialization = null;
+    this.operations = Promise.resolve();
     this.contentTypeLimits = {
       image: { maxSize: MAX_IMAGE_CACHE_SIZE, maxItems: MAX_IMAGE_ITEMS },
       api: { maxSize: 5 * 1024 * 1024, maxItems: 10 },
@@ -91,7 +93,24 @@ class CacheManager {
     };
   }
 
-  async init() {
+  init() {
+    // A worker can restart without another install event. Initialize lazily for
+    // every lifetime, and share the load across concurrent cache operations.
+    return (this.initialization ??= this.loadMetadata());
+  }
+
+  mutate(operation) {
+    // Keep limit checks and metadata updates in the same ordered operation.
+    // Network requests and response sizing remain concurrent.
+    const result = this.operations.then(async () => {
+      await this.init();
+      return operation();
+    });
+    this.operations = result.catch(() => {});
+    return result;
+  }
+
+  async loadMetadata() {
     // Load metadata from IndexedDB if available
     if ('indexedDB' in self) {
       try {
@@ -105,6 +124,7 @@ class CacheManager {
             size: item.size,
             timestamp: item.timestamp,
             accessCount: item.accessCount || 0,
+            contentType: item.contentType || 'default',
           });
         });
       } catch (err) {
@@ -153,6 +173,7 @@ class CacheManager {
   }
 
   async addToCache(cache, request, response) {
+    await this.init();
     const url = request.url;
     const clonedResponse = response.clone();
     const contentType = this.getContentType(request, response);
@@ -186,31 +207,34 @@ class CacheManager {
       return;
     }
 
-    // Check if we need to evict items
-    await this.enforceLimit(cache, size, contentType);
+    return this.mutate(async () => {
+      // Check if we need to evict items
+      await this.enforceLimit(cache, size, contentType, url);
 
-    // Add to cache
-    await cache.put(request, response);
+      // Add to cache
+      await cache.put(request, response);
 
-    // Update metadata
-    this.cacheMetadata.set(url, {
-      size,
-      timestamp: Date.now(),
-      accessCount: 1,
-      contentType,
+      // Update metadata
+      this.cacheMetadata.set(url, {
+        size,
+        timestamp: Date.now(),
+        accessCount: 1,
+        contentType,
+      });
+
+      await this.saveMetadata(url);
     });
-
-    await this.saveMetadata(url);
   }
 
-  async enforceLimit(cache, newItemSize, contentType = 'default') {
+  async enforceLimit(cache, newItemSize, contentType = 'default', replacedUrl) {
     const limits =
       this.contentTypeLimits[contentType] || this.contentTypeLimits.default;
     let totalSizeByType = { image: 0, api: 0, default: 0 };
     let itemCountByType = { image: 0, api: 0, default: 0 };
 
     // Calculate current cache size by type
-    for (const metadata of this.cacheMetadata.values()) {
+    for (const [url, metadata] of this.cacheMetadata) {
+      if (url === replacedUrl) continue;
       const type = metadata.contentType || 'default';
       totalSizeByType[type] = (totalSizeByType[type] || 0) + metadata.size;
       itemCountByType[type] = (itemCountByType[type] || 0) + 1;
@@ -226,7 +250,7 @@ class CacheManager {
         itemCountByType[contentType] > limits.maxItems) &&
       this.cacheMetadata.size > 0
     ) {
-      const urlToEvict = this.findLRUItemByType(contentType);
+      const urlToEvict = this.findLRUItemByType(contentType, replacedUrl);
       if (!urlToEvict) break;
 
       const metadata = this.cacheMetadata.get(urlToEvict);
@@ -244,11 +268,12 @@ class CacheManager {
     }
   }
 
-  findLRUItemByType(contentType) {
+  findLRUItemByType(contentType, excludedUrl) {
     let lruUrl = null;
     let lruScore = -1;
 
     for (const [url, metadata] of this.cacheMetadata.entries()) {
+      if (url === excludedUrl) continue;
       // Only consider items of the specified content type
       if ((metadata.contentType || 'default') !== contentType) continue;
 
@@ -269,12 +294,14 @@ class CacheManager {
   }
 
   async updateAccess(url) {
-    const metadata = this.cacheMetadata.get(url);
-    if (metadata) {
-      metadata.accessCount++;
-      metadata.timestamp = Date.now();
-      await this.saveMetadata(url);
-    }
+    return this.mutate(async () => {
+      const metadata = this.cacheMetadata.get(url);
+      if (metadata) {
+        metadata.accessCount++;
+        metadata.timestamp = Date.now();
+        await this.saveMetadata(url);
+      }
+    });
   }
 
   async saveMetadata(url) {
@@ -313,80 +340,86 @@ class CacheManager {
   }
 
   async cleanupExpiredItems(cache) {
-    const now = Date.now();
-    const expiredUrls = [];
+    return this.mutate(async () => {
+      const now = Date.now();
+      const expiredUrls = [];
 
-    for (const [url, metadata] of this.cacheMetadata.entries()) {
-      if (now - metadata.timestamp > CACHE_EXPIRY_TIME) {
-        expiredUrls.push(url);
+      for (const [url, metadata] of this.cacheMetadata.entries()) {
+        if (now - metadata.timestamp > CACHE_EXPIRY_TIME) {
+          expiredUrls.push(url);
+        }
       }
-    }
 
-    for (const url of expiredUrls) {
-      await cache.delete(url);
-      this.cacheMetadata.delete(url);
-      await this.deleteMetadata(url);
-      swLog.info(`Cleaned up expired cache item: ${url}`);
-    }
+      for (const url of expiredUrls) {
+        await cache.delete(url);
+        this.cacheMetadata.delete(url);
+        await this.deleteMetadata(url);
+        swLog.info(`Cleaned up expired cache item: ${url}`);
+      }
+    });
   }
 
   async checkMemoryPressure() {
-    // Check if we're approaching storage quota
-    if ('storage' in navigator && 'estimate' in navigator.storage) {
-      try {
-        const estimate = await navigator.storage.estimate();
-        if (estimate.usage && estimate.quota) {
-          const usageRatio = estimate.usage / estimate.quota;
+    return this.mutate(async () => {
+      // Check if we're approaching storage quota
+      if ('storage' in navigator && 'estimate' in navigator.storage) {
+        try {
+          const estimate = await navigator.storage.estimate();
+          if (estimate.usage && estimate.quota) {
+            const usageRatio = estimate.usage / estimate.quota;
 
-          if (usageRatio > this.memoryPressureThreshold) {
-            swLog.warn(
-              `Memory pressure detected: ${(usageRatio * 100).toFixed(
-                1,
-              )}% of quota used`,
-            );
-
-            // Aggressively clean up cache
-            const cache = await caches.open(this.cacheName);
-
-            // Remove different percentages based on content type
-            const removalTargets = {
-              image: 0.8, // Remove 80% of images
-              api: 0.5, // Remove 50% of API responses
-              default: 0.6, // Remove 60% of other content
-            };
-
-            let totalRemoved = 0;
-            for (const [contentType, removalRatio] of Object.entries(
-              removalTargets,
-            )) {
-              const itemsOfType = Array.from(
-                this.cacheMetadata.entries(),
-              ).filter(
-                ([, meta]) => (meta.contentType || 'default') === contentType,
+            if (usageRatio > this.memoryPressureThreshold) {
+              swLog.warn(
+                `Memory pressure detected: ${(usageRatio * 100).toFixed(
+                  1,
+                )}% of quota used`,
               );
 
-              const itemsToRemove = Math.ceil(
-                itemsOfType.length * removalRatio,
-              );
+              // Aggressively clean up cache
+              const cache = await caches.open(this.cacheName);
 
-              for (let i = 0; i < itemsToRemove; i++) {
-                const urlToEvict = this.findLRUItemByType(contentType);
-                if (urlToEvict) {
-                  await cache.delete(urlToEvict);
-                  this.cacheMetadata.delete(urlToEvict);
-                  await this.deleteMetadata(urlToEvict);
-                  totalRemoved++;
+              // Remove different percentages based on content type
+              const removalTargets = {
+                image: 0.8, // Remove 80% of images
+                api: 0.5, // Remove 50% of API responses
+                default: 0.6, // Remove 60% of other content
+              };
+
+              let totalRemoved = 0;
+              for (const [contentType, removalRatio] of Object.entries(
+                removalTargets,
+              )) {
+                const itemsOfType = Array.from(
+                  this.cacheMetadata.entries(),
+                ).filter(
+                  ([, meta]) => (meta.contentType || 'default') === contentType,
+                );
+
+                const itemsToRemove = Math.ceil(
+                  itemsOfType.length * removalRatio,
+                );
+
+                for (let i = 0; i < itemsToRemove; i++) {
+                  const urlToEvict = this.findLRUItemByType(contentType);
+                  if (urlToEvict) {
+                    await cache.delete(urlToEvict);
+                    this.cacheMetadata.delete(urlToEvict);
+                    await this.deleteMetadata(urlToEvict);
+                    totalRemoved++;
+                  }
                 }
               }
-            }
 
-            swLog.info(`Cleared ${totalRemoved} items due to memory pressure`);
+              swLog.info(
+                `Cleared ${totalRemoved} items due to memory pressure`,
+              );
+            }
           }
+        } catch (error) {
+          swLog.error('Error checking storage estimate', error);
         }
-      } catch (error) {
-        swLog.error('Error checking storage estimate', error);
       }
-    }
+    });
   }
 }
 
@@ -414,7 +447,7 @@ self.addEventListener('message', (event) => {
 // Only runs every 5 minutes instead of every minute
 setInterval(() => {
   if (backgroundTasksEnabled) {
-    cacheManager.checkMemoryPressure();
+    return cacheManager.checkMemoryPressure();
   }
 }, 5 * 60000); // Check every 5 minutes (reduced from 1 minute)
 
@@ -656,24 +689,28 @@ self.addEventListener('notificationclick', (event) => {
 // upgrades and identity changes. RUNTIME_CACHE holds HTML navigations.
 async function clearPrivateCaches() {
   try {
-    await Promise.all([
-      caches.delete(LEGACY_PRIVATE_CACHE),
-      caches.delete(RUNTIME_CACHE),
-    ]);
-    // RUNTIME_CACHE was just dropped — reset the in-memory LRU accounting so it
-    // does not reference evicted entries.
-    cacheManager.cacheMetadata.clear();
-    // Also wipe the persisted LRU metadata so the in-memory clear is not undone
-    // when the worker reloads metadata from IndexedDB on next startup.
-    if ('indexedDB' in self) {
-      try {
-        const db = await cacheManager.openDB();
-        const tx = db.transaction(['cache-metadata'], 'readwrite');
-        tx.objectStore('cache-metadata').clear();
-      } catch (err) {
-        swLog.warn('Failed to clear persisted cache metadata', err);
+    await cacheManager.mutate(async () => {
+      await Promise.all([
+        caches.delete(LEGACY_PRIVATE_CACHE),
+        caches.delete(RUNTIME_CACHE),
+      ]);
+      // RUNTIME_CACHE was just dropped — reset the in-memory LRU accounting so it
+      // does not reference evicted entries.
+      cacheManager.cacheMetadata.clear();
+      // Also wipe the persisted LRU metadata so the in-memory clear is not undone
+      // when the worker reloads metadata from IndexedDB on next startup.
+      if ('indexedDB' in self) {
+        try {
+          const db = await cacheManager.openDB();
+          const tx = db.transaction(['cache-metadata'], 'readwrite');
+          await cacheManager.promisifyRequest(
+            tx.objectStore('cache-metadata').clear(),
+          );
+        } catch (err) {
+          swLog.warn('Failed to clear persisted cache metadata', err);
+        }
       }
-    }
+    });
     swLog.info('Cleared private caches on identity change');
   } catch (error) {
     swLog.error('Error clearing private caches', error);
@@ -700,8 +737,8 @@ setInterval(() => {
   if (backgroundTasksEnabled) {
     caches
       .open(RUNTIME_CACHE)
-      .then((cache) => {
-        cacheManager.cleanupExpiredItems(cache);
+      .then(async (cache) => {
+        await cacheManager.cleanupExpiredItems(cache);
         swLog.info('Periodic cache cleanup completed');
       })
       .catch((error) => {

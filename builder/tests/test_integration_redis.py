@@ -245,7 +245,8 @@ def test_autonomous_scoped_acl_reads_json_and_preserves_workspace():
             store.redis.execute_command("JSON.GET", "__autonomy_probe__")
         assert store.get_config(user_id)["enabled"] is False
         assert store._json_supported is True
-        workspace = load_workspace(store, user_id)
+        assert store.acquire_lease(user_id)
+        workspace = load_workspace(store, user_id, require_lease=True)
         assert workspace["identity"] == "Preserved workspace identity"
         assert workspace["interests"]
         store.json_set(config_key, {"enabled": False, "intervalSeconds": 7200})
@@ -253,8 +254,16 @@ def test_autonomous_scoped_acl_reads_json_and_preserves_workspace():
         store.atomic_update(
             autonomy_key(user_id, "runs"),
             lambda current: (current + [{"id": "verified"}], None),
+            lease_user=user_id,
         )
         assert store.list_runs(user_id) == [{"id": "verified"}]
+
+        from autonomous_agent.store import WorkerLeaseLost
+
+        admin.pexpire(autonomy_key(user_id, "lease"), 0)
+        with pytest.raises(WorkerLeaseLost):
+            store.set_text(identity_key, "stale seed", lease_user=user_id)
+        assert store.get_text(identity_key) == "Preserved workspace identity"
 
         for denied_key in ["session:fixture", f"autonomous:{user_id}:unrelated"]:
             with pytest.raises(redis.exceptions.NoPermissionError):
@@ -311,3 +320,252 @@ def test_autonomous_local_write_idempotency_is_atomic_in_real_redis(monkeypatch)
         client.delete(key)
     finally:
         client.close()
+
+
+@pytest.mark.parametrize("stored", ["pending", "completed", "invalid", "empty"])
+def test_corrected_document_overlap_preserves_old_receipts(stored):
+    from nat_helpers.idempotency import (
+        canonical_arguments_sha256,
+        operation_key,
+        reserve_operation,
+    )
+
+    client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+    identity = {
+        "user_id": "alice",
+        "execution_id": f"overlap-itest-{uuid.uuid4().hex}",
+        "operation": "ingest_user_documents",
+    }
+    legacy = {"documents": ["immutable-document"], "chunkOverlap": 150}
+    corrected = {**legacy, "chunkOverlap": 0}
+    keys = [
+        operation_key(**identity, arguments_sha256=canonical_arguments_sha256(args))
+        for args in [legacy, corrected]
+    ]
+    raw = {
+        "pending": '{"state":"in_progress","owner":"old-owner"}',
+        "completed": json.dumps({"state": "completed", "result": "old receipt \ud800"}),
+        "invalid": "broken",
+        "empty": "",
+    }[stored]
+    try:
+        client.set(keys[0], raw, ex=60)
+        reservation = asyncio.run(
+            reserve_operation(
+                **identity,
+                arguments=corrected,
+                contract="document-overlap-v2",
+                legacy_arguments=legacy,
+            )
+        )
+        assert not reservation.acquired
+        if stored == "completed":
+            assert reservation.stored_result == "old receipt \ud800"
+        assert client.get(keys[0]) == raw
+        assert not client.exists(keys[1])
+    finally:
+        client.delete(*keys)
+        client.close()
+
+
+@pytest.mark.parametrize("zero_first", [False, True])
+def test_corrected_document_overlap_has_distinct_atomic_receipts(zero_first):
+    from nat_helpers.idempotency import complete_operation, reserve_operation
+
+    client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+    identity = {
+        "user_id": "alice",
+        "execution_id": f"overlap-itest-{uuid.uuid4().hex}",
+        "operation": "ingest_user_documents",
+        "contract": "document-overlap-v2",
+    }
+    legacy = {"documents": ["immutable-document"], "chunkOverlap": 150}
+    keys = []
+
+    async def scenario():
+        for overlap in [0, 150] if zero_first else [150, 0]:
+            request = {
+                **identity,
+                "arguments": {**legacy, "chunkOverlap": overlap},
+                "legacy_arguments": legacy if overlap == 0 else None,
+            }
+            contenders = await asyncio.gather(
+                reserve_operation(**request), reserve_operation(**request)
+            )
+            owners = [item for item in contenders if item.acquired]
+            keys.extend(item.key for item in contenders)
+            assert len(owners) == 1
+            receipt = f"overlap {overlap} \ud800"
+            assert await complete_operation(owners[0], receipt)
+            replay = await reserve_operation(**request)
+            assert not replay.acquired
+            assert replay.stored_result == receipt
+            assert (
+                json.loads(client.get(replay.key))["contract"] == identity["contract"]
+            )
+        assert len(set(keys)) == 2
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        if keys:
+            client.delete(*keys)
+        client.close()
+
+
+@pytest.mark.parametrize("clear_other_user", [False, True])
+def test_memory_clear_fences_an_inflight_reflection(clear_other_user):
+    from nat_helpers.hindsight_client import derive_bank_id
+    from nat_helpers.hindsight_memory_context import (
+        _digest,
+        _session_brief,
+        clear_user_memory_caches,
+    )
+
+    user = f"memory-clear-itest-{uuid.uuid4().hex}"
+    other = f"{user}-other"
+    key = (
+        f"daedalus:memory:session:v1:{_digest(derive_bank_id(user))}:"
+        f"{_digest('conversation')}"
+    )
+    client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+
+    async def scenario():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        class Hindsight:
+            async def reflect(self, **_kwargs):
+                started.set()
+                await release.wait()
+                return "Summary of memories that were cleared"
+
+        pending = asyncio.create_task(
+            _session_brief(
+                Hindsight(),
+                user_id=user,
+                conversation_id="conversation",
+                query="Summarize my memory",
+            )
+        )
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+            await clear_user_memory_caches(other if clear_other_user else user)
+        finally:
+            release.set()
+        result = await asyncio.wait_for(pending, 2)
+        cached = client.get(key)
+        if clear_other_user:
+            assert result == "Summary of memories that were cleared"
+            assert json.loads(cached)["text"] == result
+        else:
+            assert result == ""
+            assert cached is None
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        for owner in (user, other):
+            owner_digest = _digest(derive_bank_id(owner))
+            for stored_key in client.scan_iter(
+                match=f"daedalus:memory:*{owner_digest}*"
+            ):
+                client.delete(stored_key)
+        client.close()
+
+
+@pytest.mark.parametrize("phase", ["workspace", "feed", "feed_commit"])
+@pytest.mark.parametrize("storage", ["string", "json"])
+def test_autonomous_output_cannot_write_after_lease_transfer(
+    monkeypatch, phase, storage
+):
+    import threading
+
+    from autonomous_agent.prompt import workspace_key
+    from autonomous_agent.worker import run_once
+
+    url = os.environ["REDIS_URL"]
+    stale = RedisStore(url)
+    current = RedisStore(url)
+    user_id = f"output-lease-itest-{uuid.uuid4().hex}"
+    lease_key = autonomy_key(user_id, "lease")
+    feed_key = autonomy_key(user_id, "feed")
+    notes_key = workspace_key(user_id, "inner_state")
+    new_item = {"id": "current-owner", "title": "Current finding", "createdAt": 1}
+    transferred = False
+
+    def transfer():
+        nonlocal transferred
+        assert not transferred
+        transferred = True
+        stale.redis.pexpire(lease_key, 0)
+        assert current.acquire_lease(user_id, ttl_seconds=60)
+        current.set_text(notes_key, "Current owner's notes")
+        current.json_set(feed_key, [new_item])
+
+    class Backend:
+        def call(self, *_args, **_kwargs):
+            return json.dumps(
+                {
+                    "summary": "Stale completed work",
+                    "workspace_updates": {"inner_state": "Stale notes"}
+                    if phase == "workspace"
+                    else {},
+                    "feed_items": [
+                        {"title": "Stale finding", "bluf": "Stale evidence"}
+                    ],
+                }
+            )
+
+    try:
+        assert stale.acquire_lease(user_id, ttl_seconds=60)
+        if storage == "json":
+            stale.redis.execute_command("JSON.SET", feed_key, "$", "[]")
+        else:
+            stale.redis.set(feed_key, "[]")
+        if phase == "feed_commit":
+            original_pipeline = stale.redis.pipeline
+
+            def pipeline():
+                pipe = original_pipeline()
+                execute = pipe.execute
+
+                def execute_after_transfer(*args, **kwargs):
+                    if not transferred and any(
+                        len(command) > 1 and command[1] == feed_key
+                        for command, _options in pipe.command_stack
+                    ):
+                        transfer()
+                    return execute(*args, **kwargs)
+
+                pipe.execute = execute_after_transfer
+                return pipe
+
+            monkeypatch.setattr(stale.redis, "pipeline", pipeline)
+        else:
+            # This read follows the worker's successful owns_lease check.
+            def cancel_requested(_user_id, _run_id):
+                transfer()
+                return False
+
+            monkeypatch.setattr(stale, "cancel_requested", cancel_requested)
+
+        run = run_once(
+            store=stale,
+            backend=Backend(),
+            user_id=user_id,
+            request={"trigger": "manual"},
+            abort=threading.Event(),
+        )
+
+        assert transferred
+        assert current.get_text(notes_key) == "Current owner's notes"
+        assert current.list_feed(user_id) == [new_item]
+        assert run["status"] == "aborted"
+        assert current.owns_lease(user_id)
+    finally:
+        for pattern in (f"autonomy:{user_id}:*", f"autonomous:{user_id}:*"):
+            keys = list(current.redis.scan_iter(match=pattern))
+            if keys:
+                current.redis.delete(*keys)
+        stale.redis.close()
+        current.redis.close()

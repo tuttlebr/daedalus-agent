@@ -199,8 +199,9 @@ fn plan(
         .filter(|s| !s.is_empty())
     {
         let stripped = trim(encoded);
-        let estimate = stripped.chars().count() as i128 * 3 / 4
-            - stripped.bytes().filter(|c| *c == b'=').count() as i128;
+        // Complete quartets may have arbitrary trailing padding. Count data
+        // characters so extra padding cannot reduce the decoded-size estimate.
+        let estimate = stripped.trim_end_matches('=').chars().count() as i128 * 3 / 4;
         if estimate > maximum as i128 {
             return Err(size_error(maximum));
         }
@@ -543,6 +544,33 @@ mod tests {
             policy_raw: Value::Null,
             env: serde_json::from_value(env.clone()).unwrap(),
             python_tools: false,
+        }
+    }
+    #[tokio::test]
+    async fn legacy_padding_cannot_bypass_document_size_cap() {
+        for raw in [b"ABC".as_slice(), b"ABCDEF".as_slice()] {
+            for padding in [4, 64] {
+                let record = json!({
+                    "userId": "alice", "filename": "legacy.txt",
+                    "data": general_purpose::STANDARD.encode(raw) + &"=".repeat(padding)
+                });
+                let cfg =
+                    config(&json!({"DOCUMENT_INGEST_MAX_SIZE_BYTES": (raw.len() - 1).to_string()}));
+                assert!(
+                    load_record(&cfg, &record, "document", "session", "alice")
+                        .await
+                        .unwrap_err()
+                        .to_string()
+                        .contains("maximum allowed size")
+                );
+                let cfg = config(&json!({"DOCUMENT_INGEST_MAX_SIZE_BYTES": raw.len().to_string()}));
+                assert_eq!(
+                    load_record(&cfg, &record, "document", "session", "alice")
+                        .await
+                        .unwrap(),
+                    (raw.to_vec(), "legacy.txt".into())
+                );
+            }
         }
     }
     #[test]

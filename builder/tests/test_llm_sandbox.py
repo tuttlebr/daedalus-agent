@@ -498,7 +498,10 @@ def test_read_file_returns_utf8_content_and_rejects_untrusted_context():
     assert all(path != "/v1/execute" for _, path, _ in FakeAsyncClient.calls)
 
 
-def test_publish_file_copies_exact_bytes_to_durable_frontend_endpoint():
+@pytest.mark.parametrize("omit_missing_files", [False, True])
+def test_publish_file_copies_exact_bytes_to_durable_frontend_endpoint(
+    omit_missing_files,
+):
     import llm_sandbox.llm_sandbox_function as mod
 
     content = b"<!doctype html><title>Alaska</title>"
@@ -535,6 +538,8 @@ def test_publish_file_copies_exact_bytes_to_durable_frontend_endpoint():
             ),
             FakeResponse(status_code=201, data=published),
         ]
+        if omit_missing_files:
+            del FakeAsyncClient.responses[2].json()["missingFiles"]
         with (
             patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
             patch.object(
@@ -622,6 +627,34 @@ def test_publish_file_fails_closed_for_missing_or_truncated_bytes(
 
     output = run(_run())
     assert message in output
+    assert len(FakeAsyncClient.calls) == 3
+
+
+@pytest.mark.parametrize("omitted", [("files",), ("files", "missingFiles")])
+def test_publish_file_handles_absent_optional_collection_fields(omitted):
+    import llm_sandbox.llm_sandbox_function as mod
+
+    async def invoke():
+        response = execute_response(workspace_persisted=True)
+        for field in omitted:
+            del response.json()[field]
+        FakeAsyncClient.responses = [
+            ready_response(),
+            capability_response(commands=["true"], workspace_persistence=True),
+            response,
+        ]
+        with (
+            patch.object(mod.httpx, "AsyncClient", FakeAsyncClient),
+            patch.object(
+                mod,
+                "_trusted_scope_from_context",
+                return_value=("user-a", "conversation-a"),
+            ),
+        ):
+            sandbox = await _registered_sandbox_fn(sandbox_config())
+            return await sandbox(operation="publish_file", file_path="output.html")
+
+    assert "did not return exactly one requested artifact" in run(invoke())
     assert len(FakeAsyncClient.calls) == 3
 
 

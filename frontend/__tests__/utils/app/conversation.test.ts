@@ -29,11 +29,6 @@ vi.mock('@/utils/app/storage', () => ({
   setUserSessionItem,
 }));
 
-vi.mock('@/utils/app/conversationReplay', () => ({
-  sanitizeConversationAssistantReplays: vi.fn((value) => value),
-  sanitizeConversationsAssistantReplays: vi.fn((value) => value),
-}));
-
 vi.mock('@/utils/app/imageHandler', () => ({
   restoreMessageImages: vi.fn((value) => value),
   cleanMessagesForStorage: vi.fn((value) => value),

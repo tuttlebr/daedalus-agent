@@ -17,17 +17,6 @@ module.exports = {
       bold: '700',
     },
     extend: {
-      // Fluid typography from design system
-      fontSize: {
-        'fluid-xs': 'var(--font-size-xs)',
-        'fluid-sm': 'var(--font-size-sm)',
-        'fluid-base': 'var(--font-size-base)',
-        'fluid-lg': 'var(--font-size-lg)',
-        'fluid-xl': 'var(--font-size-xl)',
-        'fluid-2xl': 'var(--font-size-2xl)',
-        'fluid-3xl': 'var(--font-size-3xl)',
-        'fluid-4xl': 'var(--font-size-4xl)',
-      },
       // Touch-friendly spacing
       spacing: {
         'safe-top': 'var(--safe-area-inset-top)',

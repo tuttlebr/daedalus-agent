@@ -125,8 +125,12 @@ impl document_process::Engine for Engine {
             nv_ingest::submission(&job)
         })
         .await;
+        let mut engine = self.clone();
+        if input.append_to_collection {
+            engine.recreate = false;
+        }
         Ok(Pipeline {
-            engine: self.clone(),
+            engine,
             collection: input.collection_name,
             body,
         })
@@ -241,6 +245,7 @@ mod tests {
     }
     fn input() -> Build {
         Build {
+            append_to_collection: false,
             bytes: b"Synthetic".to_vec(),
             filename: "fixture.txt".into(),
             collection_name: "private_collection".into(),
@@ -618,6 +623,37 @@ mod tests {
             }
         }
         if selection == "all" {
+            // Later batch documents must append even when the shared named-tool
+            // configuration recreates collections. Verify the actual RPC writer.
+            let append_case = fixture["cases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|case| {
+                    case["existing"] == true
+                        && case["recreate"] == false
+                        && case["dimension"] == 2
+                        && case["mode"] == "normal"
+                })
+                .unwrap();
+            reset(&http, &control, &uri, script(append_case)).await;
+            peer.lock().unwrap().envelope =
+                json!({"status":"success","data":append_case["records"][0]});
+            engine.recreate = true;
+            let mut append = input();
+            append.append_to_collection = true;
+            engine
+                .build(append)
+                .await
+                .unwrap()
+                .ingest(Stages::worker(json!("fixture.txt"), None))
+                .await
+                .unwrap();
+            consumed(&http, &control).await;
+            assert!(
+                engine.recreate,
+                "batch override must not mutate shared configuration"
+            );
             engine.recreate = false;
             let case = &fixture["cases"][0];
             let probe_only = json!([script(case)[0].clone()]);

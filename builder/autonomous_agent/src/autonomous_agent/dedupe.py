@@ -20,7 +20,7 @@ import hashlib
 import re
 import time
 from typing import Any, Literal
-from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Wording overlap can reject a repeat, but low overlap is not evidence of news.
 # Repeated sources/threads also need an explicit prior item and a sourced change.
@@ -79,6 +79,7 @@ def normalize_url(raw: str | None) -> str:
         text = f"https://{text}"
     try:
         parts = urlsplit(text)
+        port = parts.port
     except ValueError:
         return ""
     if not parts.netloc:
@@ -94,8 +95,8 @@ def normalize_url(raw: str | None) -> str:
     if host.startswith("www."):
         host = host[4:]
     # Preserve a non-default port if one was given.
-    if parts.port and parts.port not in (80, 443):
-        host = f"{host}:{parts.port}"
+    if port and port not in (80, 443):
+        host = f"{host}:{port}"
 
     path = parts.path.rstrip("/")
 
@@ -105,7 +106,7 @@ def normalize_url(raw: str | None) -> str:
         if k.lower() not in _TRACKING_PARAMS and not _TRACKING_PARAM_RE.match(k)
     ]
     kept_query.sort()
-    query = "&".join(f"{k}={v}" for k, v in kept_query)
+    query = urlencode(kept_query)
 
     return urlunsplit(("", host, path, query, ""))
 
@@ -116,9 +117,7 @@ def url_domain(raw: str | None) -> str:
     normalized = normalize_url(raw)
     if not normalized:
         return ""
-    # normalize_url returns "//host/path?..."; strip the leading slashes.
-    host = normalized.lstrip("/")
-    return host.split("/", 1)[0]
+    return urlsplit(normalized).netloc
 
 
 def normalize_text(raw: str | None) -> str:

@@ -2,7 +2,6 @@ import {
   extractAsyncStreamContentDelta,
   parseIntermediateDataLine,
 } from '@/utils/app/asyncStepParser';
-import { stripReplayedAssistantPrefix } from '@/utils/app/conversationReplay';
 
 import handler, {
   mergeSubmittedMessagesWithStoredHistory,
@@ -20,6 +19,7 @@ import {
 } from '@/server/chat/constants';
 import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
 import { finalizeError, finalizeSuccess } from '@/server/chat/finalization';
+import { completeOAuthJobRequest } from '@/server/chat/jobState';
 import {
   appendDocumentAttachmentContext,
   compactDocumentIngestionMessage,
@@ -1903,58 +1903,6 @@ describe('chat/async response boundary helpers', () => {
       ),
     ).toBe('');
   });
-
-  it('preserves a final answer that repeats an earlier answer before adding content', () => {
-    const prior =
-      'Daily summary for May 13, 2026.\n\n' +
-      '## 1. Date\nCurrent timestamp: 2026-05-13 15:26 UTC.';
-    const next = 'The `nemotron-omni` namespace is healthy overall.';
-
-    expect(
-      stripReplayedAssistantPrefix(`${prior}\n\n${next}`, [
-        { role: 'user', content: 'daily summary' },
-        { role: 'assistant', content: prior },
-        { role: 'user', content: 'check nemotron omni' },
-      ]),
-    ).toBe(`${prior}\n\n${next}`);
-  });
-
-  it('preserves a final answer with a deliberately repeated closing answer', () => {
-    const prior =
-      'Daily summary for May 13, 2026.\n\n' +
-      '## 1. Date\nCurrent timestamp: 2026-05-13 15:26 UTC.';
-    const next = 'The `nemotron-omni` namespace is healthy overall.';
-
-    expect(
-      stripReplayedAssistantPrefix(`${next}\n\n${prior}`, [
-        { role: 'user', content: 'daily summary' },
-        { role: 'assistant', content: prior },
-        { role: 'user', content: 'check nemotron omni' },
-      ]),
-    ).toBe(`${next}\n\n${prior}`);
-  });
-
-  it('preserves responses that reference prior content without exact-prefix replay', () => {
-    const prior = 'Daily summary for May 13, 2026.';
-    const next =
-      'Compared with the prior daily summary, the namespace is now healthy.';
-
-    expect(
-      stripReplayedAssistantPrefix(next, [
-        { role: 'assistant', content: prior },
-        { role: 'user', content: 'compare the status' },
-      ]),
-    ).toBe(next);
-  });
-
-  it('preserves natural sentence prefixes that are not replay boundaries', () => {
-    expect(
-      stripReplayedAssistantPrefix('OK, here is the current status.', [
-        { role: 'assistant', content: 'OK' },
-        { role: 'user', content: 'status?' },
-      ]),
-    ).toBe('OK, here is the current status.');
-  });
 });
 
 // ── Characterization tests for the streaming / finalize / cancel hot paths ──
@@ -3027,6 +2975,50 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(toolEnd.step.payload.data.output).toBe(`${prior}\n\nTool snippet.`);
   });
 
+  it.each([
+    ['Paris.', 'Paris. It is the capital of France.'],
+    ['No.', 'No. The precondition has not been met.'],
+    ['Previous answer.', 'Previous answer.\n\n---\n\nCurrent answer.'],
+    ['Closing paragraph.', 'Revised opening.\n\nClosing paragraph.'],
+    ['Same answer.', 'Same answer.'],
+    ['OK', 'OK, here is the current status.'],
+    [
+      'The deployment uses the auth-proxy sidecar with a 512Mi memory limit on each pod.',
+      'The deployment uses the auth-proxy sidecar with a 512Mi memory limit on each pod.\n\nAdd this newly requested section to the complete document.',
+    ],
+    [
+      'Every team completed the planned work. The release is ready.',
+      'Every team completed the planned work.\n\nThe release is ready.\n\nThis is a requested complete repeat with further explanation.',
+    ],
+  ])(
+    'preserves repeated or revised answer text through completion: %s',
+    async (prior, output) => {
+      const { store, statusKey } = await runStreamTurn(
+        [
+          `data: ${JSON.stringify({
+            choices: [{ delta: { content: output } }],
+          })}\n\n`,
+          'data: [DONE]\n\n',
+        ],
+        {
+          messages: [
+            { id: 'prior', role: 'assistant', content: prior },
+            {
+              id: 'repeat',
+              role: 'user',
+              content: 'Repeat it, then add more.',
+            },
+          ],
+        },
+      );
+      expect(store.get(statusKey).fullResponse).toBe(output);
+      expect(
+        store.get('daedalus:conversation:conv-1').messages.at(-1).content,
+      ).toBe(output);
+      expect(eventsOfType('chat_complete').at(-1).fullResponse).toBe(output);
+    },
+  );
+
   it('promotes the last tool output when the stream produced no content tokens', async () => {
     const { statusKey, store } = await runStreamTurn([
       'intermediate_data: {"name":"Function Complete: <calc>","id":"t1","parent_id":"root","payload":"Preamble\\n**Function Output:**\\n```\\nThe answer is 42.\\n```"}\n',
@@ -3216,7 +3208,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(typeof status?.finalizedAt).toBe('number');
   });
 
-  it('clears oauth_required status without publishing duplicate streaming snapshots', async () => {
+  it('keeps OAuth prompts until completion without publishing duplicate streaming snapshots', async () => {
     const { jobId, statusKey, store, fetchSpy } = await runStreamTurn(
       [
         'event: oauth_required\n',
@@ -3242,19 +3234,108 @@ describe('chat/async streaming + finalize (characterization)', () => {
       .filter((data) => data.status === 'streaming');
     expect(streamingStatusEvents).toHaveLength(0);
 
-    const streamingUpdate = mocks.redisEval.mock.calls
+    const progressUpdates = mocks.redisEval.mock.calls
       .filter(
         ([script, , key]) =>
           String(script).includes('UPDATE_LIVE_JOB_STATUS') &&
           key === statusKey,
       )
-      .map((args) => JSON.parse(args[4]))
-      .find((data: any) => data.status === 'streaming');
-    expect(streamingUpdate).toBeDefined();
-    expect(streamingUpdate.authUrl).toBeUndefined();
-    expect(streamingUpdate.oauthRequests).toBeUndefined();
-    expect(Object.hasOwn(streamingUpdate, 'partialResponse')).toBe(false);
-    expect(Object.hasOwn(streamingUpdate, 'intermediateSteps')).toBe(false);
+      .map((args) => JSON.parse(args[4]));
+    const promptedAt = progressUpdates.findIndex(
+      (progress) => progress.status === 'oauth_required',
+    );
+    expect(promptedAt).toBeGreaterThanOrEqual(0);
+    for (const progress of progressUpdates.slice(promptedAt)) {
+      expect(progress.status).toBe('oauth_required');
+      expect(progress.authUrl).toBe('https://accounts.google.com/auth');
+      expect(Object.hasOwn(progress, 'partialResponse')).toBe(false);
+      expect(Object.hasOwn(progress, 'intermediateSteps')).toBe(false);
+    }
+    expect(store.get(statusKey)).toMatchObject({ status: 'completed' });
+    expect(store.get(statusKey).authUrl).toBeUndefined();
+    expect(store.get(statusKey).oauthRequests).toBeUndefined();
+  });
+
+  it('keeps an unresolved OAuth prompt visible while a sibling streams content', async () => {
+    const { jobId, store, read, controller, executionPromise } =
+      await startBlockedStreamTurn([
+        'event: oauth_required\ndata: {"auth_url":"https://accounts.google.com/auth","oauth_state":"xyz"}\n\n' +
+          'data: {"choices":[{"delta":{"content":"Other work finished."}}]}\n\n',
+      ]);
+    try {
+      expect(read.mock.calls.length).toBe(2);
+      const statusKey = `daedalus:async-job-status:${jobId}`;
+      expect(store.get(statusKey)).toMatchObject({
+        status: 'oauth_required',
+        oauthRequests: [expect.objectContaining({ oauthState: 'xyz' })],
+      });
+      expect(store.get(`daedalus:async-job-response:${jobId}`)).toBe(
+        'Other work finished.',
+      );
+      await expect(completeOAuthJobRequest(jobId, 'xyz')).resolves.toBe(true);
+      expect(store.get(statusKey)).toMatchObject({ status: 'streaming' });
+      expect(store.get(statusKey).oauthRequests).toBeUndefined();
+    } finally {
+      const reason = new StreamUserCancellationError();
+      const stopped = expect(executionPromise).rejects.toBe(reason);
+      controller.abort(reason);
+      await stopped;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('accepts an identical OAuth prompt repeated in the same clock tick', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    try {
+      const prompt =
+        'event: oauth_required\ndata: {"auth_url":"https://accounts.google.com/auth","oauth_state":"duplicate"}\n\n';
+      const { store, statusKey } = await runStreamTurn([
+        prompt + prompt,
+        'data: {"choices":[{"delta":{"content":"Continued answer."}}]}\n\ndata: [DONE]\n\n',
+      ]);
+      expect(store.get(statusKey)).toMatchObject({
+        status: 'completed',
+        fullResponse: 'Continued answer.',
+      });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('accepts a callback that completes immediately after the OAuth status write', async () => {
+    let callbackCompleted = false;
+    const { statusKey, store } = await runStreamTurn(
+      [
+        'event: oauth_required\ndata: {"auth_url":"https://accounts.google.com/auth","oauth_state":"fast"}\n\n',
+        'data: {"choices":[{"delta":{"content":"Authorized answer."}}]}\n\ndata: [DONE]\n\n',
+      ],
+      {
+        configureStore() {
+          const evaluate = mocks.redisEval.getMockImplementation()!;
+          mocks.redisEval.mockImplementation(async (...args: any[]) => {
+            const result = await evaluate(...args);
+            if (
+              !callbackCompleted &&
+              result === 1 &&
+              String(args[0]).includes('UPDATE_LIVE_JOB_STATUS') &&
+              JSON.parse(args[4]).oauthState === 'fast'
+            ) {
+              callbackCompleted = true;
+              const jobId = JSON.parse(args[4]).jobId;
+              await expect(
+                completeOAuthJobRequest(jobId, 'fast'),
+              ).resolves.toBe(true);
+            }
+            return result;
+          });
+        },
+      },
+    );
+    expect(callbackCompleted).toBe(true);
+    expect(store.get(statusKey)).toMatchObject({
+      status: 'completed',
+      fullResponse: 'Authorized answer.',
+    });
   });
 
   it('accumulates multiple OAuth prompts from one stream', async () => {
@@ -4116,44 +4197,101 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
   });
 
-  it('lets the worker preserve buffered output before finalizing stream cancellation', async () => {
-    const { jobId, store, controller, executionPromise } =
-      await startBlockedStreamTurn([
-        'data: {"choices":[{"delta":{"content":"First result. "}}]}\n',
-        'data: {"choices":[{"delta":{"content":"Buffered second result."}}]}\n',
-      ]);
-    try {
-      const requestKey = `daedalus:async-job-request:${jobId}`;
+  it.each([false, true])(
+    'lets the worker preserve buffered output when cancelling an OAuth wait: %s',
+    async (awaitingOAuth) => {
+      const { jobId, store, controller, executionPromise } =
+        await startBlockedStreamTurn([
+          'data: {"choices":[{"delta":{"content":"First result. "}}]}\n',
+          'data: {"choices":[{"delta":{"content":"Buffered second result."}}]}\n',
+        ]);
+      try {
+        const requestKey = `daedalus:async-job-request:${jobId}`;
+        const statusKey = `daedalus:async-job-status:${jobId}`;
+        if (awaitingOAuth)
+          store.set(statusKey, {
+            ...store.get(statusKey),
+            status: 'oauth_required',
+            authUrl: 'https://accounts.google.com/auth',
+          });
+        const res = makeRes();
+        await handler({ method: 'DELETE', query: { jobId } } as any, res);
+        expect(res.json).toHaveBeenCalledWith({
+          success: true,
+          canceled: true,
+        });
+        expect(store.get(statusKey).finalizedAt).toBeUndefined();
+        expect(store.has(requestKey)).toBe(true);
+        expect(store.has(`daedalus:async-stream-payload:${jobId}`)).toBe(true);
+
+        const reason = new StreamUserCancellationError();
+        const stopped = expect(executionPromise).rejects.toBe(reason);
+        controller.abort(reason);
+        await stopped;
+        await finalizeError(
+          jobId,
+          store.get(requestKey),
+          reason.message,
+          reason.snapshot,
+        );
+
+        expect(store.get(statusKey)).toEqual(
+          expect.objectContaining({
+            status: 'error',
+            error: 'Job canceled by user',
+            partialResponse: 'First result. Buffered second result.',
+          }),
+        );
+      } finally {
+        controller.abort(new StreamUserCancellationError());
+        await executionPromise.catch(() => {});
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each(['oauth_required', 'streaming'])(
+    'cancels an acknowledged OAuth handoff after reading %s',
+    async (initialStatus) => {
+      const jobId = `handoff-${initialStatus}`;
       const statusKey = `daedalus:async-job-status:${jobId}`;
+      const store = wireRedisStore({
+        [`daedalus:async-job-request:${jobId}`]: {
+          jobId,
+          userId: 'testuser',
+          executionMode: 'stream',
+          natBaseUrl: 'http://127.0.0.1:1',
+          messages: [],
+        },
+        [statusKey]: {
+          jobId,
+          status: initialStatus,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      });
+      // The owner acknowledges/removes its payload while DELETE writes abort.
+      (jsonSetWithExpiry as any).mockImplementation(
+        async (key: string, value: any) => {
+          store.set(key, value);
+          if (key === `daedalus:async-job-abort:${jobId}`)
+            store.set(statusKey, {
+              ...store.get(statusKey),
+              status: 'oauth_required',
+              authUrl: 'https://accounts.google.com/auth',
+            });
+        },
+      );
       const res = makeRes();
       await handler({ method: 'DELETE', query: { jobId } } as any, res);
       expect(res.json).toHaveBeenCalledWith({ success: true, canceled: true });
-      expect(store.get(statusKey).finalizedAt).toBeUndefined();
-      expect(store.has(requestKey)).toBe(true);
-      expect(store.has(`daedalus:async-stream-payload:${jobId}`)).toBe(true);
-
-      const reason = new StreamUserCancellationError();
-      const stopped = expect(executionPromise).rejects.toBe(reason);
-      controller.abort(reason);
-      await stopped;
-      await finalizeError(
-        jobId,
-        store.get(requestKey),
-        reason.message,
-        reason.snapshot,
-      );
-
-      expect(store.get(statusKey)).toEqual(
-        expect.objectContaining({
-          status: 'error',
-          error: 'Job canceled by user',
-          partialResponse: 'First result. Buffered second result.',
-        }),
-      );
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
+      expect(store.get(statusKey)).toMatchObject({
+        status: 'error',
+        error: 'Job canceled by user',
+      });
+      expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
+    },
+  );
 
   it('DELETE returns 404 and sets no abort flag for a job owned by another user', async () => {
     const jobId = 'del-other';

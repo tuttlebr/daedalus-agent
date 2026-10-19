@@ -105,6 +105,57 @@ def test_large_json_preview_is_smaller_and_exactly_recoverable():
     assert 73 in shown_indices  # current-query relevance
 
 
+@pytest.mark.parametrize(
+    "token", ["1e999", "-1e999", "1e-999", "-1e-999", "1.000000000000000000001"]
+)
+@pytest.mark.parametrize("wrapper", ["{}", "<result>{}</result>", "```json\n{}\n```"])
+def test_lossless_compaction_preserves_numbers_that_float_would_change(token, wrapper):
+    original = wrapper.format("{\n" + " " * 300 + '"value":' + token + "\n}")
+    store = MemoryStore()
+    result = _run(
+        optimize_tool_content(
+            original,
+            tool_name="numeric_result",
+            query="exact values",
+            user_id="alice",
+            store=store,
+            settings=_settings(),
+        )
+    )
+    assert result.content == original
+    assert store.put_calls == 0
+
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        ("1.2500", "1.25"),
+        ("1.25e+04", "12500.0"),
+        ("1e+20", "1e+20"),
+        ("0e-999", "0.0"),
+        ("-0.0000", "-0.0"),
+        (
+            "1234567890123456789012345678901234567890",
+            "1234567890123456789012345678901234567890",
+        ),
+    ],
+)
+def test_exact_numeric_values_still_allow_lossless_minification(token, expected):
+    original = "{\n" + " " * 300 + '"value":' + token + "\n}"
+    result = _run(
+        optimize_tool_content(
+            original,
+            tool_name="numeric_result",
+            query="exact values",
+            user_id="alice",
+            store=MemoryStore(),
+            settings=_settings(),
+        )
+    )
+    assert result.mode == "lossless_json"
+    assert result.content == '{"value":' + expected + "}"
+
+
 def test_cache_failure_fails_open_to_lossless_json():
     original_value = {"items": _large_rows()}
     original = json.dumps(original_value, indent=4)

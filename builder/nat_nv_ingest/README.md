@@ -122,6 +122,16 @@ The backend derives identity from trusted NAT request metadata. Legacy direct
 callers may still supply `username` or `input_message`, but `username` is only
 an equality assertion against request identity and is not in the LLM schema.
 
+Omitting `chunk_overlap` uses the configured default; `chunk_overlap=0` disables
+overlap. Autonomous ingestion receipts now include a `document-overlap-v2`
+contract marker. An explicit zero request checks both its exact argument key
+and the old default-overlap key before writing: unmarked pending or completed
+receipts still suppress or replay the earlier operation. New default and zero
+requests have distinct receipts. Existing receipts need no migration.
+Upgrade all ingestion runtimes before using the corrected zero override;
+older binaries still interpret zero as the default and cannot recognize its
+new argument key during a mixed-version rollout or rollback.
+
 ## Daedalus Integration
 
 1. The frontend streams document bytes into the S3-compatible document store and writes bounded ownership metadata plus the exact object reference to Redis under the `document:<sessionId>:<documentId>` key shape.

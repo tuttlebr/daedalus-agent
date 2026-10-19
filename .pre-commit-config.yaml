@@ -48,7 +48,9 @@ repos:
         exclude: '(^builder/pylock\.runtime-linux-(amd64|arm64)\.toml$)|(^skills/use-hue-api/references/api-reference\.json$)'
       - id: check-added-large-files
         name: check generated Hue reference size
-        args: ['--maxkb=2048']
+        # The generated reference already exists; check updates and CI's
+        # all-files pass as well as its initial addition.
+        args: ['--maxkb=2048', '--enforce-all']
         files: '^skills/use-hue-api/references/api-reference\.json$'
       - id: check-merge-conflict
       - id: detect-private-key

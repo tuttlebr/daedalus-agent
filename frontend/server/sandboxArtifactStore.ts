@@ -1,7 +1,6 @@
 import { positiveIntegerFromEnv } from '@/server/config/env';
 import {
   buildDocumentObjectKey,
-  deleteDocumentObject,
   getDocumentObjectConfig,
   isExpectedDocumentObjectKey,
   putDocumentObject,
@@ -238,14 +237,12 @@ export async function storeSandboxArtifact(input: {
   };
   const redis = getRedis();
   const sessionDocumentsKey = sessionKey(['session-documents', sessionId]);
-  try {
-    await redis.sadd(sessionDocumentsKey, documentId);
-    await redis.expire(sessionDocumentsKey, DOCUMENT_EXPIRY_SECONDS);
-    await jsonSetWithExpiry(metadataKey, document, DOCUMENT_EXPIRY_SECONDS);
-  } catch (error) {
-    await redis.srem(sessionDocumentsKey, documentId).catch(() => undefined);
-    await deleteDocumentObject(objectKey, objectConfig).catch(() => undefined);
-    throw error;
-  }
+  // These content-addressed keys are shared by identical publications. A
+  // failed reply can follow a committed write, including another publisher's
+  // success. Destructive rollback would invalidate its durable download link.
+  // Leave ambiguous uploads to the configured object expiry and allow retries.
+  await redis.sadd(sessionDocumentsKey, documentId);
+  await redis.expire(sessionDocumentsKey, DOCUMENT_EXPIRY_SECONDS);
+  await jsonSetWithExpiry(metadataKey, document, DOCUMENT_EXPIRY_SECONDS);
   return artifactRef(document);
 }

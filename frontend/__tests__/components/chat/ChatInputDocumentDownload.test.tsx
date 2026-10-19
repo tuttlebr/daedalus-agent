@@ -53,6 +53,7 @@ vi.mock('@/utils/app/sandboxArtifactDownload', () => ({
 
 describe('ChatInput inline document download', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -210,13 +211,19 @@ describe('ChatInput inline document download', () => {
       });
       await act(async () => {
         input.dispatchEvent(new Event('change', { bubbles: true }));
-        await new Promise((resolve) => window.setTimeout(resolve, 20));
+        await vi.waitFor(() =>
+          expect(uploadImage).toHaveBeenCalledExactlyOnceWith(
+            expect.any(String),
+            'image/heic',
+            expect.any(AbortSignal),
+          ),
+        );
       });
-      expect(uploadImage).toHaveBeenLastCalledWith(
-        expect.any(String),
-        'image/heic',
-        expect.any(AbortSignal),
-      );
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="Send message"]',
+        )!.disabled,
+      ).toBe(false);
       await act(async () =>
         container
           .querySelector<HTMLButtonElement>('[aria-label="Send message"]')!
@@ -312,6 +319,122 @@ describe('ChatInput inline document download', () => {
 
     act(() => root.unmount());
   });
+
+  it.each(['duplicate', 'new draft', 'failed extraction'])(
+    'keeps inline submission and draft ownership separate: %s',
+    async (scenario) => {
+      const onSend = vi.fn();
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      let finish!: (response: Response) => void;
+      const pending = new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(() => pending.then((response) => response.clone()));
+      const result = (success: boolean) =>
+        new Response(
+          JSON.stringify({
+            success,
+            markdown: 'Extracted reference',
+            error: success ? undefined : 'Extraction unavailable',
+          }),
+          { status: success ? 200 : 503 },
+        );
+      try {
+        await act(async () => root.render(<ChatInput onSend={onSend} />));
+        const fileInput =
+          container.querySelector<HTMLInputElement>('input[type="file"]')!;
+        Object.defineProperty(fileInput, 'files', {
+          configurable: true,
+          value: [
+            new File(['%PDF-test'], 'report.pdf', { type: 'application/pdf' }),
+          ],
+        });
+        await act(async () => {
+          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          await vi.waitFor(() =>
+            expect(uploadDocument).toHaveBeenCalledTimes(1),
+          );
+        });
+        const select = container.querySelector<HTMLSelectElement>('select')!;
+        const textarea = container.querySelector('textarea')!;
+        const setDraft = (value: string) => {
+          Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            'value',
+          )!.set!.call(textarea, value);
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        await act(async () => {
+          select.value = '__inline__';
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          setDraft('Read this document');
+        });
+        const send = container.querySelector<HTMLButtonElement>(
+          '[aria-label="Send message"]',
+        )!;
+        await act(async () => {
+          send.click();
+          // Both events reach the same render: a state-only guard is too late.
+          if (scenario === 'duplicate') send.click();
+        });
+        if (scenario === 'new draft') {
+          await act(async () => {
+            setDraft('My next question');
+            useImageChatDraftStore.getState().queue({
+              imageId: 'next-image',
+              mode: 'generate',
+              model: 'gpt-image-2.5-sunburst',
+              createdAt: 1,
+              prompt: imageContext.prompt,
+              params: imageContext.params,
+              imageContext,
+            });
+          });
+        }
+        await act(async () => {
+          finish(result(scenario !== 'failed extraction'));
+          await pending;
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        if (scenario === 'failed extraction') {
+          expect(onSend).not.toHaveBeenCalled();
+          expect(textarea.value).toBe('Read this document');
+          expect(send.disabled).toBe(false);
+          fetchMock.mockResolvedValue(result(true));
+          await act(async () => send.click());
+        }
+        expect(onSend).toHaveBeenCalledTimes(1);
+        expect(onSend.mock.calls[0][0].content).toContain('Read this document');
+        expect(onSend.mock.calls[0][0].attachments).toHaveLength(1);
+        if (scenario === 'new draft') {
+          expect(textarea.value).toBe('My next question');
+          expect(
+            container.querySelectorAll('[aria-label="Remove attachment"]'),
+          ).toHaveLength(1);
+          await act(async () => send.click());
+          expect(onSend.mock.calls[1][0]).toMatchObject({
+            content: 'My next question',
+            attachments: [{ imageRef: { imageId: 'next-image' } }],
+          });
+        } else {
+          expect(textarea.value).toBe('');
+          expect(
+            container.querySelectorAll('[aria-label="Remove attachment"]'),
+          ).toHaveLength(0);
+        }
+      } finally {
+        await act(async () => {
+          finish(result(false));
+          await pending;
+        });
+        act(() => root.unmount());
+      }
+    },
+  );
   it('steers the active response and keeps the draft if delivery fails', async () => {
     const onSend = vi.fn();
     const onStop = vi.fn();

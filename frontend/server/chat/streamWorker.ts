@@ -256,7 +256,10 @@ export async function processStreamQueueEntry(
     }
 
     const backendStarted = await hasBackendRequestStarted(entry.jobId);
-    if (entry.reclaimed && backendStarted) {
+    // Delivery history belongs to a stream entry, while execution belongs to
+    // the job. A retried XADD can create a fresh entry for a started job after
+    // its original worker loses the lease; that entry must not replay tools.
+    if (backendStarted) {
       await finalizeError(
         entry.jobId,
         jobRequest,
@@ -388,6 +391,15 @@ export async function processStreamQueueEntry(
     if (status?.status === 'oauth_required') {
       await releaseUserJobGuard(jobRequest.userId, entry.jobId);
       await acknowledgeStreamQueueEntry(entry);
+      // DELETE sets abort before looking for the payload removed by ACK. If it
+      // still saw the payload, we own cancellation and have flushed the reader.
+      // Otherwise DELETE can finalize the handed-off job itself.
+      if (await jsonGet(abortKey(entry.jobId))) {
+        await finalizeError(entry.jobId, jobRequest, 'Job canceled by user');
+        return (await acknowledgeTerminalEntry(entry))
+          ? 'completed'
+          : 'finalization_pending';
+      }
       if (jobRequest.conversationId) {
         await releaseConversationJobGuard(
           jobRequest.userId,

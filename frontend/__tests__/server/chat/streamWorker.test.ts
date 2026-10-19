@@ -376,6 +376,34 @@ describe('durable stream worker entry processing', () => {
     );
   });
 
+  it('finishes cancellation racing the OAuth handoff acknowledgement', async () => {
+    mocks.startBackgroundStreamReader.mockImplementation(
+      async (jobId: string, ...args: any[]) => {
+        await args[3].beforeBackendRequest();
+        const key = `daedalus:async-job-status:${jobId}`;
+        mocks.store.set(key, {
+          ...mocks.store.get(key),
+          status: 'oauth_required',
+          authUrl: 'https://example.test/oauth',
+        });
+      },
+    );
+    mocks.acknowledgeStreamQueueEntry.mockImplementation(async () => {
+      mocks.store.set('daedalus:async-job-abort:job-1', true);
+    });
+    await expect(
+      processStreamQueueEntry(entry, options, undefined, 'owner-oauth'),
+    ).resolves.toBe('completed');
+    expect(mocks.store.get('daedalus:async-job-status:job-1').status).toBe(
+      'error',
+    );
+    expect(mocks.finalizeError).toHaveBeenCalledWith(
+      'job-1',
+      expect.anything(),
+      'Job canceled by user',
+    );
+  });
+
   it('resumes a journaled terminal job before acknowledging its queue entry', async () => {
     mocks.store.set('daedalus:async-job-status:job-1', {
       jobId: 'job-1',
@@ -443,22 +471,25 @@ describe('durable stream worker entry processing', () => {
     expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
   });
 
-  it('fails a reclaimed started request without replaying backend effects', async () => {
-    mocks.hasBackendRequestStarted.mockResolvedValue(true);
-    const reclaimed = { ...entry, reclaimed: true };
+  it.each([false, true])(
+    'does not replay a started request (reclaimed=%s)',
+    async (isReclaimed) => {
+      mocks.hasBackendRequestStarted.mockResolvedValue(true);
+      const reclaimed = { ...entry, reclaimed: isReclaimed };
 
-    await expect(
-      processStreamQueueEntry(reclaimed, options, undefined, 'owner-2'),
-    ).resolves.toBe('recovered_as_error');
+      await expect(
+        processStreamQueueEntry(reclaimed, options, undefined, 'owner-2'),
+      ).resolves.toBe('recovered_as_error');
 
-    expect(mocks.finalizeError).toHaveBeenCalledWith(
-      'job-1',
-      expect.any(Object),
-      expect.stringContaining('was not replayed'),
-    );
-    expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
-    expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(reclaimed);
-  });
+      expect(mocks.finalizeError).toHaveBeenCalledWith(
+        'job-1',
+        expect.any(Object),
+        expect.stringContaining('was not replayed'),
+      );
+      expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+      expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(reclaimed);
+    },
+  );
 
   it('safely reclaims a job that never began backend execution', async () => {
     const reclaimed = { ...entry, reclaimed: true };

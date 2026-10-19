@@ -112,7 +112,7 @@ describe('sandbox artifact object storage', () => {
     expect(mocks.putDocumentObject).toHaveBeenCalledOnce();
   });
 
-  it('removes an object when metadata persistence fails', async () => {
+  it('retains an upload for expiry when metadata persistence fails', async () => {
     mocks.jsonSetWithExpiry.mockRejectedValueOnce(new Error('redis failed'));
 
     await expect(
@@ -124,7 +124,66 @@ describe('sandbox artifact object storage', () => {
       }),
     ).rejects.toThrow('redis failed');
 
-    expect(mocks.srem).toHaveBeenCalledOnce();
-    expect(mocks.deleteDocumentObject).toHaveBeenCalledOnce();
+    expect(mocks.srem).not.toHaveBeenCalled();
+    expect(mocks.deleteDocumentObject).not.toHaveBeenCalled();
   });
+  it.each([false, true])(
+    'preserves committed bytes when a metadata reply fails (concurrent=%s)',
+    async (concurrent) => {
+      const objects = new Map<string, Buffer>();
+      const documents = new Set<string>();
+      const metadata = new Map<string, unknown>();
+      const input = {
+        ownerId: 'alice',
+        conversationId: 'conversation-1',
+        filePath: 'report.txt',
+        content: Buffer.from('durable report'),
+      };
+      let entered!: () => void;
+      let rejectFirst!: (reason: Error) => void;
+      const firstEntered = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const firstReply = new Promise<void>((_resolve, reject) => {
+        rejectFirst = reject;
+      });
+      mocks.putDocumentObject.mockImplementation(
+        async ({ objectKey, source }) => {
+          const chunks: Buffer[] = [];
+          for await (const chunk of source) chunks.push(chunk);
+          objects.set(objectKey, Buffer.concat(chunks));
+          return { bucket: 'documents' };
+        },
+      );
+      mocks.deleteDocumentObject.mockImplementation(async (key) =>
+        objects.delete(key),
+      );
+      mocks.sadd.mockImplementation(async (_key, id) => documents.add(id));
+      mocks.srem.mockImplementation(async (_key, id) => documents.delete(id));
+      mocks.jsonGet.mockImplementation(
+        async (key) => metadata.get(key) ?? null,
+      );
+      mocks.jsonSetWithExpiry
+        .mockImplementationOnce(async (key, value) => {
+          if (!concurrent) metadata.set(key, value);
+          entered();
+          return firstReply;
+        })
+        .mockImplementation(async (key, value) => {
+          metadata.set(key, value);
+        });
+
+      const first = storeSandboxArtifact(input);
+      const rejected = expect(first).rejects.toThrow('reply lost');
+      await firstEntered;
+      const committed = concurrent ? await storeSandboxArtifact(input) : null;
+      rejectFirst(new Error('reply lost'));
+      await rejected;
+
+      const retry = await storeSandboxArtifact(input);
+      if (committed) expect(retry).toEqual(committed);
+      expect(documents.has(retry.documentId)).toBe(true);
+      expect([...objects.values()]).toEqual([input.content]);
+    },
+  );
 });

@@ -28,7 +28,9 @@ SOURCE = "533fece18dd3605840a767d23c9e6fb2bbb8f0a33de6c247b28a0a8bb1b5b04a"
 
 
 class Worker:
-    def __init__(self, command):
+    def __init__(self, command, expected_source=SOURCE):
+        self.expected_source = expected_source
+        self.source = None
         self.process = subprocess.Popen(  # nosec B603 - fixed fixture argv
             command,
             stdin=subprocess.PIPE,
@@ -51,7 +53,16 @@ class Worker:
             line = self.lines.get(timeout=20)
             require(line is not None, "Reservation worker exited before replying")
             if line.startswith("RESERVATION_SOURCE "):
-                require(line.split()[1] == SOURCE, "Retained helper source changed")
+                self.source = line.split()[1]
+                allowed = (
+                    self.expected_source
+                    if isinstance(self.expected_source, set)
+                    else {self.expected_source}
+                )
+                require(
+                    self.source in allowed,
+                    "Idempotency helper source changed",
+                )
             if line.startswith("RESERVATION_RESULT "):
                 return json.loads(line.partition(" ")[2])
 
@@ -524,6 +535,143 @@ def check(workers, admin, environment, root, binary):
     return evidence
 
 
+def check_overlap(workers, admin, environment, root):
+    """Correct zero overlap without bypassing retained autonomous receipts."""
+    evidence = []
+    contract = "document-overlap-v2"
+
+    def request(name, overlap):
+        user, execution = "synthetic-overlap-user", f"synthetic-overlap-{name}"
+        arguments = {"documents": ["immutable-document"], "chunkOverlap": overlap}
+        legacy = {**arguments, "chunkOverlap": 150}
+
+        def digest(value):
+            return hashlib.sha256(value.encode()).hexdigest()
+
+        def argument_hash(value):
+            return digest(json.dumps(value, sort_keys=True, separators=(",", ":")))
+
+        prefix = (
+            "daedalus:idempotency:v1:"
+            + ":".join(map(digest, [user, execution, "ingest_user_documents"]))
+            + ":"
+        )
+        return {
+            "operation": "reserve",
+            "environment": environment,
+            "user": user,
+            "execution": execution,
+            "arguments": arguments,
+            "digest": argument_hash(arguments),
+            "key": prefix + argument_hash(arguments),
+            "contract": contract,
+            "legacy_arguments": legacy if overlap == 0 else None,
+            "legacy_key": prefix + argument_hash(legacy) if overlap == 0 else None,
+        }
+
+    def complete(worker, req, receipt, result):
+        return worker.call(
+            {
+                **req,
+                "operation": "complete",
+                "reservation": receipt["reservation"],
+                "result": result,
+            }
+        )
+
+    for language, worker in workers.items():
+        for label, raw in [
+            ("pending", '{"state":"in_progress","owner":"old-owner"}'),
+            (
+                "completed",
+                json.dumps({"state": "completed", "result": "old receipt \ud800"}),
+            ),
+            ("invalid", "broken"),
+            ("empty", ""),
+        ]:
+            req = request(f"{language}-legacy-{label}", 0)
+            admin.set(req["legacy_key"], raw)
+            replay = worker.call(req)
+            require(not replay["acquired"], "Old overlap receipt bypassed")
+            if label == "completed":
+                require(
+                    replay["reservation"]["stored_result"]
+                    == {"$codepoints": list(map(ord, "old receipt \ud800"))},
+                    "Old receipt changed",
+                )
+            require(
+                admin.get(req["legacy_key"]) == raw.encode(), "Legacy receipt mutated"
+            )
+            require(not admin.exists(req["key"]), "Legacy receipt allowed a new write")
+            evidence.append(f"{language}-legacy-{label}")
+
+        for order in [(150, 0), (0, 150)]:
+            name = f"{language}-order-{order[0]}"
+            keys = []
+            for overlap in order:
+                req = request(name, overlap)
+                receipt = worker.call(req)
+                require(receipt["acquired"], "New overlap values shared a reservation")
+                keys.append(req["key"])
+                for reader in workers.values():
+                    require(
+                        not reader.call(req)["acquired"],
+                        "Pending receipt was reacquired",
+                    )
+                result = f"overlap {overlap} \ud800"
+                finisher = list(workers.values())[-1]
+                require(
+                    complete(finisher, req, receipt, result) == {"completed": True},
+                    "Completion failed",
+                )
+                require(
+                    json.loads(admin.get(req["key"]))["contract"] == contract,
+                    "Completion lost contract marker",
+                )
+                for reader in workers.values():
+                    replay = reader.call(req)
+                    require(
+                        not replay["acquired"]
+                        and replay["reservation"]["stored_result"]
+                        == {"$codepoints": list(map(ord, result))},
+                        "Cross-language replay differs",
+                    )
+            require(len(set(keys)) == 2, "Zero and default did not get distinct keys")
+            evidence.append(name)
+
+        req = request(f"{language}-lost-zero-reply", 0)
+        with fault_proxy(
+            admin, environment["REDIS_URL"], str(root / "ca.crt"), "EVAL", req["key"]
+        ) as proxy:
+            result = worker.call({**req, "environment": {"REDIS_URL": proxy["url"]}})
+            require(
+                proxy["accepted"].is_set() and result == {"error": True},
+                "Lost reservation reply accepted",
+            )
+            require(proxy["calls"].count("EVAL") == 1, "Ambiguous write retried")
+        require(
+            not worker.call(req)["acquired"], "Lost reply allowed duplicate ownership"
+        )
+        evidence.append(f"{language}-lost-zero-reply")
+
+    if len(workers) > 1:
+        req = request("cross-language-race", 0)
+        barrier = threading.Barrier(len(workers))
+
+        def compete(worker):
+            barrier.wait(timeout=10)
+            return worker.call(req)
+
+        with concurrent.futures.ThreadPoolExecutor(len(workers)) as pool:
+            results = list(pool.map(compete, workers.values()))
+        require(
+            sum(result["acquired"] for result in results) == 1,
+            "Concurrent zero requests acquired multiple owners",
+        )
+        evidence.append("cross-language-zero-race")
+    return evidence
+
+
 def native_command(binary):
     return [
         binary,
@@ -536,6 +684,9 @@ def native_command(binary):
 
 def main(args):
     binary = executable()
+    current_source = hashlib.sha256(
+        (ROOT / "nat_helpers/src/nat_helpers/idempotency.py").read_bytes()
+    ).hexdigest()
     with tempfile.TemporaryDirectory(prefix="daedalus-reservations-") as directory:
         root = Path(directory)
         root.chmod(0o755)
@@ -573,7 +724,8 @@ def main(args):
                     "python",
                     args.python_image,
                     "/migration/document_reservations_baseline.py",
-                ]
+                ],
+                expected_source={SOURCE, current_source},
             )
             stack.callback(baseline.close)
             native = Worker(native_command(binary))
@@ -585,11 +737,40 @@ def main(args):
                 root,
                 binary,
             )
+            current_workers = {"rust": native}
+            if baseline.source == current_source:
+                current_workers["python-current"] = baseline
+            if args.candidate_image:
+                current = Worker(
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        "-i",
+                        "--network",
+                        "host",
+                        "-v",
+                        f"{root}:{root}:ro",
+                        "-v",
+                        f"{ROOT / 'migration'}:/migration:ro",
+                        "--entrypoint",
+                        "python",
+                        args.candidate_image,
+                        "/migration/document_reservations_baseline.py",
+                    ],
+                    expected_source=current_source,
+                )
+                stack.callback(current.close)
+                current_workers["python-current"] = current
+            overlap_evidence = check_overlap(
+                current_workers, admin, {"REDIS_URL": url}, root
+            )
     paths = [
         Path(__file__),
         ROOT / "migration/document_reservations_baseline.py",
         ROOT / "runtime/src/document_reservations.rs",
         ROOT / "runtime/src/storage.rs",
+        ROOT / "nat_helpers/src/nat_helpers/idempotency.py",
     ]
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
@@ -598,7 +779,8 @@ def main(args):
                 "status": "passed-staged-ledger",
                 "registered_tool_gate": "pending",
                 "cases": evidence,
-                "retained_helper_sha256": SOURCE,
+                "corrected_overlap_cases": overlap_evidence,
+                "python_helper_sha256": baseline.source,
                 "source_sha256": {
                     str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
                     for p in paths
@@ -617,7 +799,11 @@ def main(args):
                         capture_output=True,
                         text=True,
                     ).stdout.strip()
-                    for image in [args.python_image, args.redis_image]
+                    for image in [
+                        args.python_image,
+                        args.redis_image,
+                        *([args.candidate_image] if args.candidate_image else []),
+                    ]
                 },
             },
             indent=2,
@@ -630,6 +816,10 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python-image", required=True)
+    parser.add_argument(
+        "--candidate-image",
+        help="Also verify current Python/native overlap receipt interoperability",
+    )
     parser.add_argument("--redis-image", required=True)
     parser.add_argument("--report", type=Path, required=True)
     main(parser.parse_args())

@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 import { extractImageReferences } from '@/utils/app/imageHandler';
 import { getSession } from '@/utils/auth/session';
 
@@ -58,11 +57,11 @@ export default async function handler(
           ) {
             throw new ConversationWriteError('conflict', current);
           }
-          return sanitizeConversationAssistantReplays({
+          return {
             ...current,
             ...updatedData,
             updatedAt: Date.now(),
-          });
+          };
         },
         true,
       );
@@ -122,9 +121,7 @@ export default async function handler(
       );
 
       if (conversationData) {
-        const sanitized =
-          sanitizeConversationAssistantReplays(conversationData);
-        return res.status(200).json(sanitized);
+        return res.status(200).json(conversationData);
       }
 
       // Check for any pending/completed async jobs for this conversation
@@ -132,16 +129,10 @@ export default async function handler(
       const jobData = await jsonGet(jobKey);
 
       if (jobData && typeof jobData === 'object' && 'messages' in jobData) {
-        const sanitizedJobData = sanitizeConversationAssistantReplays({
-          id,
-          name: '',
-          folderId: null,
-          messages: (jobData as any).messages || [],
-        });
         // Return the full conversation state from the job
         return res.status(200).json({
           conversationId: id,
-          messages: sanitizedJobData.messages,
+          messages: (jobData as any).messages || [],
           status: (jobData as any).status || 'completed',
         });
       }

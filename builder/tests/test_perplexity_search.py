@@ -390,7 +390,7 @@ def test_provider_bad_request_returns_actionable_validation_detail():
     assert "Correct the arguments before retrying" in output
 
 
-def test_request_transport_error_does_not_expose_exception_detail():
+def test_request_transport_error_does_not_expose_exception_detail(caplog):
     import perplexity_search.perplexity_search_function as mod
     from perplexity_search.perplexity_search_function import PerplexitySearchConfig
 
@@ -411,6 +411,7 @@ def test_request_transport_error_does_not_expose_exception_detail():
 
     assert output == "Error: Could not reach Perplexity Search."
     assert private_error not in output
+    assert private_error not in caplog.text
 
 
 def test_build_payload_ignores_incomplete_results():
@@ -458,3 +459,23 @@ def test_build_payload_enforces_requested_result_limit():
 
     assert payload["search_info"]["total_results"] == 3
     assert len(payload["organic_results"]) == 3
+
+
+def test_provider_error_body_is_not_logged(caplog):
+    import perplexity_search.perplexity_search_function as mod
+    from perplexity_search.perplexity_search_function import PerplexitySearchConfig
+
+    private_body = "provider diagnostic token=private-query-data"
+
+    async def request():
+        FakeAsyncClient.response = FakeResponse(status_code=503, text=private_body)
+        with patch.object(mod.httpx, "AsyncClient", FakeAsyncClient):
+            search = await _registered_search_fn(
+                PerplexitySearchConfig(api_key="test-key")
+            )
+            return await search(query="synthetic fixture")
+
+    output = run(request())
+    assert "provider status 503" in output
+    assert private_body not in output
+    assert private_body not in caplog.text

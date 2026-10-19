@@ -502,6 +502,35 @@ def scenarios(endpoint, control, bad_endpoint):
     return cases
 
 
+def verify_optional_collection_fields(observations):
+    # Differential equality alone could preserve the same KeyError in both
+    # implementations. These optional response fields have defined defaults.
+    for item in observations:
+        if item["name"] == "publish-missing-files":
+            require(
+                item["results"]
+                == [
+                    {
+                        "ok": "Error: Sandbox did not return exactly one requested artifact; the file was not published."
+                    }
+                ]
+                and all(call["path"] != PUBLISH for call in item["calls"]),
+                "Absent collected files must return a useful error without publication",
+            )
+        elif item["name"] == "publish-missing-missingFiles":
+            publications = [call for call in item["calls"] if call["path"] == PUBLISH]
+            require(
+                len(item["results"]) == 1
+                and item["results"][0]
+                .get("ok", "")
+                .startswith("## Sandbox Artifact Published\n")
+                and len(publications) == 1
+                and publications[0]["bytes"]
+                == execution()["files"][0]["contentBase64"],
+                "An omitted empty missingFiles list must still publish the exact collected bytes once",
+            )
+
+
 def main(args):
     peer = SandboxPeer()
     server = ThreadingHTTPServer(("127.0.0.1", 0), peer.handler())
@@ -553,6 +582,7 @@ def main(args):
                 "/fixture/python.json",
             )
             expected = json.loads((root / "python.json").read_text())
+            verify_optional_collection_fields(expected)
             report = {
                 "status": "captured-sandbox-services",
                 "cases": expected,
@@ -585,6 +615,7 @@ def main(args):
                     },
                 )
                 actual = json.loads((root / "rust.json").read_text())
+                verify_optional_collection_fields(actual)
                 require(len(actual) == len(expected), "Missing sandbox observations")
                 mismatches = [
                     {"python": python, "rust": rust}

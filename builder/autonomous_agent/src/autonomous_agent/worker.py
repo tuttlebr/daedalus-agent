@@ -22,7 +22,7 @@ from .prompt import (
     parse_structured_output,
     workspace_key,
 )
-from .store import RedisStore
+from .store import RedisStore, WorkerLeaseLost
 
 STOP = False
 _CADENCE_TAG_RE = re.compile(r"^cadence:(\d+)([hd])$", re.IGNORECASE)
@@ -94,6 +94,8 @@ def apply_workspace_updates(
     store: RedisStore,
     user_id: str,
     output: dict[str, Any],
+    *,
+    require_lease: bool = False,
 ) -> list[str]:
     updates = output.get("workspace_updates")
     if not isinstance(updates, dict):
@@ -110,7 +112,7 @@ def apply_workspace_updates(
         key = workspace_key(user_id, name)
         if store.get_text(key) == content:
             continue
-        store.set_text(key, content)
+        store.set_text(key, content, lease_user=user_id if require_lease else None)
         changed.append(name)
     return changed
 
@@ -210,7 +212,7 @@ def run_once(
             goal_id and not any(goal.get("id") == goal_id for goal in goals)
         ):
             raise ValueError("The selected goal is no longer available.")
-        workspace = load_workspace(store, user_id)
+        workspace = load_workspace(store, user_id, require_lease=abort is not None)
         recent_runs = [
             existing
             for existing in store.list_runs(user_id)
@@ -237,7 +239,9 @@ def run_once(
         # Preserve the previous lastRunAt in the prompt's freshness context.
         # A missing/deleted explicit goal must never become general exploration.
         if goal_id and callable(mark_goal_run):
-            mark_goal_run(user_id, goal_id, run["startedAt"])
+            mark_goal_run(
+                user_id, goal_id, run["startedAt"], require_lease=abort is not None
+            )
         store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
         execution_id = str(request.get("id") or run["id"])
         response = backend.call(messages, execution_id=execution_id, abort=abort)
@@ -291,9 +295,13 @@ def run_once(
             return run
 
         output = parse_structured_output(response)
-        changed = apply_workspace_updates(store, user_id, output)
+        changed = apply_workspace_updates(
+            store, user_id, output, require_lease=abort is not None
+        )
         feed_items = feed_items_from_output(run["id"], output)
-        stored_items = store.append_feed_items(user_id, feed_items)
+        stored_items = store.append_feed_items(
+            user_id, feed_items, require_lease=abort is not None
+        )
         if stored_items is None:  # defensive: legacy stores returned None
             stored_items = feed_items
         deduped = max(0, len(feed_items) - len(stored_items))
@@ -319,6 +327,13 @@ def run_once(
                 "workspaceUpdated": changed,
             },
         )
+        return run
+    except WorkerLeaseLost:
+        run["status"] = "aborted"
+        run["completedAt"] = now_ms()
+        run["summary"] = "Run aborted after losing the worker lease."
+        store.upsert_run(user_id, run)
+        store.log_event(user_id, run["id"], "run_aborted", run["summary"], level="warn")
         return run
     except RunAbortedError as exc:
         # The stream was stopped mid-flight. A user cancellation and a lost

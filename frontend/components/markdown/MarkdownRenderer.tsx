@@ -1,7 +1,7 @@
 import { FC, memo } from 'react';
 import ReactMarkdown, { Options } from 'react-markdown';
 
-import { normalizeLatexDelimiters } from '@/utils/app/latexNormalizer';
+import { remarkLatexDelimiters } from '@/utils/app/latexNormalizer';
 import { remarkSearchResults } from '@/utils/app/remarkSearchResults';
 import { sanitizeSchema } from '@/utils/app/sanitizeSchema';
 
@@ -27,7 +27,7 @@ interface MarkdownRendererProps extends Omit<Options, 'children'> {
  *
  * Features:
  * - GitHub Flavored Markdown (tables, task lists, strikethrough, etc.)
- * - LaTeX math rendering via KaTeX (inline: $...$ and display: $$...$$)
+ * - Explicit LaTeX math via KaTeX; single dollar signs remain literal prices
  * - Code syntax highlighting
  * - Tables with proper styling
  * - Custom components (images, videos, charts)
@@ -41,7 +41,7 @@ interface MarkdownRendererProps extends Omit<Options, 'children'> {
  * @example
  * // With math
  * <MarkdownRenderer
- *   content="The quadratic formula: $x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}$"
+ *   content="The quadratic formula: \(x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}\)"
  *   enableMath={true}
  * />
  *
@@ -59,11 +59,6 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     enableMath = true,
     ...props
   }) => {
-    // Normalize LaTeX delimiters before processing
-    const normalizedContent = enableMath
-      ? normalizeLatexDelimiters(content)
-      : content;
-
     // Build rehype plugins
     const rehypePlugins: any[] = allowHtml
       ? [rehypeRaw, [rehypeSanitize, sanitizeSchema]]
@@ -74,11 +69,14 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
     // Build remark plugins
     const remarkPlugins: any[] = [remarkGfm];
+    if (enableMath) {
+      remarkPlugins.push(
+        [remarkMath, { singleDollarTextMath: false }],
+        remarkLatexDelimiters,
+      );
+    }
     if (allowHtml) {
       remarkPlugins.push(remarkSearchResults);
-    }
-    if (enableMath) {
-      remarkPlugins.push([remarkMath, { singleDollarTextMath: false }]);
     }
 
     return (
@@ -90,7 +88,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         components={getReactMarkDownCustomComponents(messageIndex, messageId)}
         {...props}
       >
-        {normalizedContent}
+        {content}
       </ReactMarkdown>
     );
   },

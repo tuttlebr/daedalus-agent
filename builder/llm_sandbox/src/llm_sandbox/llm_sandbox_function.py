@@ -1047,12 +1047,13 @@ async def llm_sandbox_function(config: LlmSandboxConfig, builder: ToolRegistry):
                             "Sandbox truncated the collected artifact; the file was "
                             "not published."
                         )
-                    if data["missingFiles"] or len(data["files"]) != 1:
+                    collected_files = data.get("files", [])
+                    if data.get("missingFiles", []) or len(collected_files) != 1:
                         return _error(
                             "Sandbox did not return exactly one requested artifact; "
                             "the file was not published."
                         )
-                    collected_file = data["files"][0]
+                    collected_file = collected_files[0]
                     if (
                         collected_file["path"] != normalized_file_path
                         or collected_file["truncated"]

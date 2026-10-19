@@ -1,17 +1,16 @@
 import { Conversation } from '@/types/chat';
 
 import { dedupeConversationsById } from './conversationList';
-import { sanitizeConversationAssistantReplays } from './conversationReplay';
 import { cleanMessagesForStorage, restoreMessageImages } from './imageHandler';
 
 export const cleanSelectedConversation = (conversation: Conversation) => {
   const cleanedMessages = cleanMessagesForStorage(conversation.messages || []);
 
-  return sanitizeConversationAssistantReplays({
+  return {
     ...conversation,
     folderId: conversation.folderId || null,
     messages: cleanedMessages,
-  });
+  };
 };
 
 export const cleanConversationHistory = (
@@ -28,9 +27,6 @@ export const cleanConversationHistory = (
       .map((conversation) => ({
         ...conversation,
         messages: restoreMessageImages(conversation.messages || []),
-      }))
-      .map((conversation) =>
-        sanitizeConversationAssistantReplays(conversation),
-      ),
+      })),
   );
 };

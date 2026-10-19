@@ -68,7 +68,7 @@ spec:
               raise SystemExit(f"backend did not become reachable: {url}")
           env:
             - name: BACKEND_BASE_URL
-              value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
+              value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.service.port | default 8000) }}
             - name: HOME
               value: /tmp
           volumeMounts:
@@ -90,7 +90,7 @@ spec:
           {{- end }}
           env:
             - name: BACKEND_BASE_URL
-              value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.port | default 8000) }}
+              value: {{ printf "http://%s-backend-default:%v" (include "daedalus.fullname" .) (.Values.backend.default.service.port | default 8000) }}
             - name: BACKEND_API_PATH
               value: {{ .Values.autonomousAgent.backendApiPath | default "/v1/chat/completions" | quote }}
             - name: DAEDALUS_INTERNAL_API_TOKEN

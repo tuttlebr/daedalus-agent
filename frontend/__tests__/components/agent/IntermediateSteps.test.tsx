@@ -62,62 +62,70 @@ afterEach(() => {
 });
 
 describe('compact agent activity', () => {
-  it('keeps live drilldown and selected details open as results arrive and the run finishes', () => {
-    const start = event(Type.TOOL_START, 'search-start', 'serpapi_search', {
-      input: { query: 'release notes', internal_flag: 'technical-only' },
-    });
-    render(
-      <IntermediateSteps
-        steps={[start]}
-        isStreaming
-        progress={{ startedAt: now - 20000, updatedAt: now }}
-      />,
-    );
-    expect(container.textContent).toContain('Searching the web');
-    expect(container.textContent).toContain('1 tool running');
-    expect(container.textContent).toContain('20s');
-    click('button[aria-haspopup="dialog"]');
-    expect(document.querySelectorAll('dialog[open]')).toHaveLength(1);
-    click('button[aria-label="View Searching the web details"]');
-    expect(document.querySelectorAll('dialog[open]')).toHaveLength(2);
-    expect(document.body.textContent).not.toContain('technical-only');
-    const result = event(Type.TOOL_END, 'search-end', 'serpapi_search', {
-      output: {
-        results: [
-          { title: 'Release notes', url: 'https://example.com/releases' },
-          { title: 'Changelog' },
-        ],
-      },
-    });
-    render(<IntermediateSteps steps={[start, result]} durationMs={24000} />);
-    expect(container.querySelector('button')?.textContent).toContain(
-      'Completed in 24s',
-    );
-    expect(
-      container.querySelector('button')?.getAttribute('aria-expanded'),
-    ).toBe('true');
-    expect(document.querySelectorAll('dialog[open]')).toHaveLength(2);
-    const details = document.querySelector(
-      'dialog[aria-label="Searching the web details"]',
-    )!;
-    expect(details.textContent).toContain('2 results');
-    expect(details.querySelector('a')?.href).toBe(
-      'https://example.com/releases',
-    );
-    click('button[aria-controls][aria-expanded="false"]');
-    expect(details.textContent).toContain('technical-only');
-    click('button[aria-label="Close activity details"]');
-    const dialog = document.querySelector<HTMLDialogElement>(
-      'dialog[aria-label="Agent activity"]',
-    )!;
-    act(() =>
-      dialog.dispatchEvent(
-        new Event('cancel', { bubbles: true, cancelable: true }),
-      ),
-    );
-    expect(document.querySelector('dialog')).toBeNull();
-    expect(document.activeElement).toBe(container.querySelector('button'));
-  });
+  it.each([false, true])(
+    'keeps live drilldown and selected details open as results arrive and the run finishes (shared UUID=%s)',
+    (sharedUuid) => {
+      const start = event(Type.TOOL_START, 'search-start', 'serpapi_search', {
+        input: { query: 'release notes', internal_flag: 'technical-only' },
+      });
+      render(
+        <IntermediateSteps
+          steps={[start]}
+          isStreaming
+          progress={{ startedAt: now - 20000, updatedAt: now }}
+        />,
+      );
+      expect(container.textContent).toContain('Searching the web');
+      expect(container.textContent).toContain('1 tool running');
+      expect(container.textContent).toContain('20s');
+      click('button[aria-haspopup="dialog"]');
+      expect(document.querySelectorAll('dialog[open]')).toHaveLength(1);
+      click('button[aria-label="View Searching the web details"]');
+      expect(document.querySelectorAll('dialog[open]')).toHaveLength(2);
+      expect(document.body.textContent).not.toContain('technical-only');
+      const result = event(
+        Type.TOOL_END,
+        sharedUuid ? 'search-start' : 'search-end',
+        'serpapi_search',
+        {
+          output: {
+            results: [
+              { title: 'Release notes', url: 'https://example.com/releases' },
+              { title: 'Changelog' },
+            ],
+          },
+        },
+      );
+      render(<IntermediateSteps steps={[start, result]} durationMs={24000} />);
+      expect(container.querySelector('button')?.textContent).toContain(
+        'Completed in 24s',
+      );
+      expect(
+        container.querySelector('button')?.getAttribute('aria-expanded'),
+      ).toBe('true');
+      expect(document.querySelectorAll('dialog[open]')).toHaveLength(2);
+      const details = document.querySelector(
+        'dialog[aria-label="Searching the web details"]',
+      )!;
+      expect(details.textContent).toContain('2 results');
+      expect(details.querySelector('a')?.href).toBe(
+        'https://example.com/releases',
+      );
+      click('button[aria-controls][aria-expanded="false"]');
+      expect(details.textContent).toContain('technical-only');
+      click('button[aria-label="Close activity details"]');
+      const dialog = document.querySelector<HTMLDialogElement>(
+        'dialog[aria-label="Agent activity"]',
+      )!;
+      act(() =>
+        dialog.dispatchEvent(
+          new Event('cancel', { bubbles: true, cancelable: true }),
+        ),
+      );
+      expect(document.querySelector('dialog')).toBeNull();
+      expect(document.activeElement).toBe(container.querySelector('button'));
+    },
+  );
 
   it('counts operations in parallel and retains explicit failure and interruption outcomes', () => {
     const first = event(Type.TOOL_START, 'first');

@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-import { sanitizeConversationAssistantReplays } from '@/utils/app/conversationReplay';
 import { publishSyncEvent } from '@/utils/sync/publish';
 
 import {
@@ -34,18 +33,7 @@ export default async function handler(
     try {
       const data = await jsonGet(key);
       if (!data) return res.status(200).json(null);
-      const sanitized = sanitizeConversationAssistantReplays(data);
-      if (sanitized !== data) {
-        await jsonSetWithExpiry(key, sanitized, 60 * 60 * 24 * 7).catch(
-          (error) => {
-            console.error(
-              'Failed to persist sanitized selectedConversation',
-              error,
-            );
-          },
-        );
-      }
-      return res.status(200).json(sanitized);
+      return res.status(200).json(data);
     } catch (e) {
       return res
         .status(500)
@@ -64,7 +52,6 @@ export default async function handler(
 
       // Strip attachment bytes while retaining bounded photos in HTML documents.
       conversation = stripBase64FromObject(conversation);
-      conversation = sanitizeConversationAssistantReplays(conversation);
 
       await jsonSetWithExpiry(key, conversation, 60 * 60 * 24 * 7);
 

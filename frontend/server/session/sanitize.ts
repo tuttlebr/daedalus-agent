@@ -4,9 +4,6 @@
  */
 import { hasBoundedHtmlImages } from '@/utils/app/embeddedHtmlImages';
 
-const MAX_CONVERSATIONS = 50;
-const MAX_MESSAGES_PER_CONV = 100;
-
 /**
  * Recursively strip attachment data while retaining bounded assistant HTML
  * display artifacts. Model preparation separately removes inline image bytes.
@@ -47,23 +44,4 @@ export function stripBase64FromObject<T>(obj: T): T {
   }
 
   return cleaned as T;
-}
-
-/**
- * Clamp a conversation list to safe sizes:
- *  - At most MAX_CONVERSATIONS conversations (keep most recent).
- *  - At most MAX_MESSAGES_PER_CONV messages per conversation (keep most recent).
- *  - Attachment blobs stripped; bounded assistant HTML photos retained.
- */
-export function clampConversations<T extends { messages?: unknown[] }>(
-  conversations: T[],
-): T[] {
-  const trimmed = (conversations || []).slice(-MAX_CONVERSATIONS);
-  return trimmed.map((c) => {
-    const clamped = {
-      ...c,
-      messages: (c.messages || []).slice(-MAX_MESSAGES_PER_CONV),
-    };
-    return stripBase64FromObject(clamped);
-  });
 }

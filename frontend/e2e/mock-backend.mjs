@@ -101,6 +101,26 @@ async function streamChat(req, res) {
     return;
   }
 
+  if (prompt.includes('E2E_OAUTH_SIBLING')) {
+    res.write(
+      'event: oauth_required\ndata: {"auth_url":"https://accounts.google.com/auth","oauth_state":"e2e-pending"}\n\n',
+    );
+    await wait(1000);
+    if (res.destroyed) return;
+    sendToken(res, 'Accepted output from the sibling tool.');
+    res.write(
+      `intermediate_data: ${JSON.stringify({
+        name: 'Function Complete: <research>',
+        id: 'oauth-sibling',
+        parent_id: 'root',
+        payload: 'Sibling research finished while authorization waits.',
+      })}\n\n`,
+    );
+    const keepAlive = setInterval(() => res.write(': waiting\n\n'), 5_000);
+    res.once('close', () => clearInterval(keepAlive));
+    return;
+  }
+
   if (prompt.includes('E2E_CANCEL')) {
     sendToken(res, 'E2E cancellation pending');
     const keepAlive = setInterval(() => res.write(': waiting\n\n'), 5_000);

@@ -10,8 +10,8 @@ describe('normalizeLatexDelimiters', () => {
     expect(normalizeLatexDelimiters('\\[x^2\\]')).toBe('$$x^2$$');
   });
 
-  it('should convert \\(...\\) to $...$', () => {
-    expect(normalizeLatexDelimiters('\\(x^2\\)')).toBe('$x^2$');
+  it('should convert \\(...\\) to currency-safe inline math', () => {
+    expect(normalizeLatexDelimiters('\\(x^2\\)')).toBe('$$x^2$$');
   });
 
   it('should convert equation environment to $$...$$', () => {

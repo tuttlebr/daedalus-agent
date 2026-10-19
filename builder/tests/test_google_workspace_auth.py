@@ -160,6 +160,15 @@ def test_interactive_grant_waits_for_a_concurrent_invalidation():
     async def run():
         store = Redis()
         key = token_key("docs", "alice")
+        grant_waiting = asyncio.Event()
+
+        class ObservedLock(asyncio.Lock):
+            async def acquire(self):
+                if self.locked():
+                    grant_waiting.set()
+                return await super().acquire()
+
+        store.locks[key + "/refresh-lock"] = ObservedLock()
         await store.set(
             key,
             json.dumps({"version": 2, "access_token": "superseded", "expires_at": 0}),
@@ -189,11 +198,16 @@ def test_interactive_grant_waits_for_a_concurrent_invalidation():
             refresh_lock = store.lock(key + "/refresh-lock")
             await refresh_lock.acquire()
             stale = decode_grant(await store.get(key))
-            oauth.callback(state, "alice-code")
-            await asyncio.sleep(0.05)  # let the code exchange finish
-            stale["expires_at"] = 0
-            await store.set(key, json.dumps(stale))
-            refresh_lock.release()
+            try:
+                oauth.callback(state, "alice-code")
+                # Wait until the new grant actually contends with invalidation.
+                # A fixed delay can miss the race when the provider is slower.
+                await asyncio.wait_for(grant_waiting.wait(), 2)
+                assert not authorizing.done()
+                stale["expires_at"] = 0
+                await store.set(key, json.dumps(stale))
+            finally:
+                refresh_lock.release()
 
             assert await authorizing == "fresh"
             saved = decode_grant(await store.get(key))

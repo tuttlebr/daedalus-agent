@@ -32,6 +32,7 @@ function start(name, args) {
 function shutdown(code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
+  process.exitCode = code;
 
   for (const child of children) {
     if (!child.killed) {

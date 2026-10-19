@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use std::{future::Future, time::Duration};
 
 const AMBIGUOUS: &str = "Document ingest wasn't repeated because the same autonomous operation has an existing or ambiguous execution record.";
+const CONTRACT: &str = "document-overlap-v2";
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Reservation {
@@ -21,6 +22,8 @@ pub struct Reservation {
     owner_token: Option<String>,
     state: String,
     stored_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    contract: Option<String>,
     #[serde(skip)]
     surrogates: Surrogates,
 }
@@ -74,34 +77,80 @@ async fn command<T: redis::FromRedisValue>(store: &Store, cmd: &mut redis::Cmd) 
 pub async fn reserve(config: &Config, prepared: &Prepared) -> Result<Reservation> {
     let store = Store::new(config)?;
     let owner = crate::authorization::nonce();
-    let payload = json_text(
-        &json!({"state":"in_progress", "owner":owner,
-        "arguments_sha256":prepared.arguments_sha256}),
-        true,
-        true,
-        false,
-    );
+    let mut record = json!({"state":"in_progress", "owner":owner,
+        "arguments_sha256":prepared.arguments_sha256});
+    if let Some(contract) = &prepared.contract {
+        record["contract"] = json!(contract);
+    }
+    let payload = json_text(&record, true, true, false);
     for _ in 0..2 {
-        let acquired: Option<String> = command(
-            &store,
-            redis::cmd("SET")
-                .arg(&prepared.key)
-                .arg(&payload)
-                .arg("NX")
-                .arg("EX")
-                .arg(ttl(config)?),
-        )
-        .await?;
-        if acquired.is_some() {
+        let (acquired, existing_key, raw) = if let Some(legacy_key) = &prepared.legacy_key {
+            let contract = prepared
+                .contract
+                .as_deref()
+                .ok_or_else(|| anyhow!("A legacy reservation requires a contract marker"))?;
+            let legacy_raw: Option<Vec<u8>> =
+                command(&store, redis::cmd("GET").arg(legacy_key)).await?;
+            let marked = legacy_raw
+                .as_ref()
+                .and_then(|raw| document_json::decode(raw))
+                .is_some_and(|(record, _)| record["contract"] == contract);
+            // The legacy check and new reservation must be atomic. Only a
+            // marked record distinguishes a new default request from old zero.
+            // Compare inspected bytes instead of using Redis's JSON decoder,
+            // which cannot decode every retained Python receipt string.
+            let script = r#"
+local current = redis.call('GET', KEYS[1])
+if current then return {0, KEYS[1], current} end
+local legacy = redis.call('GET', KEYS[2])
+if legacy and (ARGV[4] ~= '1' or legacy ~= ARGV[3]) then
+  return {0, KEYS[2], legacy}
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+return {1, KEYS[1], ''}
+"#;
+            let (acquired, key, raw): (i64, String, Vec<u8>) = command(
+                &store,
+                redis::cmd("EVAL")
+                    .arg(script)
+                    .arg(2)
+                    .arg(&prepared.key)
+                    .arg(legacy_key)
+                    .arg(&payload)
+                    .arg(ttl(config)?)
+                    .arg(legacy_raw.unwrap_or_default())
+                    .arg(if marked { "1" } else { "0" }),
+            )
+            .await?;
+            (acquired == 1, key, Some(raw))
+        } else {
+            let acquired: Option<String> = command(
+                &store,
+                redis::cmd("SET")
+                    .arg(&prepared.key)
+                    .arg(&payload)
+                    .arg("NX")
+                    .arg("EX")
+                    .arg(ttl(config)?),
+            )
+            .await?;
+            let raw = if acquired.is_some() {
+                None
+            } else {
+                command(&store, redis::cmd("GET").arg(&prepared.key)).await?
+            };
+            (acquired.is_some(), prepared.key.clone(), raw)
+        };
+        if acquired {
             return Ok(Reservation {
                 key: prepared.key.clone(),
                 owner_token: Some(owner),
                 state: "in_progress".into(),
                 stored_result: None,
+                contract: prepared.contract.clone(),
                 surrogates: Surrogates::new(),
             });
         }
-        let raw: Option<Vec<u8>> = command(&store, redis::cmd("GET").arg(&prepared.key)).await?;
         if let Some(raw) = raw.filter(|v| !v.is_empty()) {
             let raw = String::from_utf8(raw)
                 .map_err(|_| anyhow!("Invalid idempotency record encoding"))?;
@@ -110,8 +159,13 @@ pub async fn reserve(config: &Config, prepared: &Prepared) -> Result<Reservation
                 Some(_) => return Err(anyhow!("Invalid idempotency record")),
                 None => (json!({"state":"invalid"}), Surrogates::new()),
             };
+            if existing_key != prepared.key
+                && existing["contract"].as_str() == prepared.contract.as_deref()
+            {
+                continue;
+            }
             return Ok(Reservation {
-                key: prepared.key.clone(),
+                key: existing_key,
                 owner_token: None,
                 state: existing
                     .get("state")
@@ -119,6 +173,7 @@ pub async fn reserve(config: &Config, prepared: &Prepared) -> Result<Reservation
                     .map(crate::profile_import::identifier)
                     .unwrap_or_else(|| "invalid".into()),
                 stored_result: existing["result"].as_str().map(str::to_owned),
+                contract: None,
                 surrogates,
             });
         }
@@ -128,6 +183,7 @@ pub async fn reserve(config: &Config, prepared: &Prepared) -> Result<Reservation
         owner_token: None,
         state: "in_progress".into(),
         stored_result: None,
+        contract: None,
         surrogates: Surrogates::new(),
     })
 }
@@ -139,6 +195,11 @@ pub async fn complete(config: &Config, reservation: &Reservation, result: &Text)
         return Ok(false);
     }
     let store = Store::new(config)?;
+    let contract = reservation
+        .contract
+        .as_ref()
+        .map(|contract| format!("\"contract\":{},", serde_json::to_string(contract).unwrap()))
+        .unwrap_or_default();
     let script = "local current=redis.call('GET',KEYS[1]); if not current then return 0 end; local decoded=cjson.decode(current); if decoded['state'] ~= 'in_progress' or decoded['owner'] ~= ARGV[1] then return 0 end; redis.call('SET',KEYS[1],ARGV[2],'EX',ARGV[3]); return 1";
     let completed: i64 = command(
         &store,
@@ -148,7 +209,7 @@ pub async fn complete(config: &Config, reservation: &Reservation, result: &Text)
             .arg(&reservation.key)
             .arg(reservation.owner_token.as_deref().unwrap())
             .arg(format!(
-                "{{\"result\":{},\"state\":\"completed\"}}",
+                "{{{contract}\"result\":{},\"state\":\"completed\"}}",
                 result.ascii_json()
             ))
             .arg(ttl(config)?),
@@ -160,6 +221,8 @@ pub async fn complete(config: &Config, reservation: &Reservation, result: &Text)
 pub struct Prepared {
     pub key: String,
     pub arguments_sha256: String,
+    pub contract: Option<String>,
+    pub legacy_key: Option<String>,
     #[cfg(test)]
     pub arguments: Value,
 }
@@ -204,7 +267,13 @@ where
     let setting = |field: &str| {
         input
             .get(field)
-            .filter(|value| truthy(value))
+            .filter(|value| {
+                if field == "chunk_overlap" {
+                    !value.is_null()
+                } else {
+                    truthy(value)
+                }
+            })
             .unwrap_or(&settings.values[field])
             .clone()
     };
@@ -216,15 +285,28 @@ where
     let arguments = json!({"collection":collection, "documents":identities,
         "chunkSize":setting("chunk_size"), "chunkOverlap":setting("chunk_overlap")});
     let arguments_sha256 = hash(&json_text(&arguments, true, false, false));
-    let key = format!(
-        "daedalus:idempotency:v1:{}:{}:{}:{arguments_sha256}",
+    let prefix = format!(
+        "daedalus:idempotency:v1:{}:{}:{}:",
         hash(user),
         hash(execution),
         hash("ingest_user_documents")
     );
+    let key = format!("{prefix}{arguments_sha256}");
+    let legacy_key = if input["chunk_overlap"] == 0 && settings.values["chunk_overlap"] != 0 {
+        let mut legacy = arguments.clone();
+        legacy["chunkOverlap"] = settings.values["chunk_overlap"].clone();
+        Some(format!(
+            "{prefix}{}",
+            hash(&json_text(&legacy, true, false, false))
+        ))
+    } else {
+        None
+    };
     Ok(Prepared {
         key,
         arguments_sha256,
+        contract: Some(CONTRACT.into()),
+        legacy_key,
         #[cfg(test)]
         arguments,
     })
@@ -250,6 +332,7 @@ mod tests {
                 owner_token: None,
                 state: stored["state"].as_str().unwrap().into(),
                 stored_result: stored["result"].as_str().map(str::to_owned),
+                contract: None,
                 surrogates: Surrogates::new(),
             };
             assert_eq!(
@@ -265,6 +348,7 @@ mod tests {
                 owner_token: Some("synthetic-owner".into()),
                 state: "in_progress".into(),
                 stored_result: Some("stale result".into()),
+                contract: None,
                 surrogates: Surrogates::new(),
             }
             .replay()
@@ -277,7 +361,8 @@ mod tests {
     async fn actual_redis_reservations() {
         use std::io::{BufRead, Write};
         for line in std::io::stdin().lock().lines() {
-            let request: Value = serde_json::from_str(&line.unwrap()).unwrap();
+            let (request, request_surrogates) =
+                document_json::decode(line.unwrap().as_bytes()).unwrap();
             let config = Config {
                 raw: json!({}),
                 policy_raw: json!({}),
@@ -289,11 +374,19 @@ mod tests {
                     let prepared = Prepared {
                         key: request["key"].as_str().unwrap().into(),
                         arguments_sha256: request["digest"].as_str().unwrap().into(),
+                        contract: request["contract"].as_str().map(str::to_owned),
+                        legacy_key: request["legacy_key"].as_str().map(str::to_owned),
                         arguments: request["arguments"].clone(),
                     };
-                    reserve(&config, &prepared)
-                        .await
-                        .map(|r| json!({"acquired":r.acquired(), "reservation":r}))
+                    reserve(&config, &prepared).await.map(|r| {
+                        let acquired = r.acquired();
+                        let mut observation = serde_json::to_value(&r).unwrap();
+                        if let Some(result) = r.stored_result {
+                            observation["stored_result"] =
+                                Text::new(result, r.surrogates).observation();
+                        }
+                        json!({"acquired":acquired, "reservation":observation})
+                    })
                 }
                 "complete" => {
                     let reservation =
@@ -301,7 +394,10 @@ mod tests {
                     complete(
                         &config,
                         &reservation,
-                        &request["result"].as_str().unwrap().into(),
+                        &Text::new(
+                            request["result"].as_str().unwrap().into(),
+                            request_surrogates,
+                        ),
                     )
                     .await
                     .map(|completed| json!({"completed":completed}))
@@ -372,6 +468,22 @@ mod tests {
                 .find(|call| call.get("reserve").is_some())
             {
                 let actual = actual.unwrap_or_else(|error| panic!("{}: {error}", case["name"]));
+                if case["arguments"]["chunk_overlap"] == 0 && settings.values["chunk_overlap"] != 0
+                {
+                    // The frozen baseline accidentally ignored zero. Keep its
+                    // old key as a compatibility lookup, but honor zero for
+                    // new writes and their exact argument digest.
+                    let mut expected = reservation["reserve"]["arguments"].clone();
+                    expected["chunkOverlap"] = json!(0);
+                    assert_eq!(actual.arguments, expected);
+                    assert_eq!(
+                        actual.arguments_sha256,
+                        hash(&json_text(&expected, true, false, false))
+                    );
+                    assert!(actual.key.ends_with(&actual.arguments_sha256));
+                    assert_eq!(actual.legacy_key.as_deref(), reservation["key"].as_str());
+                    continue;
+                }
                 assert_eq!(
                     actual.arguments, reservation["reserve"]["arguments"],
                     "{}",

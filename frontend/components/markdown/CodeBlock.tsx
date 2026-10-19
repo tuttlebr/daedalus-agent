@@ -14,11 +14,8 @@ import {
   generateRandomString,
   programmingLanguages,
 } from '@/utils/app/codeblock';
-import { Logger } from '@/utils/logger';
 
 import classNames from 'classnames';
-
-const logger = new Logger('CodeBlock');
 
 const HTML_PREVIEW_LANGUAGES = new Set(['html', 'htm']);
 
@@ -42,15 +39,6 @@ export const CodeBlock: FC<Props> = memo(
     useEffect(() => {
       setShowPreview(isHtml && defaultPreview);
     }, [defaultPreview, isHtml, value]);
-
-    // Ensure value is a valid JSON string
-    if (language === 'json') {
-      try {
-        value = value.replaceAll("'", '"');
-      } catch (error) {
-        logger.info('JSON parse error:', error);
-      }
-    }
 
     const formattedValue = (() => {
       try {
@@ -88,10 +76,6 @@ export const CodeBlock: FC<Props> = memo(
         3,
         true,
       )}${fileExtension}`;
-
-      if (!suggestedFileName) {
-        return; // User pressed cancel on prompt
-      }
 
       const blob = new Blob([formattedValue], { type: 'text/plain' });
       saveFile(blob, suggestedFileName);

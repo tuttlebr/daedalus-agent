@@ -533,16 +533,17 @@ async def perplexity_search_function(
                 data = response.json()
         except httpx.HTTPStatusError as exc:
             logger.error(
-                "Perplexity Search returned %d: %s",
+                "Perplexity Search returned HTTP %d",
                 exc.response.status_code,
-                exc.response.text[:500],
             )
             return _http_error_for_user(exc.response)
         except httpx.RequestError as exc:
-            logger.error("Perplexity Search request failed: %s", exc)
+            logger.error("Perplexity Search request failed (%s)", type(exc).__name__)
             return "Error: Could not reach Perplexity Search."
         except ValueError as exc:
-            logger.error("Perplexity Search returned invalid JSON: %s", exc)
+            logger.error(
+                "Perplexity Search returned invalid JSON (%s)", type(exc).__name__
+            )
             return "Error: Perplexity Search returned invalid JSON."
 
         result_payload = _build_payload(

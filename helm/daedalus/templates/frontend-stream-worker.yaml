@@ -86,6 +86,10 @@ spec:
               value: {{ (get (.Values.frontend.env.overrides | default dict) "REDIS_URL") | default (ternary (printf "%s://$(REDIS_USERNAME):$(REDIS_PASSWORD)@%s-redis.%s.svc.cluster.local:%v" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379)) (printf "%s://%s-redis.%s.svc.cluster.local:%v" (ternary "rediss" "redis" .Values.redis.tls.enabled) (include "daedalus.fullname" .) .Release.Namespace (.Values.redis.service.port | default 6379)) .Values.redis.auth.enabled) | quote }}
             - name: BACKEND_HOST
               value: {{ (get (.Values.frontend.streamWorker.env.overrides | default dict) "BACKEND_HOST") | default (get (.Values.frontend.env.overrides | default dict) "BACKEND_HOST") | default (printf "%s-backend" (include "daedalus.fullname" .)) | quote }}
+            - name: BACKEND_PORT
+              value: {{ (get (.Values.frontend.streamWorker.env.overrides | default dict) "BACKEND_PORT") | default (get (.Values.frontend.env.overrides | default dict) "BACKEND_PORT") | default .Values.backend.default.service.port | quote }}
+            - name: BACKEND_POD_PORT
+              value: {{ (get (.Values.frontend.streamWorker.env.overrides | default dict) "BACKEND_POD_PORT") | default (get (.Values.frontend.streamWorker.env.overrides | default dict) "BACKEND_PORT") | default (get (.Values.frontend.env.overrides | default dict) "BACKEND_POD_PORT") | default (get (.Values.frontend.env.overrides | default dict) "BACKEND_PORT") | default .Values.backend.default.port | quote }}
             - name: BACKEND_NAMESPACE
               value: {{ .Release.Namespace | quote }}
             - name: POD_NAMESPACE
@@ -114,10 +118,10 @@ spec:
               value: {{ .Values.frontend.streamWorker.healthMaxAgeSeconds | default 30 | quote }}
             {{- with .Values.frontend.streamWorker.env.overrides }}
             {{- range $k, $v := . }}
-            {{- if not (regexMatch "^(DEPLOYMENT_MODE|BACKEND_(HOST|NAMESPACE|PORT|API_PATH)|DOCUMENT_INGEST_TIMEOUT_MS|NAT_(SUBMIT_MAX_RETRIES|RETRY_DELAY_MS|CONNECTIVITY_TIMEOUT_MS)|STREAM_(READ_IDLE|CONNECT)_TIMEOUT_MS|MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS|DAEDALUS_DEBUG_REPLAY|NEXT_PUBLIC_VAPID_PUBLIC_KEY|VAPID_PRIVATE_KEY|REDIS_(MAX_RETRIES_PER_REQUEST|COMMAND_TIMEOUT_MS)|STREAM_WORKER_[A-Z0-9_]+|LOG_LEVEL)$" $k) }}
+            {{- if not (regexMatch "^(DEPLOYMENT_MODE|BACKEND_(HOST|NAMESPACE|PORT|POD_PORT|API_PATH)|DOCUMENT_INGEST_TIMEOUT_MS|NAT_(SUBMIT_MAX_RETRIES|RETRY_DELAY_MS|CONNECTIVITY_TIMEOUT_MS)|STREAM_(READ_IDLE|CONNECT)_TIMEOUT_MS|MCP_OAUTH_STREAM_IDLE_TIMEOUT_MS|DAEDALUS_DEBUG_REPLAY|NEXT_PUBLIC_VAPID_PUBLIC_KEY|VAPID_PRIVATE_KEY|REDIS_(MAX_RETRIES_PER_REQUEST|COMMAND_TIMEOUT_MS)|STREAM_WORKER_[A-Z0-9_]+|LOG_LEVEL)$" $k) }}
             {{- fail (printf "frontend.streamWorker.env.overrides key %s is not in the stream-worker workload allowlist" $k) }}
             {{- end }}
-            {{- if and (ne $k "REDIS_URL") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "NODE_EXTRA_CA_CERTS") (ne $k "BACKEND_HOST") (ne $k "BACKEND_API_PATH") (ne $k "DAEDALUS_INTERNAL_API_TOKEN") }}
+            {{- if and (ne $k "REDIS_URL") (ne $k "REDIS_USERNAME") (ne $k "REDIS_PASSWORD") (ne $k "REDIS_TLS_ENABLED") (ne $k "NODE_EXTRA_CA_CERTS") (ne $k "BACKEND_PORT") (ne $k "BACKEND_POD_PORT") (ne $k "BACKEND_HOST") (ne $k "BACKEND_API_PATH") (ne $k "DAEDALUS_INTERNAL_API_TOKEN") }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}

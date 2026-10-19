@@ -167,6 +167,16 @@ impl Memory {
         let cache_id = digest(&["v1", &bank_id(user)]);
         self.bootstrap.lock().await.remove(&cache_id);
         let user_id = digest(&[&bank_id(user)]);
+        // Fence older reflections before scanning: their cache entry might
+        // not exist yet. Keep this generation until the next clear.
+        let _: () = self
+            .store
+            .command(
+                redis::cmd("SET")
+                    .arg(format!("daedalus:memory:generation:v1:{user_id}"))
+                    .arg(crate::authorization::nonce()),
+            )
+            .await?;
         let mut keys = vec![format!("daedalus:memory:bootstrap:{cache_id}")];
         for kind in ["session", "session-lock"] {
             let mut cursor = 0u64;
@@ -248,6 +258,10 @@ impl Memory {
         let suffix = format!("{}:{}", digest(&[&bank_id(user)]), digest(&[conversation]));
         let key = format!("daedalus:memory:session:v1:{suffix}");
         let lock_key = format!("daedalus:memory:session-lock:v1:{suffix}");
+        let generation_key = format!(
+            "daedalus:memory:generation:v1:{}",
+            digest(&[&bank_id(user)])
+        );
         let Ok(raw) = self.store.get(&key).await else {
             return String::new();
         };
@@ -262,6 +276,9 @@ impl Memory {
         {
             return cached_text;
         }
+        let Ok(generation) = self.store.get(&generation_key).await else {
+            return cached_text;
+        };
         let Ok(Some(_lease)) = self.store.lease(&lock_key, 60).await else {
             return cached_text;
         };
@@ -274,19 +291,23 @@ impl Memory {
         let response=self.request(reqwest::Method::POST,user,"reflect",Some(json!({"query":prompt,"budget":"low","max_tokens":800,"include":{"facts":null,"tool_calls":null},"fact_types":["world","experience","observation"]})),&[]).await;
         if let Ok(response) = response {
             let text = clip(response["text"].as_str().unwrap_or("").trim(), 2400);
-            if self
+            let stored: Result<i64> = self
                 .store
-                .set(
-                    &key,
-                    &json!({"text":text,"reflected_at":timestamp}).to_string(),
-                    7 * 24 * 60 * 60,
+                .command(
+                    redis::cmd("EVAL")
+                        .arg("if (redis.call('GET',KEYS[1]) or '') ~= ARGV[1] then return 0 end; redis.call('SET',KEYS[2],ARGV[2],'EX',ARGV[3]); return 1")
+                        .arg(2)
+                        .arg(&generation_key)
+                        .arg(&key)
+                        .arg(generation.unwrap_or_default())
+                        .arg(json!({"text":text,"reflected_at":timestamp}).to_string())
+                        .arg(7 * 24 * 60 * 60),
                 )
-                .await
-                .is_ok()
-            {
-                text
-            } else {
-                cached_text
+                .await;
+            match stored {
+                Ok(1) => text,
+                Ok(_) => String::new(), // The user cleared memory during reflection.
+                Err(_) => cached_text,
             }
         } else {
             cached_text

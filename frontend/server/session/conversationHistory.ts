@@ -1,5 +1,4 @@
 import { dedupeConversationsById } from '@/utils/app/conversationList';
-import { sanitizeConversationsAssistantReplays } from '@/utils/app/conversationReplay';
 
 import type { Conversation } from '@/types/chat';
 
@@ -93,9 +92,7 @@ export async function listConversationHistoryForUser(
       ...owned.map((record) => `${recordPrefix}${record.id}`),
     );
   }
-  return sanitizeConversationsAssistantReplays(
-    dedupeConversationsById([...history, ...owned]),
-  );
+  return dedupeConversationsById([...history, ...owned]);
 }
 
 /** Merge legacy/imported history without truncation, expiry or lost updates. */
@@ -109,9 +106,7 @@ export async function mergeConversationHistoryForUser(
   const deadline = Date.now() + 5_000;
   do {
     const raw = (await client.eval(READ_HISTORY, 1, key)) as string;
-    const merged = sanitizeConversationsAssistantReplays(
-      dedupeConversationsById([...parseHistory(raw), ...clean]),
-    );
+    const merged = dedupeConversationsById([...parseHistory(raw), ...clean]);
     if (
       (await client.eval(
         MERGE_HISTORY,

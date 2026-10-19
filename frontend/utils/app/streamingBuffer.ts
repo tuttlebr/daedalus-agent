@@ -18,9 +18,8 @@ export interface BufferedStreamingUpdate {
  * applyStreamingContentDelta until the following snapshot arrives.
  *
  * Skip a replacement that is a strict prefix of what is already rendered. That
- * is exactly the stale-snapshot case. A snapshot whose content genuinely
- * diverges (for example after the server strips a replayed assistant prefix)
- * still wins, so the sanitized text is not discarded.
+ * is exactly the stale-snapshot case. A divergent authoritative correction
+ * still wins; only a delayed prefix is ignored.
  */
 export function isStaleCumulativeSnapshot(
   currentContent: string,

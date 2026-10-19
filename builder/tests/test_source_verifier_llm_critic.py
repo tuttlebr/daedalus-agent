@@ -232,3 +232,28 @@ def test_verify_claim_returns_a_structured_error_for_bad_model_output(monkeypatc
     assert result["verdict"] == "error"
     assert result["claim_issues"] == ["verification_response_error"]
     assert result["critic"]["status"] == "error"
+
+
+def test_verify_claim_rejects_malformed_url_before_fetching(monkeypatch):
+    import source_verifier.source_verifier_function as mod
+
+    http_fetch = AsyncMock(side_effect=AssertionError("Malformed URL was fetched"))
+    monkeypatch.setattr(mod, "_scrape_with_httpx_result", http_fetch)
+
+    async def scenario():
+        async for item in mod.source_verifier_function(
+            mod.SourceVerifierConfig(), MagicMock()
+        ):
+            return json.loads(
+                await item.fn(
+                    operation="verify_claim",
+                    claim="A precise claim.",
+                    source_url="https://[broken/source",
+                )
+            )
+        raise AssertionError("Source verifier was not registered")
+
+    result = run(scenario())
+    assert result["verdict"] == "source_unreachable"
+    assert result["fetch_status"] == "invalid_url"
+    http_fetch.assert_not_awaited()

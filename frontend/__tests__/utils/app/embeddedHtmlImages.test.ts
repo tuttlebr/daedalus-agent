@@ -5,10 +5,7 @@ import {
 } from '@/utils/app/imageHandler';
 
 import { processMessages } from '@/server/chat/messagePreprocessing';
-import {
-  stripBase64FromObject,
-  clampConversations,
-} from '@/server/session/sanitize';
+import { stripBase64FromObject } from '@/server/session/sanitize';
 import { describe, expect, it } from 'vitest';
 
 const photo =
@@ -18,11 +15,10 @@ const html = `\`\`\`html\n<!doctype html><html><body><figure><img src="${photo}"
 )}</p></body></html>\n\`\`\``;
 
 describe('embedded HTML photos', () => {
-  it('preserves the exact assistant document through both storage cleaners and history', () => {
+  it('preserves the exact assistant document through both storage cleaners', () => {
     const conversation = { messages: [{ role: 'assistant', content: html }] };
     const saved = stripBase64FromObject(stripBase64Content(conversation));
     expect(saved).toEqual(conversation);
-    expect(clampConversations([saved])).toEqual([conversation]);
     expect(saved.messages[0].content).toContain(`src="${photo}"`);
   });
 
