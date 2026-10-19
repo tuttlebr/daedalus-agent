@@ -16,6 +16,7 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MAKEFILE = _REPO_ROOT / "Makefile"
 _CI = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
+_MIGRATION = _REPO_ROOT / ".github" / "workflows" / "rust-migration.yml"
 _RELEASE = _REPO_ROOT / ".github" / "workflows" / "release.yml"
 _FRONTEND_PACKAGE = _REPO_ROOT / "frontend" / "package.json"
 _FRONTEND_LOCK = _REPO_ROOT / "frontend" / "package-lock.json"
@@ -73,15 +74,31 @@ def test_pre_commit_hooks_run_in_ci_and_local_gate():
     assert "hooks" in ci_target.split()
 
 
-def test_rust_migration_gates_have_ci_and_local_parity():
+def test_rust_gates_keep_expensive_migration_contracts_manual():
     ci = yaml.safe_load(_CI.read_text())
-    commands = "\n".join(
-        step.get("run", "") for step in ci["jobs"]["rust-migration"]["steps"]
-    )
+    commands = "\n".join(step.get("run", "") for step in ci["jobs"]["rust"]["steps"])
     makefile = _MAKEFILE.read_text()
     ci_target = next(line for line in makefile.splitlines() if line.startswith("ci:"))
-    for target in ("rust-check", "rust-coverage", "migration", "candidate-browser"):
-        assert target in commands and target in ci_target
+    prerequisites = ci_target.partition("##")[0].split()[1:]
+    for target in ("rust-check", "rust-coverage"):
+        assert target in commands and target in prerequisites
+        assert f"{target}:" in makefile
+
+    # BaseLoader preserves GitHub's `on` key instead of YAML 1.1's boolean True.
+    migration = yaml.load(_MIGRATION.read_text(), Loader=yaml.BaseLoader)
+    assert set(migration["on"]) == {"workflow_dispatch"}
+    manual_commands = "\n".join(
+        step.get("run", "") for step in migration["jobs"]["rust-migration"]["steps"]
+    )
+    automatic_commands = "\n".join(
+        step.get("run", "")
+        for job in ci["jobs"].values()
+        for step in job.get("steps", [])
+    )
+    for target in ("migration", "candidate-browser"):
+        assert f"make {target}" in manual_commands
+        assert f"make {target}" not in automatic_commands
+        assert target not in prerequisites
         assert f"{target}:" in makefile
     assert "--rollback-image $(MIGRATION_BASELINE_IMAGE)" in makefile
     assert "--compare-image $(MIGRATION_BASELINE_IMAGE)" in makefile

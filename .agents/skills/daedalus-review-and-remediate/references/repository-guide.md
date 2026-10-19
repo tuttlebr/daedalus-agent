@@ -80,6 +80,12 @@ Use current repository requirements if they change. Prepare Python with
 before installing. Frontend installation uses `npm ci --legacy-peer-deps` from
 `frontend/`. Use synthetic local credentials and disposable test services.
 
+Automatic push/pull-request CI and `make ci` retain Rust formatting, Clippy,
+unit tests, protocol drift, and coverage. The longer `make migration` and
+`make candidate-browser` gates are opt-in, available locally or through the
+manual-only `.github/workflows/rust-migration.yml` workflow. Account for these
+separately when reviewing migration or compatibility behavior.
+
 | Scope                                   | Repository checks                                                                                                                                                                                                                                          |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Python behavior and coverage            | `make builder`; use focused pytest runs during diagnosis. Preserve the Python coverage floor (currently 65%).                                                                                                                                              |
@@ -91,7 +97,7 @@ before installing. Frontend installation uses `npm ci --legacy-peer-deps` from
 | Migration/compatibility                 | `make migration` covers differential/full/minimal image and service contracts. `make migration-benchmark` uses frozen synthetic workloads after migration setup; it does not establish live task latency.                                                  |
 | Deployment/configuration                | `make helm`, and applicable `make redis-upgrade`, `make docker`, `make security` jobs. Inspect required tools and disposable infrastructure before execution.                                                                                              |
 | Hooks                                   | `pre-commit run --files <changed-files>`; `make hooks` installs frontend dependencies and runs the pinned all-files pre-commit checks.                                                                                                                     |
-| Comprehensive final gate                | `make ci` runs the CI counterparts sequentially. Inspect `make help` and current CI for prerequisites and coverage. Record every unavailable gate; do not relabel a partial run as full CI.                                                                |
+| Automatic CI gate                       | `make ci` runs the automatic CI counterparts sequentially. Inspect `make help` and current CI for prerequisites and coverage. Record every unavailable gate; do not relabel a partial run as full CI.                                                      |
 
 Do not run shared build-output or disposable Compose gates concurrently:
 the Makefile explicitly serializes `ci` because they share resources. A test

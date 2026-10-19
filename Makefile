@@ -50,7 +50,7 @@ help: ## show available targets
 deploy: ## build, verify, and deploy through the canonical development path
 	./deploy.sh $(DEPLOY_IMAGE_ARGS) $(DEPLOY_ARGS)
 
-ci: tools-check hooks builder test-integration frontend frontend-e2e rust-check rust-coverage migration candidate-browser helm redis-upgrade docker security ## run every CI job sequentially
+ci: tools-check hooks builder test-integration frontend frontend-e2e rust-check rust-coverage helm redis-upgrade docker security ## run automatic CI jobs sequentially
 
 hooks: ## run every pre-commit hook  (CI job: hooks)
 	cd frontend && npm ci --legacy-peer-deps

@@ -119,6 +119,12 @@ performance changes.
 Use Node 22, Python 3.12 and Rust 1.95. The active Rust code no longer needs the
 experimental article parser, image libraries, ONNX assets or speech binaries.
 
+Push and pull-request CI runs Rust formatting, Clippy, unit tests, protocol drift,
+and coverage. The longer migration and candidate-image browser contracts run
+only when manually requested through the **Rust Migration Contracts** GitHub
+Actions workflow (`.github/workflows/rust-migration.yml`), or through the local
+commands below. They are not included in `make ci`.
+
 ```bash
 make rust-check
 make rust-coverage

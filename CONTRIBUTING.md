@@ -67,10 +67,16 @@ Choose checks that exercise your change:
 | Redis state or job lifecycle   | `make test-integration` and affected recovery/browser tests                                 |
 | Helm or deployment             | `make helm`; applicable image and deployment checks                                         |
 
-`make help` lists the CI counterparts. `make ci` runs the full suite, including
+`make help` lists the CI counterparts. `make ci` runs the automatic CI suite, including
 container builds, scans, and a disposable Kubernetes test cluster. You do not
 need every infrastructure tool to improve a README or work on a frontend unit
 test. The pull request still runs the repository's CI checks.
+
+The longer Rust migration and candidate-image browser contracts are opt-in.
+Run the **Rust Migration Contracts** workflow manually in GitHub Actions, or run
+`make migration` followed by `make candidate-browser` locally. Rust formatting,
+Clippy, unit tests, protocol drift, and coverage still run on every push and pull
+request.
 
 Install `pre-commit` and run `pre-commit run --files <changed-files>` before
 submitting, with frontend dependencies installed for the formatting hook.

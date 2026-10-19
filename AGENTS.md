@@ -30,7 +30,7 @@ repository root unless shown otherwise.
 - `make test-integration`: exercise Python/frontend persistence against disposable Redis.
 - `make frontend-e2e`: run Playwright browser workflows.
 - `make helm`: lint and render Helm manifests.
-- `make help`: list checks; `make ci` runs the full suite, including infrastructure checks.
+- `make help`: list checks; `make ci` runs the automatic CI suite, including infrastructure checks.
 
 ## Coding Style & Naming Conventions
 
