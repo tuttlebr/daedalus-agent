@@ -163,6 +163,13 @@ Verify documented commands, paths, defaults and examples against the resulting
 implementation. Regenerate generated documentation from its source when needed.
 Treat stale documentation introduced by a fix as unfinished remediation.
 
+Keep repository documentation about current behavior and repeatable procedures.
+Consolidate useful contracts from historical reports into the owning guide and
+remove change narratives, dated audit summaries and one-off validation totals.
+Keep the review ledger and measurements in local artifacts or the pull request;
+do not add a new history page to replace the removed ones. Preserve dates that
+are part of a supported contract or independent fixture provenance.
+
 ## Keep this skill current
 
 This skill is versioned with the repository. Drift between the checkout and
@@ -177,8 +184,8 @@ neither source is authoritative until confirmed against current code.
 - Write repository paths in full inside backticks and name gates by their `make`
   targets. `scripts/check_maintenance_skills.py` fails when such a reference
   disappears; it cannot detect outdated descriptions.
-- Keep findings, measurements and dated results in the review report, docs or
-  pull request, not in this skill.
+- Keep findings, measurements and dated results in a local review report or
+  pull request, not in this skill or repository reference documentation.
 
 ## Validate and finish
 

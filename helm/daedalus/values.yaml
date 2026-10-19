@@ -267,10 +267,9 @@ frontend:
     createSecret: true
     # When createSecret is true, provide plaintext key/value pairs here.
     data: {}
-    # SESSION_SECRET (used to sign identity cookies) lives in its own
-    # chart-managed Secret regardless of fromSecret/createSecret. Auto-generated
-    # on first install and preserved across upgrades via `lookup`. Pin to a
-    # known value only if you need to share it across replicas or environments.
+    # Deployment compatibility value in a separate chart-managed Secret.
+    # Current authentication uses opaque Redis sessions and does not read it.
+    # Generated on first install and preserved across upgrades via `lookup`.
     sessionSecret: ''
     overrides:
       # Streaming chat endpoint. The Rust runtime serves only this path.

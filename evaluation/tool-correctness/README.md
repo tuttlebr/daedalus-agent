@@ -54,9 +54,8 @@ Run with a fresh `synthetic-` identity and unique request prefix. These requests
 may populate that identity's memory; delete only its synthetic memory bank and
 clear its cache afterward, and verify absence. Keep the JSONL and release evidence
 outside git because they contain full tool payloads, even though the workload is
-synthetic. A rollout is accepted only after all 60 assertions pass. The rejected
-first rollout is recorded in `live-rejected-2026-10-12.json`; fixture success alone
-did not predict full-catalog tool selection.
+synthetic. A rollout is accepted only after all 60 assertions pass. Fixture success alone
+does not establish full-catalog tool selection.
 
 ## Configuration and routing identity
 
@@ -89,10 +88,9 @@ candidates; a provider may change underlying weights without changing its name.
 Research mode is disabled by default. An experimental configuration must set
 `enable_research_mode: true` on the webscrape function and include
 `tool_output_retriever_tool`. The check below enables the flag only in its
-isolated fixture. Initial live trials failed exact-format assertions. The
-[final-only follow-up](../../docs/research-response-validation.md) records the
-runtime fix and subsequent comparison; enabling production mode also requires
-the broader paired correctness gate.
+isolated fixture. See [research workflows](../../docs/research-workflows.md)
+for output and recovery contracts. Enabling production mode requires both the
+research comparison and the broader paired correctness gate.
 
 The built-image research check uses actual scrape conversion, output storage,
 retrieval and both preparation paths, with only external source/model transports

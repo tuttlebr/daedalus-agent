@@ -1,5 +1,12 @@
 import { getRedis, sessionKey } from './redis';
 
+import { JOB_EXPIRY_SECONDS } from '@/server/chat/constants';
+import {
+  conversationJobGuardKey,
+  parseConversationJobGuard,
+} from '@/server/chat/conversationJobGuard';
+import { abortKey } from '@/server/chat/jobState';
+
 // Keep JSON opaque in Lua so unrelated messages retain empty arrays and exact
 // integers. Read failures must abort deletion, never masquerade as empty history.
 const READ_JSON_SNAPSHOT_LUA = `
@@ -24,7 +31,8 @@ return {
   owned,
   read_json(KEYS[2]),
   read_json(KEYS[3]),
-  conversation
+  conversation,
+  redis.call('GET', KEYS[5]) or ''
 }
 `;
 
@@ -39,7 +47,8 @@ if conversation ~= '' then
   if owner and owner ~= ARGV[8] then owned = 0 end
 end
 if owned ~= tonumber(ARGV[2]) or read_json(KEYS[2]) ~= ARGV[3]
-  or read_json(KEYS[3]) ~= ARGV[4] then
+  or read_json(KEYS[3]) ~= ARGV[4]
+  or (redis.call('GET', KEYS[5]) or '') ~= ARGV[9] then
   return 0
 end
 
@@ -52,6 +61,12 @@ if ARGV[5] ~= '' then
 end
 if ARGV[6] == '1' then redis.call('DEL', KEYS[3]) end
 if ARGV[2] == '1' then
+  -- Publish the durable stop in the deletion commit, including jobs whose
+  -- request is still being initialized. The worker owns finalization and
+  -- guard release; deleting those records here would lose recovery state.
+  if #KEYS == 6 then
+    redis.call('SET', KEYS[6], 'true', 'EX', ARGV[10])
+  end
   redis.call('DEL', KEYS[4])
   redis.call('SREM', KEYS[1], ARGV[1])
 end
@@ -73,18 +88,19 @@ export async function deleteConversationForUser(
     sessionKey(['user', username, 'conversationHistory']),
     sessionKey(['user', username, 'selectedConversation']),
     sessionKey(['conversation', id]),
+    conversationJobGuardKey(username, id),
   ];
 
   const retryDeadline = Date.now() + 5_000;
   do {
-    const [owned, historyRaw, selectedRaw, conversationRaw] =
+    const [owned, historyRaw, selectedRaw, conversationRaw, guardRaw] =
       (await client.eval(
         READ_DELETION_SNAPSHOT_LUA,
         keys.length,
         ...keys,
         id,
         username,
-      )) as [number, string, string, string];
+      )) as [number, string, string, string, string];
     const history = historyRaw ? JSON.parse(historyRaw) : [];
     if (!Array.isArray(history)) {
       throw new Error('Invalid conversation history');
@@ -95,10 +111,17 @@ export async function deleteConversationForUser(
     const removeSelected = selected?.id === id;
     if (!owned && !removeFromHistory && !removeSelected) return false;
 
+    const guard = parseConversationJobGuard(guardRaw);
+    const cancellationKeys =
+      owned && guard?.userId === username && guard.conversationId === id
+        ? [abortKey(guard.jobId)]
+        : [];
+
     const applied = await client.eval(
       APPLY_DELETION_LUA,
-      keys.length,
+      keys.length + cancellationKeys.length,
       ...keys,
+      ...cancellationKeys,
       id,
       owned,
       historyRaw,
@@ -107,6 +130,8 @@ export async function deleteConversationForUser(
       removeSelected ? '1' : '0',
       conversationRaw,
       username,
+      guardRaw,
+      JOB_EXPIRY_SECONDS,
     );
     if (applied === 1) return true;
     // A concurrent save/delete changed the snapshot. Recompute the removal

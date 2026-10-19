@@ -158,11 +158,17 @@ export function mergeSubmittedMessagesWithStoredHistory(
 async function loadStoredConversationMessages(
   username: string,
   conversationId: unknown,
+  jobId: string,
 ): Promise<any[]> {
   if (typeof conversationId !== 'string' || !conversationId) return [];
   // Reserve new IDs and authorize existing ones before any model/tool work.
   // A foreign or unreadable record must never become an empty new history.
-  const stored = await reserveConversationForUser(username, conversationId);
+  const stored = await reserveConversationForUser(
+    username,
+    conversationId,
+    undefined,
+    jobId,
+  );
   return Array.isArray(stored.messages) ? stored.messages : [];
 }
 
@@ -404,6 +410,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const storedMessages = await loadStoredConversationMessages(
       verifiedUsername,
       conversationId,
+      jobId,
     );
     const effectiveMessages = mergeSubmittedMessagesWithStoredHistory(
       storedMessages,
@@ -643,6 +650,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ]).catch(() => {});
     }
     if (error instanceof ConversationWriteError) {
+      if (error.reason === 'conflict') {
+        return res.status(409).json({
+          error:
+            'The conversation changed or was deleted while submitting this response.',
+        });
+      }
       return res.status(403).json({
         error: 'Forbidden: You do not have access to this conversation',
       });

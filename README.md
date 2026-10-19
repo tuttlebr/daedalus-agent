@@ -27,26 +27,25 @@ schedule. Use by two people does not establish suitability for a public service.
 
 ## Start here
 
-| You want to...                                    | Read this                                                                                                                           |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Run local text chat                               | [Local setup](#local-setup)                                                                                                         |
-| Find code or add one integration                  | [Architecture and adaptation](docs/architecture.md)                                                                                 |
-| Operate an installation or move to Kubernetes     | [Operations](docs/operations.md), [Helm chart](helm/daedalus/README.md)                                                             |
-| Develop the UI or run browser tests               | [Frontend](frontend/README.md), [Browser tests](frontend/e2e/README.md)                                                             |
-| Change shared payloads or agent instructions      | [Protocol](protocol/README.md), [Skill guidelines](skills/AGENTS.md)                                                                |
-| Contribute a fix                                  | [Contributing](CONTRIBUTING.md), [Repository guidelines](AGENTS.md)                                                                 |
-| Understand tool execution and exact answers       | [Tool contracts](docs/tool-correctness.md)                                                                                          |
-| Validate model or research changes                | [Evaluation guide](evaluation/tool-correctness/README.md), [Research and response validation](docs/research-response-validation.md) |
-| Review long-running workflows and recovery limits | [Workflow review](docs/long-running-workflows.md)                                                                                   |
-| Run isolated experiments with durable files       | [Sandbox exploration](docs/sandbox-exploration.md)                                                                                  |
-| Understand Rust ownership and rollback            | [Runtime migration](docs/rust-migration.md)                                                                                         |
-| Review the Harness2 design work                   | [Focused review](docs/harness-improvement-review.md), [Implementation and evidence](docs/harness-improvements.md)                   |
-| Understand skill maintenance or image signing     | [Skills review](docs/skills-review.md), [Content Credentials](docs/content-credentials.md)                                          |
+| You want to...                                    | Read this                                                                                                   |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Run local text chat                               | [Local setup](#local-setup)                                                                                 |
+| Find code or add one integration                  | [Architecture and adaptation](docs/architecture.md)                                                         |
+| Operate an installation or move to Kubernetes     | [Operations](docs/operations.md), [Helm chart](helm/daedalus/README.md)                                     |
+| Develop the UI or run browser tests               | [Frontend](frontend/README.md), [Browser tests](frontend/e2e/README.md)                                     |
+| Change shared payloads or agent instructions      | [Protocol](protocol/README.md), [Skill guidelines](skills/AGENTS.md)                                        |
+| Contribute a fix                                  | [Contributing](CONTRIBUTING.md), [Repository guidelines](AGENTS.md)                                         |
+| Understand tool execution and exact answers       | [Tool contracts](docs/tool-correctness.md)                                                                  |
+| Validate model or research changes                | [Evaluation guide](evaluation/tool-correctness/README.md), [Research workflows](docs/research-workflows.md) |
+| Review long-running workflows and recovery limits | [Workflow guide](docs/long-running-workflows.md)                                                            |
+| Run isolated experiments with durable files       | [Sandbox exploration](docs/sandbox-exploration.md)                                                          |
+| Understand Rust ownership and rollback            | [Runtime compatibility](docs/rust-migration.md)                                                             |
+| Understand skill maintenance or image signing     | [Skill guidelines](skills/AGENTS.md), [Content Credentials](docs/content-credentials.md)                    |
 
 ## Local setup
 
 Prerequisites: Git, Docker with the Compose plugin and BuildKit support, Bash,
-OpenSSL, curl, and a model endpoint supporting the **Responses API and tool
+curl, and a model endpoint supporting the **Responses API and tool
 calling**. Have its API root, model name, and credential ready. The containers
 supply Node, Python, and Rust; no host language toolchains or GPU are required
 for this path. The first build includes substantial Python dependencies and can
@@ -54,16 +53,15 @@ take longer than the configuration steps.
 
 Run all commands below from the repository root in the same Bash session.
 
-### 1. Configure the model and session
+### 1. Configure the model and login
 
 ```bash
 git clone https://github.com/tuttlebr/daedalus-agent.git
 cd daedalus-agent
 cp .env.example .env
-openssl rand -base64 32
 ```
 
-Copy the generated secret into `SESSION_SECRET` in `.env`, then fill in:
+Fill in these settings in `.env`:
 
 | Variable                          | Value                                             |
 | --------------------------------- | ------------------------------------------------- |

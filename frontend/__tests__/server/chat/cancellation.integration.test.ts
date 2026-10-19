@@ -98,6 +98,122 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       });
     }
 
+    it.each(['queued', 'active'])(
+      'deleting a conversation stops its %s job without a browser',
+      async (phase) => {
+        const userId = 'oauth-cancel-user';
+        const jobId = `${prefix}-delete-${phase}`;
+        const conversationId = `${jobId}-conversation`;
+        const { reserveConversationForUser } = await import(
+          '@/server/session/conversationStore'
+        );
+        const { deleteConversationForUser } = await import(
+          '@/server/session/conversationDeletion'
+        );
+        const { acquireConversationJobGuard, conversationJobGuardKey } =
+          await import('@/server/chat/conversationJobGuard');
+        const { acquireUserJobGuard, userJobGuardKey } = await import(
+          '@/server/chat/userJobGuard'
+        );
+        let started!: () => void;
+        const ready = new Promise<void>((resolve) => {
+          started = resolve;
+        });
+        const spy = vi
+          .spyOn(reader, 'startBackgroundStreamReader')
+          .mockImplementation(
+            async (_id, _request, _messages, _user, control) => {
+              await control!.beforeBackendRequest!();
+              const signal = control!.signal!;
+              started();
+              await new Promise<void>((resolve) => {
+                if (signal.aborted) resolve();
+                else
+                  signal.addEventListener('abort', () => resolve(), {
+                    once: true,
+                  });
+              });
+              throw signal.reason;
+            },
+          );
+        const controller = new AbortController();
+        let processing: Promise<unknown> | undefined;
+        try {
+          await reserveConversationForUser(userId, conversationId);
+          await acquireConversationJobGuard(userId, conversationId, jobId);
+          await acquireUserJobGuard(userId, jobId);
+          await seedJob(jobId);
+          const requestKey = redis.sessionKey(['async-job-request', jobId]);
+          await redis.jsonSetWithExpiry(
+            requestKey,
+            {
+              ...(await redis.jsonGet(requestKey)),
+              conversationId,
+            },
+            120,
+          );
+          await queue.enqueueStreamJob(jobId, {
+            messagesForNat: [],
+            verifiedUsername: userId,
+          });
+          const [entry] = await queue.readNewStreamJobs(
+            client,
+            'owner',
+            1,
+            100,
+          );
+          const process = () =>
+            worker.processStreamQueueEntry(
+              entry,
+              {
+                ...worker.streamWorkerOptionsFromEnv(),
+                cancellationPollMs: 10,
+              },
+              controller,
+              'owner',
+            );
+          if (phase === 'active') {
+            processing = process();
+            await ready;
+          }
+          expect(await deleteConversationForUser(userId, conversationId)).toBe(
+            true,
+          );
+          processing ??= process();
+          await processing;
+          expect(spy).toHaveBeenCalledTimes(phase === 'queued' ? 0 : 1);
+          expect(
+            await redis.jsonGet(redis.sessionKey(['async-job-status', jobId])),
+          ).toMatchObject({ status: 'error', error: 'Job canceled by user' });
+          expect(
+            await client.exists(
+              redis.sessionKey(['conversation', conversationId]),
+            ),
+          ).toBe(0);
+          expect(
+            await client.get(conversationJobGuardKey(userId, conversationId)),
+          ).toBeNull();
+          expect(
+            await client.zscore(userJobGuardKey(userId), jobId),
+          ).toBeNull();
+          expect(await queue.loadStreamQueuePayload(jobId)).toBeNull();
+        } finally {
+          controller.abort();
+          await processing?.catch(() => {});
+          spy.mockRestore();
+          await client.del(
+            ...jobKeys(jobId),
+            redis.sessionKey(['conversation', conversationId]),
+            redis.sessionKey(['user', userId, 'conversations']),
+            redis.sessionKey(['user', userId, 'conversationHistory']),
+            redis.sessionKey(['user', userId, 'selectedConversation']),
+            conversationJobGuardKey(userId, conversationId),
+            userJobGuardKey(userId),
+          );
+        }
+      },
+    );
+
     it.each(['live', 'reader returned'])(
       'preserves accepted output for a %s OAuth request',
       async (phase) => {

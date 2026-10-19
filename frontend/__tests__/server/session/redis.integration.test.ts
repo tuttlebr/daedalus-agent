@@ -33,6 +33,32 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       }
     });
 
+    it.each(['absent', 'string', 'json', 'list', 'set'])(
+      'replaces a %s record with exact JSON and an expiry in one commit',
+      async (format) => {
+        const target = key(prefix, 'replace', format);
+        if (format === 'string') await client.set(target, '{"old":true}');
+        if (format === 'json')
+          await client.call('JSON.SET', target, '$', '{"old":true}');
+        if (format === 'list') await client.rpush(target, 'old');
+        if (format === 'set') await client.sadd(target, 'old');
+        const value = { rows: [[], {}, 9007199254740991], text: '雪' };
+        const evaluate = vi.spyOn(client, 'eval');
+        const remove = vi.spyOn(client, 'del');
+        try {
+          await redis.jsonSetWithExpiry(target, value, 120);
+          expect(await redis.jsonGet(target)).toEqual(value);
+          expect(await client.ttl(target)).toBeGreaterThan(0);
+          expect(await client.ttl(target)).toBeLessThanOrEqual(120);
+          expect(evaluate).toHaveBeenCalledTimes(1);
+          expect(remove).not.toHaveBeenCalled();
+        } finally {
+          evaluate.mockRestore();
+          remove.mockRestore();
+        }
+      },
+    );
+
     it('retains values, order, duplicate keys and missing keys across storage formats', async () => {
       const plain = key(prefix, 'plain');
       const json = key(prefix, 'json');

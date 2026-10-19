@@ -59,6 +59,28 @@ def test_makefile_and_ci_exist():
     assert _CI.is_file(), _CI
 
 
+def test_local_runtime_http_checks_provision_the_same_dependencies_as_ci():
+    # A successful image build must reach the HTTP contracts even when the
+    # system Python lacks the test client's imports. CI provisions its own venv.
+    steps = yaml.safe_load(_CI.read_text())["jobs"]["docker"]["steps"]
+    command = next(
+        step["run"]
+        for step in steps
+        if "builder/runtime_http_check.py" in step.get("run", "")
+    )
+    assert '"$RUNNER_TEMP/runtime-check/bin/pip" install httpx pyyaml' in command
+    local = [
+        line.strip()
+        for line in _MAKEFILE.read_text().splitlines()
+        if "builder/runtime_http_check.py" in line
+    ]
+    assert len(local) == 2  # standalone runtime and Compose docker gates
+    for invocation in local:
+        assert invocation.startswith(
+            "uv run --no-project --python 3.12 --with httpx --with pyyaml python "
+        )
+
+
 def test_pre_commit_hooks_run_in_ci_and_local_gate():
     ci = yaml.safe_load(_CI.read_text())
     steps = ci["jobs"]["hooks"]["steps"]

@@ -1,5 +1,7 @@
 import { getRedis, sessionKey } from './redis';
 
+import { abortKey } from '@/server/chat/jobState';
+
 const READ = `
 local function read(key)
   local kind = redis.call('TYPE', key).ok
@@ -18,6 +20,9 @@ return {read(KEYS[1]), redis.call('SISMEMBER', KEYS[2], ARGV[1]), redis.call('TT
 `;
 const SAVE = `${READ}
 -- SAVE_OWNED_CONVERSATION: authorize and compare the same snapshot we replace.
+-- A chat reservation must not recreate a conversation deleted while its
+-- submission was initializing. Check the job's stop signal in this commit.
+if #KEYS == 3 and redis.call('EXISTS', KEYS[3]) == 1 then return -2 end
 local raw = read(KEYS[1])
 if raw ~= ARGV[1] then return 0 end
 if raw ~= '' then
@@ -78,12 +83,14 @@ export async function saveConversationForUser(
   id: string,
   update: (current: Record<string, any> | null) => Record<string, any>,
   allowCreate = false,
+  pendingJobId?: string,
 ): Promise<Record<string, any>> {
   const client = getRedis();
   const keys = [
     sessionKey(['conversation', id]),
     sessionKey(['user', username, 'conversations']),
   ];
+  const cancellationKeys = pendingJobId ? [abortKey(pendingJobId)] : [];
   const deadline = Date.now() + 5000;
   do {
     const [raw, member] = (await client.eval(SNAPSHOT, 2, ...keys, id)) as [
@@ -101,8 +108,9 @@ export async function saveConversationForUser(
     const value = { ...update(current), id, ownerId: username };
     const result = await client.eval(
       SAVE,
-      2,
+      keys.length + cancellationKeys.length,
       ...keys,
+      ...cancellationKeys,
       raw,
       JSON.stringify(value),
       id,
@@ -111,6 +119,7 @@ export async function saveConversationForUser(
     );
     if (result === 1) return value;
     if (result === -1) throw new ConversationWriteError('forbidden');
+    if (result === -2) throw new ConversationWriteError('conflict');
     await new Promise((resolve) => setTimeout(resolve, 5 + Math.random() * 20));
   } while (Date.now() < deadline);
   throw new Error('Conversation changed repeatedly during save');
@@ -120,6 +129,7 @@ export async function reserveConversationForUser(
   username: string,
   id: string,
   name?: string,
+  pendingJobId?: string,
 ) {
   // Every chat turn reserves its conversation. A durable record already bound
   // to this user needs no write: rewriting it unchanged sent the whole history
@@ -150,5 +160,6 @@ export async function reserveConversationForUser(
         updatedAt: 0,
       },
     true,
+    pendingJobId,
   );
 }

@@ -86,8 +86,165 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       return res;
     }
 
+    async function guard(id: string, jobId: string) {
+      const { acquireConversationJobGuard, conversationJobGuardKey } =
+        await import('@/server/chat/conversationJobGuard');
+      const { abortKey } = await import('@/server/chat/jobState');
+      const guardKey = conversationJobGuardKey(session.username, id);
+      keys.add(guardKey);
+      keys.add(abortKey(jobId));
+      expect(
+        (await acquireConversationJobGuard(session.username, id, jobId))
+          .acquired,
+      ).toBe(true);
+      return { guardKey, abort: abortKey(jobId) };
+    }
+
+    it('keeps a cancellation visible when another request renews its TTL', async () => {
+      const f = fixture();
+      await seed(f.conversation, { id: f.id, ownerId: session.username }, true);
+      await client.sadd(f.membership, f.id);
+      const job = await guard(f.id, `${f.id}-job`);
+      expect((await remove(f.id)).status).toHaveBeenCalledWith(200);
+      const observed = [await redis.jsonGet(job.abort)];
+      const removeKey = client.del.bind(client);
+      vi.spyOn(client, 'del').mockImplementation(async (...args: any[]) => {
+        const result = await removeKey(...args);
+        // Interleave a worker read if a writer deletes the signal to change
+        // its storage type. That missing-key window must never be observable.
+        observed.push(await redis.jsonGet(job.abort));
+        return result;
+      });
+      await redis.jsonSetWithExpiry(job.abort, true, 120);
+      observed.push(await redis.jsonGet(job.abort));
+      expect(observed.every((value) => value === true)).toBe(true);
+      expect(await client.ttl(job.abort)).toBeGreaterThan(0);
+      expect(await client.ttl(job.abort)).toBeLessThanOrEqual(120);
+    });
+
     for (const json of [false, true]) {
       describe(json ? 'RedisJSON documents' : 'legacy string documents', () => {
+        it('does not recreate a deleted conversation while its job is being reserved', async () => {
+          const f = fixture();
+          const jobId = `${f.id}-initializing`;
+          await seed(
+            f.conversation,
+            { id: f.id, ownerId: session.username },
+            json,
+          );
+          await client.sadd(f.membership, f.id);
+          const job = await guard(f.id, jobId);
+          const { reserveConversationForUser } = await import(
+            '@/server/session/conversationStore'
+          );
+          const evaluate = client.eval.bind(client);
+          let deleted = false;
+          vi.spyOn(client, 'eval').mockImplementation(
+            async (...args: any[]) => {
+              if (
+                !deleted &&
+                String(args[0]).includes('-- SAVE_OWNED_CONVERSATION')
+              ) {
+                deleted = true;
+                expect((await remove(f.id)).status).toHaveBeenCalledWith(200);
+              }
+              return evaluate(...(args as [string, number, ...any[]]));
+            },
+          );
+          await expect(
+            reserveConversationForUser(
+              session.username,
+              f.id,
+              undefined,
+              jobId,
+            ),
+          ).rejects.toMatchObject({ reason: 'conflict' });
+          expect(deleted).toBe(true);
+          expect(await redis.jsonGet(job.abort)).toBe(true);
+          expect(await client.exists(f.conversation)).toBe(0);
+          expect(await client.sismember(f.membership, f.id)).toBe(0);
+        });
+
+        it('atomically cancels the owned job even before its request is persisted', async () => {
+          const f = fixture();
+          await seed(
+            f.conversation,
+            { id: f.id, ownerId: session.username },
+            json,
+          );
+          await client.sadd(f.membership, f.id);
+          const job = await guard(f.id, `${f.id}-job`);
+          const before = await client.get(job.guardKey);
+          const evaluate = client.eval.bind(client);
+          let committed = false;
+          vi.spyOn(client, 'eval').mockImplementation(
+            async (...args: any[]) => {
+              const result = await evaluate(
+                ...(args as [string, number, ...any[]]),
+              );
+              if (
+                String(args[0]).includes('-- APPLY_CONVERSATION_DELETION') &&
+                result === 1
+              ) {
+                committed = true;
+                // Observe the commit, before any non-atomic follow-up can run.
+                expect(await client.exists(f.conversation)).toBe(0);
+                expect(await redis.jsonGet(job.abort)).toBe(true);
+              }
+              return result;
+            },
+          );
+          expect((await remove(f.id)).status).toHaveBeenCalledWith(200);
+          expect(committed).toBe(true);
+          expect(await client.ttl(job.abort)).toBeGreaterThan(0);
+          // The worker still owns finalization and capacity release.
+          expect(await client.get(job.guardKey)).toBe(before);
+        });
+
+        it('cancels the current job after its guard changes during deletion', async () => {
+          const f = fixture();
+          await seed(
+            f.conversation,
+            { id: f.id, ownerId: session.username },
+            json,
+          );
+          await client.sadd(f.membership, f.id);
+          const old = await guard(f.id, `${f.id}-old`);
+          let replacement: Awaited<ReturnType<typeof guard>> | undefined;
+          const evaluate = client.eval.bind(client);
+          vi.spyOn(client, 'eval').mockImplementation(
+            async (...args: any[]) => {
+              if (
+                !replacement &&
+                String(args[0]).includes('-- APPLY_CONVERSATION_DELETION')
+              ) {
+                await client.del(old.guardKey);
+                replacement = await guard(f.id, `${f.id}-replacement`);
+              }
+              return evaluate(...(args as [string, number, ...any[]]));
+            },
+          );
+          expect((await remove(f.id)).status).toHaveBeenCalledWith(200);
+          expect(replacement).toBeDefined();
+          expect(await redis.jsonGet(replacement!.abort)).toBe(true);
+          expect(await redis.jsonGet(old.abort)).toBeNull();
+        });
+
+        it('does not cancel a job when only a client-supplied history copy is removed', async () => {
+          const f = fixture();
+          await seed(
+            f.conversation,
+            { id: f.id, ownerId: 'someone-else' },
+            json,
+          );
+          await seed(f.history, [{ id: f.id }], json);
+          await client.sadd(f.membership, f.id);
+          const job = await guard(f.id, `${f.id}-job`);
+          expect((await remove(f.id)).status).toHaveBeenCalledWith(200);
+          expect(await redis.jsonGet(job.abort)).toBeNull();
+          expect(await client.exists(f.conversation)).toBe(1);
+        });
+
         it('deletes a history-only conversation without requiring an ownership entry', async () => {
           const f = fixture();
           const survivor = {

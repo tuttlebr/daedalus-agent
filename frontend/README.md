@@ -8,7 +8,7 @@ See the [current architecture](../docs/architecture.md) for backend ownership.
 ## What It Does
 
 - Renders chat, conversation history, settings, Create, Autonomy, and help
-- Derives user identity from Redis-backed sessions and a signed identity cookie
+- Derives user identity from Redis-backed sessions identified by an opaque `sid` cookie
 - Enqueues chat and document-ingest jobs on a durable Redis Stream
 - Runs backend streams in a dedicated worker with leases, heartbeats,
   cancellation, bounded reclaim, and graceful drain
@@ -86,8 +86,8 @@ Use Node.js 22.
 The commands below run from `frontend/`. `npm run dev` starts the Next.js server
 on port 5000; it does not start Redis, the agent backend, or the stream worker.
 Use the [local setup](../README.md#local-setup) first to learn the complete
-request path. For a host-side dev server, supply login settings and
-the same `SESSION_SECRET` in `frontend/.env.local`, set `DEPLOYMENT_MODE=local`, and use
+request path. For a host-side dev server, supply login settings in
+`frontend/.env.local`, set `DEPLOYMENT_MODE=local`, and use
 host-reachable backend and Redis URLs (`BACKEND_HOST=127.0.0.1`,
 `BACKEND_PORT=8000`, and a `REDIS_URL` matching your Compose Redis credentials).
 For live updates through the local stack, set
@@ -136,20 +136,20 @@ also depend on the operating system's manifest/icon refresh schedule.
 The frontend reads runtime settings from environment variables and Kubernetes
 Secrets. Browser-visible `NEXT_PUBLIC_*` limits are compiled into the bundle.
 
-| Variable                                                | Purpose                                                                     |
-| ------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `REDIS_URL`                                             | Sessions, conversations, attachment metadata, queue, leases, and job state  |
-| `BACKEND_HOST`, `BACKEND_NAMESPACE`, `BACKEND_API_PATH` | In-cluster backend routing                                                  |
-| `DAEDALUS_INTERNAL_API_TOKEN`                           | Trusted frontend and worker calls to the backend                            |
-| `SESSION_SECRET`                                        | Signed identity cookies, required in production                             |
-| `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `AUTH_USER_*_*`  | Single-user or multi-user entries; bcrypt hashes require cost 12 or greater |
-| `NEXT_PUBLIC_UPLOAD_*`                                  | Build-time browser upload and batch limits                                  |
-| `DOCUMENT_UPLOAD_MAX_MB`                                | Raw multipart document limit, capped at 200 MiB                             |
-| `DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER`               | Atomic in-progress document upload slots, default `2`                       |
-| `DOCUMENT_OBJECT_*`                                     | S3-compatible endpoint, credentials, bucket, prefix, and retention contract |
-| `STREAM_WORKER_*`                                       | Worker concurrency, lease, heartbeat, reclaim, drain, and probe tuning      |
-| `NEXT_PUBLIC_WEBSOCKET_URL`, `WS_*`                     | Browser WebSocket endpoint and sidecar bounds                               |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`     | Optional browser push notifications                                         |
+| Variable                                                | Purpose                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `REDIS_URL`                                             | Sessions, conversations, attachment metadata, queue, leases, and job state        |
+| `BACKEND_HOST`, `BACKEND_NAMESPACE`, `BACKEND_API_PATH` | In-cluster backend routing                                                        |
+| `DAEDALUS_INTERNAL_API_TOKEN`                           | Trusted frontend and worker calls to the backend                                  |
+| `SESSION_SECRET`                                        | Deployment compatibility setting; current session authentication does not read it |
+| `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `AUTH_USER_*_*`  | Single-user or multi-user entries; bcrypt hashes require cost 12 or greater       |
+| `NEXT_PUBLIC_UPLOAD_*`                                  | Build-time browser upload and batch limits                                        |
+| `DOCUMENT_UPLOAD_MAX_MB`                                | Raw multipart document limit, capped at 200 MiB                                   |
+| `DOCUMENT_UPLOAD_MAX_CONCURRENT_PER_USER`               | Atomic in-progress document upload slots, default `2`                             |
+| `DOCUMENT_OBJECT_*`                                     | S3-compatible endpoint, credentials, bucket, prefix, and retention contract       |
+| `STREAM_WORKER_*`                                       | Worker concurrency, lease, heartbeat, reclaim, drain, and probe tuning            |
+| `NEXT_PUBLIC_WEBSOCKET_URL`, `WS_*`                     | Browser WebSocket endpoint and sidecar bounds                                     |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`     | Optional browser push notifications                                               |
 
 Default browser file bounds are 30 MiB per image, 75 MiB per video, and 200 MiB
 per document. Image limits use the actual raw file

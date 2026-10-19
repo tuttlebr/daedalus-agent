@@ -1,15 +1,14 @@
 # Temporary upstream security rebuilds
 
-The October 9, 2026 release scan found vulnerabilities in the retained nginx
-and SeaweedFS images. These builds preserve their entrypoints and service
-interfaces. They run only in Compose and disposable browser fixtures; Helm
+These nginx and SeaweedFS rebuilds pin patched dependencies while preserving
+the upstream entrypoints and service interfaces. They run only in Compose and disposable browser fixtures; Helm
 uses the digest-pinned upstream unprivileged nginx slim image.
 
 - nginx retains 1.31.5 and installs signed Alpine PCRE2 10.49-r0, fixing
   [CVE-2026-103111](https://github.com/PCRE2Project/pcre2/security/advisories/GHSA-r9hj-j2rw-4q3m).
 - SeaweedFS retains release 4.46 and its existing runtime filesystem. Its Go
   executable is rebuilt from checksum-verified source with Go 1.26.9 and the
-  pinned gRPC fix. The October 10 rescan also requires `golang.org/x/net` 0.60.0
+  pinned gRPC fix. The build pins `golang.org/x/net` 0.60.0
   for [the HTTP/2 SETTINGS issue](https://pkg.go.dev/vuln/GO-2026-6611).
   `go.mod` and `go.sum` retain that fix and its required Go module updates.
   This also fixes
@@ -25,8 +24,8 @@ and build directory. `scripts/check_image_inventory.py --scan-upstream` builds
 and scans both amd64 and arm64 variants, checks actual architecture, and fails
 on unadjudicated HIGH/CRITICAL findings or secrets. ARM patch builds require
 QEMU/binfmt, installed by CI's existing pinned Docker action. This scan evidence
-does not establish ARM application runtime support. No runtime package download
-or new vulnerability exception is introduced.
+does not establish ARM application runtime support. Dependencies are installed at build time; runtime containers do not download
+packages.
 
 For a local x86 Linux builder without ARM binfmt, install only that emulator:
 
@@ -37,11 +36,11 @@ docker run --privileged --rm mirror.gcr.io/tonistiigi/binfmt@sha256:400a4873b838
 The Dockerfiles use Google's Docker Hub mirror for the same digest-verified
 base images to avoid anonymous Docker Hub rate limits during repeated checks.
 
-The final six image/architecture scans passed on October 9, 2026. Both shipped
-nginx configurations passed syntax checks. With disposable S3 state, the patched
-SeaweedFS read baseline-written objects, and the baseline image read objects
-written by the patch after rollback. The existing browser storage workflows
-also passed against the patched image.
+Validate both nginx configurations with their image's syntax check. Exercise
+SeaweedFS against disposable S3 state: each candidate must read objects written
+by its baseline, and the baseline must read candidate-written objects after
+rollback. Run the browser storage workflows against the candidate as well.
+Keep scan and compatibility results with release evidence outside this guide.
 
 `.gitleaksignore` records one exact historical fingerprint for the public SHA-256
 of the frozen `oauth.py` source. The source hash was verified against the baseline;

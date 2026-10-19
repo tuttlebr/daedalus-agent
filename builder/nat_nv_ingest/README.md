@@ -126,7 +126,7 @@ The backend derives identity from the authenticated request. The tool schema
 rejects `username`, `collection_scope`, and raw `input_message` requests.
 
 Omitting `chunk_overlap` uses the configured default; `chunk_overlap=0` disables
-overlap. Autonomous ingestion receipts now include a `document-overlap-v2`
+overlap. Autonomous ingestion receipts include a `document-overlap-v2`
 contract marker. An explicit zero request checks both its exact argument key
 and the old default-overlap key before writing: unmarked pending or completed
 receipts still suppress or replay the earlier operation. New default and zero

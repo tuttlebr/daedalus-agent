@@ -67,6 +67,9 @@ export async function forwardSteeringCommand(
       signal: AbortSignal.timeout(5000),
     },
   );
+  // Control endpoints acknowledge through status only. Release even a stalled
+  // diagnostic body before returning or throwing so it cannot retain a socket.
+  await response.body?.cancel().catch(() => undefined);
   if (!response.ok) {
     throw new Error(
       response.status === 404 || response.status === 409
@@ -95,6 +98,7 @@ export async function forwardCancellation(job: AsyncJobRequest): Promise<void> {
       signal: AbortSignal.timeout(2000),
     },
   );
+  await response.body?.cancel().catch(() => undefined);
   if (!response.ok && response.status !== 404 && response.status !== 409) {
     throw new Error('Backend cancellation failed');
   }

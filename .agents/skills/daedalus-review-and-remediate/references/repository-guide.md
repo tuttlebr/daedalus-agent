@@ -10,8 +10,9 @@ identifies where to investigate.
 
 Start with `docs/architecture.md` and `CONTRIBUTING.md`. Consult
 `docs/rust-migration.md` for ownership and compatibility, and
-`docs/long-running-workflows.md` for earlier measurements and recovery boundaries.
-Their historical observations are not fresh benchmark results.
+`docs/long-running-workflows.md` for measurement procedures and recovery boundaries.
+`docs/research-workflows.md` describes recoverable article output and evaluation.
+Keep review evidence outside these current-behavior guides.
 
 | Surface                    | Entry points and contract questions                                                                                                                                                                                                                                                                                                         |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,6 +86,10 @@ Use current repository requirements if they change. Prepare Python with
 `uv venv builder/.venv --python 3.12` if absent; inspect the active environment
 before installing. Frontend installation uses `npm ci --legacy-peer-deps` from
 `frontend/`. Use synthetic local credentials and disposable test services.
+
+`make runtime` and `make docker` provision the HTTP checker's Python 3.12
+environment through `uv run --with httpx --with pyyaml`; those dependencies
+do not need to be installed into the system Python.
 
 Automatic push/pull-request CI and `make ci` retain Rust formatting, Clippy,
 unit tests, protocol drift, and coverage. The longer `make migration` and

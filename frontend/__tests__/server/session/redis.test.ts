@@ -125,36 +125,7 @@ describe('server/session/redis jsonSetWithExpiry — H4 atomic TTL', () => {
     expect(client.expire).not.toHaveBeenCalled();
   });
 
-  it('recovers from a wrongtype key by deleting and retrying the atomic write', async () => {
-    const client = created[0];
-    client.eval
-      .mockRejectedValueOnce(
-        new Error(
-          'WRONGTYPE Operation against a key holding the wrong kind of value',
-        ),
-      )
-      .mockResolvedValueOnce(1);
-
-    await jsonSetWithExpiry('k3', { c: 3 }, 30);
-
-    expect(client.del).toHaveBeenCalledWith('k3');
-    expect(client.eval).toHaveBeenCalledTimes(2);
-    expect(client.set).not.toHaveBeenCalled();
-  });
-
-  it('recovers from the RedisJSON "wrong Redis type" message (not just standard WRONGTYPE)', async () => {
-    const client = created[0];
-    client.eval
-      .mockRejectedValueOnce(
-        new Error(
-          'Existing key has wrong Redis type script: abc123, on @user_script:1.',
-        ),
-      )
-      .mockResolvedValueOnce(1);
-
-    await jsonSetWithExpiry('k4', { d: 4 }, 30);
-
-    expect(client.del).toHaveBeenCalledWith('k4');
-    expect(client.eval).toHaveBeenCalledTimes(2);
-  });
+  // Mixed-format replacement is exercised against real Redis in
+  // redis.integration.test.ts; a mock-only delete/retry expectation would
+  // accept a non-atomic missing-key window.
 });

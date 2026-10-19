@@ -52,9 +52,8 @@ function isWrongTypeError(error: unknown): boolean {
     message.includes('wrong kind of value') ||
     // RedisJSON surfaces a non-standard message when JSON.SET hits a key that
     // already exists as a plain (non-JSON) type, e.g.
-    // "Existing key has wrong Redis type". Match it so the del+retry recovery
-    // in setRedisJsonRootWithExpiry / jsonSet actually fires on the RedisJSON
-    // deployment instead of rethrowing.
+    // "Existing key has wrong Redis type". Readers and the durable root writer
+    // recognize both error forms for mixed-format compatibility.
     message.includes('wrong redis type')
   );
 }
@@ -83,11 +82,13 @@ function parsePlainJson(result: string | null): any {
   }
 }
 
-// Atomically write a RedisJSON root document and set its TTL in a single
-// round-trip. A separate JSON.SET + EXPIRE risks leaving a TTL-less key if the
-// EXPIRE fails (timeout/disconnect) after the write succeeds; EVAL runs the two
-// commands as one atomic unit so the key never persists without its expiry.
+// Atomically replace a root document and its TTL. Preserve plain JSON strings
+// and replace other non-JSON types without exposing a missing-key interval.
 const JSON_SET_WITH_EXPIRY_LUA = [
+  "local kind = redis.call('TYPE', KEYS[1]).ok",
+  "if kind ~= 'none' and not string.find(string.lower(kind), 'rejson', 1, true) then",
+  "  return redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])",
+  'end',
   "redis.call('JSON.SET', KEYS[1], '$', ARGV[1])",
   "return redis.call('EXPIRE', KEYS[1], ARGV[2])",
 ].join('\n');
@@ -99,16 +100,7 @@ async function setRedisJsonRootWithExpiry(
   ttl: number,
 ): Promise<void> {
   const serialized = JSON.stringify(value);
-  try {
-    await client.eval(JSON_SET_WITH_EXPIRY_LUA, 1, key, serialized, ttl);
-  } catch (error) {
-    if (!isWrongTypeError(error)) {
-      throw error;
-    }
-    // Key exists as a non-JSON type: drop it and retry the atomic write.
-    await client.del(key);
-    await client.eval(JSON_SET_WITH_EXPIRY_LUA, 1, key, serialized, ttl);
-  }
+  await client.eval(JSON_SET_WITH_EXPIRY_LUA, 1, key, serialized, ttl);
 }
 
 async function ensureRedisJson(client: Redis): Promise<boolean> {

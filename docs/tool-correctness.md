@@ -142,26 +142,19 @@ still fails. `builder/migration/response_check.py` exercises the built image in
 both preparation modes, including retries, cancellation, steering, heartbeat
 delivery and incremental streaming.
 
-## Removed surfaces and migration
+## Compatibility boundaries
 
-`content_distiller_tool` and its package are removed. A second model summary
-could lose exact evidence and duplicated the reversible output-compaction path.
-Use the preview and `tool_output_retriever_tool`, then summarize supported prose
-directly. Frozen historical migration fixtures retain their original catalog.
+Use recoverable output previews and `tool_output_retriever_tool` to retrieve
+exact evidence before summarizing it. Ask necessary questions and present plans
+in chat; source policy that requires plan approval still waits for the user's
+response. Memory deletion operations require a scoped, single-use credential.
+Unsupported tool names and legacy `max_options`, model identity/target, and MCP
+argument fields are rejected rather than reinterpreted.
 
-`clarify`, `present_options`, and `confirm_research_plan` are removed from
-`user_interaction_tool`; they only formatted text and did not execute a UI
-interaction. Ask necessary questions and present requested plans in chat. Source
-policy that requires plan approval still stops research until the user responds.
-The memory deletion operations retain their scoped, single-use credential check.
-Legacy `max_options`, model identity/target, and MCP argument fields are rejected.
-
-The operator removed `humanizer`, `i-have-adhd`, and `sre-engineer`. Their routing
-and handoff references were removed. Existing infrastructure evaluation cases
-now use `kubernetes-specialist`; their evidence and assertions are retained.
-Deploy the image and workflow configuration together. Rolling back requires the
-previous image **and** workflow, because the removed package/config is incompatible.
-No data migration or new dependency is required.
+Deploy the image and workflow configuration together. A rollback requires both
+from the same supported version; a workflow cannot register a package absent
+from its image. Frozen migration fixtures retain the catalog of their baseline
+so they can check compatibility independently of the current implementation.
 
 ## Validation and evaluation
 
@@ -172,7 +165,7 @@ No data migration or new dependency is required.
 - `runtime_http_check.py --image ... --redis-image ...` exercises the actual
   runtime, native tools, deterministic model/MCP peers, approval, recovery,
   steering/cancellation, invalid batches, IDs, and required-tool omission.
-- `evaluation/tool-correctness/run.py` freezes 20 synthetic cases and alternates
+- `evaluation/tool-correctness/run.py` freezes 25 workflow cases by default and alternates
   baseline/candidate images through a real gateway. It retains every attempt,
   exact call arguments/results, ID binding, dependency, and answer assertions.
   The fixture exposes only synthetic MCP reads. No production memory or tool

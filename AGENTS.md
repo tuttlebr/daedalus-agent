@@ -69,6 +69,12 @@ outdated descriptions.
 
 ## Commit & Pull Request Guidelines
 
+Documentation describes current behavior, supported contracts, and repeatable
+development or operational procedures. Keep dated change narratives, audit
+results, deployment histories, and one-off test totals in pull requests or local
+review artifacts. Preserve useful guidance when removing historical reports;
+retain dates when they are part of a contract or fixture provenance.
+
 Prefer focused, imperative subjects, such as `Fix conversation deletion`; history
 also uses occasional `fix:` prefixes. Follow `.github/pull_request_template.md`:
 explain the problem, resulting behavior, validation results, untested areas, and

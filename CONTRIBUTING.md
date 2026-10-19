@@ -72,6 +72,10 @@ container builds, scans, and a disposable Kubernetes test cluster. You do not
 need every infrastructure tool to improve a README or work on a frontend unit
 test. The pull request still runs the repository's CI checks.
 
+`make runtime` and `make docker` use `uv` to provision Python 3.12 with the
+HTTP checker's `httpx` and `PyYAML` dependencies. Their first run may download
+those packages; they do not require installation into the system Python.
+
 The longer Rust migration and candidate-image browser contracts are opt-in.
 Run the **Rust Migration Contracts** workflow manually in GitHub Actions, or run
 `make migration` followed by `make candidate-browser` locally. Rust formatting,

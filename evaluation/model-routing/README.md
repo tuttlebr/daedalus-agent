@@ -7,8 +7,8 @@ these results requires that evaluator and the original image recorded in
 `provenance.json`. The current backend does not include its NeMo dependencies.
 
 Use `builder/runtime_http_check.py` for current runtime integration checks and
-[the Rust migration guide](../../docs/rust-migration.md) for current performance
-measurements. The JSON results here do not benchmark the Rust runtime.
+[the runtime compatibility guide](../../docs/rust-migration.md) for performance
+measurement procedures. The JSON results here do not benchmark the Rust runtime.
 
 Frozen before candidate comparison on 2026-09-16: 24 synthetic tasks covering
 routine lookups, daily-summary selection, fantasy finality and score arithmetic,
@@ -63,10 +63,7 @@ python3 scripts/smoke_model_routing.py \
 Set `OPENAI_API_KEY` in the environment if the gateway requires authentication.
 This checks the provider transport; it does not rerun the historical workload.
 
-The saved run's JSON schema describes nullable winner fields as `string or null`
-without revealing the expected value. One in-flight attempt was interrupted to
-correct this schema description before any winner task ran; all 20 unaffected
-completed samples were retained. Its unmeasured cost remains in the report.
-Canonical JSON task hashes identify the frozen content independently of
-formatting. Preserve the recorded interruption and unknown cost when interpreting
-the saved results.
+Canonical JSON task hashes identify frozen content independently of formatting.
+The saved results include an interrupted attempt with unknown cost. Preserve
+that interruption and unknown cost when interpreting the evidence; neither is
+a successful sample or a measured zero.

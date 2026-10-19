@@ -117,8 +117,8 @@ or assistive-technology checks.
 
 ## Source guidance
 
-Reviewed September 7, 2026. Apple's documentation overview includes native
-framework choices; its linked HIG informs this web implementation.
+Apple's documentation overview includes native framework choices; its linked
+HIG informs this web implementation.
 
 - [App design and UI](https://developer.apple.com/documentation/technologyoverviews/app-design-and-ui)
 - [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
@@ -127,13 +127,6 @@ framework choices; its linked HIG informs this web implementation.
 - [Dark Mode](https://developer.apple.com/design/human-interface-guidelines/dark-mode)
 - [Typography](https://developer.apple.com/design/human-interface-guidelines/typography)
 - [Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars)
-
-## September 9 experience review
-
-[The frontend experience review](UX_REVIEW.md) records the complete flow inventory,
-prioritized findings, implemented corrections, and current verification. It
-adds recoverable Autonomy forms, server-confirmed history changes, readable
-Memory dialogs and search feedback, and an explicit app-update choice.
 
 ## Verification
 
@@ -169,19 +162,6 @@ npm run e2e -- hig-design.spec.ts ui-layout.spec.ts agentic-app.spec.ts
 The e2e runner builds the production application and its workers and starts
 isolated Redis/object-store services. It removes its test services afterward.
 
-Validated locally on September 7, 2026: production build (including TypeScript
-and lint), 740 unit tests, and 66 distinct browser regression cases passed across
-the full runs and focused rechecks. The browser coverage comprises 55 design
-cases and 11 authenticated integration/layout cases. Four unit cases and three
-browser cases remain intentionally skipped by the existing suite.
-
-After the final popover correction, all ten sheet and custom-dimension checks
-passed again across the five browser projects. They cover an open settings
-panel at 200% text and a tablet window resized to 780px. WebKit ran in the
-matching Playwright 1.61.1 container with Node 22 because the host lacked its
-system libraries. Test-generated service-worker precache entries are excluded
-from the source commit; the production build regenerates them.
-
 Browser emulation can verify the web implementation; it does not substitute
 for VoiceOver listening, physical iPhone keyboard behavior, or installation
 from Safari. Those device checks should accompany a production release.
@@ -199,7 +179,7 @@ Safari receives Share → Add to Home Screen instructions, including the optiona
 Open as Web App setting on newer iOS releases. Installed apps suppress those
 instructions. The prompt respects dismissal and stays out of typing and modal
 flows. Launch branding uses the manifest and Apple touch icon; square app icons
-are no longer incorrectly declared as full-screen startup images.
+are not declared as full-screen startup images.
 
 Downloads prepared asynchronously use `useFileSave`: iOS receives an in-app
 Save action after the bytes are ready, and that new tap opens the native share
@@ -225,7 +205,7 @@ an installed iPhone app, along with VoiceOver and returning after device lock.
 Use the existing HIG and viewport suites for enlarged text, light/dark appearance,
 dialog focus, pinch zoom, and keyboard restoration.
 
-References checked October 6, 2026:
+Platform references:
 
 - [Apple's Home Screen web app guidance](https://support.apple.com/guide/iphone/bookmark-a-website-iph42ab2f3a7/ios)
 - [WebKit safe-area layout](https://webkit.org/blog/7929/designing-websites-for-iphone-x/)

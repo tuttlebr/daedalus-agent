@@ -1,11 +1,11 @@
 # Independent regression contracts
 
-These fixtures preserve the expectations from
-`test-fixtures/code-audit-independent-20260909.json.gz` at commit
-`bee1ddc`. That archive was deleted by `d29f239` while three test modules still
-loaded it, preventing Python and frontend test collection/execution.
+These fixtures preserve independently authored expectations from
+`test-fixtures/code-audit-independent-20260909.json.gz` at commit `bee1ddc`.
+That provenance identifies the frozen oracle; do not regenerate expectations
+from the implementation under test.
 
-The data is now readable JSON. `reference.json` lists four framing files in
+`reference.json` lists four framing files in
 place of its embedded `framing.streams` array. Hexadecimal byte strings are grouped
 with spaces so the generic API-key hook does not mistake encoded transport data
 for credentials. Loading those files and removing spaces from the hex fields

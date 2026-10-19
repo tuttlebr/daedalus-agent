@@ -15,7 +15,7 @@ path also needs Cosign and the GitHub CLI. The Docker build supplies Node.js 22 
 
 ## Login configuration
 
-Set `SESSION_SECRET` and either one `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` /
+Set either one `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` /
 `AUTH_NAME` account or consecutively numbered accounts. Generate each bcrypt
 hash using the [README command](../README.md#2-build-and-create-your-login-hash).
 Keep hashes single-quoted in `.env` so Compose does not interpolate `$`.
@@ -46,9 +46,13 @@ the underlying services and data.
 > **Migrating an existing login:** plaintext `AUTH_PASSWORD` and
 > `AUTH_USER_N_PASSWORD` are no longer accepted. Hash each user's current password
 > and replace those keys with `AUTH_PASSWORD_HASH` or
-> `AUTH_USER_N_PASSWORD_HASH`. Keep the username, password, and `SESSION_SECRET`
-> unchanged to preserve existing logins and sessions. This changes the stored
+> `AUTH_USER_N_PASSWORD_HASH`. Keep the username and password unchanged
+> to preserve existing logins and sessions. This changes the stored
 > verifier; it does not add MFA or reset passwords.
+
+Sessions use opaque `sid` cookies backed by Redis. The chart retains
+`SESSION_SECRET` as a deployment compatibility setting; current frontend and
+WebSocket authentication do not read it.
 
 ## Exposure and storage
 
@@ -169,7 +173,7 @@ Existing frontend `NAT_*` transport settings remain compatibility settings.
 
 ## Runtime ownership and rollback
 
-Rust preparation and MCP authorization are now the default.
+Rust preparation and MCP authorization are the default.
 `DAEDALUS_PREPARATION=python` selects both retained Python implementations;
 `DAEDALUS_AUTHORIZATION=python` retains just Python MCP/OAuth with Rust
 preparation. Select an implementation for an entire deployment; never retry a
@@ -185,7 +189,7 @@ settings; its direct binary entrypoint requires no Python service. Required
 unsupported tools fail startup. Run `daedalus-runtime --check-config` to validate
 the parsed Rust configuration without starting services. See the
 [migration record](rust-migration.md) for image, rollback and validation commands.
-OAuth callbacks, resets and approval execution/polling now terminate in Axum.
+OAuth callbacks, resets and approval execution/polling terminate in Axum.
 Keep callback and execution polling affinity to their originating process; drain
 active runs and OAuth/approval waits before changing implementations. Grant keys,
 refresh locks and receipt formats remain compatible with the rollback image.
@@ -212,7 +216,7 @@ Existing sessions, Redis conversations, tool output caches, and Google grants
 are retained. The backend image and frontend must be rolled out together to
 enable the steering composer. Existing custom YAML overlays must use
 `workflow._type: daedalus_rust_agent`, `tools`, `daily_summary_tools`, and
-`daily_summary_final_tools`; the old `general.front_end` runner is removed.
+`daily_summary_final_tools`.
 MCP connection recovery occurs before subsequent calls; the runtime never
 replays a `tools/call` whose remote result is uncertain.
 
@@ -264,7 +268,7 @@ live provider latency. Benchmark representative conversations before claiming
 an end-to-end speed improvement.
 
 For model/context growth, tool scheduling, interruption semantics and repeatable
-measurement commands, see the [long-running workflow review](long-running-workflows.md).
+measurement commands, see the [long-running workflow guide](long-running-workflows.md).
 
 ## Runtime logs
 

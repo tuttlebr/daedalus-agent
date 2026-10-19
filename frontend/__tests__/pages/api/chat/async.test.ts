@@ -180,7 +180,7 @@ describe('chat/async backend pinning helpers', () => {
     delete process.env.DAEDALUS_INTERNAL_API_TOKEN;
     mocks.redisDel.mockResolvedValue(0);
     mocks.redisEval.mockImplementation(
-      async (script: string, _count: number, ...args: any[]) => {
+      async (script: string, count: number, ...args: any[]) => {
         if (script.includes('READ_OWNED_CONVERSATION')) {
           const value = await jsonGet(args[0]);
           return [value ? JSON.stringify(value) : '', 1];
@@ -190,11 +190,10 @@ describe('chat/async backend pinning helpers', () => {
           return [value ? JSON.stringify(value) : '', 1, value ? -1 : -2];
         }
         if (script.includes('SAVE_OWNED_CONVERSATION')) {
-          await jsonSetWithExpiry(
-            args[0],
-            JSON.parse(args[3]),
-            Number(args[6]),
-          );
+          if (count === 3 && (await jsonGet(args[2]))) return -2;
+          // Conversation writes are durable; this fixture does not invent a
+          // TTL for the reservation's plain-string SET.
+          await mocks.redisSet(args[0], args[count + 1]);
           return 1;
         }
         if (script.includes('INCREMENT_EXPIRING_COUNTER')) return [1, 60];
@@ -2047,12 +2046,14 @@ function wireRedisStore(initial: Record<string, any> = {}) {
       return [value ? JSON.stringify(value) : '', 1, value ? -1 : -2];
     }
     if (script.includes('SAVE_OWNED_CONVERSATION')) {
+      const count = args[1] as number;
+      const values = args.slice(2 + count);
+      if (count === 3 && store.has(args[4])) return -2;
       const value = store.get(args[2]);
-      if ((value ? JSON.stringify(value) : '') !== args[4]) return 0;
-      if (value?.ownerId && value.ownerId !== args[7]) return -1;
-      // SAVE no longer accepts a TTL: allowCreate is its fifth ARGV entry.
-      if (!value && args[8] !== '1') return -1;
-      store.set(args[2], JSON.parse(args[5]));
+      if ((value ? JSON.stringify(value) : '') !== values[0]) return 0;
+      if (value?.ownerId && value.ownerId !== values[3]) return -1;
+      if (!value && values[4] !== '1') return -1;
+      store.set(args[2], JSON.parse(values[1]));
       return 1;
     }
     if (
@@ -2471,6 +2472,46 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(mocks.redisXadd).not.toHaveBeenCalled();
     },
   );
+
+  it('does not enqueue or recreate a conversation when deletion cancels its reservation', async () => {
+    const store = wireRedisStore();
+    const evaluate = mocks.redisEval.getMockImplementation()!;
+    mocks.redisEval.mockImplementation(async (...args: any[]) => {
+      if (String(args[0]).includes('SAVE_OWNED_CONVERSATION')) {
+        // A real deletion writes this abort atomically. Verify that the route
+        // supplies its own job's key to the reservation, before any backend I/O.
+        expect(args[1]).toBe(3);
+        expect(args[4]).toMatch(/^daedalus:async-job-abort:/);
+        store.set(args[4], true);
+      }
+      return evaluate(...args);
+    });
+    const res = makeRes();
+    await handler(
+      {
+        method: 'POST',
+        headers: {},
+        body: {
+          conversationId: 'conv-deleted',
+          messages: [{ role: 'user', content: 'Cancelled submission' }],
+        },
+      } as any,
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({
+      error:
+        'The conversation changed or was deleted while submitting this response.',
+    });
+    expect(store.has('daedalus:conversation:conv-deleted')).toBe(false);
+    expect(
+      [...store.keys()].filter((key) =>
+        key.startsWith('daedalus:async-job-status:'),
+      ),
+    ).toEqual([]);
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+    expect(mocks.fetchWithTimeout).not.toHaveBeenCalled();
+  });
 
   it("rejects a turn for another user's conversation and releases its claims", async () => {
     const foreign = {

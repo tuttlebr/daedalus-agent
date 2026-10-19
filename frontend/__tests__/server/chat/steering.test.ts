@@ -1,4 +1,5 @@
 import {
+  forwardCancellation,
   forwardSteeringCommand,
   validateSteeringCommand,
 } from '@/server/chat/steering';
@@ -19,7 +20,10 @@ const job: AsyncJobRequest = {
   conversationId: 'conversation-1',
 };
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe('live steering', () => {
   it('validates the command and bounds UTF-8 bytes', () => {
@@ -75,4 +79,41 @@ describe('live steering', () => {
       forwardSteeringCommand('alice', command, job, request),
     ).rejects.toThrow('finished');
   });
+
+  it.each(
+    [200, 404, 409, 500].flatMap((status) =>
+      ['steer', 'cancel'].map((operation) => ({ status, operation })),
+    ),
+  )(
+    'releases the unread $operation body for HTTP $status',
+    async ({ status, operation }) => {
+      let released = false;
+      const body = new ReadableStream({
+        // Headers have arrived, but this body never finishes on its own.
+        cancel() {
+          released = true;
+        },
+      });
+      const response = new Response(body, { status });
+      const request = vi.fn(async () => response);
+      vi.stubGlobal('fetch', request);
+      const result =
+        operation === 'steer'
+          ? forwardSteeringCommand('alice', command, job, request)
+          : forwardCancellation(job);
+      if (status === 200 || (operation === 'cancel' && status !== 500)) {
+        await expect(result).resolves.toBeUndefined();
+      } else {
+        await expect(result).rejects.toThrow(
+          operation === 'cancel'
+            ? 'Backend cancellation failed'
+            : status === 500
+            ? 'could not be accepted'
+            : 'finished',
+        );
+      }
+      expect(released).toBe(true);
+      expect(response.bodyUsed).toBe(true);
+    },
+  );
 });

@@ -82,5 +82,5 @@ builder tests for any changed scripts/contracts and pre-commit on changed files.
 Do not use syntax checks as proof of model behavior, a deployment, or benchmark
 quality. Keep import provenance, adaptation decisions, and validation scope
 beside each imported skill in `references/upstream.md`.
-The complete architecture review is recorded in
-[docs/skills-review.md](../docs/skills-review.md).
+For runtime ownership and registration, see
+[the architecture guide](../docs/architecture.md#tool-ownership-and-control).

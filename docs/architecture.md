@@ -43,8 +43,8 @@ A worker that loses its lease aborts its request; reclaim never resubmits a
 backend request already marked as started. It preserves completed output and
 reports interruption instead of risking duplicated external actions. There is
 no durable checkpoint/resume of an in-flight Rust agent. See the
-[long-running workflow review](long-running-workflows.md) for measurements,
-current bounds and the next optimization candidates.
+[long-running workflow guide](long-running-workflows.md) for scheduling,
+context bounds and measurement commands.
 
 Each authenticated user can submit up to five chats concurrently across tabs
 and frontend instances. Redis atomically reserves a slot before enqueueing,
@@ -103,9 +103,8 @@ must expose them. Runtime skills provide instructions, not new permissions.
 
 ## Where to change things
 
-The [focused Harness2 review](harness-improvement-review.md) proposes model
-capability gates, configuration-aware evaluations and recoverable research
-context, with evidence and acceptance criteria for each change.
+See [research workflows](research-workflows.md) for recoverable article output
+and configuration-aware evaluation, including promotion criteria.
 
 | Behavior                                                                 | Entry points                                                                                       |
 | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
@@ -158,7 +157,7 @@ automatic Hindsight context, tool-output compaction/cache writes and run state.
 Its native clock and MCP clients need no Python tool service. Rust also owns
 Google OAuth, exact-call approvals, execution receipts and per-user sessions.
 Shared protocol types are generated for Rust, TypeScript and Python. The
-[migration record](rust-migration.md)
+[runtime compatibility guide](rust-migration.md)
 describes the compatibility fixtures, remaining Python ownership and rollback.
 
 Responses streams from compatible gateways may omit envelope metadata. The
@@ -270,8 +269,8 @@ or monkeypatch is installed. Existing `nat_helpers` package names, frontend
 names. Python leaf tools still use LangChain model clients where needed; the
 agent loop does not use LangChain or LangGraph.
 
-Google refresh grants remain at their existing per-user Redis keys. The new
-reader accepts the previous stored format and writes versioned grants without
+Google refresh grants remain at their existing per-user Redis keys. The
+reader accepts legacy and versioned stored formats and writes versioned grants without
 losing refresh tokens. Model or user instructions cannot bypass approval:
 the MCP gate binds a one-use credential to the user, server, operation, and
 canonical arguments. Uncertain remote mutations are never automatically retried.

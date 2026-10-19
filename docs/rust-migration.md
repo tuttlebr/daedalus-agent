@@ -1,10 +1,8 @@
-# Performance-driven Rust backend
+# Runtime ownership and compatibility
 
-The October 15, 2026 scope is to use Rust where measurements show an improvement
-while preserving the frontend and dependent-service APIs. Rewriting the entire
-Python backend is no longer a release requirement. Speech transcription is not
-needed and is excluded. Unregistered experimental ports and their build assets
-are removed instead of shipping unused code.
+The backend uses Rust for orchestration and native tools, with a Python service
+for the remaining leaf tools and public adapters. Preserve frontend and service
+contracts when changing either side of this boundary.
 
 ## Current ownership
 
@@ -28,12 +26,6 @@ ownership is in `builder/runtime/src/main.rs`. A `rust-minimal` image also exist
 for configurations using only native tools. It does not support the complete
 production configuration and is not the default deployment candidate.
 
-The unfinished native RSS/article converter tree was test-only. It provided no
-production speedup. Its custom Python-library ports, including speech, FTP,
-codecs, spreadsheet/image internals, and the incomplete DNS helper, are outside
-this performance-directed release. The existing Python converters continue to
-provide the registered RSS and webscrape behavior.
-
 ## Performance decision
 
 Benchmark the full hybrid image in both modes with identical CPU/memory limits,
@@ -55,27 +47,6 @@ performance claim. Retain failures and fix their cause before comparison. Report
 latency and resource improvements separately, including regressions; synthetic
 application overhead does not predict provider generation speed.
 
-The corrected October 15 comparison passed all 53 regression gates, with no
-failed requests across 14,400 measured requests, 1,440 warmups and 600 control
-samples. Both modes used the same full image
-`sha256:2144f0ba4d155a6b588a234ab0fca7a2c7e36694a6788d273cc004e8396b900c`,
-limited to two CPUs and 2 GiB. This image preceded removal of the unused Python
-speech dependencies. Values below combine the three repetitions.
-
-| Workload                          | Concurrency | Python p95 | Rust p95  | Python requests/s | Rust requests/s |
-| --------------------------------- | ----------- | ---------- | --------- | ----------------- | --------------- |
-| Text                              | 1           | 4.33 ms    | 2.11 ms   | 248.6             | 586.0           |
-| Text                              | 8           | 17.96 ms   | 14.89 ms  | 587.2             | 713.3           |
-| Clock                             | 1           | 12.12 ms   | 7.56 ms   | 111.1             | 190.7           |
-| Unicode history                   | 8           | 42.52 ms   | 40.99 ms  | 284.9             | 302.8           |
-| Memory context, independent users | 8           | 493.66 ms  | 383.17 ms | 17.9              | 21.2            |
-
-Peak aggregate resident memory remained similar: 311–315 MiB for Python mode
-and 307–309 MiB for Rust mode. Stop and steering p95 stayed below 42 ms. The
-memory workload includes initialization for each synthetic user; it does not
-represent a warmed per-user cache. The earlier single-user concurrency-eight
-run hit admission limits and is excluded from performance claims.
-
 `builder/migration/retrieval_benchmark.py` separately compares cached-output
 chunking and search in the final full image. It alternates Python and Rust twice,
 uses the same compressed Unicode input and Redis writer, and requires identical
@@ -86,13 +57,6 @@ builder/.venv/bin/python builder/migration/retrieval_benchmark.py \
   --image daedalus:performance-final --redis-image daedalus:redis-migration-check \
   --report /tmp/daedalus-migration-reports/retrieval-performance.json
 ```
-
-The final full image
-`sha256:1bddb5dd18066493c0775ac9acda498d5ccc7deb346054e55ed416831da8c793`
-passed all 800 measured retrieval calls and 80 warmups with identical payloads.
-For 1,146,880 bytes of cached Unicode text, chunk p95 fell from 28.54 to 21.49 ms
-and search p95 from 29.64 to 21.22 ms. These include the HTTP chat request and
-scripted model round trips, at concurrency one with the same two-CPU limit.
 
 ## API and deployment guarantees
 
@@ -116,8 +80,7 @@ performance changes.
 
 ## Validation and release
 
-Use Node 22, Python 3.12 and Rust 1.95. The active Rust code no longer needs the
-experimental article parser, image libraries, ONNX assets or speech binaries.
+Use Node 22, Python 3.12 and Rust 1.95.
 
 Push and pull-request CI runs Rust formatting, Clippy, unit tests, protocol drift,
 and coverage. The longer migration and candidate-image browser contracts run
@@ -147,11 +110,3 @@ Before commit and deployment:
   checks applicable to the final change, including changed-file pre-commit hooks.
 - Verify the actual full image, service dependencies and rollback path, then use
   the canonical deployment command and check deployed health and user workflows.
-
-The October 15 candidate passed 102 Rust tests (59.84% line coverage), 1,898
-Python tests (79.36% coverage), frontend lint/types/coverage, real Redis
-integration, and five browser workflows against the full image. Twenty image
-contract suites cover the retained tool/API ports and rollback. The 22 Rust
-tests requiring external fixtures remain excluded from the unit-only run;
-the corresponding image/service suites provide integration evidence. Helm
-validation and the backend high/critical vulnerability scan also passed.

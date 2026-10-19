@@ -438,7 +438,7 @@ describe.skipIf(!RUN_REAL_REDIS)(
         expect(
           await client.zscore(userGuard.userJobGuardKey(userId), batchedJob),
         ).toBeNull();
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        await subscriber.ping();
         expect(completions()).toHaveLength(1);
       } finally {
         del.mockRestore();
