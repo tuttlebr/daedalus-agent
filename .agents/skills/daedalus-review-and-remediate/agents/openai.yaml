@@ -1,0 +1,3 @@
+interface:
+  display_name: 'Daedalus Review and Remediation'
+  short_description: 'Find and fix defects across the Daedalus stack'

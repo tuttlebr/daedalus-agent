@@ -40,7 +40,8 @@ def check(root=ROOT / "skills"):
 
 
 if __name__ == "__main__":
-    failures = check()
+    # Runtime skills and repository maintenance skills share link conventions.
+    failures = check() + check(ROOT / ".agents/skills")
     for failure in failures:
         print(failure)
     if not failures:

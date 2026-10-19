@@ -12,6 +12,8 @@ agent runtime, and a Python tool service.
 - `backend/`: workflow YAML; `local-chat-config.yaml` provides the starting configuration.
 - `protocol/`: shared schemas; regenerate types with `python3 scripts/generate_protocol_types.py`.
 - `skills/`: runtime agent instructions; follow its local `AGENTS.md` when editing.
+- `.agents/skills/`: maintenance skills for coding agents working on this repository;
+  see Maintenance Skills.
 - `helm/daedalus/`, `scripts/`, and `docs/`: deployment chart, utilities, and architecture/operations guides.
 
 ## Build, Test, and Development Commands
@@ -45,6 +47,25 @@ specs `*.spec.ts`. Preserve the 65% Python coverage floor and frontend threshold
 in `frontend/vitest.config.ts`. Add regression tests for behavior changes.
 Tool registration/provider changes also require a request against the built
 backend image; stub-based tests alone do not validate runtime integration.
+
+## Maintenance Skills
+
+`.agents/skills/` holds repository workflows for coding agents, such as
+`daedalus-review-and-remediate`. They are never packaged into images. Codex
+discovers them there. For Claude Code, keep `.claude/` ignored and link each skill
+locally from the repository root:
+`mkdir -p .claude/skills && ln -s ../../.agents/skills/<name> .claude/skills/<name>`.
+Remove same-named personal copies: Claude Code prefers a personal skill over the
+repository version, and Codex lists both.
+
+Keep these skills current with the code they describe. When a change moves,
+renames, or retires an entry point; shifts ownership between the frontend, Rust
+runtime, and Python tools; or changes CI jobs, Make targets, hooks, test layout,
+toolchain versions, or coverage floors, update the affected skill in the same
+change. Keep repository facts in a skill's `references/` and the workflow in its
+`SKILL.md`. The `maintenance-skills` pre-commit hook runs on every commit and
+fails when a referenced path or Make target disappears; it cannot detect
+outdated descriptions.
 
 ## Commit & Pull Request Guidelines
 

@@ -71,7 +71,15 @@ repos:
         pass_filenames: false
         # Any skill file can be a link target, so renaming a resource must
         # rescan the Markdown that references it.
-        files: ^(skills/|scripts/check_skill_links\.py$)
+        files: ^(skills/|\.agents/skills/|scripts/check_skill_links\.py$)
+      - id: maintenance-skills
+        name: Maintenance skill references
+        entry: python3 scripts/check_maintenance_skills.py
+        language: system
+        pass_filenames: false
+        # Renaming any referenced file or Make target strands a maintenance
+        # skill reference, so this check cannot be selected by filename.
+        always_run: true
       - id: bash-syntax-check
         name: Bash syntax check
         entry: bash -c 'for path in "$@"; do bash -n "$path" || exit "$?"; done' --
