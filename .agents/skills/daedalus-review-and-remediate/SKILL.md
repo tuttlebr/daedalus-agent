@@ -151,6 +151,18 @@ that silently skips a missing dependency or processes no files is not evidence
 that its check passed. Inspect formatting hooks for repeated incompatible edits.
 Keep `Makefile` and CI consistent when changing validation commands.
 
+## Keep documentation aligned with code
+
+For each code change, check whether it affects documented behavior, interfaces,
+configuration, architecture, or development and operational workflows. Update
+the affected documentation in the same change, including examples and references
+to renamed or removed functionality. Keep edits scoped to the change; leave
+documentation unchanged when it remains accurate.
+
+Verify documented commands, paths, defaults and examples against the resulting
+implementation. Regenerate generated documentation from its source when needed.
+Treat stale documentation introduced by a fix as unfinished remediation.
+
 ## Keep this skill current
 
 This skill is versioned with the repository. Drift between the checkout and
@@ -182,9 +194,10 @@ for that evidence. Shared protocol changes need regeneration and drift checks.
 Run pre-commit on changed files and an all-files hook pass for the full audit;
 inspect autofixes and rerun affected checks until the result is stable.
 
-Review the final diff for incomplete migrations, stranded callers, weakened
-assertions, accidental generated artifacts and unrelated edits. Revisit the
-ledger to ensure all five areas and all test modules/hooks are accounted for.
+Review the final diff for incomplete migrations, stranded callers, stale
+documentation, weakened assertions, accidental generated artifacts and unrelated
+edits. Revisit the ledger to ensure all five areas and all test modules/hooks are
+accounted for.
 Finish when the agreed inventory is reviewed, confirmed in-scope fixes are
 implemented, and required checks pass or have explicit unresolved blockers.
 If a dependency or user decision blocks one area, continue independent work and
@@ -197,6 +210,7 @@ Report:
 - Latency measurements, comparison conditions and limits of the evidence.
 - Test/hook repairs and commands run, including failures, skips and blockers.
 - Coverage of the review and any residual findings, risks or decisions needed.
+- Documentation updated to match code changes, or why no updates were needed.
 - Updates made to this skill or its guide to match the current repository.
 
 An empty category is valid when supported by a completed review. Do not claim
