@@ -928,6 +928,51 @@ describe('chat/async backend pinning helpers', () => {
     );
   });
 
+  it('settles pending initialization writes before cleaning up a failed submission', async () => {
+    mocks.resolve4.mockResolvedValue(['10.0.2.61']);
+    mocks.fetchWithTimeout.mockResolvedValue({ ok: true, status: 200 });
+    const store = wireRedisStore();
+    let releaseWrite!: () => void;
+    const delayedWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    let requestKey = '';
+    let statusWrites = 0;
+    vi.mocked(jsonSetWithExpiry).mockImplementation(async (key, value) => {
+      if (key.includes('async-job-request')) {
+        requestKey = key;
+        await delayedWrite;
+      }
+      if (key.includes('async-job-status') && ++statusWrites === 2)
+        throw new Error('Synthetic status write failure');
+      store.set(key, value);
+    });
+    const res = makeRes();
+    const submitted = handler(
+      {
+        method: 'POST',
+        headers: { cookie: 'sid=current-session' },
+        body: {
+          conversationId: 'init-failure',
+          messages: [{ role: 'user', content: 'Hello' }],
+        },
+      } as any,
+      res,
+    );
+    try {
+      await drainUntil(() => statusWrites === 2);
+      // Returning an error before all writes settle allows a late write to
+      // recreate a record after cleanup has already deleted it.
+      expect(res.json).not.toHaveBeenCalled();
+    } finally {
+      releaseWrite();
+      await submitted;
+    }
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(store.has(requestKey)).toBe(false);
+    expect(mocks.redisXadd).not.toHaveBeenCalled();
+  });
+
   it('rejects a second active job for the same user conversation', async () => {
     mocks.redisSet.mockResolvedValueOnce(null);
     mocks.redisGet.mockResolvedValueOnce(
@@ -3693,7 +3738,11 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(complete[0].fullResponse).toBe('Answer.');
     expect(complete[0].generationDurationMs).toBe(duration);
 
-    expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
+    expect(clearStreamingState).toHaveBeenCalledWith(
+      'testuser',
+      'conv-1',
+      jobId,
+    );
     expect(store.get(statusKey)?.status).toBe('completed');
   });
 
@@ -3739,6 +3788,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(clearStreamingState).toHaveBeenCalledWith(
       'testuser',
       'conv-slow-memory',
+      jobId,
     );
     const pendingJournal = JSON.parse(
       store.get(`daedalus:async-job-finalization:${jobId}`),
@@ -4194,7 +4244,11 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(status?.intermediateSteps).toHaveLength(1);
     expect(store.has(`daedalus:async-job-request:${jobId}`)).toBe(false);
     expect(store.has(`daedalus:async-job-steps:${jobId}`)).toBe(false);
-    expect(clearStreamingState).toHaveBeenCalledWith('testuser', 'conv-1');
+    expect(clearStreamingState).toHaveBeenCalledWith(
+      'testuser',
+      'conv-1',
+      jobId,
+    );
   });
 
   it.each([false, true])(

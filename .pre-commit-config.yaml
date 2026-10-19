@@ -69,9 +69,9 @@ repos:
         entry: python3 scripts/check_skill_links.py
         language: system
         pass_filenames: false
-        # Any skill file can be a link target, so renaming a resource must
-        # rescan the Markdown that references it.
-        files: ^(skills/|\.agents/skills/|scripts/check_skill_links\.py$)
+        # Deleted files are absent from pre-commit's filename list. Rescan even
+        # on deletion-only commits so removed link targets cannot bypass it.
+        always_run: true
       - id: maintenance-skills
         name: Maintenance skill references
         entry: python3 scripts/check_maintenance_skills.py

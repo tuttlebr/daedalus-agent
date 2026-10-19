@@ -354,6 +354,53 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
     createdJobId = jobId;
     const createdAt = Date.now();
+    const guardedConversationId =
+      typeof conversationId === 'string' && conversationId
+        ? conversationId
+        : null;
+    if (guardedConversationId) {
+      await claimConversationForJob(
+        verifiedUsername,
+        guardedConversationId,
+        jobId,
+      );
+      acquiredConversationGuard = {
+        userId: verifiedUsername,
+        conversationId: guardedConversationId,
+        jobId,
+      };
+    }
+
+    if (!(await acquireUserJobGuard(verifiedUsername, jobId))) {
+      throw new ApiRouteError(
+        429,
+        'You already have five chats running. Wait for one to finish or stop a response before starting another.',
+        'active_chat_limit',
+      );
+    }
+    acquiredUserGuard = { userId: verifiedUsername, jobId };
+
+    // Publish a provisional status immediately after the guard. This closes the
+    // initialization window used for stale-owner recovery while backend
+    // selection and queue preparation are still in progress.
+    await jsonSetWithExpiry(
+      sessionKey(['async-job-status', jobId]),
+      {
+        jobId,
+        status: 'pending',
+        createdAt,
+        updatedAt: createdAt,
+        conversationId,
+        ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
+        ...(typeof assistantMessageId === 'string' && assistantMessageId
+          ? { assistantMessageId }
+          : {}),
+      } satisfies AsyncJobStatus,
+      JOB_EXPIRY_SECONDS,
+    );
+
+    // Claiming the guard can recover and save the previous turn. Read history
+    // only after that recovery, while this submission owns the conversation.
     const storedMessages = await loadStoredConversationMessages(
       verifiedUsername,
       conversationId,
@@ -418,51 +465,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const executionMode: AsyncJobRequest['executionMode'] = documentIngest
       ? 'document_ingest'
       : 'stream';
-
-    const guardedConversationId =
-      typeof conversationId === 'string' && conversationId
-        ? conversationId
-        : null;
-    if (guardedConversationId) {
-      await claimConversationForJob(
-        verifiedUsername,
-        guardedConversationId,
-        jobId,
-      );
-      acquiredConversationGuard = {
-        userId: verifiedUsername,
-        conversationId: guardedConversationId,
-        jobId,
-      };
-    }
-
-    if (!(await acquireUserJobGuard(verifiedUsername, jobId))) {
-      throw new ApiRouteError(
-        429,
-        'You already have five chats running. Wait for one to finish or stop a response before starting another.',
-        'active_chat_limit',
-      );
-    }
-    acquiredUserGuard = { userId: verifiedUsername, jobId };
-
-    // Publish a provisional status immediately after the guard. This closes the
-    // initialization window used for stale-owner recovery while backend
-    // selection and queue preparation are still in progress.
-    await jsonSetWithExpiry(
-      sessionKey(['async-job-status', jobId]),
-      {
-        jobId,
-        status: 'pending',
-        createdAt,
-        updatedAt: createdAt,
-        conversationId,
-        ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
-        ...(typeof assistantMessageId === 'string' && assistantMessageId
-          ? { assistantMessageId }
-          : {}),
-      } satisfies AsyncJobStatus,
-      JOB_EXPIRY_SECONDS,
-    );
 
     // Strip system messages -- the backend's NAT agent owns the system prompt.
     // Also drop assistant messages with empty content -- these cause 400 errors
@@ -574,7 +576,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // submit route sets it, leaving an orphan key that feeds WS chat
     // subscription auth and the connect-time streamingStates payload.
     const effectiveUserId = verifiedUsername;
-    await Promise.all([
+    const initialization = await Promise.allSettled([
       jsonSetWithExpiry(
         sessionKey(['async-job-request', jobId]),
         jobRequest,
@@ -589,6 +591,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ? [setStreamingState(effectiveUserId, conversationId, jobId)]
         : []),
     ]);
+    // A sibling write can succeed after another rejects. Wait for all of them
+    // before cleanup, or the late write can recreate an orphaned job/state.
+    for (const result of initialization) {
+      if (result.status === 'rejected') throw result.reason;
+    }
 
     if (await submissionCancelled('chat', verifiedUsername, submissionId)) {
       await jsonSetWithExpiry(abortKey(jobId), true, JOB_EXPIRY_SECONDS);
@@ -625,11 +632,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
                 acquiredConversationGuard.conversationId,
                 acquiredConversationGuard.jobId,
               ),
-              // Streaming state is written before enqueue; holding the
-              // conversation guard means no other job owns this key.
+              // Guard release runs concurrently; only clear this job's state.
               clearStreamingState(
                 acquiredConversationGuard.userId,
                 acquiredConversationGuard.conversationId,
+                acquiredConversationGuard.jobId,
               ),
             ]
           : []),

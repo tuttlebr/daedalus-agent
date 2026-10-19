@@ -60,6 +60,8 @@ const MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION = positiveIntegerFromEnv(
   'WS_MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION',
   50,
 );
+const MAX_PENDING_SUBSCRIPTION_CHECKS =
+  MAX_JOB_SUBSCRIPTIONS_PER_CONNECTION + MAX_CHAT_SUBSCRIPTIONS_PER_CONNECTION;
 // Browsers send their subscriptions as soon as the socket opens, before the
 // server has authenticated it and sent `connected`. Hold that bounded backlog
 // (every subscription plus a few pings/directions) until initialization ends.
@@ -422,6 +424,7 @@ interface ClientConnection {
   initialized: boolean;
   closed: boolean;
   steeringInFlight: number;
+  subscriptionChecksInFlight: number;
 }
 
 interface PendingClientMessages {
@@ -872,6 +875,7 @@ export async function initializeAuthenticatedConnection(
     initialized: false,
     closed: false,
     steeringInFlight: 0,
+    subscriptionChecksInFlight: 0,
   };
 
   const resetTimeout = () => {
@@ -958,10 +962,31 @@ export async function initializeAuthenticatedConnection(
           break;
 
         case 'subscribe_job':
-          if (msg.jobId && typeof msg.jobId === 'string') {
-            await subscribeToJob(msg.jobId, conn, dependencies);
+        case 'subscribe_chat': {
+          const isJob = msg.type === 'subscribe_job';
+          const id = isJob ? msg.jobId : msg.conversationId;
+          if (!id || typeof id !== 'string') break;
+          // Completed subscriptions alone do not bound concurrent ownership
+          // reads. An unsubscribe invalidates their result but cannot cancel
+          // the Redis operation, so keep the slot until that operation settles.
+          if (
+            conn.subscriptionChecksInFlight >= MAX_PENDING_SUBSCRIPTION_CHECKS
+          ) {
+            rejectSubscription(conn, 'Too many pending subscription checks');
+            break;
+          }
+          conn.subscriptionChecksInFlight += 1;
+          try {
+            if (isJob) {
+              await subscribeToJob(id, conn, dependencies);
+            } else {
+              await subscribeToChat(userId, id, conn, dependencies);
+            }
+          } finally {
+            conn.subscriptionChecksInFlight -= 1;
           }
           break;
+        }
 
         case 'unsubscribe_job':
           if (msg.jobId && typeof msg.jobId === 'string') {
@@ -970,17 +995,6 @@ export async function initializeAuthenticatedConnection(
             if (conn.subscribedJobs.delete(msg.jobId)) {
               await conn.releaseChannel(channel);
             }
-          }
-          break;
-
-        case 'subscribe_chat':
-          if (msg.conversationId && typeof msg.conversationId === 'string') {
-            await subscribeToChat(
-              userId,
-              msg.conversationId,
-              conn,
-              dependencies,
-            );
           }
           break;
 

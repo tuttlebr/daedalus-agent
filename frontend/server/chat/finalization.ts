@@ -407,7 +407,11 @@ export async function resumePendingFinalization(
 
     if (!journal.streamingStateClearedAt) {
       if (journal.conversation) {
-        await clearStreamingState(journal.userId, journal.conversation.id);
+        await clearStreamingState(
+          journal.userId,
+          journal.conversation.id,
+          jobId,
+        );
       }
       journal = await requirePhase(journal, 'streamingStateClearedAt');
     }

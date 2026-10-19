@@ -120,6 +120,45 @@ describe('backend stream reader persistence', () => {
     vi.useRealTimers();
   });
 
+  it.each([false, true])(
+    'keeps a backend error finish reason as a partial failure (terminal=%s)',
+    async (terminal) => {
+      const body = controlledBody();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => body.response),
+      );
+      const reading = startBackgroundStreamReader(
+        'job-1',
+        structuredClone(jobRequest),
+        [],
+        'alice',
+      );
+      body.push(
+        'data: {"choices":[{"delta":{"content":"Partial answer"}}]}\n\n',
+      );
+      body.push(
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              delta: {},
+              finish_reason: 'error',
+              daedalus_terminal: terminal,
+            },
+          ],
+        })}\n\ndata: [DONE]\n\n`,
+      );
+      await reading;
+      expect(mocks.finalizeSuccess).not.toHaveBeenCalled();
+      expect(mocks.finalizeError).toHaveBeenCalledWith(
+        'job-1',
+        expect.anything(),
+        'Backend stream reported an error',
+        expect.objectContaining({ response: 'Partial answer' }),
+      );
+    },
+  );
+
   it('persists throttled output when the backend goes quiet behind keepalive comments', async () => {
     const body = controlledBody();
     vi.stubGlobal(

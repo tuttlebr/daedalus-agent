@@ -63,8 +63,8 @@ Their precise selection and behavior live in the configuration. In particular:
 - Prettier is a local hook that changes into `frontend/`, requires its installed
   dependencies and rewrites selected files.
 - `scripts/check_skill_links.py` checks Markdown links in runtime `skills/` and
-  maintenance `.agents/skills/`; it is selected only for files under those
-  directories or the script itself.
+  maintenance `.agents/skills/`; it always runs so deletion-only commits cannot
+  bypass validation when a linked resource disappears.
 - `scripts/check_maintenance_skills.py` always runs, because a rename anywhere
   can strand a path or `make` target named by a maintenance skill.
 - The Helm hook only lints and fails when Helm is missing; `make helm` also

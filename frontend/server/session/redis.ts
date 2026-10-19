@@ -393,10 +393,26 @@ export async function setStreamingState(
   await jsonSetWithExpiry(key, state, STREAMING_STATE_TTL_SECONDS);
 }
 
-// Clear streaming state for a conversation
+const CLEAR_STREAMING_STATE_LUA = `
+local kind = redis.call('TYPE', KEYS[1]).ok
+if kind == 'none' then return 0 end
+local raw
+if kind == 'string' then
+  raw = redis.call('GET', KEYS[1])
+else
+  raw = redis.call('JSON.GET', KEYS[1], '.')
+end
+local current = cjson.decode(raw)
+if type(current) ~= 'table' or current.sessionId ~= ARGV[1] then return 0 end
+return redis.call('DEL', KEYS[1])
+`;
+
+// Cleanup may resume after the guard was released and another job started.
+// Compare the owner and delete atomically, including for legacy JSON records.
 export async function clearStreamingState(
   userId: string,
   conversationId: string,
+  sessionId: string,
 ): Promise<void> {
   const key = sessionKey([
     'streaming',
@@ -405,5 +421,5 @@ export async function clearStreamingState(
     'conversation',
     conversationId,
   ]);
-  await jsonDel(key);
+  await getRedis().eval(CLEAR_STREAMING_STATE_LUA, 1, key, sessionId);
 }

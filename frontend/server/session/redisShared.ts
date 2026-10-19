@@ -51,6 +51,10 @@ export function resolveRedisUrl(
 ): string {
   try {
     const parsed = new URL(raw);
+    // TLS authenticates the configured hostname. Substituting an IP also
+    // changes the certificate identity checked by Node, breaking DNS-only
+    // certificates as soon as the background cache warms up.
+    if (parsed.protocol === 'rediss:') return raw;
     const cachedIp = getCachedIp(parsed.hostname);
     if (cachedIp && cachedIp !== parsed.hostname) {
       parsed.hostname = cachedIp;

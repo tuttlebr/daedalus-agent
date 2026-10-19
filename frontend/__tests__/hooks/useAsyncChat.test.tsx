@@ -45,10 +45,6 @@ vi.mock('@/utils/fetchWithTimeout', () => ({
   FetchTimeoutError: class FetchTimeoutError extends Error {},
 }));
 
-vi.mock('@/utils/app/visibilityAwareTimer', () => ({
-  shouldRunExpensiveOperation: vi.fn(() => Promise.resolve(true)),
-}));
-
 vi.mock('@/utils/logger', () => ({
   Logger: class MockLogger {
     info = vi.fn();

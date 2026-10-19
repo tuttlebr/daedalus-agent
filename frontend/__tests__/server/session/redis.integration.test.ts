@@ -64,6 +64,40 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       expect(await redis.jsonMGet(requested)).toEqual([null, null, [1, 2]]);
     });
 
+    it.each(['string', 'json'])(
+      'only clears streaming state belonging to the finishing job (%s)',
+      async (format) => {
+        const conversationId = `${prefix}-stream-${format}`;
+        const streamingKey = key(
+          'streaming',
+          'user',
+          prefix,
+          'conversation',
+          conversationId,
+        );
+        const state = {
+          userId: prefix,
+          conversationId,
+          sessionId: 'new-job',
+          startedAt: 1,
+        };
+        if (format === 'string')
+          await client.set(streamingKey, JSON.stringify(state));
+        else
+          await client.call(
+            'JSON.SET',
+            streamingKey,
+            '$',
+            JSON.stringify(state),
+          );
+        await redis.clearStreamingState(prefix, conversationId, 'old-job');
+        expect(await redis.jsonGet(streamingKey)).toEqual(state);
+        await redis.clearStreamingState(prefix, conversationId, 'new-job');
+        expect(await redis.jsonGet(streamingKey)).toBeNull();
+        await redis.clearStreamingState(prefix, conversationId, 'new-job');
+      },
+    );
+
     it('lists newly saved plain-string conversations alongside legacy RedisJSON records', async () => {
       const { reserveConversationForUser } = await import(
         '@/server/session/conversationStore'

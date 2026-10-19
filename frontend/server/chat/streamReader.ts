@@ -623,7 +623,11 @@ export async function startBackgroundStreamReader(
             });
             continue;
           }
-          if (parsed.error || currentSseEvent === 'error') {
+          if (
+            parsed.error ||
+            currentSseEvent === 'error' ||
+            parsed?.choices?.[0]?.finish_reason === 'error'
+          ) {
             const backendMessage =
               typeof parsed.error === 'string'
                 ? parsed.error.trim()

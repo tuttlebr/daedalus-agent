@@ -494,6 +494,54 @@ describe('authenticated WebSocket initialization', () => {
     expect(releaseChannel).toHaveBeenCalledWith('user:erin:chat:chat-1:tokens');
   });
 
+  it.each(['job', 'chat'])(
+    'bounds in-flight %s ownership checks even when requests are unsubscribed',
+    async (kind) => {
+      const socket = new FakeWebSocket();
+      const validation = valueDeferred<any>();
+      const check = vi.fn(() => validation.promise);
+      await initializeAuthenticatedConnection(
+        socket as unknown as WebSocket,
+        'bounded',
+        'bounded-session',
+        connectionDependencies(
+          kind === 'job'
+            ? { getJobRequest: check }
+            : { canSubscribeToChat: check },
+        ),
+      );
+      const send = (type: string, index: number) =>
+        socket.emit(
+          'message',
+          Buffer.from(
+            JSON.stringify({
+              type: `${type}_${kind}`,
+              [kind === 'job' ? 'jobId' : 'conversationId']: `item-${index}`,
+            }),
+          ),
+        );
+      try {
+        for (let index = 0; index < 200; index += 1) {
+          send('subscribe', index);
+          // Dropping the subscription does not cancel the Redis request.
+          send('unsubscribe', index);
+        }
+        expect(check).toHaveBeenCalledTimes(100);
+        expect(socket.sent.map((raw) => JSON.parse(raw))).toContainEqual({
+          type: 'error',
+          message: 'Too many pending subscription checks',
+        });
+        validation.resolve(null);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        send('subscribe', 201);
+        expect(check).toHaveBeenCalledTimes(101);
+      } finally {
+        validation.resolve(null);
+        socket.disconnect();
+      }
+    },
+  );
+
   // services/websocket.ts resubscribes in `onopen`, before `connected`.
   it('replays subscriptions sent before initialization completes', async () => {
     const socket = new FakeWebSocket();
