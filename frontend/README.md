@@ -167,6 +167,14 @@ keeps a client-side overhead reservation, while documents use raw multipart
 bytes. Server routes enforce their own decoded or raw limits, so changing a
 public limit also requires checking the corresponding API and proxy limit.
 
+WebKit document uploads read the selected file into an in-memory Blob before
+sending multipart data to avoid its disk-backed File serialization bug. This
+adds a local read and memory proportional to the file size on Safari and iOS
+browsers; other engines send the File directly. Size admission runs before the
+copy, cancellation is checked before sending, and the server still verifies the
+exact request and file lengths. An unreadable or incomplete local file asks the
+user to select it again.
+
 Document objects are temporary. Configure the selected bucket with lifecycle
 expiration for `DOCUMENT_OBJECT_PREFIX` whose retention matches
 `DOCUMENT_OBJECT_EXPIRY_SECONDS`, which defaults to seven days. Redis metadata

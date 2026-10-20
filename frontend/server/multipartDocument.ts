@@ -83,8 +83,14 @@ function parseContentLength(req: NextApiRequest, maxBytes: number): number {
     throw new MultipartDocumentError(400, 'Content-Length is invalid');
   }
   const length = Number(raw);
-  if (!Number.isSafeInteger(length) || length <= 0) {
+  if (!Number.isSafeInteger(length)) {
     throw new MultipartDocumentError(400, 'Content-Length is invalid');
+  }
+  if (length === 0) {
+    throw new MultipartDocumentError(
+      400,
+      'The browser sent an empty upload. Please select the file again and retry.',
+    );
   }
   if (length > maxBytes + MAX_MULTIPART_OVERHEAD_BYTES) {
     throw new MultipartDocumentError(

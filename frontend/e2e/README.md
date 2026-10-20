@@ -19,6 +19,12 @@ UI identity alone cannot satisfy session acceptance. The browser suite also
 checks service-worker control and observes actual WebSocket chat frames. Design
 fixtures that explicitly mock authentication remain isolated UI tests.
 
+`document-upload.spec.ts` selects a PDF from disk with the service worker active
+and checks the stored bytes through the authenticated download route in Chromium
+and mobile WebKit. Run it with `npm run e2e -- document-upload.spec.ts`.
+Playwright's WebKit build is a compatibility check; it does not reproduce every
+file-provider or sandbox failure in the system Safari on an iPhone.
+
 Use `E2E_SKIP_BUILD=1` only with artifacts built using the same secure WebSocket
 URL and current source. The default runner removes its Compose services and
 volumes afterward; `E2E_KEEP_SERVICES=1` retains them for local diagnosis. Tests

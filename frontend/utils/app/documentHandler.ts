@@ -16,6 +16,11 @@ export function assertDocumentFileSize(
   file: Pick<File, 'name' | 'size'>,
   maxBytes: number = UPLOAD_LIMITS.DOCUMENT_SERVER_LIMIT_BYTES,
 ): void {
+  if (file.size === 0) {
+    throw new Error(
+      'The selected document is empty. Please select the file again.',
+    );
+  }
   if (file.size > maxBytes) {
     throw new Error(
       `File "${file.name}" exceeds the server upload limit (${formatFileSize(
@@ -23,6 +28,39 @@ export function assertDocumentFileSize(
       )}).`,
     );
   }
+}
+
+async function readableUploadFile(
+  file: File,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  signal?.throwIfAborted();
+  const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  const isWebKit =
+    /AppleWebKit\//.test(userAgent) &&
+    !/(?:Chrome|Chromium|Edg|OPR)\//.test(userAgent);
+  if (!isWebKit) return file;
+
+  // WebKit can send disk-backed Files with Content-Length: 0, including on
+  // service-worker-controlled pages. Read in the page and upload an in-memory
+  // Blob; wrapping the original File alone can retain the broken disk reference.
+  // https://bugs.webkit.org/show_bug.cgi?id=319985
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch {
+    signal?.throwIfAborted();
+    throw new Error(
+      'Could not read the document. Please select the file again.',
+    );
+  }
+  signal?.throwIfAborted();
+  if (bytes.byteLength !== file.size) {
+    throw new Error(
+      'Could not read the complete document. Please select the file again.',
+    );
+  }
+  return new Blob([bytes], { type: file.type || 'application/octet-stream' });
 }
 
 // Stream a document to owner-scoped object storage and return its reference.
@@ -34,7 +72,7 @@ export async function uploadDocument(
     assertDocumentFileSize(file);
     const mimeType = file.type || 'application/octet-stream';
     const formData = new FormData();
-    formData.append('file', file, file.name);
+    formData.append('file', await readableUploadFile(file, signal), file.name);
 
     const response = await fetch('/api/session/documentStorage', {
       method: 'POST',

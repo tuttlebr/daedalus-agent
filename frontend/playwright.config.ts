@@ -69,7 +69,7 @@ export default defineConfig({
     {
       name: 'mobile-webkit',
       testMatch:
-        /(?:create-settings|ui-layout|hig-design|ux-review|image-download|create-rendering|iphone-webapp)\.spec\.ts/,
+        /(?:create-settings|ui-layout|hig-design|ux-review|image-download|create-rendering|iphone-webapp|document-upload)\.spec\.ts/,
       use: { ...devices['iPhone 16 Pro'], viewport: iphone17ProViewport },
     },
     {

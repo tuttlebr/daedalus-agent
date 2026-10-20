@@ -205,6 +205,40 @@ describe('/api/session/documentStorage', () => {
     expect(mocks.putDocumentObject).toHaveBeenCalledOnce();
   });
 
+  it('reports an empty browser request without accepting or storing it', async () => {
+    const req = multipartRequest(Buffer.from('%PDF-test'));
+    req.headers['content-length'] = '0';
+    const res = response();
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error:
+        'The browser sent an empty upload. Please select the file again and retry.',
+    });
+    expect(mocks.putDocumentObject).not.toHaveBeenCalled();
+    expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+    expect(mocks.eval).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['-1', 'NaN', '12x', '9007199254740992'])(
+    'still rejects invalid Content-Length %s before storage',
+    async (contentLength) => {
+      const req = multipartRequest(Buffer.from('%PDF-test'));
+      req.headers['content-length'] = contentLength;
+      const res = response();
+
+      await handler(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Content-Length is invalid',
+      });
+      expect(mocks.putDocumentObject).not.toHaveBeenCalled();
+    },
+  );
+
   it('infers a known document MIME type before magic-byte validation', async () => {
     const res = response();
     await handler(
