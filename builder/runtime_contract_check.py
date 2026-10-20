@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from packaging.version import Version
 
 SECURITY_DEPENDENCY_RANGES = {
-    "aiohttp": (Version("3.14.3"), Version("4")),
+    "aiohttp": (Version("3.14.4"), Version("4")),
     "cryptography": (Version("50.0.0"), Version("51")),
     "fastfeedparser": (Version("0.5.10"), Version("0.6")),
     "pillow": (Version("12.2"), Version("13")),

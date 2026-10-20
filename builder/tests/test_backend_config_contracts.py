@@ -525,7 +525,7 @@ def test_runtime_locks_cover_local_sources_and_registry_hashes():
         assert (
             "--overrides requirements-runtime-overrides.in" in lock_text.splitlines()[1]
         )
-        assert by_name["aiohttp"]["version"] == "3.14.3"
+        assert by_name["aiohttp"]["version"] == "3.14.4"
         assert by_name["cryptography"]["version"] == "50.0.0"
         assert by_name["fastfeedparser"]["version"] == "0.5.10"
         assert by_name["pillow"]["version"] == "12.3.0"
@@ -1869,7 +1869,7 @@ def test_runtime_omits_legacy_async_job_dependencies():
     # when async job endpoints are disabled, so its missing transitive runtime
     # requirement must remain explicit.
     assert "greenlet>=3,<4" in runtime_requirements
-    assert "aiohttp>=3.14.3,<4" in runtime_requirements
+    assert "aiohttp>=3.14.4,<4" in runtime_requirements
     assert "cryptography>=50.0.0,<51" in runtime_requirements
     assert "fastfeedparser>=0.5.10,<0.6" in runtime_requirements
     assert "pillow>=12.2,<13" in runtime_requirements
