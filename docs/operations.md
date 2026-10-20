@@ -231,6 +231,32 @@ enable the steering composer. Existing custom YAML overlays must use
 MCP connection recovery occurs before subsequent calls; the runtime never
 replays a `tools/call` whose remote result is uncertain.
 
+## Public article scraping
+
+The webscraper first fetches the URL directly through its bounded anonymous HTTP
+transport. `functions.webscrape_tool.reader_fallback_hosts` optionally permits
+an external [Jina Reader](https://jina.ai/reader/) request when direct retrieval
+returns HTTP 403, an access challenge, or no extractable content. The list uses
+exact hostnames, with no wildcard or implicit subdomain matching. It defaults to
+empty; the shipped workflow enables `zhuanlan.zhihu.com`. Set it to `[]` to disable
+the fallback, or add another public publisher's hostname to opt in.
+
+Enabling a host sends its requested public URL to `r.jina.ai`, which performs its
+own rendering and may return cached content. No API key is required. URLs with
+credentials, query strings, or nonstandard ports are excluded. The source URL is
+checked for public DNS addresses before submission; the reader connection uses
+the same public-IP pinning, redirect checks, and response-size bound as direct
+fetches. Downstream rendering and requests are controlled by the external reader.
+Configured robots checks still run before retrieval. Reader failures, warnings,
+challenge pages, and mismatched source URLs are reported as errors.
+
+Both attempts share the configured timeout and scrape concurrency limit. Reader
+results retain the original source URL, identify the retrieval provider, and stay
+out of the direct article cache shared with RSS and source verification. The
+shipped output limit is 64,000 tokens to accommodate long multilingual articles;
+larger articles still receive an explicit truncation notice. The scraper returns
+the original language so the agent can translate or explain it.
+
 ## MCP discovery
 
 Large MCP groups can set `defer_discovery: true` and a nonempty

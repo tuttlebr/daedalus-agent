@@ -726,6 +726,9 @@ functions:
   webscrape_tool:
     _type: webscrape
     max_concurrency: 4
+    # Explicit external-reader opt-in; only public URLs without query strings.
+    reader_fallback_hosts:
+      - zhuanlan.zhihu.com
     allowed_schemes:
       - http
       - https
@@ -733,12 +736,14 @@ functions:
       Fetch ONE known URL and convert to markdown. Uses a controlled
       HTTP fetch with connection-time public-IP validation, then gives
       MarkItDown only a local file. Direct browser navigation is disabled.
+      For configured domains such as Zhihu, blocked or empty extraction
+      falls back to Jina Reader with the original source URL and provider noted.
       Trigger: you already
       have the URL (from Perplexity Search, an RSS entry, or the
       user). Args: url (http/https only). Returns: markdown up to n
       tokens. Fails when: URL unknown (use perplexity_search_tool
       first), non-http scheme, or 60s timeout.
-    max_output_tokens: 20000
+    max_output_tokens: 64000
     respect_robots_txt: false
     timeout: 60
     user_agent: daedalus-webscraper/0.1.0

@@ -336,6 +336,8 @@ def test_anonymous_client_disables_client_and_per_call_auth():
         "attention required ddos-guard",
         "just a moment checking your browser",
         "access denied you don't have permission to access",
+        "安全验证：访问异常，请完成验证后重试。",
+        '<meta id="zh-zse-ck"><script src="https://static.zhihu.com/zse-ck/v4/app.js"></script>',
     ],
 )
 def test_challenges_never_enter_the_shared_article_cache(monkeypatch, body):

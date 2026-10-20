@@ -29,6 +29,8 @@ from nat_helpers.safe_http import PublicAsyncHTTPTransport, ResponseSizeError
 from nat_helpers.url_guard import UnsafeURLError, validate_public_url
 from pydantic import Field, StrictInt
 
+from .reader import ReaderResponseError, fetch_reader_article, reader_fallback_allowed
+
 try:
     import tiktoken
 
@@ -76,6 +78,14 @@ class WebscrapeFunctionConfig(ToolConfig, name="webscrape"):
     respect_robots_txt: bool = Field(
         default=True,
         description="Honor robots.txt directives before scraping content.",
+    )
+    reader_fallback_hosts: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exact hostnames allowed to use external Jina Reader after HTTP 403, "
+            "a challenge, or empty extraction. Sends the public URL to r.jina.ai; "
+            "excludes credentials, query strings, and nonstandard ports."
+        ),
     )
     allowed_schemes: list[str] = Field(
         default_factory=lambda: ["https", "http"],
@@ -343,6 +353,8 @@ def _describe_retrieval_failure(
         return "blocked", "The site is blocking automated access."
     if isinstance(exc, EmptyArticleError):
         return "no_content", "The page returned no extractable content."
+    if isinstance(exc, ReaderResponseError):
+        return "failed", str(exc)
     return (
         "failed",
         "Unable to retrieve page content. The site may require JavaScript or "
@@ -543,12 +555,44 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                         return _format_error(str(exc))
 
                 try:
-                    article, cache_status = await content_session.article(
-                        url,
-                        converter=_convert_public_resource,
-                        timeout=config.timeout,
-                        allowed_schemes=config.allowed_schemes,
-                    )
+                    # Direct retrieval and its optional reader share one deadline
+                    # and admission slot. Reader results stay out of the direct
+                    # cache used by RSS and source verification.
+                    async with asyncio.timeout(config.timeout):
+                        try:
+                            article, cache_status = await content_session.article(
+                                url,
+                                converter=_convert_public_resource,
+                                timeout=config.timeout,
+                                allowed_schemes=config.allowed_schemes,
+                            )
+                        except Exception as direct_error:
+                            if not reader_fallback_allowed(
+                                url,
+                                config.reader_fallback_hosts,
+                                config.allowed_schemes,
+                                direct_error,
+                            ):
+                                raise
+                            try:
+                                article = await fetch_reader_article(
+                                    url,
+                                    timeout=config.timeout,
+                                    allowed_schemes=config.allowed_schemes,
+                                )
+                                cache_status = "reader"
+                            except Exception as reader_error:
+                                _, direct_message = _describe_retrieval_failure(
+                                    direct_error, config.timeout
+                                )
+                                _, reader_message = _describe_retrieval_failure(
+                                    reader_error, config.timeout
+                                )
+                                return _format_error(
+                                    direct_message
+                                    + " Reader fallback also failed: "
+                                    + reader_message
+                                )
                     if _is_challenge_page(article.markdown):
                         return _format_error("The site is blocking automated access.")
                     source = f"_Source: {article.url}_"
@@ -619,6 +663,8 @@ async def webscrape_function(config: WebscrapeFunctionConfig, builder: ToolRegis
                     "Scrape public web content and convert to markdown with source "
                     "URL and fetch time. Uses bounded anonymous article caching and "
                     "connection-time public DNS validation; document converters only "
-                    "receive local response files." + research_description
+                    "receive local response files. Operator-enabled domains can use "
+                    "external Jina Reader when direct extraction is blocked or empty."
+                    + research_description
                 ),
             )

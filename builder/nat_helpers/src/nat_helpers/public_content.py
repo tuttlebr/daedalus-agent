@@ -53,6 +53,11 @@ CHALLENGE_SIGNATURES = (
     "requested url was rejected",
     "forbidden",
     "reference #",
+    "zh-zse-ck",
+    "static.zhihu.com/zse-ck/",
+    "安全验证",
+    "请完成验证",
+    "访问异常",
 )
 
 
