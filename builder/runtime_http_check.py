@@ -1912,7 +1912,21 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                         peers.requests[-1]
                     )
                     result = chat("LARGE_OPAQUE", "large-opaque-run")
-                    assert "Agent execution failed" in result
+                    # Oversized opaque output fails this tool call; the model
+                    # receives a bounded error and can finish the run.
+                    assert "The real datetime tool completed" in result
+                    assert "Agent execution failed" not in result
+                    outputs = [
+                        item
+                        for item in peers.requests[-1]["input"]
+                        if item.get("type") == "function_call_output"
+                    ]
+                    assert len(outputs) == 1
+                    failure = json.loads(outputs[0]["output"])
+                    assert failure["status"] == "error"
+                    assert "Tool event exceeds size limit" in failure["content"]
+                    assert len(outputs[0]["output"]) < 1024
+                    assert "雪" not in outputs[0]["output"]
                 # Read through a separate descriptor: seeking the child's shared
                 # stdout file would move its write position while it is logging.
                 records = []
