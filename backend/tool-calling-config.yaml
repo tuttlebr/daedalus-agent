@@ -571,12 +571,16 @@ functions:
     database_name: ${MILVUS_DATABASE}
     content_field: text
     vector_field: vector
+    search_params:
+      metric_type: COSINE
+      params: { ef: 64 }
     top_k: 10
     search_timeout: ${MILVUS_SEARCH_TIMEOUT_SECONDS}
     use_reranker: true
     reranker_api_key: ${RERANKER_API_KEY}
     reranker_endpoint: ${RERANKER_BASE_URL}
-    reranker_min_score: 0.0002
+    # The new reranker returns raw logits; the previous probability cutoff is invalid.
+    reranker_min_score: null
     reranker_model: ${RERANKER_MODEL}
     reranker_top_n: 5
     domain_collections:
@@ -632,7 +636,10 @@ functions:
     extract_method: pdfium
     embedder_name: milvus_embedder
     content_field: text
-    database_name: default
+    database_name: ${MILVUS_DATABASE}
+    # Use each collection index metric for both curated and private uploads.
+    search_params:
+      params: {}
     distance_cutoff: 1.2
     reranker_api_key: ${RERANKER_API_KEY}
     reranker_endpoint: ${RERANKER_BASE_URL}
