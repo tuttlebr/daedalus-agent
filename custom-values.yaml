@@ -28,8 +28,8 @@ images:
     pullPolicy: Always
   frontend:
     repository: daedalus.ddns.me:5050/btuttle/daedalus
-    tag: frontend-0.1.0
-    digest: ''
+    tag: frontend-pdf-upload-28b13a79
+    digest: 'sha256:3fc9da2f5a6fd9d689541d48c00fc51f7dc79a9596360e802bb18fd325d0f358'
     pullPolicy: Always
   nginx:
     repository: mirror.gcr.io/nginxinc/nginx-unprivileged
