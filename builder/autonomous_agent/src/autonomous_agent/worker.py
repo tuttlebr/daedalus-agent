@@ -244,12 +244,14 @@ def run_once(
             )
         store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
         execution_id = str(request.get("id") or run["id"])
+        if abort is not None:
+            store.mark_backend_started(user_id)
         response = backend.call(messages, execution_id=execution_id, abort=abort)
         run["metrics"]["responseChars"] = len(response or "")
 
         # A dashboard Stop also sets ``abort``. Classify it before a lost
-        # lease, as the RunAbortedError path does: the loop leaves "aborted"
-        # requests in processing, so the next owner would run them again.
+        # lease, as the RunAbortedError path does, so the dashboard preserves
+        # the user's Stop instead of reporting an infrastructure interruption.
         if store.cancel_requested(user_id, run["id"]):
             run["status"] = "cancelled"
             run["completedAt"] = now_ms()
@@ -551,7 +553,7 @@ def main() -> int:
             reclaimed = store.reclaim_processing(user_id)
             if reclaimed:
                 log(
-                    f"reclaimed {reclaimed} in-flight request(s) from a previous worker"
+                    f"resolved {reclaimed} interrupted request(s) from a previous worker"
                 )
             scheduled = store.maybe_enqueue_scheduled(user_id)
             if scheduled:
@@ -577,7 +579,8 @@ def main() -> int:
                 )
                 # F-013: the run has been recorded (incl. recorded failures), so
                 # remove it from the processing list. If the worker had crashed
-                # before reaching here, reclaim_processing() would have re-queued it.
+                # before reaching here, recovery drops dispatched work rather
+                # than repeating external actions with an uncertain outcome.
                 if run.get("status") != "aborted":
                     store.complete(user_id)
                 if run_once_only:

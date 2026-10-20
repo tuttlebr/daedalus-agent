@@ -43,6 +43,9 @@ sign in with each account and verify its conversation list. User ownership check
 apply to conversations, uploads, jobs, and private state; the operator controls
 the underlying services and data.
 
+Validation and workload Secret creation share the same environment-file parser:
+whitespace outside quotes is trimmed, and whitespace inside quotes is preserved.
+
 > **Migrating an existing login:** plaintext `AUTH_PASSWORD` and
 > `AUTH_USER_N_PASSWORD` are no longer accepted. Hash each user's current password
 > and replace those keys with `AUTH_PASSWORD_HASH` or

@@ -477,14 +477,6 @@ fn flatten(nodes: &Value, pages: &mut Vec<Value>) {
     }
 }
 fn upstream(error: anyhow::Error) -> (u16, Value) {
-    // HTTPX reports an incomplete HTTP response as a protocol error outside
-    // the baseline's HindsightError mapping. Preserve its generic HTTP 500.
-    if error
-        .chain()
-        .any(|e| e.to_string() == "connection closed before message completed")
-    {
-        return detail(500, "Internal Server Error");
-    }
     match error
         .downcast_ref::<reqwest::Error>()
         .and_then(|e| e.status())
@@ -933,6 +925,38 @@ pub(crate) mod tests {
                 serde_json::from_slice(&bytes).unwrap_or(Value::Null),
             )
         }
+    }
+
+    #[tokio::test]
+    async fn lost_upstream_response_reports_unavailable_without_transport_details() {
+        use tokio::io::AsyncReadExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let peer = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let read = stream.read(&mut chunk).await.unwrap();
+                assert!(read > 0, "request ended before its headers");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            assert!(request.starts_with(b"GET /v1/default/banks/"));
+            // Close after accepting the request, without an HTTP response.
+        });
+        let app = peers::app(&base, "redis://127.0.0.1:1");
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            peers::send(&app, "GET", "/v1/memories", None),
+        )
+        .await
+        .expect("an accepted, closed request must finish promptly");
+        peer.await.unwrap();
+        assert_eq!(
+            response,
+            (502, json!({"detail":"memory service unavailable"}))
+        );
     }
 
     #[tokio::test]

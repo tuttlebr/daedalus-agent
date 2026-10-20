@@ -1,7 +1,7 @@
 # Secure sandbox exploration
 
 `sandbox_exploration_tool` connects Daedalus to the separately deployed v2
-exploration service in `daedalus-sandbox`. It supports offline Python/data runs,
+exploration service in `daedalus-exploration`. It supports offline Python/data runs,
 durable files, cancellation, checkpoints/forks, experiment comparison, proposed
 lessons and artifact publication. OpenShell isolates each run; Daedalus owns
 identity, model access, planning and publication.

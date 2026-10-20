@@ -1,4 +1,5 @@
 // PWA Registration and utilities
+import { clearAllImageBlobs } from './imageBlobCache';
 import { createVisibilityAwareInterval } from './visibilityAwareTimer';
 
 let onUpdateAvailable: (() => void) | null = null;
@@ -62,13 +63,14 @@ export const registerServiceWorker = async () => {
 const PRIVATE_CACHE_NAMES = ['daedalus-conversations-v1', 'daedalus-runtime'];
 
 /**
- * Drop caches that may contain user-private data (conversation history /
- * per-conversation responses, runtime-cached HTML). Call on login and logout so
+ * Drop caches that may contain user-private data (image blobs, conversation
+ * history / per-conversation responses, runtime-cached HTML). Call on login and logout so
  * a previous user's offline-cached data cannot be served to the next user on a
  * shared device. Callers await this before switching authenticated identity.
  */
 export const clearPrivateCaches = async (): Promise<void> => {
   if (typeof window === 'undefined') return;
+  clearAllImageBlobs();
 
   // 1) Delete the caches directly from the page. The page shares Cache Storage
   //    with the service worker, and this works regardless of which SW version

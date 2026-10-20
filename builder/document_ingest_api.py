@@ -337,6 +337,11 @@ async def ingest_stream(
     queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
 
     async def progress_cb(progress: dict[str, Any]) -> None:
+        # Indexing marks the processor's internal write boundary. Preserve the
+        # public SSE phases shared with the native route, independently of the
+        # SDK logger level or how the processor observes that boundary.
+        if progress.get("phase") == "indexing":
+            return
         payload = {
             "completed": int(progress.get("completed") or 0),
             "total": int(progress.get("total") or total),

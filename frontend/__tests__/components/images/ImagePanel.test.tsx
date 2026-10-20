@@ -187,4 +187,51 @@ describe('Create Stop lifecycle', () => {
     });
     expect(useImagePanelStore.getState().loading).toBe(false);
   });
+
+  it.each(['failed', 'confirmed'])(
+    'ignores a %s Stop response after the panel unmounts',
+    async (outcome) => {
+      const polls: Array<(value: Response) => void> = [];
+      let finishStop!: () => void;
+      mocks.fetch.mockImplementation((_url, options) => {
+        if (options?.method === 'POST')
+          return Promise.resolve(response({ jobId: 'job-1' }));
+        if (options?.method === 'DELETE')
+          return new Promise((resolve, reject) => {
+            finishStop = () =>
+              outcome === 'failed'
+                ? reject(new Error('Network unavailable'))
+                : resolve(response({ cancelled: true }));
+          });
+        return new Promise((resolve) => polls.push(resolve));
+      });
+      let pending!: Promise<void>;
+      let stopping!: Promise<void>;
+      await act(async () => {
+        pending = mocks.dock.onSubmit();
+      });
+      await act(async () => {
+        stopping = mocks.dock.onStop();
+      });
+      act(() => root.render(null));
+      // Authentication teardown clears the shared workspace after unmount.
+      useImagePanelStore.getState().clearAll();
+      useImagePanelStore.setState({ loading: true, error: 'New workspace' });
+      try {
+        await act(async () => {
+          finishStop();
+          await stopping;
+        });
+        expect(polls).toHaveLength(1);
+        expect(useImagePanelStore.getState().loading).toBe(true);
+        expect(useImagePanelStore.getState().error).toBe('New workspace');
+      } finally {
+        await act(async () => {
+          for (const finish of polls)
+            finish(response({ ...running, status: 'cancelled' }));
+          await pending;
+        });
+      }
+    },
+  );
 });

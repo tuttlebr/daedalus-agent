@@ -129,13 +129,19 @@ def deploy_fixture(tmp_path):
     return run, bundle, values
 
 
-def test_deploy_passes_hue_token_only_to_backend(deploy_fixture, tmp_path):
+@pytest.mark.parametrize("padding", ["", " \t"])
+def test_deploy_passes_hue_token_only_to_backend(deploy_fixture, tmp_path, padding):
     run, _, _ = deploy_fixture
     env_file = tmp_path / "hue.env"
     token = "unit-test-hue-credential"
+    password_hash = "$2b$12$" + "a" * 53
     env_file.write_text(
-        f"DAEDALUS_MEMORY_MODE=disabled\nHUE_MCP_TOKEN='{token}'\n"
-        "AUTH_USERNAME=test-user\nAUTH_PASSWORD_HASH='$2b$12$" + "a" * 53 + "'\n"
+        f"DAEDALUS_MEMORY_MODE={padding}'disabled'{padding}\n"
+        f"HUE_MCP_TOKEN={padding}'{token}'{padding}\n"
+        f"AUTH_USERNAME={padding}test-user{padding}\n"
+        f"AUTH_PASSWORD_HASH={padding}'{password_hash}'{padding}\n"
+        f"DOCUMENT_OBJECT_ACCESS_KEY={padding}'test-access'{padding}\n"
+        f"DOCUMENT_OBJECT_SECRET_KEY={padding}'test-secret'{padding}\n"
     )
     result, records = run("--env-file", str(env_file))
     assert result.returncode == 0, result.stdout + result.stderr
@@ -153,6 +159,18 @@ def test_deploy_passes_hue_token_only_to_backend(deploy_fixture, tmp_path):
         for name, keys in secrets.items()
         if name != "test-images-backend-env"
     )
+    assert (
+        secrets["test-images-frontend-env"]["AUTH_PASSWORD_HASH"]
+        == hashlib.sha256(password_hash.encode()).hexdigest()
+    )
+    assert (
+        secrets["test-images-frontend-env"]["AUTH_USERNAME"]
+        == hashlib.sha256(b"test-user").hexdigest()
+    )
+    assert secrets["test-images-document-objects"] == {
+        "DOCUMENT_OBJECT_ACCESS_KEY": hashlib.sha256(b"test-access").hexdigest(),
+        "DOCUMENT_OBJECT_SECRET_KEY": hashlib.sha256(b"test-secret").hexdigest(),
+    }
     assert token not in result.stdout + result.stderr + json.dumps(records)
 
 

@@ -23,7 +23,7 @@ registered schema and configuration defaults are exported to
   - `operation="search"` for natural-language queries against the user's collection
   - `operation="list_collections"` to enumerate the caller's private collection
     and allow-listed shared collections without exposing other tenants
-- Streams structured progress (`fetching`, `submitting`, `processing`, `indexing`, `postprocessing`, etc.) through an optional callback for the document ingest HTTP route
+- Reports structured progress (`fetching`, `submitting`, `processing`, `indexing`, `postprocessing`, etc.) through an optional callback. Public document ingest SSE adapters omit the internal `indexing` write-boundary phase to preserve the shared HTTP contract.
 - Routes every user upload to a private per-user collection; shared collection writes are rejected
 - Allows search reads from private or allow-listed shared collections
 - Returns extracted markdown plus a structured summary footer that the frontend parses for the upload-progress UI

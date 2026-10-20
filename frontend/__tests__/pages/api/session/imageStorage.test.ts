@@ -266,6 +266,69 @@ describe('/api/session/imageStorage', () => {
     });
   });
 
+  it.each(['json', 'string'] as const)(
+    'keeps a legacy %s image owned by another user when DELETE uses the same session',
+    async (kind) => {
+      const handler = (await import('@/pages/api/session/imageStorage'))
+        .default;
+      const key = 'image:session-1:legacy-owned';
+      const record = {
+        id: 'legacy-owned',
+        userId: 'bob',
+        sessionId: 'session-1',
+        data: Buffer.from('private-image').toString('base64'),
+      };
+      mocks.records.set(key, { kind, value: record });
+      mocks.jsonDel.mockImplementation(async (candidate: string) =>
+        mocks.records.delete(candidate) ? 1 : 0,
+      );
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+        setHeader: vi.fn(),
+      } as any;
+
+      await handler(
+        { method: 'DELETE', query: { imageId: record.id } } as any,
+        res,
+      );
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(mocks.records.get(key)?.value).toEqual(record);
+      expect(mocks.jsonDel).not.toHaveBeenCalled();
+      expect(mocks.readPaths.flat()).not.toContain('$.data');
+    },
+  );
+
+  it.each(['alice', undefined])(
+    'deletes an accessible legacy image with owner %s',
+    async (userId) => {
+      const handler = (await import('@/pages/api/session/imageStorage'))
+        .default;
+      const key = 'image:session-1:legacy-owned';
+      mocks.records.set(key, {
+        kind: 'json',
+        value: { id: 'legacy-owned', userId, sessionId: 'session-1' },
+      });
+      mocks.jsonDel.mockImplementation(async (candidate: string) =>
+        mocks.records.delete(candidate) ? 1 : 0,
+      );
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+        setHeader: vi.fn(),
+      } as any;
+
+      await handler(
+        { method: 'DELETE', query: { imageId: 'legacy-owned' } } as any,
+        res,
+      );
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(mocks.records.has(key)).toBe(false);
+    },
+  );
+
   it('accepts exactly 30 MiB and rejects the next raw byte', async () => {
     const { MAX_IMAGE_UPLOAD_SIZE_BYTES, assertImageUploadSize } = await import(
       '@/pages/api/session/imageStorage'
@@ -343,6 +406,30 @@ describe('/api/session/imageStorage', () => {
     } finally {
       consoleError.mockRestore();
     }
+    expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
+  });
+
+  it('reports undecodable uploaded bytes as unsupported media', async () => {
+    const handler = (await import('@/pages/api/session/imageStorage')).default;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+      setHeader: vi.fn(),
+    } as any;
+
+    await handler(
+      {
+        method: 'POST',
+        query: {},
+        body: {
+          base64Data: Buffer.from('not an image').toString('base64'),
+          mimeType: 'image/png',
+        },
+      } as any,
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(415);
     expect(mocks.jsonSetWithExpiry).not.toHaveBeenCalled();
   });
 

@@ -53,11 +53,14 @@ class ImageBlobCache {
   private memoryTimer: { stop: () => void } | null = null;
   private referenceCount = new Map<string, number>();
   private inFlight = new Map<string, Promise<Blob>>();
+  private generation = 0;
   private memoryPressureThreshold = 70.0;
 
   constructor() {
     if (typeof window !== 'undefined') {
+      const generation = this.generation;
       import('./visibilityAwareTimer').then((module) => {
+        if (generation !== this.generation) return;
         this.cleanupTimer = module.createVisibilityAwareInterval(
           () => this.cleanupStaleEntries(),
           {
@@ -88,6 +91,7 @@ class ImageBlobCache {
     useThumbnail = false,
   ): Promise<string> {
     const cacheKey = getBlobCacheKey(imageRef, useThumbnail);
+    const generation = this.generation;
 
     const cached = this.cache.get(cacheKey);
     if (cached) {
@@ -113,6 +117,9 @@ class ImageBlobCache {
     } finally {
       if (this.inFlight.get(cacheKey) === pending)
         this.inFlight.delete(cacheKey);
+    }
+    if (generation !== this.generation) {
+      throw new DOMException('Image cache was cleared', 'AbortError');
     }
     // Each waiter acquires its own reference after the shared fetch settles.
     // Oversized/uncached blobs retain separate, independently releasable URLs.
@@ -206,6 +213,14 @@ class ImageBlobCache {
       URL.revokeObjectURL(url);
       return;
     }
+    // Cleanup from a previous identity must not release the new cache entry.
+    if (
+      url &&
+      this.cache.has(imageId) &&
+      this.cache.get(imageId)!.url !== url
+    ) {
+      return;
+    }
     if (!this.cache.has(imageId)) {
       if (imageId.startsWith('blob:') && this.temporaryUrls.delete(imageId)) {
         URL.revokeObjectURL(imageId);
@@ -261,6 +276,8 @@ class ImageBlobCache {
   }
 
   clearAll() {
+    this.generation += 1;
+    this.inFlight.clear();
     const values = Array.from(this.cache.values());
     for (const entry of values) {
       URL.revokeObjectURL(entry.url);

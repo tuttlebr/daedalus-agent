@@ -196,7 +196,6 @@ def main(args):
         json.dumps(
             {
                 "status": "passed-retained-wire-contract",
-                "native_registration": "pending",
                 "profiles": profiles,
                 "source_sha256": {
                     str(path.relative_to(ROOT)): hashlib.sha256(

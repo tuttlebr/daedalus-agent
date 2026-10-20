@@ -1,0 +1,3164 @@
+{
+  "baseline_sha": "7dc4e1d7ba8e6bea3018e5cc2d29d9870d46c36b",
+  "producer_image_id": "sha256:3afb970307e1543ecf8099385f6b45e82abcff370a9b59b07014e5ea83a0bb26",
+  "producer_source_sha256": "cde246ee405df8975197b3606b95d9f94d7557b42ce600dd899081e72942a2c3",
+  "contract": "Three sequential documents share collections, indexes, rows and SDK caches.",
+  "cases": [
+    {
+      "existing": false,
+      "dimension": 2,
+      "recreate": false,
+      "mode": "normal",
+      "records": [
+        [
+          {
+            "document_type": "text",
+            "metadata": {
+              "content": "Synthetic indexed 雪🌲",
+              "embedding": [0.25, -0.5],
+              "source_metadata": {
+                "source_name": "synthetic.txt",
+                "source_id": "synthetic.txt"
+              },
+              "content_metadata": {
+                "page_number": 0
+              },
+              "extra": {
+                "owner": "synthetic"
+              }
+            }
+          }
+        ]
+      ],
+      "expected": {
+        "rows": {
+          "private_collection": 1,
+          "meta": 1
+        }
+      },
+      "calls": [
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "1"
+          },
+          "response_base64": "CgASBwoFMi42LjAYAQ=="
+        },
+        {
+          "method": "ShowCollections",
+          "body": {},
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {}
+          },
+          "response_base64": "CgA="
+        },
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "2"
+          },
+          "response_base64": "CgASBwoFMi42LjAYAg=="
+        },
+        {
+          "method": "GetVersion",
+          "body": {},
+          "metadata": {
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "version": "2.6.0"
+          },
+          "response_base64": "CgASBTIuNi4w"
+        },
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "3"
+          },
+          "response_base64": "CgASBwoFMi42LjAYAw=="
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {
+              "error_code": 4,
+              "reason": "Synthetic missing collection",
+              "code": 100
+            }
+          },
+          "response_base64": "CiIIBBIcU3ludGhldGljIG1pc3NpbmcgY29sbGVjdGlvbhhk"
+        },
+        {
+          "method": "CreateCollection",
+          "body": {
+            "collection_name": "private_collection",
+            "schema": {
+              "$string_parts": [
+                "ChJwcml2YXRlX2NvbGxlY3Rpb24YASIKEgJwaxgBKAVAASIUEgZ2ZWN0b3IoZTIICgNkaW0SATIiChIG",
+                "c291cmNlKBciFhIQY29udGVudF9tZXRhZGF0YSgXeAEiHRIEdGV4dCgVMhMKCm1heF9sZW5ndGgSBTY1",
+                "NTM1KAE="
+              ]
+            },
+            "consistency_level": 2
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GhJwcml2YXRlX2NvbGxlY3Rpb24ifQoScHJpdmF0ZV9jb2xsZWN0aW9uGAEiChICcGsYASgFQAEiFBIG",
+              "dmVjdG9yKGUyCAoDZGltEgEyIgoSBnNvdXJjZSgXIhYSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh0SBHRl",
+              "eHQoFTITCgptYXhfbGVuZ3RoEgU2NTUzNSgBMAI="
+            ]
+          },
+          "response": {},
+          "response_base64": ""
+        },
+        {
+          "method": "CreateIndex",
+          "body": {
+            "collection_name": "private_collection",
+            "field_name": "vector",
+            "extra_params": [
+              {
+                "key": "M",
+                "value": "64"
+              },
+              {
+                "key": "efConstruction",
+                "value": "512"
+              },
+              {
+                "key": "metric_type",
+                "value": "L2"
+              },
+              {
+                "key": "index_type",
+                "value": "HNSW"
+              }
+            ],
+            "index_name": "dense_index"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GhJwcml2YXRlX2NvbGxlY3Rpb24iBnZlY3RvcioHCgFNEgI2NCoVCg5lZkNvbnN0cnVjdGlvbhIDNTEy",
+              "KhEKC21ldHJpY190eXBlEgJMMioSCgppbmRleF90eXBlEgRITlNXMgtkZW5zZV9pbmRleA=="
+            ]
+          },
+          "response": {},
+          "response_base64": ""
+        },
+        {
+          "method": "AllocTimestamp",
+          "body": {},
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "timestamp": "100"
+          },
+          "response_base64": "CgAQZA=="
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection",
+            "index_name": "dense_index",
+            "timestamp": "100"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24qC2RlbnNlX2luZGV4MGQ=",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASYQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yOAM="
+            ]
+          }
+        },
+        {
+          "method": "LoadCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {},
+          "response_base64": ""
+        },
+        {
+          "method": "GetLoadingProgress",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "EhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "progress": "100"
+          },
+          "response_base64": "CgAQZA=="
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "meta"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GgRtZXRh",
+          "response": {
+            "status": {
+              "error_code": 4,
+              "reason": "Synthetic missing collection",
+              "code": 100
+            }
+          },
+          "response_base64": "CiIIBBIcU3ludGhldGljIG1pc3NpbmcgY29sbGVjdGlvbhhk"
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "meta"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GgRtZXRh",
+          "response": {
+            "status": {
+              "error_code": 4,
+              "reason": "Synthetic missing collection",
+              "code": 100
+            }
+          },
+          "response_base64": "CiIIBBIcU3ludGhldGljIG1pc3NpbmcgY29sbGVjdGlvbhhk"
+        },
+        {
+          "method": "CreateCollection",
+          "body": {
+            "collection_name": "meta",
+            "schema": {
+              "$string_parts": [
+                "CgRtZXRhGAEiChICcGsYASgFQAEiKBIPY29sbGVjdGlvbl9uYW1lKBUyEwoKbWF4X2xlbmd0aBIFNjU1",
+                "MzUiFBIGdmVjdG9yKGUyCAoDZGltEgEyIiISCXRpbWVzdGFtcCgVMhMKCm1heF9sZW5ndGgSBTY1NTM1",
+                "IgsSB2luZGV4ZXMoFyIKEgZtb2RlbHMoFyIPEgt1c2VyX2ZpZWxkcygXKAE="
+              ]
+            },
+            "consistency_level": 2
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GgRtZXRhIqQBCgRtZXRhGAEiChICcGsYASgFQAEiKBIPY29sbGVjdGlvbl9uYW1lKBUyEwoKbWF4X2xl",
+              "bmd0aBIFNjU1MzUiFBIGdmVjdG9yKGUyCAoDZGltEgEyIiISCXRpbWVzdGFtcCgVMhMKCm1heF9sZW5n",
+              "dGgSBTY1NTM1IgsSB2luZGV4ZXMoFyIKEgZtb2RlbHMoFyIPEgt1c2VyX2ZpZWxkcygXKAEwAg=="
+            ]
+          },
+          "response": {},
+          "response_base64": ""
+        },
+        {
+          "method": "CreateIndex",
+          "body": {
+            "collection_name": "meta",
+            "field_name": "vector",
+            "extra_params": [
+              {
+                "key": "metric_type",
+                "value": "L2"
+              },
+              {
+                "key": "index_type",
+                "value": "FLAT"
+              }
+            ],
+            "index_name": "dense_index"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GgRtZXRhIgZ2ZWN0b3IqEQoLbWV0cmljX3R5cGUSAkwyKhIKCmluZGV4X3R5cGUSBEZMQVQyC2RlbnNl",
+              "X2luZGV4"
+            ]
+          },
+          "response": {},
+          "response_base64": ""
+        },
+        {
+          "method": "AllocTimestamp",
+          "body": {},
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "timestamp": "100"
+          },
+          "response_base64": "CgAQZA=="
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "meta",
+            "index_name": "dense_index",
+            "timestamp": "100"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GgRtZXRhKgtkZW5zZV9pbmRleDBk",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "FLAT"
+                  }
+                ],
+                "field_name": "vector",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASQQoLZGVuc2VfaW5kZXgQ0A8aEQoLbWV0cmljX3R5cGUSAkwyGhIKCmluZGV4X3R5cGUSBEZMQVQi",
+              "BnZlY3RvcjgD"
+            ]
+          }
+        },
+        {
+          "method": "LoadCollection",
+          "body": {
+            "collection_name": "meta"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GgRtZXRh",
+          "response": {},
+          "response_base64": ""
+        },
+        {
+          "method": "GetLoadingProgress",
+          "body": {
+            "collection_name": "meta"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "EgRtZXRh",
+          "response": {
+            "status": {},
+            "progress": "100"
+          },
+          "response_base64": "CgAQZA=="
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "meta"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GgRtZXRh",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "meta",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "collection_name",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "103",
+                  "name": "timestamp",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "104",
+                  "name": "indexes",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "105",
+                  "name": "models",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "106",
+                  "name": "user_fields",
+                  "data_type": 23
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASsgEKBG1ldGEYASIMCGQSAnBrGAEoBUABIioIZRIPY29sbGVjdGlvbl9uYW1lKBUyEwoKbWF4X2xl",
+              "bmd0aBIFNjU1MzUiFghmEgZ2ZWN0b3IoZTIICgNkaW0SATIiJAhnEgl0aW1lc3RhbXAoFTITCgptYXhf",
+              "bGVuZ3RoEgU2NTUzNSINCGgSB2luZGV4ZXMoFyIMCGkSBm1vZGVscygXIhEIahILdXNlcl9maWVsZHMo",
+              "FygBGOgHQAFYAngB"
+            ]
+          }
+        },
+        {
+          "method": "Insert",
+          "body": {
+            "collection_name": "meta",
+            "fields_data": [
+              {
+                "type": 21,
+                "field_name": "collection_name",
+                "scalars": {
+                  "string_data": {
+                    "data": ["private_collection"]
+                  }
+                }
+              },
+              {
+                "type": 101,
+                "field_name": "vector",
+                "vectors": {
+                  "dim": "2",
+                  "float_vector": {
+                    "data": [0.0, 0.0]
+                  }
+                }
+              },
+              {
+                "type": 21,
+                "field_name": "timestamp",
+                "scalars": {
+                  "string_data": {
+                    "data": ["2026-10-13 12:00:00"]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "indexes",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJkZW5zZV9pbmRleCI6IkhOU1ciLCJkZW5zZV9kaW1lbnNpb24iOjIsInNwYXJzZV9pbmRleCI6Ik5v",
+                          "bmUifQ=="
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "models",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJlbWJlZGRpbmdfbW9kZWwiOiJudmlkaWEvbGxhbWEtbmVtb3Ryb24tZW1iZWQtMWItdjIiLCJlbWJl",
+                          "ZGRpbmdfZGltIjoyLCJzcGFyc2VfbW9kZWwiOm51bGx9"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "user_fields",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      "WyJwayIsInZlY3RvciIsInNvdXJjZSIsImNvbnRlbnRfbWV0YWRhdGEiLCJ0ZXh0Il0="
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "$meta",
+                "scalars": {
+                  "json_data": {
+                    "data": ["e30="]
+                  }
+                },
+                "is_dynamic": true
+              }
+            ],
+            "num_rows": 1
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GgRtZXRhKisIFRIPY29sbGVjdGlvbl9uYW1lGhYyFAoScHJpdmF0ZV9jb2xsZWN0aW9uKhoIZRIGdmVj",
+              "dG9yIg4IAhIKCggAAAAAAAAAAComCBUSCXRpbWVzdGFtcBoXMhUKEzIwMjYtMTAtMTMgMTI6MDA6MDAq",
+              "UQgXEgdpbmRleGVzGkRKQgpAeyJkZW5zZV9pbmRleCI6IkhOU1ciLCJkZW5zZV9kaW1lbnNpb24iOjIs",
+              "InNwYXJzZV9pbmRleCI6Ik5vbmUifSptCBcSBm1vZGVscxphSl8KXXsiZW1iZWRkaW5nX21vZGVsIjoi",
+              "bnZpZGlhL2xsYW1hLW5lbW90cm9uLWVtYmVkLTFiLXYyIiwiZW1iZWRkaW5nX2RpbSI6Miwic3BhcnNl",
+              "X21vZGVsIjpudWxsfSpHCBcSC3VzZXJfZmllbGRzGjZKNAoyWyJwayIsInZlY3RvciIsInNvdXJjZSIs",
+              "ImNvbnRlbnRfbWV0YWRhdGEiLCJ0ZXh0Il0qEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+            ]
+          },
+          "response": {
+            "status": {},
+            "IDs": {
+              "int_id": {
+                "data": ["1"]
+              }
+            },
+            "succ_index": [0],
+            "insert_cnt": "1"
+          },
+          "response_base64": "CgASBQoDCgEBGgEAMAE="
+        },
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "4"
+          },
+          "response_base64": "CgASBwoFMi42LjAYBA=="
+        },
+        {
+          "method": "GetVersion",
+          "body": {},
+          "metadata": {
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "version": "2.6.0"
+          },
+          "response_base64": "CgASBTIuNi4w"
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASYQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yOAM="
+            ]
+          }
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection",
+            "index_name": "dense_index"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24qC2RlbnNlX2luZGV4",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASYQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yOAM="
+            ]
+          }
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "Insert",
+          "body": {
+            "collection_name": "private_collection",
+            "fields_data": [
+              {
+                "type": 101,
+                "field_name": "vector",
+                "vectors": {
+                  "dim": "2",
+                  "float_vector": {
+                    "data": [0.25, -0.5]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "source",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      "eyJzb3VyY2VfbmFtZSI6InN5bnRoZXRpYy50eHQiLCJzb3VyY2VfaWQiOiJzeW50aGV0aWMudHh0In0="
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "content_metadata",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJwYWdlX251bWJlciI6MCwibG9jYXRpb24iOm51bGwsIm1heF9kaW1lbnNpb25zIjpudWxsLCJleHRy",
+                          "YSI6eyJvd25lciI6InN5bnRoZXRpYyJ9fQ=="
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "valid_data": [true]
+              },
+              {
+                "type": 21,
+                "field_name": "text",
+                "scalars": {
+                  "string_data": {
+                    "data": ["Synthetic indexed 雪🌲"]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "$meta",
+                "scalars": {
+                  "json_data": {
+                    "data": ["e30="]
+                  }
+                },
+                "is_dynamic": true
+              }
+            ],
+            "num_rows": 1
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KksIFxIGc291cmNl",
+              "Gj9KPQo7eyJzb3VyY2VfbmFtZSI6InN5bnRoZXRpYy50eHQiLCJzb3VyY2VfaWQiOiJzeW50aGV0aWMu",
+              "dHh0In0qcggXEhBjb250ZW50X21ldGFkYXRhGllKVwpVeyJwYWdlX251bWJlciI6MCwibG9jYXRpb24i",
+              "Om51bGwsIm1heF9kaW1lbnNpb25zIjpudWxsLCJleHRyYSI6eyJvd25lciI6InN5bnRoZXRpYyJ9fToB",
+              "ASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7",
+              "fTABOAE="
+            ]
+          },
+          "response": {
+            "status": {},
+            "IDs": {
+              "int_id": {
+                "data": ["1"]
+              }
+            },
+            "succ_index": [0],
+            "insert_cnt": "1"
+          },
+          "response_base64": "CgASBQoDCgEBGgEAMAE="
+        },
+        {
+          "method": "Flush",
+          "body": {
+            "collection_names": ["private_collection"]
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "coll_segIDs": {
+              "private_collection": {
+                "data": ["10"]
+              }
+            },
+            "coll_flush_ts": {
+              "private_collection": "42"
+            }
+          },
+          "response_base64": "CgAaGQoScHJpdmF0ZV9jb2xsZWN0aW9uEgMKAQoyFgoScHJpdmF0ZV9jb2xsZWN0aW9uECo="
+        },
+        {
+          "method": "GetFlushState",
+          "body": {
+            "segmentIDs": ["10"],
+            "flush_ts": "42",
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "CgEKECoiEnByaXZhdGVfY29sbGVjdGlvbg==",
+          "response": {
+            "status": {},
+            "flushed": true
+          },
+          "response_base64": "CgAQAQ=="
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection",
+            "index_name": "dense_index"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24qC2RlbnNlX2luZGV4",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "indexed_rows": "1",
+                "total_rows": "1",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASZQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yKAEwATgD"
+            ]
+          }
+        }
+      ],
+      "delays": [0.5, 0.5]
+    },
+    {
+      "existing": true,
+      "dimension": 2,
+      "recreate": false,
+      "mode": "normal",
+      "records": [
+        [
+          {
+            "document_type": "text",
+            "metadata": {
+              "content": "Synthetic indexed 雪🌲",
+              "embedding": [0.25, -0.5],
+              "source_metadata": {
+                "source_name": "synthetic.txt",
+                "source_id": "synthetic.txt"
+              },
+              "content_metadata": {
+                "page_number": 0
+              },
+              "extra": {
+                "owner": "synthetic"
+              }
+            }
+          }
+        ]
+      ],
+      "expected": {
+        "rows": {
+          "private_collection": 2,
+          "meta": 2
+        }
+      },
+      "calls": [
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "5"
+          },
+          "response_base64": "CgASBwoFMi42LjAYBQ=="
+        },
+        {
+          "method": "ShowCollections",
+          "body": {},
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "collection_names": ["private_collection", "meta"]
+          },
+          "response_base64": "CgASEnByaXZhdGVfY29sbGVjdGlvbhIEbWV0YQ=="
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "6"
+          },
+          "response_base64": "CgASBwoFMi42LjAYBg=="
+        },
+        {
+          "method": "GetVersion",
+          "body": {},
+          "metadata": {
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "version": "2.6.0"
+          },
+          "response_base64": "CgASBTIuNi4w"
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "meta"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GgRtZXRh",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "meta",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "collection_name",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "103",
+                  "name": "timestamp",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "104",
+                  "name": "indexes",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "105",
+                  "name": "models",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "106",
+                  "name": "user_fields",
+                  "data_type": 23
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASsgEKBG1ldGEYASIMCGQSAnBrGAEoBUABIioIZRIPY29sbGVjdGlvbl9uYW1lKBUyEwoKbWF4X2xl",
+              "bmd0aBIFNjU1MzUiFghmEgZ2ZWN0b3IoZTIICgNkaW0SATIiJAhnEgl0aW1lc3RhbXAoFTITCgptYXhf",
+              "bGVuZ3RoEgU2NTUzNSINCGgSB2luZGV4ZXMoFyIMCGkSBm1vZGVscygXIhEIahILdXNlcl9maWVsZHMo",
+              "FygBGOgHQAFYAngB"
+            ]
+          }
+        },
+        {
+          "method": "Insert",
+          "body": {
+            "collection_name": "meta",
+            "fields_data": [
+              {
+                "type": 21,
+                "field_name": "collection_name",
+                "scalars": {
+                  "string_data": {
+                    "data": ["private_collection"]
+                  }
+                }
+              },
+              {
+                "type": 101,
+                "field_name": "vector",
+                "vectors": {
+                  "dim": "2",
+                  "float_vector": {
+                    "data": [0.0, 0.0]
+                  }
+                }
+              },
+              {
+                "type": 21,
+                "field_name": "timestamp",
+                "scalars": {
+                  "string_data": {
+                    "data": ["2026-10-13 12:00:00"]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "indexes",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJkZW5zZV9pbmRleCI6IkhOU1ciLCJkZW5zZV9kaW1lbnNpb24iOjIsInNwYXJzZV9pbmRleCI6Ik5v",
+                          "bmUifQ=="
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "models",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJlbWJlZGRpbmdfbW9kZWwiOiJudmlkaWEvbGxhbWEtbmVtb3Ryb24tZW1iZWQtMWItdjIiLCJlbWJl",
+                          "ZGRpbmdfZGltIjoyLCJzcGFyc2VfbW9kZWwiOm51bGx9"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "user_fields",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      "WyJwayIsInZlY3RvciIsInNvdXJjZSIsImNvbnRlbnRfbWV0YWRhdGEiLCJ0ZXh0Il0="
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "$meta",
+                "scalars": {
+                  "json_data": {
+                    "data": ["e30="]
+                  }
+                },
+                "is_dynamic": true
+              }
+            ],
+            "num_rows": 1
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GgRtZXRhKisIFRIPY29sbGVjdGlvbl9uYW1lGhYyFAoScHJpdmF0ZV9jb2xsZWN0aW9uKhoIZRIGdmVj",
+              "dG9yIg4IAhIKCggAAAAAAAAAAComCBUSCXRpbWVzdGFtcBoXMhUKEzIwMjYtMTAtMTMgMTI6MDA6MDAq",
+              "UQgXEgdpbmRleGVzGkRKQgpAeyJkZW5zZV9pbmRleCI6IkhOU1ciLCJkZW5zZV9kaW1lbnNpb24iOjIs",
+              "InNwYXJzZV9pbmRleCI6Ik5vbmUifSptCBcSBm1vZGVscxphSl8KXXsiZW1iZWRkaW5nX21vZGVsIjoi",
+              "bnZpZGlhL2xsYW1hLW5lbW90cm9uLWVtYmVkLTFiLXYyIiwiZW1iZWRkaW5nX2RpbSI6Miwic3BhcnNl",
+              "X21vZGVsIjpudWxsfSpHCBcSC3VzZXJfZmllbGRzGjZKNAoyWyJwayIsInZlY3RvciIsInNvdXJjZSIs",
+              "ImNvbnRlbnRfbWV0YWRhdGEiLCJ0ZXh0Il0qEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+            ]
+          },
+          "response": {
+            "status": {},
+            "IDs": {
+              "int_id": {
+                "data": ["1"]
+              }
+            },
+            "succ_index": [0],
+            "insert_cnt": "1"
+          },
+          "response_base64": "CgASBQoDCgEBGgEAMAE="
+        },
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "7"
+          },
+          "response_base64": "CgASBwoFMi42LjAYBw=="
+        },
+        {
+          "method": "GetVersion",
+          "body": {},
+          "metadata": {
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "version": "2.6.0"
+          },
+          "response_base64": "CgASBTIuNi4w"
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "indexed_rows": "1",
+                "total_rows": "1",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASZQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yKAEwATgD"
+            ]
+          }
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection",
+            "index_name": "dense_index"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24qC2RlbnNlX2luZGV4",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "indexed_rows": "1",
+                "total_rows": "1",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASZQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yKAEwATgD"
+            ]
+          }
+        },
+        {
+          "method": "Insert",
+          "body": {
+            "collection_name": "private_collection",
+            "fields_data": [
+              {
+                "type": 101,
+                "field_name": "vector",
+                "vectors": {
+                  "dim": "2",
+                  "float_vector": {
+                    "data": [0.25, -0.5]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "source",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      "eyJzb3VyY2VfbmFtZSI6InN5bnRoZXRpYy50eHQiLCJzb3VyY2VfaWQiOiJzeW50aGV0aWMudHh0In0="
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "content_metadata",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJwYWdlX251bWJlciI6MCwibG9jYXRpb24iOm51bGwsIm1heF9kaW1lbnNpb25zIjpudWxsLCJleHRy",
+                          "YSI6eyJvd25lciI6InN5bnRoZXRpYyJ9fQ=="
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "valid_data": [true]
+              },
+              {
+                "type": 21,
+                "field_name": "text",
+                "scalars": {
+                  "string_data": {
+                    "data": ["Synthetic indexed 雪🌲"]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "$meta",
+                "scalars": {
+                  "json_data": {
+                    "data": ["e30="]
+                  }
+                },
+                "is_dynamic": true
+              }
+            ],
+            "num_rows": 1
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KksIFxIGc291cmNl",
+              "Gj9KPQo7eyJzb3VyY2VfbmFtZSI6InN5bnRoZXRpYy50eHQiLCJzb3VyY2VfaWQiOiJzeW50aGV0aWMu",
+              "dHh0In0qcggXEhBjb250ZW50X21ldGFkYXRhGllKVwpVeyJwYWdlX251bWJlciI6MCwibG9jYXRpb24i",
+              "Om51bGwsIm1heF9kaW1lbnNpb25zIjpudWxsLCJleHRyYSI6eyJvd25lciI6InN5bnRoZXRpYyJ9fToB",
+              "ASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7",
+              "fTABOAE="
+            ]
+          },
+          "response": {
+            "status": {},
+            "IDs": {
+              "int_id": {
+                "data": ["1"]
+              }
+            },
+            "succ_index": [0],
+            "insert_cnt": "1"
+          },
+          "response_base64": "CgASBQoDCgEBGgEAMAE="
+        },
+        {
+          "method": "Flush",
+          "body": {
+            "collection_names": ["private_collection"]
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "coll_segIDs": {
+              "private_collection": {
+                "data": ["10"]
+              }
+            },
+            "coll_flush_ts": {
+              "private_collection": "42"
+            }
+          },
+          "response_base64": "CgAaGQoScHJpdmF0ZV9jb2xsZWN0aW9uEgMKAQoyFgoScHJpdmF0ZV9jb2xsZWN0aW9uECo="
+        },
+        {
+          "method": "GetFlushState",
+          "body": {
+            "segmentIDs": ["10"],
+            "flush_ts": "42",
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "CgEKECoiEnByaXZhdGVfY29sbGVjdGlvbg==",
+          "response": {
+            "status": {},
+            "flushed": true
+          },
+          "response_base64": "CgAQAQ=="
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection",
+            "index_name": "dense_index"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24qC2RlbnNlX2luZGV4",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "indexed_rows": "2",
+                "total_rows": "2",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASZQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yKAIwAjgD"
+            ]
+          }
+        }
+      ],
+      "delays": []
+    },
+    {
+      "existing": true,
+      "dimension": 2,
+      "recreate": false,
+      "mode": "normal",
+      "records": [
+        [
+          {
+            "document_type": "text",
+            "metadata": {
+              "content": "Synthetic indexed 雪🌲",
+              "embedding": [0.25, -0.5],
+              "source_metadata": {
+                "source_name": "synthetic.txt",
+                "source_id": "synthetic.txt"
+              },
+              "content_metadata": {
+                "page_number": 0
+              },
+              "extra": {
+                "owner": "synthetic"
+              }
+            }
+          }
+        ]
+      ],
+      "expected": {
+        "rows": {
+          "private_collection": 3,
+          "meta": 3
+        }
+      },
+      "calls": [
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "8"
+          },
+          "response_base64": "CgASBwoFMi42LjAYCA=="
+        },
+        {
+          "method": "ShowCollections",
+          "body": {},
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "collection_names": ["private_collection", "meta"]
+          },
+          "response_base64": "CgASEnByaXZhdGVfY29sbGVjdGlvbhIEbWV0YQ=="
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "9"
+          },
+          "response_base64": "CgASBwoFMi42LjAYCQ=="
+        },
+        {
+          "method": "GetVersion",
+          "body": {},
+          "metadata": {
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "version": "2.6.0"
+          },
+          "response_base64": "CgASBTIuNi4w"
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "meta"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GgRtZXRh",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "meta",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "collection_name",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "103",
+                  "name": "timestamp",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "104",
+                  "name": "indexes",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "105",
+                  "name": "models",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "106",
+                  "name": "user_fields",
+                  "data_type": 23
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASsgEKBG1ldGEYASIMCGQSAnBrGAEoBUABIioIZRIPY29sbGVjdGlvbl9uYW1lKBUyEwoKbWF4X2xl",
+              "bmd0aBIFNjU1MzUiFghmEgZ2ZWN0b3IoZTIICgNkaW0SATIiJAhnEgl0aW1lc3RhbXAoFTITCgptYXhf",
+              "bGVuZ3RoEgU2NTUzNSINCGgSB2luZGV4ZXMoFyIMCGkSBm1vZGVscygXIhEIahILdXNlcl9maWVsZHMo",
+              "FygBGOgHQAFYAngB"
+            ]
+          }
+        },
+        {
+          "method": "Insert",
+          "body": {
+            "collection_name": "meta",
+            "fields_data": [
+              {
+                "type": 21,
+                "field_name": "collection_name",
+                "scalars": {
+                  "string_data": {
+                    "data": ["private_collection"]
+                  }
+                }
+              },
+              {
+                "type": 101,
+                "field_name": "vector",
+                "vectors": {
+                  "dim": "2",
+                  "float_vector": {
+                    "data": [0.0, 0.0]
+                  }
+                }
+              },
+              {
+                "type": 21,
+                "field_name": "timestamp",
+                "scalars": {
+                  "string_data": {
+                    "data": ["2026-10-13 12:00:00"]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "indexes",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJkZW5zZV9pbmRleCI6IkhOU1ciLCJkZW5zZV9kaW1lbnNpb24iOjIsInNwYXJzZV9pbmRleCI6Ik5v",
+                          "bmUifQ=="
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "models",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJlbWJlZGRpbmdfbW9kZWwiOiJudmlkaWEvbGxhbWEtbmVtb3Ryb24tZW1iZWQtMWItdjIiLCJlbWJl",
+                          "ZGRpbmdfZGltIjoyLCJzcGFyc2VfbW9kZWwiOm51bGx9"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "user_fields",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      "WyJwayIsInZlY3RvciIsInNvdXJjZSIsImNvbnRlbnRfbWV0YWRhdGEiLCJ0ZXh0Il0="
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "$meta",
+                "scalars": {
+                  "json_data": {
+                    "data": ["e30="]
+                  }
+                },
+                "is_dynamic": true
+              }
+            ],
+            "num_rows": 1
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GgRtZXRhKisIFRIPY29sbGVjdGlvbl9uYW1lGhYyFAoScHJpdmF0ZV9jb2xsZWN0aW9uKhoIZRIGdmVj",
+              "dG9yIg4IAhIKCggAAAAAAAAAAComCBUSCXRpbWVzdGFtcBoXMhUKEzIwMjYtMTAtMTMgMTI6MDA6MDAq",
+              "UQgXEgdpbmRleGVzGkRKQgpAeyJkZW5zZV9pbmRleCI6IkhOU1ciLCJkZW5zZV9kaW1lbnNpb24iOjIs",
+              "InNwYXJzZV9pbmRleCI6Ik5vbmUifSptCBcSBm1vZGVscxphSl8KXXsiZW1iZWRkaW5nX21vZGVsIjoi",
+              "bnZpZGlhL2xsYW1hLW5lbW90cm9uLWVtYmVkLTFiLXYyIiwiZW1iZWRkaW5nX2RpbSI6Miwic3BhcnNl",
+              "X21vZGVsIjpudWxsfSpHCBcSC3VzZXJfZmllbGRzGjZKNAoyWyJwayIsInZlY3RvciIsInNvdXJjZSIs",
+              "ImNvbnRlbnRfbWV0YWRhdGEiLCJ0ZXh0Il0qEwgXEgUkbWV0YRoGSgQKAnt9MAE4AQ=="
+            ]
+          },
+          "response": {
+            "status": {},
+            "IDs": {
+              "int_id": {
+                "data": ["1"]
+              }
+            },
+            "succ_index": [0],
+            "insert_cnt": "1"
+          },
+          "response_base64": "CgASBQoDCgEBGgEAMAE="
+        },
+        {
+          "method": "Connect",
+          "body": {
+            "client_info": {
+              "sdk_type": "Python",
+              "sdk_version": "2.6.9",
+              "local_time": "<time>",
+              "host": "<host>"
+            }
+          },
+          "metadata": {
+            "authorization": "dTpw"
+          },
+          "base64": null,
+          "response": {
+            "status": {},
+            "server_info": {
+              "build_tags": "2.6.0"
+            },
+            "identifier": "10"
+          },
+          "response_base64": "CgASBwoFMi42LjAYCg=="
+        },
+        {
+          "method": "GetVersion",
+          "body": {},
+          "metadata": {
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "",
+          "response": {
+            "status": {},
+            "version": "2.6.0"
+          },
+          "response_base64": "CgASBTIuNi4w"
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "DescribeCollection",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "schema": {
+              "name": "private_collection",
+              "autoID": true,
+              "fields": [
+                {
+                  "fieldID": "100",
+                  "name": "pk",
+                  "is_primary_key": true,
+                  "data_type": 5,
+                  "autoID": true
+                },
+                {
+                  "fieldID": "101",
+                  "name": "vector",
+                  "data_type": 101,
+                  "type_params": [
+                    {
+                      "key": "dim",
+                      "value": "2"
+                    }
+                  ]
+                },
+                {
+                  "fieldID": "102",
+                  "name": "source",
+                  "data_type": 23
+                },
+                {
+                  "fieldID": "103",
+                  "name": "content_metadata",
+                  "data_type": 23,
+                  "nullable": true
+                },
+                {
+                  "fieldID": "104",
+                  "name": "text",
+                  "data_type": 21,
+                  "type_params": [
+                    {
+                      "key": "max_length",
+                      "value": "65535"
+                    }
+                  ]
+                }
+              ],
+              "enable_dynamic_field": true
+            },
+            "collectionID": "1000",
+            "shards_num": 1,
+            "consistency_level": 2,
+            "num_partitions": "1"
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgAShwEKEnByaXZhdGVfY29sbGVjdGlvbhgBIgwIZBICcGsYASgFQAEiFghlEgZ2ZWN0b3IoZTIICgNk",
+              "aW0SATIiDAhmEgZzb3VyY2UoFyIYCGcSEGNvbnRlbnRfbWV0YWRhdGEoF3gBIh8IaBIEdGV4dCgVMhMK",
+              "Cm1heF9sZW5ndGgSBTY1NTM1KAEY6AdAAVgCeAE="
+            ]
+          }
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "default",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "indexed_rows": "2",
+                "total_rows": "2",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASZQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yKAIwAjgD"
+            ]
+          }
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection",
+            "index_name": "dense_index"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24qC2RlbnNlX2luZGV4",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "indexed_rows": "2",
+                "total_rows": "2",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASZQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yKAIwAjgD"
+            ]
+          }
+        },
+        {
+          "method": "Insert",
+          "body": {
+            "collection_name": "private_collection",
+            "fields_data": [
+              {
+                "type": 101,
+                "field_name": "vector",
+                "vectors": {
+                  "dim": "2",
+                  "float_vector": {
+                    "data": [0.25, -0.5]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "source",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      "eyJzb3VyY2VfbmFtZSI6InN5bnRoZXRpYy50eHQiLCJzb3VyY2VfaWQiOiJzeW50aGV0aWMudHh0In0="
+                    ]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "content_metadata",
+                "scalars": {
+                  "json_data": {
+                    "data": [
+                      {
+                        "$string_parts": [
+                          "eyJwYWdlX251bWJlciI6MCwibG9jYXRpb24iOm51bGwsIm1heF9kaW1lbnNpb25zIjpudWxsLCJleHRy",
+                          "YSI6eyJvd25lciI6InN5bnRoZXRpYyJ9fQ=="
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "valid_data": [true]
+              },
+              {
+                "type": 21,
+                "field_name": "text",
+                "scalars": {
+                  "string_data": {
+                    "data": ["Synthetic indexed 雪🌲"]
+                  }
+                }
+              },
+              {
+                "type": 23,
+                "field_name": "$meta",
+                "scalars": {
+                  "json_data": {
+                    "data": ["e30="]
+                  }
+                },
+                "is_dynamic": true
+              }
+            ],
+            "num_rows": 1
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": {
+            "$string_parts": [
+              "GhJwcml2YXRlX2NvbGxlY3Rpb24qGghlEgZ2ZWN0b3IiDggCEgoKCAAAgD4AAAC/KksIFxIGc291cmNl",
+              "Gj9KPQo7eyJzb3VyY2VfbmFtZSI6InN5bnRoZXRpYy50eHQiLCJzb3VyY2VfaWQiOiJzeW50aGV0aWMu",
+              "dHh0In0qcggXEhBjb250ZW50X21ldGFkYXRhGllKVwpVeyJwYWdlX251bWJlciI6MCwibG9jYXRpb24i",
+              "Om51bGwsIm1heF9kaW1lbnNpb25zIjpudWxsLCJleHRyYSI6eyJvd25lciI6InN5bnRoZXRpYyJ9fToB",
+              "ASonCBUSBHRleHQaHTIbChlTeW50aGV0aWMgaW5kZXhlZCDpm6rwn4yyKhMIFxIFJG1ldGEaBkoECgJ7",
+              "fTABOAE="
+            ]
+          },
+          "response": {
+            "status": {},
+            "IDs": {
+              "int_id": {
+                "data": ["1"]
+              }
+            },
+            "succ_index": [0],
+            "insert_cnt": "1"
+          },
+          "response_base64": "CgASBQoDCgEBGgEAMAE="
+        },
+        {
+          "method": "Flush",
+          "body": {
+            "collection_names": ["private_collection"]
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24=",
+          "response": {
+            "status": {},
+            "coll_segIDs": {
+              "private_collection": {
+                "data": ["10"]
+              }
+            },
+            "coll_flush_ts": {
+              "private_collection": "42"
+            }
+          },
+          "response_base64": "CgAaGQoScHJpdmF0ZV9jb2xsZWN0aW9uEgMKAQoyFgoScHJpdmF0ZV9jb2xsZWN0aW9uECo="
+        },
+        {
+          "method": "GetFlushState",
+          "body": {
+            "segmentIDs": ["10"],
+            "flush_ts": "42",
+            "collection_name": "private_collection"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "CgEKECoiEnByaXZhdGVfY29sbGVjdGlvbg==",
+          "response": {
+            "status": {},
+            "flushed": true
+          },
+          "response_base64": "CgAQAQ=="
+        },
+        {
+          "method": "DescribeIndex",
+          "body": {
+            "collection_name": "private_collection",
+            "index_name": "dense_index"
+          },
+          "metadata": {
+            "dbname": "",
+            "client-request-id": "",
+            "identifier": "<session>",
+            "authorization": "dTpw"
+          },
+          "base64": "GhJwcml2YXRlX2NvbGxlY3Rpb24qC2RlbnNlX2luZGV4",
+          "response": {
+            "status": {},
+            "index_descriptions": [
+              {
+                "index_name": "dense_index",
+                "indexID": "2000",
+                "params": [
+                  {
+                    "key": "M",
+                    "value": "64"
+                  },
+                  {
+                    "key": "efConstruction",
+                    "value": "512"
+                  },
+                  {
+                    "key": "metric_type",
+                    "value": "L2"
+                  },
+                  {
+                    "key": "index_type",
+                    "value": "HNSW"
+                  }
+                ],
+                "field_name": "vector",
+                "indexed_rows": "3",
+                "total_rows": "3",
+                "state": 3
+              }
+            ]
+          },
+          "response_base64": {
+            "$string_parts": [
+              "CgASZQoLZGVuc2VfaW5kZXgQ0A8aBwoBTRICNjQaFQoOZWZDb25zdHJ1Y3Rpb24SAzUxMhoRCgttZXRy",
+              "aWNfdHlwZRICTDIaEgoKaW5kZXhfdHlwZRIESE5TVyIGdmVjdG9yKAMwAzgD"
+            ]
+          }
+        }
+      ],
+      "delays": []
+    }
+  ]
+}

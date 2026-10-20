@@ -167,6 +167,10 @@ contain the primary, backend, stream-worker, and autonomous current/previous
 password keys named in `redis.auth`. Avoid passing real passwords with `--set`
 because command history and Helm release metadata aren't secret stores.
 
+Redis liveness and readiness require an exact `PONG` response. A successful
+`redis-cli` exit alone is insufficient because authentication error replies can
+also return exit status zero.
+
 To enable transport encryption, provide an existing Secret containing the
 server certificate, private key, and CA certificate, then set
 `redis.tls.enabled=true` and `redis.tls.existingSecret`. The server certificate

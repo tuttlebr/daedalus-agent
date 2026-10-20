@@ -17,6 +17,7 @@ from pathlib import Path
 import grpc
 from google.protobuf.json_format import MessageToDict, ParseDict
 from google.protobuf.message_factory import GetMessageClass
+from milvus_probe import ProbeScripts
 from pymilvus.grpc_gen import common_pb2, milvus_pb2, schema_pb2
 from pymilvus.milvus_client.base import BaseMilvusClient
 
@@ -94,6 +95,14 @@ class State:
         self.release = threading.Event()
         self.script_index = 0
         self.script_errors = []
+        self.probes = None
+
+    def probe(self, method, identifier, settings):
+        """Claim one exact read-only preflight per owned connection."""
+        if "probe_scripts" not in settings:
+            return None
+        with self.lock:
+            return self.probes.claim(method, identifier)
 
     def dispatch(self, method, request, context):
         metadata = {
@@ -224,6 +233,10 @@ class State:
                 )
             if method == "DescribeCollection":
                 return milvus_pb2.DescribeCollectionResponse(status=status)
+        probe = self.probe(method, identifier, settings)
+        if probe is not None:
+            with self.lock:
+                call["phase"] = "probe"
         if "script" in settings:
             with self.lock:
                 index = self.script_index
@@ -232,7 +245,8 @@ class State:
                 # requests. Only this read directly before the same collection's
                 # insert is optional; mutation order and bodies remain exact.
                 if (
-                    settings.get("allow_cached_schema_reads")
+                    probe is None
+                    and settings.get("allow_cached_schema_reads")
                     and method == "Insert"
                     and index + 1 < len(script)
                     and script[index]["method"] == "DescribeCollection"
@@ -244,8 +258,9 @@ class State:
                 ):
                     index += 1
                     self.script_index = index
-                self.script_index += 1
-                expected = script[index] if index < len(script) else None
+                if probe is None:
+                    self.script_index += 1
+                expected = probe or (script[index] if index < len(script) else None)
                 error = None
                 if expected is None or expected["method"] != method:
                     error = f"Unexpected RPC at {index}: {method}"
@@ -316,6 +331,8 @@ def main(args):
                     - state.script_index,
                     "errors": state.script_errors.copy(),
                 }
+                if "probe_scripts" in state.settings:
+                    script["probe_remaining"] = state.probes.remaining
             self.reply(
                 calls
                 if self.path == "/calls"
@@ -335,6 +352,11 @@ def main(args):
                     settings["script"] = rename_script(
                         settings["script"], settings["rename_collections"]
                     )
+                    if "probe_scripts" in settings:
+                        settings["probe_scripts"] = [
+                            rename_script(probe, settings["rename_collections"])
+                            for probe in settings["probe_scripts"]
+                        ]
                 with state.lock:
                     state.settings = settings
                     if self.path != "/configure":
@@ -342,6 +364,11 @@ def main(args):
                     state.counts = {}
                     state.script_index = 0
                     state.script_errors = []
+                    state.probes = (
+                        ProbeScripts(settings["probe_scripts"])
+                        if "probe_scripts" in settings
+                        else None
+                    )
                     state.release.clear()
             self.reply({"ok": True})
 

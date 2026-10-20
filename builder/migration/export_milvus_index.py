@@ -4,6 +4,7 @@ import argparse
 import base64
 import copy
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -182,7 +183,7 @@ def generate_types(root, service, methods):
     (root / "src/milvus_index_proto.rs").write_text("\n".join(lines) + "\n")
 
 
-def export(root):
+def export(root, *, sequential_output=None, producer_image_id=None):
     import document_ingest_api as api
     import grpc
     import nat_nv_ingest.nat_nv_ingest as document
@@ -417,7 +418,7 @@ def export(root):
     server.start()
     cases = []
     try:
-        for existing, dim, recreate, mode in [
+        specifications = [
             (False, 2, False, "normal"),
             (True, 2, False, "normal"),
             (True, 3, False, "normal"),
@@ -444,20 +445,26 @@ def export(root):
                     "reject-Flush",
                 ]
             ],
-        ]:
-            for alias, _ in connections.list_connections():
-                connections.disconnect(alias)
-            GlobalCache._reset_for_testing()
+        ]
+        if sequential_output is not None:
+            specifications = [(index > 0, 2, False, "normal") for index in range(3)]
+        for index, (existing, dim, recreate, mode) in enumerate(specifications):
+            # Separate fixture cases start fresh. Sequential documents retain
+            # both collections, indexes, rows and SDK caches from prior writes.
+            if sequential_output is None or index == 0:
+                for alias, _ in connections.list_connections():
+                    connections.disconnect(alias)
+                GlobalCache._reset_for_testing()
+                peer.counts.clear()
+                peer.rows = {}
+                peer.schemas = (
+                    {"private_collection": schema("private_collection", dim)}
+                    if existing
+                    else {}
+                )
+                peer.indexes = {}
             peer.calls = []
             peer.mode = mode
-            peer.counts.clear()
-            peer.rows = {}
-            peer.schemas = (
-                {"private_collection": schema("private_collection", dim)}
-                if existing
-                else {}
-            )
-            peer.indexes = {}
             if mode == "meta-existing":
                 peer.schemas["meta"] = Prepare.get_schema_from_collection_schema(
                     "meta", sdk.create_nvingest_meta_schema()
@@ -466,8 +473,12 @@ def export(root):
                     field.fieldID = i
             config = document.NvIngestFunctionConfig(  # nosec B106 - synthetic loopback fixture
                 milvus_uri=f"http://127.0.0.1:{port}",
-                milvus_username="synthetic-user",
-                milvus_password="synthetic-password",
+                milvus_username="u"
+                if sequential_output is not None
+                else "synthetic-user",
+                milvus_password="p"
+                if sequential_output is not None
+                else "synthetic-password",
                 embedder_dim=2,
                 recreate_collection=recreate,
             )
@@ -510,7 +521,7 @@ def export(root):
                     sdk.datetime, "datetime", FixedDatetime
                 ), patch.object(sdk.time, "sleep", side_effect=delays.append):
                     op.run(copy.deepcopy(records))
-                expected = {"rows": peer.rows}
+                expected = {"rows": peer.rows.copy()}
             except Exception as error:
                 expected = {"error": type(error).__name__, "message": str(error)}
                 expected_error = (
@@ -572,6 +583,26 @@ def export(root):
         for alias, _ in connections.list_connections():
             connections.disconnect(alias)
         server.stop(0).wait()
+    if sequential_output is not None:
+        sequential_output.write_text(
+            json.dumps(
+                fixture_strings(
+                    {
+                        "baseline_sha": BASELINE,
+                        "producer_image_id": producer_image_id,
+                        "producer_source_sha256": hashlib.sha256(
+                            Path(__file__).read_bytes()
+                        ).hexdigest(),
+                        "contract": "Three sequential documents share collections, indexes, rows and SDK caches.",
+                        "cases": cases,
+                    }
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
+        return
     payloads = []
     base = {
         "vector": [0.25, -0.5],
@@ -677,6 +708,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--types-only", action="store_true")
+    parser.add_argument(
+        "--sequential-output",
+        type=Path,
+        help="Capture three stateful document writes without changing existing fixtures or types",
+    )
+    parser.add_argument(
+        "--producer-image-id", help="Immutable image ID for the capture"
+    )
 
     def expired(*_args):
         raise TimeoutError("Indexing oracle exceeded 45 seconds")
@@ -684,6 +723,12 @@ if __name__ == "__main__":
     signal.signal(signal.SIGALRM, expired)
     signal.alarm(45)
     args = parser.parse_args()
+    if args.types_only and args.sequential_output:
+        parser.error("--types-only and --sequential-output are mutually exclusive")
+    if bool(args.sequential_output) != bool(args.producer_image_id):
+        parser.error(
+            "--sequential-output and --producer-image-id are required together"
+        )
     if args.types_only:
         from pymilvus.grpc_gen import milvus_pb2
 
@@ -699,4 +744,8 @@ if __name__ == "__main__":
             sorted(methods),
         )
     else:
-        export(args.root)
+        export(
+            args.root,
+            sequential_output=args.sequential_output,
+            producer_image_id=args.producer_image_id,
+        )

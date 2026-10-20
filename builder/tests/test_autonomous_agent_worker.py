@@ -54,6 +54,10 @@ class FakeStore:
         self.events = []
         self.feed = []
         self.cancelled_run_ids = set()
+        self.backend_started = False
+
+    def mark_backend_started(self, user_id):
+        self.backend_started = True
 
     def get_config(self, user_id):
         return self.config
@@ -115,6 +119,45 @@ class FakeBackend:
         self.execution_id = execution_id
         self.abort = abort
         return self.response
+
+
+def test_backend_dispatch_marker_precedes_request_and_rejects_lost_lease():
+    import threading
+
+    from autonomous_agent.store import WorkerLeaseLost
+
+    store = FakeStore()
+
+    class Backend(FakeBackend):
+        def call(self, *args, **kwargs):
+            assert store.backend_started
+            return super().call(*args, **kwargs)
+
+    backend = Backend('{"summary":"done"}')
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "manual"},
+        abort=threading.Event(),
+    )
+    assert run["status"] == "completed"
+    assert backend.messages is not None
+
+    def lost_lease(_user_id):
+        raise WorkerLeaseLost("lease transferred")
+
+    store.mark_backend_started = lost_lease
+    backend.messages = None
+    run = run_once(
+        store=store,
+        backend=backend,
+        user_id="test-user",
+        request={"trigger": "manual"},
+        abort=threading.Event(),
+    )
+    assert run["status"] == "aborted"
+    assert backend.messages is None
 
 
 def test_parse_structured_output_from_json_fence():
@@ -1366,8 +1409,8 @@ def test_cancellation_racing_a_returned_response_is_recorded_as_cancelled(
 ):
     # The heartbeat sets the shared abort event for a dashboard Stop as well as
     # for a lost lease. When the backend response completes in that window, the
-    # run must still be the user's cancellation: the worker loop leaves an
-    # "aborted" request in processing, and the next lease owner reruns it.
+    # run must still be the user's cancellation, rather than an infrastructure
+    # interruption awaiting processing-claim cleanup by the next lease owner.
     from autonomous_agent import worker
 
     monkeypatch.setattr(worker, "CANCEL_POLL_SECONDS", 0.02)

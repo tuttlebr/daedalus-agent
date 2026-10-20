@@ -1,5 +1,6 @@
 """Configuration experiments preserve isolation, identity and live failure evidence."""
 
+import asyncio
 import importlib.util
 import json
 import sys
@@ -25,6 +26,74 @@ def load(name):
 
 experiment = load("experiment")
 gateway = load("gateway")
+
+
+@pytest.mark.parametrize("receiver", ["paired", "live"])
+def test_evaluation_receivers_preserve_unicode_sse_answers(monkeypatch, receiver):
+    monkeypatch.syspath_prepend(str(ROOT))
+    answer = "Evidence\u0085snow\u2028雪\u2029🌲"
+    event = {
+        "choices": [
+            {
+                "delta": {"content": answer},
+                "finish_reason": "stop",
+                "daedalus_terminal": True,
+            }
+        ]
+    }
+    wire = (
+        "data: "
+        + json.dumps(event, ensure_ascii=False)
+        + "\r\n\r\ndata: [DONE]\r\n\r\n"
+    ).encode()
+
+    class Fragmented(httpx.SyncByteStream, httpx.AsyncByteStream):
+        def __iter__(self):
+            for index in range(len(wire)):
+                yield wire[index : index + 1]
+
+        async def __aiter__(self):
+            for chunk in self:
+                yield chunk
+
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=Fragmented()))
+    case = {"id": "unicode", "stratum": "no-tool", "answer": answer}
+    if receiver == "paired":
+        paired = load("run")
+        with httpx.Client(transport=transport) as client:
+            result = paired.request(
+                client,
+                8000,
+                "synthetic-token",
+                "synthetic-user",
+                {**case, "calls": [], "prompt": "Return the evidence"},
+                1,
+                "candidate",
+            )
+    else:
+        live = load("live")
+        monkeypatch.setenv("DAEDALUS_INTERNAL_API_TOKEN", "synthetic-token")
+        live.USER, live.RUN_PREFIX = "synthetic-user", "synthetic-evaluation"
+
+        async def evaluate():
+            async with httpx.AsyncClient(transport=transport) as client:
+                return await live.run(
+                    client,
+                    {
+                        **case,
+                        "tool": None,
+                        "messages": [
+                            {"role": "user", "content": "Return the evidence"}
+                        ],
+                    },
+                    1,
+                )
+
+        result = asyncio.run(evaluate())
+    assert result["error"] is None
+    assert result["task_success"]
+    assert result["answer"] == answer
+    assert result["terminal"] == ["stop"]
 
 
 @pytest.mark.parametrize(

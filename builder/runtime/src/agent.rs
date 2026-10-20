@@ -1591,7 +1591,7 @@ mod tests {
             cancellation: tokio::sync::watch::channel(false).0,
             metrics: crate::control::Metrics::default(),
         });
-        if let Some((after, instruction)) = steer {
+        let steering = steer.map(|(after, instruction)| {
             let handle = handle.clone();
             let model = model.clone();
             tokio::spawn(async move {
@@ -1603,8 +1603,8 @@ mod tests {
                     instruction: instruction.into(),
                 };
                 assert_eq!(handle.submit("synthetic-user", steering).await, Ok(true));
-            });
-        }
+            })
+        });
         let agent = Agent {
             http,
             tools_url: base,
@@ -1625,6 +1625,13 @@ mod tests {
         )
         .await
         .expect("agent run must finish within the test deadline");
+        if let Some(mut steering) = steering {
+            let result = tokio::time::timeout(Duration::from_secs(1), &mut steering).await;
+            steering.abort();
+            result
+                .expect("the scripted steering request must be reached")
+                .expect("the steering task's assertions must pass");
+        }
         let stream = collector.await.unwrap();
         peer.abort();
         let requests = model.requests.lock().unwrap().clone();

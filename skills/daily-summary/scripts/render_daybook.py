@@ -93,7 +93,12 @@ def _optional_text(value: Any, path: str) -> str:
 
 def _https(value: Any, path: str) -> str:
     url = _text(value, path)
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise RenderError(
+            f"{path} must be an HTTPS URL without embedded credentials"
+        ) from exc
     if parsed.scheme != "https" or not parsed.netloc or parsed.username:
         raise RenderError(f"{path} must be an HTTPS URL without embedded credentials")
     return url

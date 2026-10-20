@@ -998,6 +998,7 @@ mod tests {
                 }
             }
             if case["cancel"] == true {
+                assert_eq!(case["cancel_phase"], "extraction");
                 http.post(format!("{nv}/__tool/release"))
                     .send()
                     .await
@@ -1007,14 +1008,14 @@ mod tests {
                 tokio::time::timeout(std::time::Duration::from_secs(15), async {
                     loop {
                         let state: Value = http
-                            .get(format!("{control}/script"))
+                            .get(format!("{nv}/__tool/held"))
                             .send()
                             .await
                             .unwrap()
                             .json()
                             .await
                             .unwrap();
-                        if state["remaining"] == 0 {
+                        if state["finished"] == true {
                             break;
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -1022,6 +1023,25 @@ mod tests {
                 })
                 .await
                 .unwrap();
+                // The retained Python worker finishes indexing after its
+                // waiter is cancelled. Native extraction stops before indexing;
+                // only an already-started collection write owns completion.
+                let calls: Vec<Value> = http
+                    .get(format!("{control}/calls"))
+                    .send()
+                    .await
+                    .unwrap()
+                    .json()
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    calls
+                        .iter()
+                        .map(|call| call["method"].as_str().unwrap())
+                        .collect::<Vec<_>>(),
+                    vec!["Connect", "ShowCollections"],
+                    "cancelled extraction must not start indexing"
+                );
             }
             let calls: Value = http
                 .get(format!("{nv}/__runner/calls"))
@@ -1079,9 +1099,16 @@ mod tests {
                 .json()
                 .await
                 .unwrap();
+            let remaining = if case["cancel"] == true {
+                let script = case["settings"]["script"].as_array().unwrap();
+                assert_eq!(script[0]["method"], "ShowCollections");
+                script.len() - 1
+            } else {
+                0
+            };
             assert_eq!(
                 state,
-                json!({"remaining":0,"errors":[]}),
+                json!({"remaining":remaining,"errors":[]}),
                 "{}",
                 case["name"]
             );

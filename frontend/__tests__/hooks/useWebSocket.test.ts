@@ -113,6 +113,41 @@ describe('useWebSocket behavior through the mounted hook', () => {
     ).toBe(true);
   });
 
+  it('reacquires its connection on visibility resume while another hook keeps streaming', () => {
+    let visibility: DocumentVisibilityState = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(
+      () => visibility,
+    );
+    function Probes({ first, second }: { first: boolean; second: boolean }) {
+      return React.createElement(
+        React.Fragment,
+        null,
+        first && React.createElement(Probe, { key: 'first' }),
+        second && React.createElement(Probe, { key: 'second' }),
+      );
+    }
+    act(() =>
+      root.render(React.createElement(Probes, { first: true, second: false })),
+    );
+    mocks.manager.isConnected = true;
+    emit('streaming_started', { conversationId: 'active' });
+    // A later-mounted subscriber did not receive the earlier streaming event.
+    act(() =>
+      root.render(React.createElement(Probes, { first: true, second: true })),
+    );
+    visibility = 'hidden';
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(mocks.manager.disconnect).not.toHaveBeenCalled();
+    visibility = 'visible';
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    act(() =>
+      root.render(React.createElement(Probes, { first: false, second: true })),
+    );
+    expect(mocks.manager.disconnect).not.toHaveBeenCalled();
+    act(() => root.render(null));
+    expect(mocks.manager.disconnect).toHaveBeenCalledOnce();
+  });
+
   it('tracks connection and streaming state from delivered events', () => {
     const onConnected = vi.fn(),
       onDisconnected = vi.fn();

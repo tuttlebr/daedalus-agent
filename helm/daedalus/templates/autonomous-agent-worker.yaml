@@ -52,7 +52,7 @@ spec:
               import time
               import urllib.request
 
-              # /health is NAT's liveness endpoint and the same one the backend
+              # /health is the Rust liveness endpoint used by the backend
               # startupProbe uses. /docs (the Swagger UI) is disabled in some
               # deployments, so gating on it would crash-loop this worker while
               # every other layer reported the backend healthy.

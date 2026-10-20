@@ -234,7 +234,19 @@ describe('chat/async backend pinning helpers', () => {
           return [value ? JSON.stringify(value) : '', 1, value ? -1 : -2];
         }
         if (script.includes('SAVE_OWNED_CONVERSATION')) {
-          if (count === 3 && (await jsonGet(args[2]))) return -2;
+          const values = args.slice(count);
+          const cancellationIndex = Number(values[5]);
+          const fenceIndex = Number(values[6]);
+          if (
+            fenceIndex > 0 &&
+            (await mocks.redisGet(args[fenceIndex - 1])) !== values[7]
+          )
+            return -3;
+          if (
+            cancellationIndex > 0 &&
+            (await jsonGet(args[cancellationIndex - 1]))
+          )
+            return -2;
           // Conversation writes are durable; this fixture does not invent a
           // TTL for the reservation's plain-string SET.
           await mocks.redisSet(args[0], args[count + 1]);
@@ -2121,7 +2133,12 @@ function wireRedisStore(initial: Record<string, any> = {}) {
     if (script.includes('SAVE_OWNED_CONVERSATION')) {
       const count = args[1] as number;
       const values = args.slice(2 + count);
-      if (count === 3 && store.has(args[4])) return -2;
+      const cancellationIndex = Number(values[5]);
+      const fenceIndex = Number(values[6]);
+      if (fenceIndex > 0 && store.get(args[1 + fenceIndex]) !== values[7])
+        return -3;
+      if (cancellationIndex > 0 && store.has(args[1 + cancellationIndex]))
+        return -2;
       const value = store.get(args[2]);
       if ((value ? JSON.stringify(value) : '') !== values[0]) return 0;
       if (value?.ownerId && value.ownerId !== values[3]) return -1;

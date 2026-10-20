@@ -5,7 +5,13 @@ import { isEqual } from '@/utils/data/isEqual';
 
 import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/components/markdown/LazyCodeBlock', () => ({
+  LazyCodeBlock: ({ language, value }: { language: string; value: string }) => (
+    <pre data-language={language}>{value}</pre>
+  ),
+}));
 
 describe('streamed Markdown updates', () => {
   let root: Root;
@@ -72,5 +78,22 @@ describe('streamed Markdown updates', () => {
     expect(isEqual(first, createElement('em', { id: 'x' }, 'bold'))).toBe(
       false,
     );
+  });
+
+  it('updates the code language when a final answer corrects its fence', () => {
+    for (const language of ['text', 'html']) {
+      act(() =>
+        root.render(
+          <MarkdownRenderer
+            content={`\`\`\`${language}\n<p>Report</p>\n\`\`\``}
+          />,
+        ),
+      );
+      expect(
+        container
+          .querySelector('[data-language]')
+          ?.getAttribute('data-language'),
+      ).toBe(language);
+    }
   });
 });

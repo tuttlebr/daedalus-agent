@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   releaseUserJobGuard: vi.fn(),
   finalizeError: vi.fn(),
   resumePendingFinalization: vi.fn(),
+  processDueMemoryRetentions: vi.fn(),
 }));
 
 vi.mock('@/server/chat/userJobGuard', () => ({
@@ -84,7 +85,7 @@ vi.mock('@/server/session/redis', () => ({
 }));
 
 vi.mock('@/server/chat/memoryRetention', () => ({
-  processDueMemoryRetentions: vi.fn().mockResolvedValue(undefined),
+  processDueMemoryRetentions: mocks.processDueMemoryRetentions,
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -223,6 +224,7 @@ describe('durable stream worker entry processing', () => {
       });
     });
     mocks.resumePendingFinalization.mockResolvedValue('completed');
+    mocks.processDueMemoryRetentions.mockResolvedValue(undefined);
     mocks.startBackgroundStreamReader.mockImplementation(
       async (jobId: string, ...args: any[]) => {
         await args[3].beforeBackendRequest();
@@ -249,6 +251,54 @@ describe('durable stream worker entry processing', () => {
     const configured = streamWorkerOptionsFromEnv();
     expect(configured.concurrency).toBe(5);
     expect(configured.leaseTtlMs).toBe(30000);
+  });
+
+  it('continues memory retention polling while every execution slot is occupied', async () => {
+    vi.useFakeTimers();
+    let finish!: () => void;
+    const streamFinished = new Promise<void>((resolve) => (finish = resolve));
+    mocks.startBackgroundStreamReader.mockImplementationOnce(async () => {
+      await streamFinished;
+      mocks.store.set('daedalus:async-job-status:job-1', {
+        jobId: 'job-1',
+        status: 'completed',
+        finalizedAt: 2,
+      });
+    });
+    mocks.claimStaleStreamJobs.mockResolvedValue({
+      entries: [],
+      nextCursor: '0-0',
+    });
+    mocks.readNewStreamJobs.mockResolvedValue([entry]);
+    const runtime = new StreamWorkerRuntime({ ...options, concurrency: 1 });
+    const running = runtime.run();
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.startBackgroundStreamReader).toHaveBeenCalledOnce();
+      expect(mocks.processDueMemoryRetentions).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(mocks.processDueMemoryRetentions).toHaveBeenCalledTimes(4);
+      // Retention must not create additional chat capacity or queue reads.
+      expect(mocks.readNewStreamJobs).toHaveBeenCalledOnce();
+      let finishPoll!: () => void;
+      mocks.processDueMemoryRetentions.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishPoll = resolve)),
+      );
+      await vi.advanceTimersByTimeAsync(4_000);
+      // A slow retention batch must not overlap the following timer ticks.
+      expect(mocks.processDueMemoryRetentions).toHaveBeenCalledTimes(5);
+      finishPoll();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(mocks.processDueMemoryRetentions).toHaveBeenCalledTimes(6);
+    } finally {
+      const draining = runtime.beginDrain();
+      finish();
+      await draining;
+      await running;
+    }
+    const polls = mocks.processDueMemoryRetentions.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(mocks.processDueMemoryRetentions).toHaveBeenCalledTimes(polls);
   });
 
   it('leaves entries pending when a blocked queue read returns after shutdown starts', async () => {

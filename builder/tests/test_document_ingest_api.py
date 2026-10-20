@@ -84,6 +84,120 @@ class TestRouter:
             ("POST", "/v1/documents/markdown"),
         }
 
+    @pytest.mark.parametrize("fail", [False, True])
+    def test_public_stream_keeps_internal_indexing_out_of_progress(
+        self, monkeypatch, fail
+    ):
+        """Rollback emits the same public phases as native ingestion.
+
+        The processor still reports its write boundary internally, including
+        before an uncertain write failure. It must not add a public SSE event.
+        """
+        import importlib.util
+
+        import fastapi
+
+        monkeypatch.setattr(fastapi, "APIRouter", _RecordingRouter)
+        spec = importlib.util.spec_from_file_location(
+            "document_ingest_stream_contract", document_ingest_api.__file__
+        )
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, spec.name, module)
+        spec.loader.exec_module(module)
+        monkeypatch.delenv("DAEDALUS_INTERNAL_API_TOKEN", raising=False)
+        monkeypatch.setenv("ALLOW_INSECURE_INTERNAL", "1")
+        monkeypatch.setattr(
+            module, "StreamingResponse", lambda content, **_kwargs: content
+        )
+        emitted = []
+        fields = {
+            "completed": 0,
+            "total": 1,
+            "current": "a.txt",
+            "currentIndex": 1,
+            "chunks": None,
+            "pages": None,
+            "failures": None,
+            "attempt": None,
+        }
+        processing = {
+            **fields,
+            "percent": 42,
+            "phase": "processing",
+            "message": "Processing document",
+        }
+        indexing = {
+            **fields,
+            "percent": 70,
+            "phase": "indexing",
+            "message": "NV-Ingest extraction finished; writing chunks to Milvus",
+        }
+        postprocessing = {
+            **fields,
+            "percent": 95,
+            "phase": "postprocessing",
+            "message": "Finishing document",
+        }
+
+        class Processor:
+            async def process_multiple_documents(self, *, progress_callback, **_):
+                for event in (processing, indexing, postprocessing):
+                    emitted.append(event)
+                    await progress_callback(event)
+                if fail:
+                    raise RuntimeError("synthetic internal error")
+                return "Processed document"
+
+        monkeypatch.setattr(module, "_processor", Processor)
+
+        async def collect():
+            stream = await module.ingest_stream(
+                module.IngestRequest(
+                    documentRef=module.DocumentRef(documentId="d", sessionId="s")
+                ),
+                "alice",
+            )
+            return [chunk async for chunk in stream]
+
+        frames = [
+            (
+                chunk.splitlines()[0].removeprefix("event: "),
+                json.loads(chunk.splitlines()[1].removeprefix("data: ")),
+            )
+            for chunk in asyncio.run(collect())
+        ]
+        terminal = (
+            ("error", {"detail": "Document operation failed."})
+            if fail
+            else (
+                "complete",
+                {
+                    "status": "success",
+                    "collection": "alice",
+                    "documents": 1,
+                    "output": "Processed document",
+                },
+            )
+        )
+        assert emitted == [processing, indexing, postprocessing]
+        assert frames == [
+            (
+                "progress",
+                {
+                    "completed": 0,
+                    "total": 1,
+                    "current": None,
+                    "currentIndex": None,
+                    "percent": 0,
+                    "phase": "queued",
+                    "message": "Queued 1 document for ingestion",
+                },
+            ),
+            ("progress", processing),
+            ("progress", postprocessing),
+            terminal,
+        ]
+
 
 class TestInternalAuth:
     def test_fails_closed_when_token_unconfigured(self, monkeypatch):

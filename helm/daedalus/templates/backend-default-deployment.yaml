@@ -94,9 +94,8 @@ spec:
             failureThreshold: 60
             periodSeconds: 10
           livenessProbe:
-            # OAuth state belongs to this process. A long synchronous workflow
-            # can delay HTTP handling without making the process unrecoverable;
-            # restarting it would destroy the active browser-auth handoff.
+            # Keep process liveness independent of optional service health;
+            # restarting Rust would discard active runs and OAuth handoffs.
             tcpSocket:
               port: http
             initialDelaySeconds: 30
@@ -110,10 +109,9 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 10
-            # /health/ready checks Redis, memory, and Milvus serially on the
-            # same event loop that serves chat streams, so a slow dependency can
-            # consume most of the budget. Three misses (30s) would eject the
-            # only backend replica while the process is healthy.
+            # Full-profile readiness includes the Python tool service and its
+            # dependencies. Allow transient dependency failures before removing
+            # the backend from service endpoints.
             failureThreshold: 5
           {{- with .Values.backend.default.resources }}
           resources:

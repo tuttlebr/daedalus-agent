@@ -648,7 +648,8 @@ def test_backend_config_uses_canonical_env_names():
     assert "KUBERNETES_MCP_TOKEN=" in template_text
     assert "NEXT_PUBLIC_UPLOAD_IMAGE_SERVER_LIMIT_MB=30" in template_text
     assert "PHOENIX_PROJECT_NAME=daedalus" in template_text
-    assert 'value[0] == value[-1] and value[0] in "\\"\'"' in DEPLOY_SCRIPT.read_text()
+    # Shared environment parsing is covered by the deploy CLI behavior tests
+    # in test_content_credentials_deploy, including quoted and padded values.
 
 
 def test_make_deploy_is_the_guarded_canonical_path():

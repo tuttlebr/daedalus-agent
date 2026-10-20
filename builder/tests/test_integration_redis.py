@@ -154,7 +154,7 @@ def test_autonomous_lease_fences_live_reclaim_and_recovers_after_expiry():
 
 
 def test_autonomous_reclaim_returns_interrupted_requests_to_the_front():
-    """Real LMOVE semantics: reclaimed claims run first, oldest claim first."""
+    """Real list semantics: undispatched claims run first, oldest claim first."""
     url = os.environ["REDIS_URL"]
     store = RedisStore(url)
     user_id = f"reclaim-order-itest-{uuid.uuid4().hex}"
@@ -301,6 +301,12 @@ def test_autonomous_scoped_acl_reads_json_and_preserves_workspace():
             lease_user=user_id,
         )
         assert store.list_runs(user_id) == [{"id": "verified"}]
+        request = {"id": "acl-dispatch"}
+        store.redis.lpush(autonomy_key(user_id, "queue"), json.dumps(request))
+        assert store.dequeue(user_id, timeout=1) == request
+        store.mark_backend_started(user_id)
+        assert store.complete(user_id)
+        assert not store.redis.exists(autonomy_key(user_id, "processing_state"))
 
         from autonomous_agent.store import WorkerLeaseLost
 
@@ -553,6 +559,81 @@ def test_memory_clear_fences_an_inflight_reflection(clear_other_user):
         client.close()
 
 
+@pytest.mark.parametrize("phase", ["bootstrap", "reflection"])
+@pytest.mark.parametrize("replacement_owner", [False, True])
+def test_memory_context_releases_only_its_own_lock(phase, replacement_owner):
+    from nat_helpers import hindsight_memory_context as context
+    from nat_helpers.hindsight_client import derive_bank_id
+
+    user = f"memory-lease-itest-{uuid.uuid4().hex}"
+    bootstrap_id = context._bootstrap_cache_id(user)
+    user_digest = context._digest(derive_bank_id(user))
+    if phase == "bootstrap":
+        lock_key = f"daedalus:memory:bootstrap-lock:{bootstrap_id}"
+    else:
+        lock_key = (
+            f"daedalus:memory:session-lock:v1:{user_digest}:"
+            f"{context._digest('conversation')}"
+        )
+    client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+
+    async def scenario():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        class Hindsight:
+            async def get_bank_config(self, **_kwargs):
+                started.set()
+                await release.wait()
+                return {"overrides": context._BANK_DEFAULTS}
+
+            async def knowledge_tree(self, **_kwargs):
+                return [
+                    {"kind": "page", "name": name}
+                    for name, _ in context._KNOWLEDGE_PAGES
+                ]
+
+            async def reflect(self, **_kwargs):
+                started.set()
+                await release.wait()
+                return "Current session brief"
+
+        operation = (
+            context.ensure_bank_initialized(Hindsight(), user)
+            if phase == "bootstrap"
+            else context._session_brief(
+                Hindsight(),
+                user_id=user,
+                conversation_id="conversation",
+                query="Summarize my memory",
+            )
+        )
+        pending = asyncio.create_task(operation)
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+            assert client.exists(lock_key)
+            if replacement_owner:
+                # Expire the live Redis lease without a wall-clock wait, then
+                # let another process acquire it while the first call is stalled.
+                client.pexpire(lock_key, 0)
+                assert client.set(lock_key, "replacement-owner", nx=True, ex=60)
+        finally:
+            release.set()
+        await asyncio.wait_for(pending, 2)
+        assert client.get(lock_key) == (
+            "replacement-owner" if replacement_owner else None
+        )
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        for digest in (bootstrap_id, user_digest):
+            for stored_key in client.scan_iter(match=f"daedalus:memory:*{digest}*"):
+                client.delete(stored_key)
+        context._process_bootstrap_cache.pop(bootstrap_id, None)
+        context._process_bootstrap_locks.pop(bootstrap_id, None)
+        client.close()
+
+
 @pytest.mark.parametrize("phase", ["workspace", "feed", "feed_commit"])
 @pytest.mark.parametrize("storage", ["string", "json"])
 def test_autonomous_output_cannot_write_after_lease_transfer(
@@ -598,6 +679,9 @@ def test_autonomous_output_cannot_write_after_lease_transfer(
 
     try:
         assert stale.acquire_lease(user_id, ttl_seconds=60)
+        request = {"trigger": "manual"}
+        stale.redis.lpush(autonomy_key(user_id, "queue"), json.dumps(request))
+        assert stale.dequeue(user_id, timeout=1) == request
         if storage == "json":
             stale.redis.execute_command("JSON.SET", feed_key, "$", "[]")
         else:
@@ -633,7 +717,7 @@ def test_autonomous_output_cannot_write_after_lease_transfer(
             store=stale,
             backend=Backend(),
             user_id=user_id,
-            request={"trigger": "manual"},
+            request=request,
             abort=threading.Event(),
         )
 
@@ -649,3 +733,51 @@ def test_autonomous_output_cannot_write_after_lease_transfer(
                 current.redis.delete(*keys)
         stale.redis.close()
         current.redis.close()
+
+
+def test_autonomous_worker_crash_never_replays_a_dispatched_backend_request():
+    import threading
+
+    from autonomous_agent.worker import run_once
+
+    stopped = RedisStore(os.environ["REDIS_URL"])
+    replacement = RedisStore(os.environ["REDIS_URL"])
+    user_id = f"dispatch-recovery-itest-{uuid.uuid4().hex}"
+    request = {"id": "once", "trigger": "manual"}
+    calls = []
+
+    class Backend:
+        def call(self, *_args, **_kwargs):
+            calls.append("external action started")
+            # Simulate process death before any backend response is persisted.
+            raise SystemExit("worker crashed")
+
+    try:
+        assert stopped.acquire_lease(user_id, ttl_seconds=60)
+        stopped.redis.lpush(autonomy_key(user_id, "queue"), json.dumps(request))
+        assert stopped.dequeue(user_id, timeout=1) == request
+        with pytest.raises(SystemExit, match="worker crashed"):
+            run_once(
+                store=stopped,
+                backend=Backend(),
+                user_id=user_id,
+                request=request,
+                abort=threading.Event(),
+            )
+        stopped.redis.pexpire(autonomy_key(user_id, "lease"), 0)
+        assert replacement.acquire_lease(user_id, ttl_seconds=60)
+
+        assert replacement.reclaim_processing(user_id) == 1
+
+        assert replacement.queue_length(user_id) == 0
+        assert replacement.redis.llen(autonomy_key(user_id, "processing")) == 0
+        assert replacement.redis.hlen(autonomy_key(user_id, "processing_state")) == 0
+        assert replacement.list_runs(user_id)[0]["status"] == "aborted"
+        assert calls == ["external action started"]
+    finally:
+        for pattern in (f"autonomy:{user_id}:*", f"autonomous:{user_id}:*"):
+            keys = list(replacement.redis.scan_iter(match=pattern))
+            if keys:
+                replacement.redis.delete(*keys)
+        stopped.redis.close()
+        replacement.redis.close()

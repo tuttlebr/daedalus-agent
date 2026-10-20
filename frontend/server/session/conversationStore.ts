@@ -20,9 +20,13 @@ return {read(KEYS[1]), redis.call('SISMEMBER', KEYS[2], ARGV[1]), redis.call('TT
 `;
 const SAVE = `${READ}
 -- SAVE_OWNED_CONVERSATION: authorize and compare the same snapshot we replace.
+-- A delayed finalizer must not overwrite a later turn after its lock expired.
+local fence_index = tonumber(ARGV[7])
+if fence_index > 0 and redis.call('GET', KEYS[fence_index]) ~= ARGV[8] then return -3 end
 -- A chat reservation must not recreate a conversation deleted while its
 -- submission was initializing. Check the job's stop signal in this commit.
-if #KEYS == 3 and redis.call('EXISTS', KEYS[3]) == 1 then return -2 end
+local cancellation_index = tonumber(ARGV[6])
+if cancellation_index > 0 and redis.call('EXISTS', KEYS[cancellation_index]) == 1 then return -2 end
 local raw = read(KEYS[1])
 if raw ~= ARGV[1] then return 0 end
 if raw ~= '' then
@@ -55,6 +59,12 @@ export class ConversationWriteError extends Error {
   }
 }
 
+export class ConversationWriteFenceError extends Error {
+  constructor() {
+    super('Conversation write ownership expired');
+  }
+}
+
 export async function readConversationForUser(
   username: string,
   id: string,
@@ -84,6 +94,7 @@ export async function saveConversationForUser(
   update: (current: Record<string, any> | null) => Record<string, any>,
   allowCreate = false,
   pendingJobId?: string,
+  writeFence?: { key: string; token: string },
 ): Promise<Record<string, any>> {
   const client = getRedis();
   const keys = [
@@ -91,6 +102,7 @@ export async function saveConversationForUser(
     sessionKey(['user', username, 'conversations']),
   ];
   const cancellationKeys = pendingJobId ? [abortKey(pendingJobId)] : [];
+  const fenceKeys = writeFence ? [writeFence.key] : [];
   const deadline = Date.now() + 5000;
   do {
     const [raw, member] = (await client.eval(SNAPSHOT, 2, ...keys, id)) as [
@@ -115,18 +127,23 @@ export async function saveConversationForUser(
     const value = { id, ownerId: username, ...fields };
     const result = await client.eval(
       SAVE,
-      keys.length + cancellationKeys.length,
+      keys.length + cancellationKeys.length + fenceKeys.length,
       ...keys,
       ...cancellationKeys,
+      ...fenceKeys,
       raw,
       JSON.stringify(value),
       id,
       username,
       allowCreate ? '1' : '0',
+      pendingJobId ? keys.length + 1 : 0,
+      writeFence ? keys.length + cancellationKeys.length + 1 : 0,
+      writeFence?.token ?? '',
     );
     if (result === 1) return value;
     if (result === -1) throw new ConversationWriteError('forbidden');
     if (result === -2) throw new ConversationWriteError('conflict');
+    if (result === -3) throw new ConversationWriteFenceError();
     await new Promise((resolve) => setTimeout(resolve, 5 + Math.random() * 20));
   } while (Date.now() < deadline);
   throw new Error('Conversation changed repeatedly during save');

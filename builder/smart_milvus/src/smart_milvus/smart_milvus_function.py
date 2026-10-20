@@ -394,12 +394,16 @@ class MilvusRetriever:
 
         hits = res[0]
         if distance_cutoff is not None:
-            hits = [
-                hit
-                for hit in hits
-                if getattr(hit, "distance", None) is not None
-                and hit.distance <= distance_cutoff
-            ]
+            filtered_hits = []
+            for hit in hits:
+                distance = (
+                    hit.get("distance")
+                    if isinstance(hit, dict)
+                    else getattr(hit, "distance", None)
+                )
+                if distance is not None and distance <= distance_cutoff:
+                    filtered_hits.append(hit)
+            hits = filtered_hits
 
         wrapped = _wrap_milvus_results(hits, content_field=self.content_field)
         wrapped.results = await self._rerank(query, wrapped.results)

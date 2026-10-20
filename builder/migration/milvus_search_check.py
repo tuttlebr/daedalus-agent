@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare staged native search with real retained-SDK gRPC wire captures."""
+"""Compare native search with real retained-SDK gRPC wire captures."""
 
 import argparse
 import hashlib
@@ -146,7 +146,6 @@ def main(args):
             capture_output=True,
             text=True,
         ).stdout.strip(),
-        "native_registration": "pending",
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2) + "\n")

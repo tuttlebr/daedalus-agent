@@ -543,57 +543,35 @@ if [[ -f "$ENV_FILE" ]]; then
   filter_env_file() {
     local output_file="$1"
     shift
-    python3 - "$ENV_FILE" "$output_file" "$@" <<'PY'
+    python3 - "$SCRIPT_DIR/scripts" "$ENV_FILE" "$output_file" "$@" <<'PY'
 import fnmatch
-import re
 import sys
+from pathlib import Path
 
-source, destination, *patterns = sys.argv[1:]
-entries = {}
-with open(source, encoding="utf-8") as handle:
-    for raw_line in handle:
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        key, separator, value = line.partition("=")
-        key = key.strip()
-        if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            continue
-        if any(fnmatch.fnmatchcase(key, pattern) for pattern in patterns):
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-                value = value[1:-1]
-            entries[key] = value
+sys.path.insert(0, sys.argv[1])
+from validate_auth_env import load_env
+
+source, destination, *patterns = sys.argv[2:]
+entries = load_env(Path(source))
 
 with open(destination, "w", encoding="utf-8") as handle:
     for key in sorted(entries):
-        handle.write(f"{key}={entries[key]}\n")
+        if any(fnmatch.fnmatchcase(key, pattern) for pattern in patterns):
+            handle.write(f"{key}={entries[key]}\n")
 PY
   }
 
   # The memory mode is deployment configuration rather than a secret. Pass it
   # as an explicit pod override and validate only the credential length; never
   # print or pass the API key through Helm values.
-  MEMORY_SETTINGS="$(python3 - "$ENV_FILE" <<'PY'
-import re
+  MEMORY_SETTINGS="$(python3 - "$SCRIPT_DIR/scripts" "$ENV_FILE" <<'PY'
 import sys
+from pathlib import Path
 
-entries = {}
-with open(sys.argv[1], encoding="utf-8") as handle:
-    for raw_line in handle:
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        key, separator, value = line.partition("=")
-        key = key.strip()
-        if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            continue
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        entries[key] = value
+sys.path.insert(0, sys.argv[1])
+from validate_auth_env import load_env
+
+entries = load_env(Path(sys.argv[2]))
 
 mode = entries.get("DAEDALUS_MEMORY_MODE", "hindsight").strip().lower()
 print(mode)
@@ -707,26 +685,15 @@ PY
   )
 
   DOCUMENT_OBJECT_SECRET_FILE="$SECRET_ENV_DIR/document-objects.env"
-  python3 - "$ENV_FILE" "$DOCUMENT_OBJECT_SECRET_FILE" <<'PY'
-import re
+  python3 - "$SCRIPT_DIR/scripts" "$ENV_FILE" "$DOCUMENT_OBJECT_SECRET_FILE" <<'PY'
 import sys
+from pathlib import Path
 
-source, destination = sys.argv[1:]
-entries = {}
-with open(source, encoding="utf-8") as handle:
-    for raw_line in handle:
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        key, separator, value = line.partition("=")
-        key = key.strip()
-        if separator and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            value = value.strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-                value = value[1:-1]
-            entries[key] = value
+sys.path.insert(0, sys.argv[1])
+from validate_auth_env import load_env
+
+source, destination = sys.argv[2:]
+entries = load_env(Path(source))
 
 access_key = entries.get("DOCUMENT_OBJECT_ACCESS_KEY")
 secret_key = entries.get("DOCUMENT_OBJECT_SECRET_KEY")

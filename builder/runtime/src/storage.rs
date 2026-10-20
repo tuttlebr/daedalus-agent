@@ -29,7 +29,7 @@ pub fn redis_url_with_port(url: &str, port: &str) -> Result<String> {
 #[derive(Clone)]
 pub struct Store {
     client: redis::Client,
-    connection: Arc<Mutex<Option<MultiplexedConnection>>>,
+    connection: Arc<Mutex<Option<Arc<MultiplexedConnection>>>>,
 }
 impl Store {
     pub fn new(config: &Config) -> Result<Self> {
@@ -82,12 +82,16 @@ impl Store {
         command: &mut redis::Cmd,
         timeout: Duration,
     ) -> Result<T> {
+        let mut used = None;
         let result = tokio::time::timeout(timeout, async {
             let mut cached = self.connection.lock().await;
             if cached.is_none() {
-                *cached = Some(self.client.get_multiplexed_async_connection().await?);
+                *cached = Some(Arc::new(
+                    self.client.get_multiplexed_async_connection().await?,
+                ));
             }
-            let mut connection = cached.as_ref().unwrap().clone();
+            used = cached.clone();
+            let mut connection = (**cached.as_ref().unwrap()).clone();
             drop(cached);
             command.query_async(&mut connection).await
         })
@@ -95,9 +99,22 @@ impl Store {
         match result {
             Ok(Ok(value)) => Ok(value),
             _ => {
-                *self.connection.lock().await = None;
+                self.invalidate(used.as_ref());
                 Err(anyhow!("Redis unavailable"))
             }
+        }
+    }
+    fn invalidate(&self, used: Option<&Arc<MultiplexedConnection>>) {
+        // A timed-out waiter may never have acquired a connection. Never wait
+        // again on another caller's initialization, or discard a replacement
+        // established since this command began using the previous connection.
+        if let Some(used) = used
+            && let Ok(mut cached) = self.connection.try_lock()
+            && cached
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, used))
+        {
+            *cached = None;
         }
     }
     pub async fn get(&self, key: &str) -> Result<Option<String>> {
@@ -113,11 +130,12 @@ impl Store {
         read_timeout: Option<Duration>,
     ) -> Result<Option<Vec<u8>>> {
         for attempt in 0..2 {
+            let mut used = None;
             let result = async {
                 let mut cached = self.connection.lock().await;
                 if cached.is_none() {
                     let connect = self.client.get_multiplexed_async_connection();
-                    *cached = Some(if let Some(timeout) = connect_timeout {
+                    *cached = Some(Arc::new(if let Some(timeout) = connect_timeout {
                         tokio::time::timeout(timeout, connect).await.map_err(|_| {
                             redis::RedisError::from(std::io::Error::new(
                                 std::io::ErrorKind::TimedOut,
@@ -126,9 +144,10 @@ impl Store {
                         })??
                     } else {
                         connect.await?
-                    });
+                    }));
                 }
-                let mut connection = cached.as_ref().unwrap().clone();
+                used = cached.clone();
+                let mut connection = (**cached.as_ref().unwrap()).clone();
                 drop(cached);
                 let mut command = redis::cmd("JSON.GET");
                 command.arg(key);
@@ -149,7 +168,7 @@ impl Store {
             match result {
                 Ok(value) => return Ok(value),
                 Err(error) => {
-                    *self.connection.lock().await = None;
+                    self.invalidate(used.as_ref());
                     if attempt != 0 || !error.is_timeout() {
                         return Err(error.into());
                     }
@@ -285,6 +304,100 @@ impl Drop for Lease {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn command_deadline_includes_waiting_for_another_connection_attempt() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let store =
+            Store::from_url(&format!("redis://{}", listener.local_addr().unwrap()), "").unwrap();
+        let connecting = {
+            let store = store.clone();
+            tokio::spawn(async move {
+                store
+                    .command_with_timeout::<String>(
+                        &mut redis::cmd("PING"),
+                        Duration::from_secs(30),
+                    )
+                    .await
+            })
+        };
+        // Hold the socket open without answering the Redis handshake. The
+        // first command retains the connection mutex during initialization.
+        let (_socket, _) = tokio::time::timeout(Duration::from_secs(1), listener.accept())
+            .await
+            .expect("the connection must reach the local peer")
+            .unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            store
+                .command_with_timeout::<String>(&mut redis::cmd("PING"), Duration::from_millis(50)),
+        )
+        .await;
+        connecting.abort();
+        assert!(connecting.await.unwrap_err().is_cancelled());
+        assert_eq!(
+            result
+                .expect("timeout cleanup must not wait for another connection attempt")
+                .unwrap_err()
+                .to_string(),
+            "Redis unavailable"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_command_does_not_invalidate_a_replacement_connection() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let store =
+            Store::from_url(&format!("redis://{}", listener.local_addr().unwrap()), "").unwrap();
+        let peer = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let (read, mut write) = socket.into_split();
+            let mut read = tokio::io::BufReader::new(read);
+            loop {
+                let mut line = String::new();
+                if read.read_line(&mut line).await.unwrap() == 0 {
+                    return;
+                }
+                let count: usize = line.trim_end()[1..].parse().unwrap();
+                for _ in 0..count {
+                    line.clear();
+                    read.read_line(&mut line).await.unwrap();
+                    let size: usize = line.trim_end()[1..].parse().unwrap();
+                    let mut data = vec![0; size + 2];
+                    read.read_exact(&mut data).await.unwrap();
+                }
+                write.write_all(b"+OK\r\n").await.unwrap();
+            }
+        });
+        assert_eq!(
+            store
+                .command::<String>(&mut redis::cmd("PING"))
+                .await
+                .unwrap(),
+            "OK"
+        );
+        let previous = store.connection.lock().await.clone().unwrap();
+        // A separately installed cache entry has its own identity, even when
+        // backed by a clone of the same connection in this deterministic test.
+        let replacement = Arc::new((*previous).clone());
+        *store.connection.lock().await = Some(replacement.clone());
+        store.invalidate(Some(&previous));
+        store.invalidate(None);
+        assert!(Arc::ptr_eq(
+            store.connection.lock().await.as_ref().unwrap(),
+            &replacement,
+        ));
+        store.invalidate(Some(&replacement));
+        assert!(store.connection.lock().await.is_none());
+        drop(previous);
+        drop(replacement);
+        tokio::time::timeout(Duration::from_secs(1), peer)
+            .await
+            .expect("the Redis peer must close with the final connection")
+            .expect("the Redis peer must process valid requests");
+    }
 
     #[test]
     fn fallback_port_preserves_database_credentials_and_tls_options() {

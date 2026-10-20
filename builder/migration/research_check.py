@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 from image_check import environment, require
-from leaf_check import measure
+from leaf_check import measure, runtime_lines
 from runtime_http_check import Peers
 
 MARKER = "雪🌲MIDDLE7391"
@@ -228,7 +228,7 @@ class LiveResearchPeers(ResearchPeers):
                         self.send_header("Connection", "close")
                         self.end_headers()
                         self.close_connection = True
-                        for line in response.iter_lines():
+                        for line in runtime_lines(response):
                             self.wfile.write((line + "\n").encode())
                             self.wfile.flush()
                             if line.startswith("data: ") and line != "data: [DONE]":

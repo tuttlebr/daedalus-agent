@@ -105,9 +105,68 @@ const Home = () => {
 
   const selectedIdRef = useRef(selectedConversationId);
   selectedIdRef.current = selectedConversationId;
+  const pendingConversationReadsRef = useRef(new Map<string, symbol>());
+  const pendingHistoryReadsRef = useRef(new Map<number, Set<string>>());
+  const historyReadGenerationRef = useRef(0);
+  const successfulHistoryReadGenerationRef = useRef(0);
+  const pendingHistoryRefreshRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    const pendingReads = pendingConversationReadsRef.current;
+    const pendingHistoryReads = pendingHistoryReadsRef.current;
+    return () => {
+      pendingReads.clear();
+      pendingHistoryReads.clear();
+      pendingHistoryRefreshRef.current = null;
+    };
+  }, []);
+
+  const readConversationHistory = useCallback(async (allowCached = false) => {
+    const changed = new Set<string>();
+    const generation = ++historyReadGenerationRef.current;
+    pendingHistoryReadsRef.current.set(generation, changed);
+    const superseded = () =>
+      !pendingHistoryReadsRef.current.has(generation) ||
+      (generation !== historyReadGenerationRef.current &&
+        (!allowCached ||
+          successfulHistoryReadGenerationRef.current > generation));
+    try {
+      let history: Conversation[] | undefined;
+      try {
+        history = await apiGet<Conversation[]>(
+          '/api/session/conversationHistory',
+        );
+      } catch (error) {
+        if (!allowCached) throw error;
+      }
+      // The initial snapshot remains a fallback while a replacement is pending
+      // or fails. Only a successful newer read makes that snapshot obsolete.
+      if (superseded()) return undefined;
+      if (!Array.isArray(history) && allowCached) {
+        const cached = getUserSessionItem('conversationHistory');
+        if (cached) history = JSON.parse(cached);
+      }
+      if (!Array.isArray(history)) return history;
+      successfulHistoryReadGenerationRef.current = generation;
+      // Events delivered during the request are newer than either its server
+      // snapshot or the cache used if the initial request failed.
+      return [
+        ...history.filter((conversation) => !changed.has(conversation.id)),
+        ...useConversationStore
+          .getState()
+          .conversations.filter((conversation) => changed.has(conversation.id)),
+      ];
+    } catch (error) {
+      // A superseded initial request must not restore an older cached history.
+      if (superseded()) return undefined;
+      throw error;
+    } finally {
+      pendingHistoryReadsRef.current.delete(generation);
+    }
+  }, []);
 
   // Cross-device sync via WebSocket + Redis pub/sub
-  const refreshConversationList = useCallback(async () => {
+  const refreshConversationList = useCallback(() => {
     // Skip refresh while any conversation is streaming — the store guard
     // would preserve streaming conversations anyway, but this avoids the
     // unnecessary network round-trip.
@@ -115,19 +174,25 @@ const Home = () => {
       return;
     }
 
-    try {
-      const serverConversations = await apiGet<Conversation[]>(
-        '/api/session/conversationHistory',
-      );
-      if (Array.isArray(serverConversations)) {
-        const cleaned = cleanConversationHistory(serverConversations);
-        setConversations(cleaned);
-        setUserSessionItem('conversationHistory', JSON.stringify(cleaned));
+    const refresh = (async () => {
+      try {
+        const serverConversations = await readConversationHistory();
+        if (Array.isArray(serverConversations)) {
+          const cleaned = cleanConversationHistory(serverConversations);
+          setConversations(cleaned);
+          setUserSessionItem('conversationHistory', JSON.stringify(cleaned));
+        }
+      } catch (error) {
+        console.error('Failed to refresh conversation list:', error);
       }
-    } catch (error) {
-      console.error('Failed to refresh conversation list:', error);
-    }
-  }, [setConversations]);
+    })().finally(() => {
+      if (pendingHistoryRefreshRef.current === refresh) {
+        pendingHistoryRefreshRef.current = null;
+      }
+    });
+    pendingHistoryRefreshRef.current = refresh;
+    return refresh;
+  }, [readConversationHistory, setConversations]);
 
   useWebSocket({
     enabled: true,
@@ -139,6 +204,12 @@ const Home = () => {
       }) => {
         const conversationId = event.conversationId || event.conversation?.id;
         if (!conversationId) return;
+        for (const changed of pendingHistoryReadsRef.current.values()) {
+          changed.add(conversationId);
+        }
+        // A later event supersedes an HTTP read started by an earlier one,
+        // including when the new record is already local or is streaming.
+        pendingConversationReadsRef.current.delete(conversationId);
         const store = useConversationStore.getState();
         // Never overwrite a conversation that is actively streaming —
         // the frontend is the authority on its messages during streaming.
@@ -160,22 +231,40 @@ const Home = () => {
           return;
         }
         // Browser saves announce only the id and revision.
+        const read = Symbol();
+        pendingConversationReadsRef.current.set(conversationId, read);
         void apiGet<Conversation>(
           `/api/conversations/${encodeURIComponent(conversationId)}`,
         )
           .then((server) => {
-            if (server && Array.isArray(server.messages)) {
+            if (
+              pendingConversationReadsRef.current.get(conversationId) ===
+                read &&
+              server &&
+              Array.isArray(server.messages)
+            ) {
               adoptServerConversation({ ...server, id: conversationId });
             }
           })
           .catch((error) => {
             console.warn('Failed to load an updated conversation', error);
+          })
+          .finally(() => {
+            if (
+              pendingConversationReadsRef.current.get(conversationId) === read
+            ) {
+              pendingConversationReadsRef.current.delete(conversationId);
+            }
           });
       },
       [],
     ),
     onConversationDeleted: useCallback(
       (conversationId: string) => {
+        for (const changed of pendingHistoryReadsRef.current.values()) {
+          changed.add(conversationId);
+        }
+        pendingConversationReadsRef.current.delete(conversationId);
         deleteConversationFromStore(conversationId);
         if (selectedIdRef.current === conversationId) {
           const remaining = useConversationStore.getState().conversations;
@@ -207,6 +296,7 @@ const Home = () => {
 
   // Initial data load
   useEffect(() => {
+    let disposed = false;
     const savedWidth = getUserSessionItem('chatbarWidth');
     if (savedWidth) {
       const parsed = parseInt(savedWidth, 10);
@@ -216,23 +306,12 @@ const Home = () => {
     }
 
     const fetchConversations = async () => {
-      try {
-        const serverConversations = await apiGet(
-          '/api/session/conversationHistory',
-        );
-        if (Array.isArray(serverConversations)) {
-          const cleaned = cleanConversationHistory(serverConversations);
-          useConversationStore.getState().setConversations(cleaned);
-          setUserSessionItem('conversationHistory', JSON.stringify(cleaned));
-        } else {
-          const local = getUserSessionItem('conversationHistory');
-          if (local)
-            useConversationStore.getState().setConversations(JSON.parse(local));
-        }
-      } catch {
-        const local = getUserSessionItem('conversationHistory');
-        if (local)
-          useConversationStore.getState().setConversations(JSON.parse(local));
+      const serverConversations = await readConversationHistory(true);
+      if (disposed || serverConversations === undefined) return;
+      if (Array.isArray(serverConversations)) {
+        const cleaned = cleanConversationHistory(serverConversations);
+        useConversationStore.getState().setConversations(cleaned);
+        setUserSessionItem('conversationHistory', JSON.stringify(cleaned));
       }
     };
 
@@ -240,7 +319,14 @@ const Home = () => {
     // name a conversation deleted here or on another device; selecting that
     // id would leave the composer without a conversation to send to.
     const restoreSelection = async () => {
+      if (disposed) return;
       const serverSelection = await loadSelectedConversationId();
+      // A reconnect may supersede the initial history request. Wait until its
+      // replacement is applied before deciding whether the saved id was deleted.
+      while (!disposed && pendingHistoryRefreshRef.current) {
+        await pendingHistoryRefreshRef.current;
+      }
+      if (disposed) return;
       const store = useConversationStore.getState();
       const selected = [
         serverSelection,
@@ -265,7 +351,6 @@ const Home = () => {
     // background chat finishing must not change what a reload opens). This
     // tab remembers each selection; an explicit choice (a conversation picked
     // or created) is also saved on the server where the user made it.
-    let disposed = false;
     let unsubscribeSelection = () => {};
     void fetchConversations()
       .catch((error) => {
@@ -290,7 +375,7 @@ const Home = () => {
       disposed = true;
       unsubscribeSelection();
     };
-  }, []);
+  }, [readConversationHistory]);
 
   return (
     <ProtectedRoute>

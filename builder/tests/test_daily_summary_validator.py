@@ -114,6 +114,31 @@ def test_validator_rejects_desk_coverage_drift(tmp_path):
     assert any("references an unknown desk key" in error for error in report["errors"])
 
 
+@pytest.mark.parametrize("url", ["https://[broken", "https://exam／ple.org"])
+def test_validator_reports_malformed_source_urls(tmp_path, url):
+    html, _ = _render()
+    html = html.replace("https://images.example/source-page", url)
+
+    result, report = _run_validator(tmp_path, html)
+
+    assert result.returncode == 1
+    assert report["passed"] is False
+    assert any("HTTPS" in error for error in report["errors"])
+
+
+@pytest.mark.parametrize("desks", [1, True])
+def test_validator_reports_invalid_policy_desks(tmp_path, desks):
+    html, _ = _render()
+    policy = _policy()
+    policy["desks"] = desks
+
+    result, report = _run_validator(tmp_path, html, policy=policy)
+
+    assert result.returncode == 1
+    assert report["passed"] is False
+    assert any("non-empty desks list" in error for error in report["errors"])
+
+
 @pytest.mark.parametrize("section", ["coverage", "sources"])
 def test_validator_rejects_reintroduced_ledger_or_sources(tmp_path, section):
     html, _ = _render()

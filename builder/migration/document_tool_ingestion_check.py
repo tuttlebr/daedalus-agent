@@ -34,11 +34,13 @@ class ToolPeers(RunnerPeers):
         self.case = {}
         self.held = threading.Event()
         self.release = threading.Event()
+        self.fetch_finished = threading.Event()
 
     def reset(self, case):
         self.case = case
         self.held.clear()
         self.release.clear()
+        self.fetch_finished.clear()
         self.admin.execute_command("ACL", "SETUSER", "ledger", "+eval")
         for key in self.admin.scan_iter(PREFIX + "*"):
             self.admin.delete(key)
@@ -86,7 +88,12 @@ class ToolPeers(RunnerPeers):
 
             def do_GET(self):
                 if self.path == "/__tool/held":
-                    return self.reply({"held": peers.held.is_set()})
+                    return self.reply(
+                        {
+                            "held": peers.held.is_set(),
+                            "finished": peers.fetch_finished.is_set(),
+                        }
+                    )
                 if self.path == "/__tool/receipts":
                     return self.reply(peers.receipts())
                 if self.path.startswith(("/v1/fetch_job/", "/v2/fetch_job/")):
@@ -96,6 +103,14 @@ class ToolPeers(RunnerPeers):
                             peers.release.wait(25),
                             "Cancelled tool did not release its worker",
                         )
+                        try:
+                            return super().do_GET()
+                        except (BrokenPipeError, ConnectionResetError):
+                            # Native extraction drops the HTTP request when
+                            # cancelled; the retained Python worker survives.
+                            return None
+                        finally:
+                            peers.fetch_finished.set()
                     if peers.case.get("completion_fault") == "owner":
                         for key in peers.admin.scan_iter(PREFIX + "*"):
                             record = json.loads(peers.admin.get(key))
@@ -178,7 +193,7 @@ def cases(oracle):
         case["settings"]["script"] = []
     add("lost-owner", completion_fault="owner")
     add("completion-error", completion_fault="eval")
-    add("cancelled-owner", cancel=True)
+    add("cancelled-owner", cancel=True, cancel_phase="extraction")
     for name, content in [
         ("surrogate", "A\ud800B"),
         ("surrogate-low", "A\udfffB"),

@@ -32,6 +32,7 @@ from experiment import (
     workflow_cases,
 )
 from gateway import handler as gateway_handler
+from gateway import response_lines
 
 RECORDS = {"alpha": ("rec-a913", "COPPER"), "bravo": ("rec-b726", "SILVER")}
 SCHEMAS = [
@@ -241,7 +242,7 @@ def request(client, port, token, user, case, repetition, arm):
             },
         ) as response:
             response.raise_for_status()
-            for line in response.iter_lines():
+            for line in response_lines(response):
                 if time.perf_counter() - started > 60:
                     raise TimeoutError("request budget")
                 if line.startswith("intermediate_data: "):

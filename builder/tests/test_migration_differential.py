@@ -2,8 +2,11 @@
 
 import copy
 import importlib
+import io
+import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 
@@ -226,3 +229,85 @@ def test_memory_comparison_rejects_contract_changes(
         differential.compare_preparation(changed, memory_report)
     with pytest.raises(AssertionError, match="Current Python/Rust"):
         differential.compare_preparation(memory_report, memory_report, changed)
+
+
+def test_public_memory_transport_correction_keeps_exact_dispatch_contract(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "migration"))
+    compare = importlib.import_module("memory_api_check").compare_public_memory_response
+    old = {
+        "scenario": "upstream_lost_response",
+        "status": 500,
+        "body": "Internal Server Error",
+        "calls": [
+            {
+                "method": "PATCH",
+                "path": "/v1/default/banks/alice/memories/fact-1",
+                "body": {"text": "Synthetic rejected change"},
+                "authorization": "Bearer synthetic-hindsight",
+            }
+        ],
+    }
+    expected = {**old, "status": 502, "body": {"detail": "memory service unavailable"}}
+    compare(old, expected, 84)
+    for changed in (
+        old,
+        {**expected, "status": 200},
+        {**expected, "body": {"detail": "SYNTHETIC_PRIVATE_UPSTREAM"}},
+        {**expected, "calls": []},
+        {**expected, "calls": old["calls"] * 2},
+        {**expected, "calls": [{**old["calls"][0], "body": {"text": "changed"}}]},
+        {**expected, "calls": [{**old["calls"][0], "path": "/another-user"}]},
+    ):
+        with pytest.raises(AssertionError, match="Public memory parity"):
+            compare(old, changed, 84)
+    unrelated = {key: value for key, value in old.items() if key != "scenario"}
+    compare(unrelated, unrelated, 0)
+    with pytest.raises(AssertionError, match="Public memory parity"):
+        compare(unrelated, {**unrelated, "status": 502}, 0)
+    assert old["status"] == 500
+
+
+def test_live_research_proxy_preserves_unicode_inside_provider_events(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "migration"))
+    research = importlib.import_module("research_check")
+    events = [
+        {
+            "type": "response.output_text.delta",
+            "delta": "Evidence\u0085snow\u2028雪\u2029🌲",
+        },
+        {
+            "type": "response.completed",
+            "response": {"model": "fixture", "usage": {"total_tokens": 7}},
+        },
+    ]
+    wire = b"".join(
+        ("data: " + json.dumps(event, ensure_ascii=False) + "\n\n").encode()
+        for event in events
+    )
+    client_type = httpx.Client
+
+    def upstream(request):
+        assert request.url == "http://synthetic-provider/v1/responses"
+        return httpx.Response(200, content=wire)
+
+    monkeypatch.setattr(
+        research.httpx,
+        "Client",
+        lambda **kwargs: client_type(**kwargs, transport=httpx.MockTransport(upstream)),
+    )
+    peers = research.LiveResearchPeers("http://synthetic-provider/v1", "fixture")
+    handler_type = peers.handler()
+    handler = object.__new__(handler_type)
+    body = json.dumps(
+        {"input": [{"role": "user", "content": "Read evidence"}]}
+    ).encode()
+    handler.headers = {"Content-Length": str(len(body))}
+    handler.rfile = io.BytesIO(body)
+    handler.wfile = io.BytesIO()
+    handler.send_response = lambda *_: None
+    handler.send_header = lambda *_: None
+    handler.end_headers = lambda: None
+    handler.do_POST()
+    assert handler.wfile.getvalue() == wire
+    assert peers.usage == [{"total_tokens": 7}]
+    assert peers.model_calls[0]["provider_reported_model"] == "fixture"

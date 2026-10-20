@@ -215,9 +215,14 @@ def test_session_brief_reflects_only_for_explicit_synthesis(monkeypatch):
         async def delete(self, key):
             self.values.pop(key, None)
 
-        async def eval(
-            self, _script, _count, generation_key, key, generation, value, _ttl
-        ):
+        async def eval(self, _script, count, *args):
+            if count == 1:
+                key, token = args
+                if self.values.get(key) != token:
+                    return 0
+                del self.values[key]
+                return 1
+            generation_key, key, generation, value, _ttl = args
             if self.values.get(generation_key, "") != generation:
                 return 0
             self.values[key] = value

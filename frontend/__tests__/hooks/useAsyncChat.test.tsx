@@ -203,6 +203,60 @@ describe('useAsyncChat streaming callbacks', () => {
     document.body.innerHTML = '';
   });
 
+  it.each(['submission', 'status'])(
+    'does not restart tracking when the pending %s finishes after unmount',
+    async (phase) => {
+      let release!: (value: any) => void;
+      const deferred = new Promise((resolve) => {
+        release = resolve;
+      });
+      mocks.fetchWithTimeoutMock.mockImplementation(async (url: string) => {
+        if (url === '/api/chat/async') {
+          return phase === 'submission'
+            ? deferred
+            : response({ jobId: 'job-1', status: 'pending' });
+        }
+        return deferred;
+      });
+      const onAccepted = vi.fn();
+      const onProgress = vi.fn();
+      const { root, api } = renderProbe({ userId: 'alice', onProgress });
+      let pending!: Promise<string>;
+      await act(async () => {
+        pending = api.startAsyncJob(
+          [],
+          {},
+          'alice',
+          'conv-1',
+          'Test',
+          undefined,
+          undefined,
+          onAccepted,
+        );
+      });
+      act(() => root.unmount());
+      onAccepted.mockClear();
+      mocks.manager.subscribeToJob.mockClear();
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      try {
+        await act(async () => {
+          release(response({ jobId: 'job-1', status: 'pending' }));
+          await pending;
+        });
+        expect(intervals).not.toHaveBeenCalled();
+      } finally {
+        intervals.mockRestore();
+      }
+      expect(mocks.manager.subscribeToJob).not.toHaveBeenCalled();
+      expect(mocks.handlers.size).toBe(0);
+      expect(onAccepted).not.toHaveBeenCalled();
+      expect(onProgress).not.toHaveBeenCalled();
+      expect(JSON.parse(localStorage.getItem('asyncJobs_alice')!)).toEqual([
+        expect.objectContaining({ jobId: 'job-1', conversationId: 'conv-1' }),
+      ]);
+    },
+  );
+
   it.each([false, true])(
     'keeps OAuth visible during sibling steps with preceding tokens: %s',
     async (withToken) => {

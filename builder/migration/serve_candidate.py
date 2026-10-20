@@ -124,11 +124,15 @@ def browser_control(peers, milvus, port, weather):
             ).read_text()
         )
     )["cases"][0]
-    # The ingestion dimension probe uses the opaque read token, whereas
-    # NV-Ingest's upload credentials use the configured username/password.
+    # Metadata and the ingestion dimension probe share the opaque read token
+    # and default database. The peer answers both independently of the writer,
+    # which uses the configured username/password. Do not leave the already
+    # answered probe in the writer's otherwise exact retained RPC sequence.
     reader_auth = base64.b64encode(b"synthetic-browser-milvus-token").decode()
     script = [call for call in oracle["calls"] if call["method"] != "Connect"]
-    script[0]["metadata"]["authorization"] = reader_auth
+    if script[0]["method"] != "ShowCollections":
+        raise AssertionError("Retained ingestion fixture lost its dimension probe")
+    script = script[1:]
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -321,89 +325,96 @@ def browser_skills():
         yield root
 
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--image", required=True)
-parser.add_argument("--redis-image", required=True)
-parser.add_argument("--milvus-image", required=True)
-parser.add_argument("--port", type=int, default=18000)
-args = parser.parse_args()
-stopped = threading.Event()
-for sig in (signal.SIGTERM, signal.SIGINT):
-    signal.signal(sig, lambda *_: stopped.set())
-peers = BrowserPeers()
-peers.retrieval_content = "雪🌲 exact cached browser evidence"
-peers.retrieval_reference = reference(peers.retrieval_content)
-with browser_skills() as skills_root, milvus_fixture(
-    args.milvus_image
-) as milvus, environment(  # nosec B106
-    args.image,
-    args.redis_image,
-    memory=True,
-    port=args.port,
-    token="e2e-internal-token",
-    peers=peers,
-    configure=lambda *args: configure(*args, skills_root=skills_root),
-    fixture_mounts=[(skills_root, skills_root)],
-    namespace_factory=public_fixture(
-        args.milvus_image,
-        minimal=True,
-        extra_ports=[
-            milvus["port"],
-            *[
-                urlsplit(os.environ[name]).port
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--image", required=True)
+    parser.add_argument("--redis-image", required=True)
+    parser.add_argument("--milvus-image", required=True)
+    parser.add_argument("--port", type=int, default=18000)
+    args = parser.parse_args()
+    stopped = threading.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: stopped.set())
+    peers = BrowserPeers()
+    peers.retrieval_content = "雪🌲 exact cached browser evidence"
+    peers.retrieval_reference = reference(peers.retrieval_content)
+    with browser_skills() as skills_root, milvus_fixture(
+        args.milvus_image
+    ) as milvus, environment(  # nosec B106
+        args.image,
+        args.redis_image,
+        memory=True,
+        port=args.port,
+        token="e2e-internal-token",
+        peers=peers,
+        configure=lambda *args: configure(*args, skills_root=skills_root),
+        fixture_mounts=[(skills_root, skills_root)],
+        namespace_factory=public_fixture(
+            args.milvus_image,
+            minimal=True,
+            extra_ports=[
+                milvus["port"],
+                *[
+                    urlsplit(os.environ[name]).port
+                    for name in [
+                        "REDIS_URL",
+                        "DOCUMENT_OBJECT_ENDPOINT",
+                        "DAEDALUS_ARTIFACT_PUBLISH_URL",
+                    ]
+                ],
+            ],
+        ),
+        extra_env=lambda port: {
+            **{
+                name: os.environ[name]
                 for name in [
                     "REDIS_URL",
                     "DOCUMENT_OBJECT_ENDPOINT",
-                    "DAEDALUS_ARTIFACT_PUBLISH_URL",
+                    "DOCUMENT_OBJECT_ACCESS_KEY",
+                    "DOCUMENT_OBJECT_SECRET_KEY",
+                    "DOCUMENT_OBJECT_BUCKET",
+                    "DOCUMENT_OBJECT_REGION",
+                    "DOCUMENT_OBJECT_PREFIX",
                 ]
+            },
+            "REDIS_TLS_ENABLED": "false",
+            "NV_INGEST_HOST": "127.0.0.1",
+            "NV_INGEST_PORT": str(port),
+            "MILVUS_URI": f"http://127.0.0.1:{milvus['port']}",
+            "MILVUS_TOKEN": "synthetic-browser-milvus-token",
+            "MILVUS_DATABASE": "default",
+            "MILVUS_USERNAME": "synthetic-user",
+            "MILVUS_PASSWORD": "synthetic-password",
+            "EMBEDDING_DENSE_DIM": "2",
+            "DOCUMENT_INGEST_MAX_RETRIES": "0",
+            # The retained environment defaults allow this disposable loopback
+            # topology; the publisher is the actual running Next.js endpoint.
+            "LLM_SANDBOX_BASE_URL": f"http://127.0.0.1:{port}",
+            "LLM_SANDBOX_API_KEY": "synthetic-browser-sandbox",
+            "DAEDALUS_ARTIFACT_PUBLISH_URL": os.environ[
+                "DAEDALUS_ARTIFACT_PUBLISH_URL"
             ],
-        ],
-    ),
-    extra_env=lambda port: {
-        **{
-            name: os.environ[name]
-            for name in [
-                "REDIS_URL",
-                "DOCUMENT_OBJECT_ENDPOINT",
-                "DOCUMENT_OBJECT_ACCESS_KEY",
-                "DOCUMENT_OBJECT_SECRET_KEY",
-                "DOCUMENT_OBJECT_BUCKET",
-                "DOCUMENT_OBJECT_REGION",
-                "DOCUMENT_OBJECT_PREFIX",
-            ]
         },
-        "REDIS_TLS_ENABLED": "false",
-        "NV_INGEST_HOST": "127.0.0.1",
-        "NV_INGEST_PORT": str(port),
-        "MILVUS_URI": f"http://127.0.0.1:{milvus['port']}",
-        "MILVUS_TOKEN": "synthetic-browser-milvus-token",
-        "MILVUS_DATABASE": "default",
-        "MILVUS_USERNAME": "synthetic-user",
-        "MILVUS_PASSWORD": "synthetic-password",
-        "EMBEDDING_DENSE_DIM": "2",
-        "DOCUMENT_INGEST_MAX_RETRIES": "0",
-        # The retained environment defaults allow this disposable loopback
-        # topology; the publisher is the actual running Next.js endpoint.
-        "LLM_SANDBOX_BASE_URL": f"http://127.0.0.1:{port}",
-        "LLM_SANDBOX_API_KEY": "synthetic-browser-sandbox",
-        "DAEDALUS_ARTIFACT_PUBLISH_URL": os.environ["DAEDALUS_ARTIFACT_PUBLISH_URL"],
-    },
-) as fixture:
-    milvus["control"].post(
-        "/reset", json={"collections": ["nvidia", "another_private_collection"]}
-    ).raise_for_status()
-    with redis.Redis.from_url(os.environ["REDIS_URL"]) as shared:
-        shared.set(
-            key("e2e-user", peers.retrieval_reference),
-            b"z1" + zlib.compress(peers.retrieval_content.encode()),
-            ex=7200,
+    ) as fixture:
+        milvus["control"].post(
+            "/reset", json={"collections": ["nvidia", "another_private_collection"]}
+        ).raise_for_status()
+        with redis.Redis.from_url(os.environ["REDIS_URL"]) as shared:
+            shared.set(
+                key("e2e-user", peers.retrieval_reference),
+                b"z1" + zlib.compress(peers.retrieval_content.encode()),
+                ex=7200,
+            )
+        control = browser_control(
+            peers, milvus, args.port + 1, fixture["namespace"]["control"]
         )
-    control = browser_control(
-        peers, milvus, args.port + 1, fixture["namespace"]["control"]
-    )
-    try:
-        print("Candidate image ready; mock backend is disabled.", flush=True)
-        stopped.wait()
-    finally:
-        control.shutdown()
-        control.server_close()
+        try:
+            print("Candidate image ready; mock backend is disabled.", flush=True)
+            stopped.wait()
+        finally:
+            control.shutdown()
+            control.server_close()
+
+
+if __name__ == "__main__":
+    main()

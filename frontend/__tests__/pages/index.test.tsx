@@ -100,6 +100,211 @@ describe('Home', () => {
     document.body.innerHTML = '';
   });
 
+  it.each(['update', 'delete'])(
+    'preserves a concurrent %s when initial history fails and falls back to cache',
+    async (event) => {
+      sessionStorage.setItem(
+        'user:anon:conversationHistory',
+        JSON.stringify([conversation('conv-a', { revision: 'r2' })]),
+      );
+      let rejectInitial!: (error: Error) => void;
+      mocks.apiGet.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectInitial = reject;
+          }),
+      );
+      const root = await renderHome();
+      try {
+        await act(async () => {
+          if (event === 'update') {
+            mocks.webSocketOptions.onConversationUpdated({
+              conversation: conversation('conv-a', { revision: 'r3' }),
+            });
+          } else {
+            mocks.webSocketOptions.onConversationDeleted('conv-a');
+          }
+        });
+        await act(async () => rejectInitial(new Error('History unavailable')));
+        const stored = useConversationStore
+          .getState()
+          .conversations.find(({ id }) => id === 'conv-a');
+        if (event === 'update') expect(stored?.revision).toBe('r3');
+        else expect(stored).toBeUndefined();
+      } finally {
+        act(() => root.unmount());
+      }
+    },
+  );
+
+  it('ignores a superseded initial history failure after later sync events', async () => {
+    let rejectInitial!: (error: Error) => void;
+    mocks.apiGet.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectInitial = reject;
+        }),
+    );
+    const root = await renderHome();
+    try {
+      mocks.history = [conversation('conv-a', { revision: 'r2' })];
+      await act(async () => mocks.webSocketOptions.onConnected());
+      await act(async () =>
+        mocks.webSocketOptions.onConversationUpdated({
+          conversation: conversation('conv-a', { revision: 'r3' }),
+        }),
+      );
+      await act(async () => rejectInitial(new Error('Old request failed')));
+      expect(
+        useConversationStore
+          .getState()
+          .conversations.find(({ id }) => id === 'conv-a')?.revision,
+      ).toBe('r3');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  it.each(['success', 'failure'])(
+    'waits for a newer history refresh before restoring the selection after initial %s',
+    async (initialOutcome) => {
+      sessionStorage.setItem(
+        'user:anon:selectedConversation',
+        JSON.stringify({ id: 'conv-a' }),
+      );
+      let resolveInitial!: (value: any) => void;
+      let rejectInitial!: (error: Error) => void;
+      let resolveRefresh!: (value: any) => void;
+      mocks.apiGet
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              resolveInitial = resolve;
+              rejectInitial = reject;
+            }),
+        )
+        .mockImplementationOnce(
+          () => new Promise((resolve) => (resolveRefresh = resolve)),
+        );
+      const root = await renderHome();
+      try {
+        act(() => mocks.webSocketOptions.onConnected());
+        await act(async () => {
+          if (initialOutcome === 'success') resolveInitial([]);
+          else rejectInitial(new Error('Old history request failed'));
+        });
+        // A reconnect read superseded the initial request. Its pending result
+        // must not make the saved selection look like a deleted conversation.
+        expect(
+          useConversationStore.getState().selectedConversationId,
+        ).toBeNull();
+        expect(
+          JSON.parse(sessionStorage.getItem('user:anon:selectedConversation')!),
+        ).toEqual({ id: 'conv-a' });
+        await act(async () => resolveRefresh([conversation('conv-a')]));
+        expect(useConversationStore.getState().selectedConversationId).toBe(
+          'conv-a',
+        );
+        expect(selectionWrites()).toEqual([]);
+      } finally {
+        act(() => root.unmount());
+      }
+    },
+  );
+
+  it('keeps waiting when another history refresh supersedes selection restoration', async () => {
+    sessionStorage.setItem(
+      'user:anon:selectedConversation',
+      JSON.stringify({ id: 'conv-a' }),
+    );
+    const resolvers: ((value: any) => void)[] = [];
+    mocks.apiGet.mockImplementation(async (path: string) => {
+      if (path === '/api/session/conversationHistory') {
+        return new Promise((resolve) => resolvers.push(resolve));
+      }
+      if (path === '/api/session/selectedConversation') return null;
+      throw new Error(`Unexpected GET ${path}`);
+    });
+    const root = await renderHome();
+    try {
+      act(() => mocks.webSocketOptions.onConnected());
+      await act(async () => resolvers[0]([]));
+      act(() => mocks.webSocketOptions.onConnected());
+      await act(async () => resolvers[1]([]));
+      expect(useConversationStore.getState().selectedConversationId).toBeNull();
+      await act(async () => resolvers[2]([conversation('conv-a')]));
+      expect(useConversationStore.getState().selectedConversationId).toBe(
+        'conv-a',
+      );
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  it('does not restore a selection after unmounting during the replacement history read', async () => {
+    const resolvers: ((value: any) => void)[] = [];
+    mocks.apiGet.mockImplementation(async (path: string) => {
+      if (path === '/api/session/conversationHistory') {
+        return new Promise((resolve) => resolvers.push(resolve));
+      }
+      if (path === '/api/session/selectedConversation') return { id: 'conv-a' };
+      throw new Error(`Unexpected GET ${path}`);
+    });
+    const root = await renderHome();
+    act(() => mocks.webSocketOptions.onConnected());
+    await act(async () => resolvers[0]([]));
+    act(() => root.unmount());
+    await act(async () => resolvers[1]([conversation('conv-a')]));
+    expect(useConversationStore.getState().selectedConversationId).toBeNull();
+    expect(useConversationStore.getState().conversations).toEqual([]);
+  });
+
+  it.each(['updated', 'deleted'] as const)(
+    'uses the initial history if its replacement fails without losing a concurrent %s event',
+    async (event) => {
+      sessionStorage.setItem(
+        'user:anon:selectedConversation',
+        JSON.stringify({ id: 'conv-b' }),
+      );
+      let resolveInitial!: (value: any) => void;
+      let rejectRefresh!: (error: Error) => void;
+      mocks.apiGet
+        .mockImplementationOnce(
+          () => new Promise((resolve) => (resolveInitial = resolve)),
+        )
+        .mockImplementationOnce(
+          () => new Promise((_resolve, reject) => (rejectRefresh = reject)),
+        );
+      const root = await renderHome();
+      try {
+        act(() => mocks.webSocketOptions.onConnected());
+        act(() => {
+          if (event === 'updated') {
+            mocks.webSocketOptions.onConversationUpdated({
+              conversation: conversation('conv-a', { revision: 'r3' }),
+            });
+          } else {
+            mocks.webSocketOptions.onConversationDeleted('conv-a');
+          }
+        });
+        await act(async () =>
+          resolveInitial([
+            conversation('conv-a', { revision: 'r1' }),
+            conversation('conv-b'),
+          ]),
+        );
+        await act(async () => rejectRefresh(new Error('Refresh unavailable')));
+        const state = useConversationStore.getState();
+        expect(state.selectedConversationId).toBe('conv-b');
+        const saved = state.conversations.find(({ id }) => id === 'conv-a');
+        if (event === 'updated') expect(saved?.revision).toBe('r3');
+        else expect(saved).toBeUndefined();
+      } finally {
+        act(() => root.unmount());
+      }
+    },
+  );
+
   it('does not re-render the app shell for streamed message updates', async () => {
     const root = createRoot(document.createElement('div'));
     await act(async () => {
@@ -268,6 +473,85 @@ describe('Home', () => {
     expect(state.selectedConversationId).toBe('conv-a');
     act(() => root.unmount());
   });
+
+  it.each(['updated', 'deleted'] as const)(
+    'discards a delayed sync read after the conversation is %s again',
+    async (event) => {
+      mocks.history = [conversation('conv-a', { revision: 'r1' })];
+      const root = await renderHome();
+      let resolveRead!: (value: any) => void;
+      mocks.apiGet.mockImplementationOnce(
+        () => new Promise((resolve) => (resolveRead = resolve)),
+      );
+      act(() => {
+        mocks.webSocketOptions.onConversationUpdated({
+          conversationId: 'conv-a',
+          revision: 'r2',
+        });
+      });
+
+      act(() => {
+        if (event === 'deleted') {
+          mocks.webSocketOptions.onConversationDeleted('conv-a');
+        } else {
+          mocks.webSocketOptions.onConversationUpdated({
+            conversationId: 'conv-a',
+            conversation: conversation('conv-a', { revision: 'r3' }),
+          });
+        }
+      });
+      await act(async () => {
+        resolveRead(conversation('conv-a', { revision: 'r2' }));
+      });
+      const saved = useConversationStore
+        .getState()
+        .conversations.find(({ id }) => id === 'conv-a');
+      if (event === 'deleted') expect(saved).toBeUndefined();
+      else expect(saved?.revision).toBe('r3');
+      act(() => root.unmount());
+    },
+  );
+
+  it.each(['updated', 'deleted'] as const)(
+    'preserves a conversation %s during a history refresh',
+    async (event) => {
+      mocks.history = [
+        conversation('conv-a', { revision: 'r1' }),
+        conversation('conv-b'),
+      ];
+      mocks.selection = { id: 'conv-b' };
+      const root = await renderHome();
+      let resolveRead!: (value: any) => void;
+      mocks.apiGet.mockImplementationOnce(
+        () => new Promise((resolve) => (resolveRead = resolve)),
+      );
+      act(() => mocks.webSocketOptions.onConnected());
+      act(() => {
+        if (event === 'deleted') {
+          mocks.webSocketOptions.onConversationDeleted('conv-a');
+        } else {
+          mocks.webSocketOptions.onConversationUpdated({
+            conversationId: 'conv-a',
+            conversation: conversation('conv-a', { revision: 'r3' }),
+          });
+        }
+      });
+      await act(async () => {
+        resolveRead([
+          conversation('conv-a', { revision: 'r2' }),
+          conversation('conv-b'),
+          conversation('conv-c'),
+        ]);
+      });
+      const conversations = useConversationStore.getState().conversations;
+      const saved = conversations.find(({ id }) => id === 'conv-a');
+      if (event === 'deleted') expect(saved).toBeUndefined();
+      else expect(saved?.revision).toBe('r3');
+      // Unrelated records discovered by the refresh are still adopted.
+      expect(conversations.some(({ id }) => id === 'conv-c')).toBe(true);
+      act(() => root.unmount());
+    },
+  );
 
   it('keeps a long-running job tracked when the page loads', async () => {
     // The job status outlives its last update by an hour, so a running job

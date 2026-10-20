@@ -10,6 +10,7 @@ import {
   loadOAuthCallbackTarget,
   saveOAuthCallbackTarget,
 } from '@/server/mcpOAuth';
+import { jsonDel } from '@/server/session/redis';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -260,6 +261,24 @@ describe('MCP OAuth redirect API', () => {
 
     expect(header(res, 'Content-Type')).toBe('text/html; charset=utf-8');
     expect(header(res, 'Content-Disposition')).toBe('inline');
+  });
+
+  it('preserves completed authorization when routing-key cleanup fails', async () => {
+    vi.mocked(jsonDel).mockRejectedValueOnce(new Error('Redis unavailable'));
+    const { req, res } = createMockReqRes('POST', {
+      code: 'google-code',
+      state: 'oauth-state',
+    });
+
+    await handler(req, res);
+
+    expect(fetchWithTimeout).toHaveBeenCalledOnce();
+    expect(completeOAuthJobRequest).toHaveBeenCalledWith(
+      'job-123',
+      'oauth-state',
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith('<html>connected</html>');
   });
 
   it.each(['GET', 'POST'])(

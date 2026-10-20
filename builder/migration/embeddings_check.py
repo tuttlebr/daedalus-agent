@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare staged embeddings against the retained provider over HTTP and TLS."""
+"""Compare native embeddings against the retained provider over HTTP and TLS."""
 
 import argparse
 import base64
@@ -456,7 +456,6 @@ def main(args):
                     capture_output=True,
                     text=True,
                 ).stdout.strip(),
-                "native_registration": "pending",
             },
             indent=2,
         )

@@ -50,9 +50,18 @@ context bounds and measurement commands.
 Finalization saves the conversation, then records that save, releases the
 conversation and chat slot, clears streaming state and publishes completion in
 one Redis commit, so a guard is never released before the save is recorded.
+The conversation write atomically verifies the finalizer's current lock token,
+so a delayed owner whose lock expired cannot overwrite a later turn.
 The same commit queues a completed turn for memory retention; the stream worker
 sends it afterwards with bounded retries, and neither completion nor the next
-turn waits for the memory service.
+turn waits for the memory service. Retention polling continues while all chat
+execution slots are occupied, with at most one retention poll in progress.
+
+Autonomous requests record a durable dispatch phase separately from their
+expiring worker lease. Recovery requeues only requests marked as claimed but
+undispatched. Started requests and legacy claims without a known phase are
+removed from processing without another backend call; interrupted run records
+are marked aborted. This avoids replaying actions whose remote outcome is unknown.
 
 Each authenticated user can submit up to five chats concurrently across tabs
 and frontend instances. Redis atomically reserves a slot before enqueueing,
@@ -162,6 +171,11 @@ concurrency, and Axum for HTTP. Its application-owned loop controls model calls,
 bounded tool batches, steering, cancellation, and terminal events. It never
 executes a partial model tool call. Each run has a bounded, authenticated inbox;
 duplicate command IDs are idempotent, and conflicting reuse is rejected.
+
+When a handler rejects an HTTP/1 request before consuming its body, the runtime
+responds with `Connection: close`. It does not drain the rejected upload or retry
+the request. Fully consumed requests retain connection reuse; HTTP/2 keeps its
+independent stream framing without connection-specific response headers.
 
 Rust also owns YAML configuration, model/profile selection, inbound history budgeting,
 automatic Hindsight context, tool-output compaction/cache writes and run state.

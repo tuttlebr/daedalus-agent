@@ -22,6 +22,7 @@ describe('imageHandler blob cache', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     let nextUrl = 0;
+    createObjectURL.mockClear();
     createObjectURL.mockImplementation(() => `blob:test-${++nextUrl}`);
     revokeObjectURL.mockClear();
     Object.defineProperty(URL, 'createObjectURL', {
@@ -133,5 +134,55 @@ describe('imageHandler blob cache', () => {
     vi.advanceTimersByTime(100);
     expect(revokeObjectURL).toHaveBeenCalledWith(temporaryUrl);
     expect(revokeObjectURL).not.toHaveBeenCalledWith(cachedUrl);
+  });
+
+  it('invalidates pending image loads when private caches are cleared', async () => {
+    mockImageFetch(128);
+    let resolveOld!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveOld = resolve)),
+    );
+    const { fetchImageAsBlob } = await import('@/utils/app/imageHandler');
+    const { clearPrivateCaches } = await import('@/utils/app/pwa');
+    const ref = { imageId: 'pending', sessionId: 'generated' };
+    const oldLoad = fetchImageAsBlob(ref).then(
+      (url) => ({ url, error: undefined }),
+      (error: Error) => ({ url: undefined, error }),
+    );
+
+    await clearPrivateCaches();
+    const newLoad = fetchImageAsBlob(ref);
+    resolveOld({
+      ok: true,
+      blob: async () => new Blob(['old private image']),
+    } as Response);
+
+    const oldResult = await oldLoad;
+    expect(oldResult.error?.name).toBe('AbortError');
+    expect(oldResult.url).toBeUndefined();
+    await expect(newLoad).resolves.toBe('blob:test-1');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not release a new image reference when an old consumer unmounts', async () => {
+    mockImageFetch(128);
+    const { fetchImageAsBlob, revokeImageBlob } = await import(
+      '@/utils/app/imageHandler'
+    );
+    const { clearPrivateCaches } = await import('@/utils/app/pwa');
+    const ref = { imageId: 'reused', sessionId: 'generated' };
+    const oldUrl = await fetchImageAsBlob(ref);
+    await clearPrivateCaches();
+    expect(revokeObjectURL).toHaveBeenCalledWith(oldUrl);
+    const newUrl = await fetchImageAsBlob(ref);
+    expect(newUrl).not.toBe(oldUrl);
+
+    revokeImageBlob('reused', oldUrl);
+    vi.advanceTimersByTime(100);
+    expect(revokeObjectURL).not.toHaveBeenCalledWith(newUrl);
+    revokeImageBlob('reused', newUrl);
+    vi.advanceTimersByTime(100);
+    expect(revokeObjectURL).toHaveBeenCalledWith(newUrl);
   });
 });

@@ -716,7 +716,6 @@ def main(args):
                                 ROOT / "runtime/resources/document-tools.json",
                             ]
                         },
-                        "native_registration": "pending",
                         "python_image": run(
                             "docker",
                             "image",

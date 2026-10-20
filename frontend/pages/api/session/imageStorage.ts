@@ -70,6 +70,8 @@ class ImageUploadTooLargeError extends Error {
   }
 }
 
+class ImageAccessError extends Error {}
+
 export function assertImageUploadSize(size: number): void {
   if (size > MAX_IMAGE_UPLOAD_SIZE_BYTES) {
     throw new ImageUploadTooLargeError();
@@ -260,8 +262,12 @@ async function processImage(
   let sourceMetadata: ImageMetadata | undefined;
   try {
     sourceMetadata = await sharp(buffer).metadata();
-  } catch (error) {
-    if (!claimsHeicMimeType && !hasHeicBrand) throw error;
+  } catch {
+    if (!claimsHeicMimeType && !hasHeicBrand) {
+      throw new UnsupportedImageError(
+        'Unable to decode and normalize this image.',
+      );
+    }
   }
   const requiresHeicNormalization =
     hasHeicBrand ||
@@ -490,19 +496,21 @@ export async function deleteImage(
   imageId: string,
   userId?: string,
 ): Promise<boolean> {
-  let result = 0;
-
-  // Try to delete from user-specific key if userId is provided
-  if (userId) {
-    result = await jsonDel(sessionKey(['user', userId, 'image', imageId]));
+  const keys = [
+    ...(userId ? [sessionKey(['user', userId, 'image', imageId])] : []),
+    sessionKey(['image', sessionId, imageId]),
+  ];
+  for (const key of keys) {
+    // Legacy session keys may still carry an authoritative user owner.
+    // Read only ownership fields before deleting their immutable image ID.
+    const image = await readImageFields(key, ['id', 'userId', 'sessionId']);
+    if (!image) continue;
+    if (!ownsUpload(image, { userId: userId ?? '', sessionId })) {
+      throw new ImageAccessError('Forbidden');
+    }
+    if ((await jsonDel(key)) > 0) return true;
   }
-
-  // Also try session-specific key (for backward compatibility)
-  if (result === 0) {
-    result = await jsonDel(sessionKey(['image', sessionId, imageId]));
-  }
-
-  return result > 0;
+  return false;
 }
 
 // Touch image to refresh its TTL (extend expiry when image is still in use)
@@ -684,6 +692,9 @@ export default async function handler(
 
       return res.status(200).json({ message: 'Image deleted successfully' });
     } catch (error) {
+      if (error instanceof ImageAccessError) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
       console.error('Error deleting image:', error);
       return res.status(500).json({ error: 'Failed to delete image' });
     }

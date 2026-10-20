@@ -276,6 +276,32 @@ def normalized_calls(calls):
     return calls
 
 
+def compare_public_memory_response(old, new, case):
+    expected = old
+    if old.get("scenario") == "upstream_lost_response":
+        # The retained image predates e7528266: HTTPX RemoteProtocolError
+        # escaped its narrower timeout/network catch. Current Python maps all
+        # RequestError failures to the same private 502 response as Rust.
+        # Permit only this documented correction, retaining exact request
+        # identity, arguments, credentials, and single-dispatch semantics.
+        require(
+            old["status"] == 500
+            and old["body"] == "Internal Server Error"
+            and len(old["calls"]) == 1
+            and old["calls"][0]["method"] == "PATCH",
+            "Retained lost-response contract changed",
+        )
+        expected = {
+            **old,
+            "status": 502,
+            "body": {"detail": "memory service unavailable"},
+        }
+    require(
+        expected == new,
+        f"Public memory parity failed at case {case}:\nexpected={expected}\nactual={new}",
+    )
+
+
 def exercise(image, redis_image, *, rust, minimal, disabled=False):
     print(
         f"Public memory: rust={rust}, minimal={minimal}, disabled={disabled}",
@@ -505,11 +531,13 @@ def exercise(image, redis_image, *, rust, minimal, disabled=False):
         for fault in [307, 400, 404, 401, 403, 500, "invalid", 204, "lost"]:
             peers.fault = fault
             peers.fail_path = "memories/fact-1"
-            request(
+            result = request(
                 "PATCH",
                 "/v1/memories/fact-1",
                 json={"text": "Synthetic rejected change"},
             )
+            if fault == "lost":
+                result["scenario"] = "upstream_lost_response"
         peers.fault = None
 
         peers.fault = "bad_tree"
@@ -690,10 +718,7 @@ if __name__ == "__main__":
     ]:
         actual = exercise(image, args.redis_image, rust=rust, minimal=minimal)
         for i, (old, new) in enumerate(zip(baseline, actual, strict=True)):
-            require(
-                old == new,
-                f"Public memory parity failed at case {i}:\nexpected={old}\nactual={new}",
-            )
+            compare_public_memory_response(old, new, i)
         check_reflection_clear_race(image, args.redis_image, rust=rust, minimal=minimal)
     disabled = exercise(
         args.full_image, args.redis_image, rust=False, minimal=False, disabled=True

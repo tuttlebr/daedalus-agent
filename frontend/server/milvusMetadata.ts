@@ -39,17 +39,24 @@ function parseMetadata(value: unknown): MilvusMetadataResponse {
     throw new Error('Backend collection metadata response is invalid');
   }
   const data = value as Record<string, unknown>;
+  const userCollection = data.userCollection;
   if (
     typeof data.databaseName !== 'string' ||
-    !isCollectionMetadata(data.userCollection) ||
+    !isCollectionMetadata(userCollection) ||
     !Array.isArray(data.sharedCollections) ||
     !data.sharedCollections.every(isCollectionMetadata) ||
+    data.sharedCollections.some(
+      (collection) => collection.scope !== 'shared' || collection.writable,
+    ) ||
     !Array.isArray(data.writableCollections) ||
     !data.writableCollections.every(isCollectionMetadata) ||
-    data.userCollection.scope !== 'user' ||
-    !data.userCollection.writable ||
+    userCollection.scope !== 'user' ||
+    !userCollection.writable ||
     data.writableCollections.some(
-      (collection) => collection.scope !== 'user' || !collection.writable,
+      (collection) =>
+        collection.scope !== 'user' ||
+        !collection.writable ||
+        collection.name !== userCollection.name,
     )
   ) {
     throw new Error('Backend collection metadata response is invalid');

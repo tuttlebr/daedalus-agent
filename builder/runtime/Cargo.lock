@@ -461,6 +461,7 @@ dependencies = [
  "futures",
  "hmac",
  "http",
+ "http-body",
  "hyper-util",
  "jsonschema",
  "libc",

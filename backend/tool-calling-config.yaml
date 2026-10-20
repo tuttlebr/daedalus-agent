@@ -511,7 +511,7 @@ functions:
   current_datetime_tool:
     _type: current_datetime
     # The clock uses the authenticated request timezone and includes its UTC offset.
-    # This upstream component owns its description; it has no description field.
+    # The runtime supplies its shared clock description from tool-policy.json.
     verbose: false
   get_memory:
     _type: daedalus_get_memory

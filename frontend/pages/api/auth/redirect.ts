@@ -189,7 +189,9 @@ async function completeCallback(
       // is best effort and must never turn that success into a retryable 502.
       await completeOAuthJobRequest(target.jobId, state).catch(() => false);
     }
-    await deleteOAuthCallbackTarget(state);
+    // A backend response settles the callback. Cleanup must not turn it into
+    // a retryable transport failure; the short-lived route also expires.
+    await deleteOAuthCallbackTarget(state).catch(() => undefined);
 
     const contentType = response.headers.get('content-type');
     res.setHeader('Content-Type', contentType || OAUTH_CALLBACK_CONTENT_TYPE);

@@ -756,6 +756,7 @@ export const useAsyncChat = (
   // Subscribe a job to WebSocket push updates
   const subscribeJobToWs = useCallback(
     (jobId: string, conversationId?: string): void => {
+      if (!isComponentMountedRef.current) return;
       const wsManager = getWebSocketManager();
 
       // Queue subscriptions even while disconnected. The manager sends them
@@ -936,6 +937,7 @@ export const useAsyncChat = (
       try {
         const saved = await findSavedResponse(job);
         if (
+          !isComponentMountedRef.current ||
           !activeJobsRef.current[jobId] ||
           completedJobsRef.current.has(jobId)
         )
@@ -1005,12 +1007,14 @@ export const useAsyncChat = (
   // rewind the visible state.
   const refreshJobStatus = useCallback(
     async (jobId: string) => {
+      if (!isComponentMountedRef.current) return;
       if (fallbackRequestsRef.current.has(jobId)) return;
       fallbackRequestsRef.current.add(jobId);
       const statusAtRequestStart = jobStatusByJobIdRef.current[jobId];
       try {
         const result = await fetchJobStatus(jobId);
         if (
+          !isComponentMountedRef.current ||
           !activeJobsRef.current[jobId] ||
           completedJobsRef.current.has(jobId)
         ) {
@@ -1080,6 +1084,7 @@ export const useAsyncChat = (
         ? WS_FALLBACK_POLL_INTERVAL
         : pollingInterval,
     ) => {
+      if (!isComponentMountedRef.current) return;
       if (wsFallbackTimersRef.current[jobId]) {
         clearInterval(wsFallbackTimersRef.current[jobId]!);
       }
@@ -1313,6 +1318,9 @@ export const useAsyncChat = (
           job,
         ];
         persistJobs(nextPersistedJobs, userId);
+        // The remote job remains resumable, but a late admission response
+        // must not recreate subscriptions or call the unmounted view.
+        if (!isComponentMountedRef.current) return jobId;
 
         try {
           onAccepted?.(jobId);
@@ -1329,7 +1337,7 @@ export const useAsyncChat = (
       } catch (error: any) {
         if (submission.cancelled) return submission.jobId ?? '';
         logger.error('Error starting async job', error);
-        if (onError) {
+        if (isComponentMountedRef.current && onError) {
           onError(error.message, {
             conversationId,
             turnId,
@@ -1406,6 +1414,7 @@ export const useAsyncChat = (
     }
 
     for (const job of jobsToResume) {
+      if (!isComponentMountedRef.current) return;
       logger.info('Resuming job tracking', job.jobId);
       activeJobsRef.current[job.jobId] = job;
       subscribeJobToWs(job.jobId, job.conversationId);
@@ -1430,9 +1439,11 @@ export const useAsyncChat = (
     // Every completion path clears the persisted record, so a record that has
     // disappeared during an await was resolved by live delivery meanwhile.
     const unresolved = (jobId: string) =>
+      isComponentMountedRef.current &&
       getPersistedJobs(userId).some((persisted) => persisted.jobId === jobId);
 
     for (const job of persistedJobs) {
+      if (!isComponentMountedRef.current) return;
       if (now - job.timestamp > orphanThreshold) {
         logger.warn(`Found potential orphaned job: ${job.jobId}`);
 
@@ -1501,6 +1512,7 @@ export const useAsyncChat = (
         }
 
         // Fallback: the worker saves the owned answer in the conversation.
+        if (!isComponentMountedRef.current) return;
         const saved = await findSavedResponse(job);
         if (saved && unresolved(job.jobId)) {
           completeFromSavedResponse(job, saved);

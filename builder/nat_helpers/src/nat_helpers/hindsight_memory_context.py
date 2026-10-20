@@ -24,6 +24,10 @@ _SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 _SYNTHESIS_MIN_INTERVAL_SECONDS = 10 * 60
 _MAX_CONTEXT_CHARS = 6000
 _MAX_PAGE_CHARS = 1800
+_RELEASE_LOCK_SCRIPT = (
+    "if redis.call('GET',KEYS[1]) == ARGV[1] then "
+    "return redis.call('DEL',KEYS[1]) end; return 0"
+)
 
 _RETAIN_MISSION = (
     "Preserve durable user-provided preferences, decisions, constraints, project "
@@ -219,6 +223,7 @@ async def ensure_bank_initialized(client: HindsightClient, user_id: str) -> None
         distributed_lock_key = f"daedalus:memory:bootstrap-lock:{cache_id}"
         cache_key = f"daedalus:memory:bootstrap:{cache_id}"
         owns_distributed_lock = False
+        lock_token = secrets.token_hex(16)
         try:
             try:
                 redis = await _redis_client()
@@ -228,7 +233,7 @@ async def ensure_bank_initialized(client: HindsightClient, user_id: str) -> None
                 owns_distributed_lock = bool(
                     await redis.set(
                         distributed_lock_key,
-                        "1",
+                        lock_token,
                         nx=True,
                         ex=30,
                     )
@@ -268,7 +273,9 @@ async def ensure_bank_initialized(client: HindsightClient, user_id: str) -> None
         finally:
             if redis is not None:
                 if owns_distributed_lock:
-                    await redis.delete(distributed_lock_key)
+                    await redis.eval(
+                        _RELEASE_LOCK_SCRIPT, 1, distributed_lock_key, lock_token
+                    )
                 await close_redis_client(redis)
 
 
@@ -291,6 +298,7 @@ async def _session_brief(
     redis = None
     cached: dict[str, Any] = {}
     owns_lock = False
+    lock_token = secrets.token_hex(16)
     try:
         redis = await _redis_client()
         raw = await redis.get(cache_key)
@@ -318,7 +326,7 @@ async def _session_brief(
         if not should_refresh:
             return str(cached.get("text") or "")
         generation = await redis.get(generation_key) or ""
-        owns_lock = bool(await redis.set(lock_key, "1", nx=True, ex=60))
+        owns_lock = bool(await redis.set(lock_key, lock_token, nx=True, ex=60))
         if not owns_lock:
             return str(cached.get("text") or "")
 
@@ -362,7 +370,7 @@ async def _session_brief(
         if redis is not None:
             try:
                 if owns_lock:
-                    await redis.delete(lock_key)
+                    await redis.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, lock_token)
             except Exception:
                 logger.debug("Failed to release session reflection lock", exc_info=True)
             await close_redis_client(redis)

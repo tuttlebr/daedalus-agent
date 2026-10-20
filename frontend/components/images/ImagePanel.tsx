@@ -312,6 +312,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const invalidateImageHistory = useInvalidateImageHistory();
   const elapsedMs = useElapsedMs(loading, generationStartedAt);
   const operationRef = useRef<ImageOperation | null>(null);
+  const mountedRef = useRef(false);
   const stoppingRef = useRef(false);
   const isDesktop = useIsDesktop();
   const [settingsOpen, setSettingsOpen] = useState(true);
@@ -430,6 +431,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
 
   useEffect(() => {
     let cancelled = false;
+    mountedRef.current = true;
 
     const resume = async () => {
       if (operationRef.current || stoppingRef.current) return;
@@ -472,6 +474,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
     window.addEventListener('online', resumeWhenOnline);
     return () => {
       cancelled = true;
+      mountedRef.current = false;
       operationRef.current = null;
       window.removeEventListener('online', resumeWhenOnline);
     };
@@ -584,6 +587,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       if (!response.ok)
         throw new Error('Could not stop image generation. Please try again.');
       const status = await response.json();
+      if (!mountedRef.current) return;
       if (
         !status.cancelled &&
         !['completed', 'error', 'cancelled'].includes(status.status)
@@ -597,6 +601,7 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
       setGenerationStatus('idle', null);
       setPartialGallery([]);
     } catch {
+      if (!mountedRef.current) return;
       operation.cancelRequested = false;
       operationRef.current = operation;
       setGenerationStatus(operation.jobId ? 'generating' : 'submitting');

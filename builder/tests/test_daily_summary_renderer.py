@@ -141,9 +141,12 @@ def test_renderer_rejects_unknown_fields_and_raw_html_shortcuts():
         _render(edition)
 
 
-def test_renderer_rejects_unsafe_source_urls_and_tool_refs():
+@pytest.mark.parametrize(
+    "url", ["http://weather.example", "https://[broken", "https://exam／ple.org"]
+)
+def test_renderer_rejects_unsafe_source_urls_and_tool_refs(url):
     unsafe_url = _edition()
-    unsafe_url["day_ahead"]["weather"]["source"]["url"] = "http://weather.example"
+    unsafe_url["day_ahead"]["weather"]["source"]["url"] = url
     with pytest.raises(renderer.RenderError, match="must be an HTTPS URL"):
         _render(unsafe_url)
 

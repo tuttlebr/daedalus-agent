@@ -114,7 +114,11 @@ export const getReactMarkDownCustomComponents = (
           );
         },
         (prevProps, nextProps) => {
-          return isEqual(prevProps.children, nextProps.children);
+          return (
+            prevProps.className === nextProps.className &&
+            prevProps.inline === nextProps.inline &&
+            isEqual(prevProps.children, nextProps.children)
+          );
         },
       ),
 

@@ -2,6 +2,7 @@
 """Public ingestion JSON/SSE parity against real backend images and service peers."""
 
 import argparse
+import base64
 import contextlib
 import copy
 import hashlib
@@ -26,6 +27,86 @@ from profile_import_check import expand
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def sequential_ingestion_scripts(oracle, native, count):
+    """Keep exact captured writes while accounting for native readiness reads.
+
+    The short capture credentials are projected to this harness's configured
+    credentials; the peer still checks every authorization header. Unlike the
+    retained SDK, native uploads verify existing vector-index/load readiness and
+    read each insert schema explicitly. Those four additional reads are the only
+    permitted lifecycle difference for a subsequent document.
+    """
+    require(1 <= count <= len(oracle["cases"]), "Uncaptured sequential document count")
+    authorization = base64.b64encode(b"synthetic-user:synthetic-password").decode()
+    stages = []
+    for index, case in enumerate(oracle["cases"][:count]):
+        require(
+            case["expected"]["rows"]
+            == {"private_collection": index + 1, "meta": index + 1},
+            "Sequential capture lost prior document state",
+        )
+        script = copy.deepcopy(
+            [call for call in case["calls"] if call["method"] != "Connect"]
+        )
+        for call in script:
+            require(
+                call["metadata"].get("authorization") == "dTpw",
+                "Sequential capture changed its synthetic credentials",
+            )
+            call["metadata"]["authorization"] = authorization
+        if native and index:
+            writer = next(
+                i for i, call in enumerate(script) if call["method"] == "GetVersion"
+            )
+            exists = script[writer + 1]
+            require(
+                exists["method"] == "DescribeCollection"
+                and exists["body"] == {"collection_name": "private_collection"}
+                and script[writer + 2]["method"] == "DescribeCollection"
+                and script[writer + 2]["body"] == {"collection_name": "meta"},
+                "Sequential capture changed its collection existence checks",
+            )
+            repair = copy.deepcopy(
+                next(
+                    call
+                    for call in script
+                    if call["method"] == "DescribeIndex"
+                    and call["body"] == {"collection_name": "private_collection"}
+                )
+            )
+            # Repair is a MilvusClient read, while this captured listing used
+            # the ORM's default database. Preserve the client's exact context.
+            repair["metadata"] = copy.deepcopy(exists["metadata"])
+            loaded = copy.deepcopy(
+                next(
+                    call
+                    for call in stages[0]
+                    if call["method"] == "GetLoadingProgress"
+                    and call["body"] == {"collection_name": "private_collection"}
+                )
+            )
+            expanded = []
+            for position, call in enumerate(script):
+                if call["method"] == "Insert":
+                    schema = copy.deepcopy(
+                        next(
+                            probe
+                            for probe in script
+                            if probe["method"] == "DescribeCollection"
+                            and probe["body"]["collection_name"]
+                            == call["body"]["collection_name"]
+                        )
+                    )
+                    schema["metadata"] = copy.deepcopy(call["metadata"])
+                    expanded.append(schema)
+                expanded.append(call)
+                if position == writer + 1:
+                    expanded.extend([repair, loaded])
+            script = expanded
+        stages.append(script)
+    return stages
+
+
 def stream_events(response):
     event = None
     for line in response.iter_lines():
@@ -35,7 +116,9 @@ def stream_events(response):
             yield event, json.loads(line[6:])
 
 
-def disconnect_check(fixture, peers, milvus, oracle, uri, *, streaming=True):
+def disconnect_check(
+    fixture, peers, milvus, oracle, sequential, uri, *, native=False, streaming=True
+):
     """Disconnect a two-document batch while its first write is in flight.
 
     A second HTTP request reaching `waiting` is the barrier proving that the
@@ -52,25 +135,24 @@ def disconnect_check(fixture, peers, milvus, oracle, uri, *, streaming=True):
         "$",
         json.dumps(case["record"]),
     )
-    following = next(
-        item
-        for item in oracle["cases"]
-        if item["mode"] == "normal"
-        and item["existing"]
-        and item["dimension"] == 2
-        and not item["recreate"]
-    )
     collection = "migration_disconnect_" + ("stream" if streaming else "json")
     expected_inserts = 2 if streaming else 3
     physical = collection + "_" + COLLECTION.removeprefix("user_uploads_")
+    stages = sequential_ingestion_scripts(sequential, native, expected_inserts)
+    probes, writers = [], []
+    for stage in stages:
+        first_write = next(
+            i for i, call in enumerate(stage) if call["method"] == "GetVersion"
+        )
+        probes.append(stage[:first_write])
+        writers.extend(stage[first_write:])
     settings = {
         "uri": uri,
         "live_receipt_clock": True,
         "allow_cached_schema_reads": True,
         "rename_collections": {"private_collection": physical},
-        "script": case["settings"]["script"]
-        + [call for call in following["calls"] if call["method"] != "Connect"]
-        * (expected_inserts - 1),
+        "script": writers,
+        "probe_scripts": probes,
         "delay": {"Insert": {"seconds": 60, "count": 1}},
     }
     control = milvus["control"]
@@ -81,6 +163,14 @@ def disconnect_check(fixture, peers, milvus, oracle, uri, *, streaming=True):
         fixture["headers"],
     )
     try:
+
+        def writer_calls(calls):
+            return [
+                call
+                for call in calls
+                if call["method"] != "Connect" and call.get("phase") != "probe"
+            ]
+
         with contextlib.ExitStack() as first_connection:
             body = {
                 "documentRefs": [case["request"]["documentRef"], queued],
@@ -91,7 +181,13 @@ def disconnect_check(fixture, peers, milvus, oracle, uri, *, streaming=True):
                     client.stream("POST", url, headers=headers, json=body)
                 )
                 first.raise_for_status()
-                for event, payload in stream_events(first):
+                # Retain the iterator until Insert is observed. Closing a
+                # temporary HTTPX iterator on break would disconnect during
+                # extraction, before this test reaches the owned write.
+                first_events = first_connection.enter_context(
+                    contextlib.closing(stream_events(first))
+                )
+                for event, payload in first_events:
                     require(event == "progress", "First stream ended before indexing")
                     if payload["phase"] == "processing":
                         break
@@ -137,10 +233,14 @@ def disconnect_check(fixture, peers, milvus, oracle, uri, *, streaming=True):
                 if payload["phase"] == "waiting":
                     break
             held = control.get("/calls").json()
-            require(held == calls, "Disconnect released an in-flight collection lock")
             require(
-                sum(call["method"] == "POST" for call in peers.document_calls) == 1,
-                "Successor entered NV-Ingest before the abandoned writer settled",
+                writer_calls(held) == writer_calls(calls),
+                "Disconnect released an in-flight collection lock",
+            )
+            require(
+                sum(call["method"] == "POST" for call in peers.document_calls)
+                == (2 if native else 1),
+                "Successor changed the extraction/write ownership boundary",
             )
             control.post("/release").raise_for_status()
             remaining = list(events)
@@ -160,7 +260,8 @@ def disconnect_check(fixture, peers, milvus, oracle, uri, *, streaming=True):
             time.sleep(0.02)
         calls = control.get("/calls").json()
         require(
-            control.get("/script").json() == {"remaining": 0, "errors": []},
+            control.get("/script").json()
+            == {"remaining": 0, "errors": [], "probe_remaining": 0},
             "Disconnected writer/successor changed the Milvus lifecycle",
         )
         require(not any(call["cancelled"] for call in calls), "Started write cancelled")
@@ -199,6 +300,11 @@ def exercise(
     oracle = expand(
         json.loads((ROOT / "runtime/tests/fixtures/milvus-index.json").read_text())
     )
+    sequential = expand(
+        json.loads(
+            (ROOT / "runtime/tests/fixtures/milvus-index-sequential.json").read_text()
+        )
+    )
     validation = expand(
         json.loads((ROOT / "runtime/tests/fixtures/document-index.json").read_text())
     )
@@ -236,7 +342,14 @@ def exercise(
             if disconnect_only:
                 return [
                     disconnect_check(
-                        fixture, peers, milvus, oracle, uri, streaming=False
+                        fixture,
+                        peers,
+                        milvus,
+                        oracle,
+                        sequential,
+                        uri,
+                        native=native,
+                        streaming=False,
                     )
                 ]
 
@@ -332,17 +445,11 @@ def exercise(
                 results.append(result)
                 return result
 
-            following = next(
-                item
-                for item in oracle["cases"]
-                if item["mode"] == "normal"
-                and item["existing"]
-                and item["dimension"] == 2
-                and not item["recreate"]
-            )
             multiple = copy.deepcopy(cases[0])
-            multiple["settings"]["script"] += [
-                item for item in following["calls"] if item["method"] != "Connect"
+            multiple["settings"]["script"] = [
+                call
+                for stage in sequential_ingestion_scripts(sequential, native, 2)
+                for call in stage
             ]
             reference = cases[0]["request"]["documentRef"]
             extra_records = {
@@ -418,9 +525,22 @@ def exercise(
                         extra_records=extra_records,
                     )
                 print(f"Verified {image}: {route}", flush=True)
-            results.append(disconnect_check(fixture, peers, milvus, oracle, uri))
             results.append(
-                disconnect_check(fixture, peers, milvus, oracle, uri, streaming=False)
+                disconnect_check(
+                    fixture, peers, milvus, oracle, sequential, uri, native=native
+                )
+            )
+            results.append(
+                disconnect_check(
+                    fixture,
+                    peers,
+                    milvus,
+                    oracle,
+                    sequential,
+                    uri,
+                    native=native,
+                    streaming=False,
+                )
             )
             print(f"Verified {image}: ingestion disconnect ownership", flush=True)
             if minimal:
@@ -522,9 +642,15 @@ def main(args):
                             ROOT / "runtime/src/preparation.rs",
                             ROOT / "runtime/src/main.rs",
                             ROOT / "runtime/src/nv_ingest.rs",
+                            ROOT / "document_ingest_api.py",
+                            ROOT / "nat_nv_ingest/src/nat_nv_ingest/nat_nv_ingest.py",
                             ROOT / "migration/ingestion_check.py",
                             ROOT / "migration/milvus_peer.py",
+                            ROOT / "migration/milvus_probe.py",
                             ROOT / "migration/document_runner_check.py",
+                            ROOT / "migration/export_milvus_index.py",
+                            ROOT
+                            / "runtime/tests/fixtures/milvus-index-sequential.json",
                         }
                     )
                 },

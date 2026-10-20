@@ -66,6 +66,28 @@ provider changes require a request against the built image. Unit tests alone do
 not establish integration compatibility. Cancellation must release owned work;
 mutating operations must not be replayed after ambiguous responses.
 
+Document ingestion cancellation has a phase-specific compatibility exception.
+The retained Python SDK worker may continue indexing after its caller cancels
+during extraction. Rust cancels extraction before indexing begins; once a Milvus
+write starts, collection ownership remains held until that write finishes.
+`document_tool_ingestion_check.py` verifies the extraction cancellation boundary,
+exact upstream calls and unchanged in-progress receipt/replay protection;
+`ingestion_check.py` verifies completion of an already-started write after
+cancellation. Both checks retain the original Python write assertions.
+
+Multi-document ingestion fixtures capture consecutive uploads with collection,
+index, row, and SDK cache state retained between documents. Native uploads add
+explicit index/load readiness and insert-schema reads; write RPCs retain their
+exact captured order and bodies. During a held write, successor extraction may
+perform its exact read-only preflight and NV-Ingest work before waiting for
+collection ownership. The gate checks those reads separately and requires the
+writer RPC sequence to remain unchanged until the held write is released.
+
+Both public ingestion SSE adapters omit the processor's internal `indexing`
+write-boundary event. Internal callbacks retain it for write ownership and retry
+safety; Python rollback and native HTTP streams preserve the same progress
+phases and terminal results.
+
 The full image retains explicit deployment-time Python preparation and
 authorization selectors for rollback. These are live compatibility paths, not
 unused code. There is no per-request replay through Python. During cutover, stop

@@ -274,10 +274,14 @@ impl Hit {
         }
     }
 }
-fn scalars(field: &pb::FieldData) -> pb::ScalarField {
+fn scalars(field: &pb::FieldData) -> &pb::ScalarField {
+    static EMPTY: std::sync::LazyLock<pb::ScalarField> =
+        std::sync::LazyLock::new(pb::ScalarField::default);
+    // JSON and nested arrays are accessed once per hit. Borrow the column so
+    // decoding N hits does not copy all N rows for every individual result.
     match &field.field {
-        Some(pb::field_data::Field::Scalars(value)) => value.clone(),
-        _ => pb::ScalarField::default(),
+        Some(pb::field_data::Field::Scalars(value)) => value,
+        _ => &EMPTY,
     }
 }
 fn scalar_values(scalar: &pb::ScalarField, kind: i32) -> Vec<Field> {
@@ -414,7 +418,7 @@ pub(super) fn half(value: u16) -> f64 {
 fn struct_column(field: &pb::FieldData, row: usize) -> Result<Option<Vec<Field>>> {
     if field.r#type == 22 {
         let scalar = scalars(field);
-        let Some(pb::scalar_field::Data::ArrayData(array)) = scalar.data else {
+        let Some(pb::scalar_field::Data::ArrayData(array)) = &scalar.data else {
             return Ok(None);
         };
         let Some(item) = array.data.get(row) else {
@@ -615,7 +619,7 @@ pub fn decode(response: pb::SearchResults) -> Result<Vec<Vec<Hit>>> {
         for field in &data.fields_data {
             let scalar = scalars(field);
             let values = match field.r#type {
-                1..=5 | 10 | 11 | 21 | 24 | 26 => scalar_values(&scalar, field.r#type),
+                1..=5 | 10 | 11 | 21 | 24 | 26 => scalar_values(scalar, field.r#type),
                 22 => match &scalar.data {
                     Some(pb::scalar_field::Data::ArrayData(array))
                         if matches!(array.element_type, 1..=5 | 10 | 11 | 20 | 21) =>

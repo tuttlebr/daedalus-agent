@@ -30,6 +30,7 @@ AUTONOMY_PROCESSING='{"id":"request-processing","prompt":"processing fixture"}'
 AUTONOMY_CLAIM='{"claimedAt":1,"ownerToken":"fixture-owner","visibilityDeadlineAt":4102444800000}'
 AUTONOMY_QUEUE_KEY="autonomy:fixture-user:queue"
 AUTONOMY_PROCESSING_KEY="autonomy:fixture-user:processing"
+AUTONOMY_PROCESSING_STATE_KEY="autonomy:fixture-user:processing_state"
 AUTONOMY_LEASE_KEY="autonomy:fixture-user:lease"
 STREAM_QUEUE_KEY="async-stream-queue"
 STREAM_GROUP="daedalus-stream-workers"
@@ -392,6 +393,8 @@ assert_fixture() {
   assert_value "$password" '1' LLEN "$AUTONOMY_PROCESSING_KEY"
   assert_value "$password" "$AUTONOMY_PROCESSING" \
     LINDEX "$AUTONOMY_PROCESSING_KEY" 0
+  assert_value "$password" 'started' \
+    HGET "$AUTONOMY_PROCESSING_STATE_KEY" "$AUTONOMY_PROCESSING"
   assert_value "$password" 'fixture-owner' GET "$AUTONOMY_LEASE_KEY"
   assert_value "$password" "$AUTONOMY_CLAIM" GET "$AUTONOMY_CLAIM_KEY"
   assert_positive_ttl "$password" "$AUTONOMY_LEASE_KEY"
@@ -531,6 +534,8 @@ redis_cli "$OLD_PASSWORD" LPUSH "$AUTONOMY_QUEUE_KEY" \
   "$AUTONOMY_QUEUED" >/dev/null
 redis_cli "$OLD_PASSWORD" LPUSH "$AUTONOMY_PROCESSING_KEY" \
   "$AUTONOMY_PROCESSING" >/dev/null
+redis_cli "$OLD_PASSWORD" HSET "$AUTONOMY_PROCESSING_STATE_KEY" \
+  "$AUTONOMY_PROCESSING" started >/dev/null
 redis_cli "$OLD_PASSWORD" SET "$AUTONOMY_LEASE_KEY" fixture-owner EX 86400 >/dev/null
 redis_cli "$OLD_PASSWORD" SET "$AUTONOMY_CLAIM_KEY" \
   "$AUTONOMY_CLAIM" EX 86400 >/dev/null

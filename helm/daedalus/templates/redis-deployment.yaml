@@ -117,7 +117,12 @@ spec:
           livenessProbe:
             exec:
               command:
-                - redis-cli
+                # redis-cli returns zero for protocol errors such as NOAUTH.
+                # A healthy probe must receive the expected reply as well.
+                - /bin/sh
+                - -ec
+                - 'test "$(redis-cli --no-auth-warning "$@" ping)" = PONG'
+                - --
                 {{- if .Values.redis.tls.enabled }}
                 - --tls
                 - --cacert
@@ -127,7 +132,6 @@ spec:
                 - --user
                 - {{ .Values.redis.auth.username | quote }}
                 {{- end }}
-                - ping
             initialDelaySeconds: 15
             periodSeconds: 15
             # Spawning redis-cli plus connect and auth must finish inside the
@@ -138,7 +142,10 @@ spec:
           readinessProbe:
             exec:
               command:
-                - redis-cli
+                - /bin/sh
+                - -ec
+                - 'test "$(redis-cli --no-auth-warning "$@" ping)" = PONG'
+                - --
                 {{- if .Values.redis.tls.enabled }}
                 - --tls
                 - --cacert
@@ -148,7 +155,6 @@ spec:
                 - --user
                 - {{ .Values.redis.auth.username | quote }}
                 {{- end }}
-                - ping
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5

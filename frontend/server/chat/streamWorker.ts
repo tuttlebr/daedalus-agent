@@ -50,6 +50,7 @@ const STREAM_WORKER_HEALTH_FILE =
   process.env.STREAM_WORKER_HEALTH_FILE || '/tmp/daedalus-stream-worker-health';
 const STREAM_WORKER_READY_FILE =
   process.env.STREAM_WORKER_READY_FILE || '/tmp/daedalus-stream-worker-ready';
+const MEMORY_RETENTION_POLL_INTERVAL_MS = 1000;
 
 export interface StreamWorkerOptions {
   concurrency: number;
@@ -489,7 +490,7 @@ export class StreamWorkerRuntime {
   private healthTimer: NodeJS.Timeout | null = null;
   private lastReclaimAt = 0;
   private reclaimCursor = '0-0';
-  private lastMemoryRetentionPollAt = 0;
+  private memoryRetentionTimer: NodeJS.Timeout | null = null;
   private memoryRetentionPollInFlight = false;
 
   constructor(options: StreamWorkerOptions = streamWorkerOptionsFromEnv()) {
@@ -507,6 +508,18 @@ export class StreamWorkerRuntime {
     } else if (existsSync(STREAM_WORKER_READY_FILE)) {
       unlinkSync(STREAM_WORKER_READY_FILE);
     }
+  }
+
+  private pollMemoryRetention(): void {
+    if (this.draining || this.memoryRetentionPollInFlight) return;
+    this.memoryRetentionPollInFlight = true;
+    void processDueMemoryRetentions()
+      .catch((error) => {
+        logger.warn('Memory retention polling failed', error);
+      })
+      .finally(() => {
+        this.memoryRetentionPollInFlight = false;
+      });
   }
 
   private dispatch(entry: StreamQueueEntry): void {
@@ -588,6 +601,14 @@ export class StreamWorkerRuntime {
     this.setReady(true);
     this.healthTimer = setInterval(() => this.touchHealth(), 5000);
     this.healthTimer.unref?.();
+    // Retention has independent capacity. A full chat queue or a blocked
+    // queue read must not postpone it until a long model/tool run finishes.
+    this.pollMemoryRetention();
+    this.memoryRetentionTimer = setInterval(
+      () => this.pollMemoryRetention(),
+      MEMORY_RETENTION_POLL_INTERVAL_MS,
+    );
+    this.memoryRetentionTimer.unref?.();
 
     logger.info('Durable stream worker started', {
       consumer: this.consumer,
@@ -598,21 +619,6 @@ export class StreamWorkerRuntime {
 
     try {
       while (!this.draining) {
-        const loopStartedAt = Date.now();
-        if (
-          !this.memoryRetentionPollInFlight &&
-          loopStartedAt - this.lastMemoryRetentionPollAt >= 1000
-        ) {
-          this.lastMemoryRetentionPollAt = loopStartedAt;
-          this.memoryRetentionPollInFlight = true;
-          void processDueMemoryRetentions()
-            .catch((error) => {
-              logger.warn('Memory retention polling failed', error);
-            })
-            .finally(() => {
-              this.memoryRetentionPollInFlight = false;
-            });
-        }
         const capacity = this.options.concurrency - this.active.size;
         if (capacity <= 0) {
           await Promise.race(
@@ -666,6 +672,7 @@ export class StreamWorkerRuntime {
     } finally {
       await this.beginDrain();
       if (this.healthTimer) clearInterval(this.healthTimer);
+      if (this.memoryRetentionTimer) clearInterval(this.memoryRetentionTimer);
       this.setReady(false);
       if (this.readClient) this.readClient.disconnect();
     }

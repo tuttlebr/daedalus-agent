@@ -89,6 +89,31 @@ describe('Milvus metadata backend client', () => {
     );
   });
 
+  it.each([
+    {
+      ...metadata,
+      sharedCollections: [{ ...metadata.sharedCollections[0], writable: true }],
+    },
+    {
+      ...metadata,
+      writableCollections: [
+        { ...metadata.userCollection, name: 'another-user' },
+      ],
+    },
+  ])(
+    'rejects collection permissions inconsistent with the private owner',
+    async (invalid) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(new Response(JSON.stringify(invalid))),
+      );
+
+      await expect(getMilvusMetadata('alice')).rejects.toThrow(
+        'metadata response is invalid',
+      );
+    },
+  );
+
   it('releases an unread error body instead of holding its connection', async () => {
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>({

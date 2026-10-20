@@ -35,6 +35,10 @@ Important review boundaries to confirm in source:
   a path is dead. Follow actual registration and consumers.
 - Redis job durability does not checkpoint the in-memory backend agent. Reclaim
   must not replay an already-started backend request and duplicate remote actions.
+  Autonomous processing also persists a dispatch phase: only proven undispatched
+  claims may be retried; legacy claims without that evidence are interrupted.
+- Conversation finalization writes must atomically verify the current finalizer
+  lock token, so an expired owner cannot overwrite a newer turn.
 - Streaming recovery, authenticated ownership, approval binding and cancellation
   must survive latency improvements. Inspect normal and recovery transports.
 - Generated types do not supply runtime validation or authorization. Update the
@@ -87,6 +91,9 @@ and Helm. Their precise selection and behavior live in the configuration. In par
   values, because `helm lint` only logs template `fail` errors; it fails when Helm
   is missing. `make helm` also checks rendered pod security, provisioning
   PyYAML through `uv run` as CI pins it.
+- `scripts/validate_auth_env.py` supplies the environment parser reused by
+  `deploy.sh` for workload Secrets and memory-mode settings. Keep validation and
+  deployment interpretation consistent, including quoted whitespace.
 - Check hook filters at nested package paths and with multiple filenames; inspect
   handling of spaces, excluded generated files and nonzero child-process exits.
 

@@ -1,8 +1,10 @@
 """Render the chart's Redis ACL and check each workload can reach its keys."""
 
+import os
 import re
 import shlex
 import subprocess
+import sys
 from fnmatch import fnmatchcase
 from pathlib import Path
 
@@ -104,3 +106,61 @@ def test_migration_fixture_uses_the_shipped_backend_key_scopes():
     )
     assert fixture is not None
     assert fixture.group(1).split() == rendered_acl_users()["$REDIS_BACKEND_USERNAME"]
+
+
+@pytest.mark.parametrize("tls", [False, True])
+@pytest.mark.parametrize("authenticated", [False, True])
+def test_health_probes_reject_redis_error_replies(tmp_path, tls, authenticated):
+    rendered = subprocess.run(
+        [
+            "helm",
+            "template",
+            "probe",
+            str(CHART),
+            "--set",
+            f"redis.tls.enabled={str(tls).lower()}",
+            "--set",
+            "redis.tls.existingSecret=fixture-tls",
+            "--set",
+            f"redis.auth.enabled={str(authenticated).lower()}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=120,
+    ).stdout
+    container = next(
+        document["spec"]["template"]["spec"]["containers"][0]
+        for document in yaml.safe_load_all(rendered)
+        if document
+        and document["kind"] == "Deployment"
+        and document["metadata"]["name"].endswith("-redis")
+    )
+    # redis-cli exits zero for Redis error replies, including NOAUTH. Exercise
+    # the exact rendered probe, not just its command spelling.
+    cli = tmp_path / "redis-cli"
+    cli.write_text(
+        f"#!{sys.executable}\nimport os\nprint(os.environ['FIXTURE_REPLY'])\n"
+    )
+    cli.chmod(0o700)
+    for name in ("livenessProbe", "readinessProbe"):
+        command = container[name]["exec"]["command"]
+        assert ("--tls" in command) is tls
+        assert ("--user" in command) is authenticated
+        for reply in (
+            "PONG",
+            "NOAUTH Authentication required.",
+            "WRONGPASS invalid credentials",
+        ):
+            result = subprocess.run(
+                command,
+                env={
+                    **os.environ,
+                    "PATH": f"{tmp_path}:{os.environ['PATH']}",
+                    "FIXTURE_REPLY": reply,
+                },
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            assert (result.returncode == 0) is (reply == "PONG"), (name, reply)

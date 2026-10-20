@@ -478,7 +478,7 @@ class RedisStore:
         # F-013: reliable queue. Atomically MOVE the request to a per-user
         # processing list instead of destructively popping it, so a crash before
         # the run is recorded does not lose the job — reclaim_processing()
-        # re-queues anything left behind on the next startup. brpoplpush pops the
+        # resolves anything left behind on the next startup. brpoplpush pops the
         # queue tail (FIFO with lpush) and pushes to the processing-list head.
         if not self.owns_lease(user_id):
             raise RuntimeError("cannot dequeue without owning the worker lease")
@@ -501,15 +501,64 @@ class RedisStore:
                 self.redis.lrem(processing_key, 1, raw)
             return None
         self._inflight[user_id] = raw
+        # Persist the safe-to-retry phase independently of the expiring lease
+        # and visibility claim. A replacement must not infer that an expired
+        # claim means the backend never received the request.
+        if not self.redis.eval(
+            """
+            if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+                return 0
+            end
+            redis.call("HSET", KEYS[2], ARGV[2], "claimed")
+            return 1
+            """,
+            2,
+            key(user_id, "lease"),
+            key(user_id, "processing_state"),
+            self._lease_tokens[user_id],
+            raw,
+        ):
+            raise WorkerLeaseLost("Worker lease was lost while claiming a request.")
         self._write_processing_claim(user_id, raw)
         return parsed
+
+    def mark_backend_started(self, user_id: str) -> None:
+        """Fence dispatch and durably prevent replay before opening the request.
+
+        The backend has no durable run checkpoint or general action idempotency.
+        Once dispatch might have started, recovery must report interruption
+        instead of submitting the same external actions again.
+        """
+        raw = self._inflight.get(user_id)
+        token = self._lease_tokens.get(user_id)
+        if (
+            raw is None
+            or not token
+            or not self.redis.eval(
+                """
+            if redis.call("GET", KEYS[1]) ~= ARGV[1] or
+               redis.call("HGET", KEYS[2], ARGV[2]) ~= "claimed" then
+                return 0
+            end
+            redis.call("HSET", KEYS[2], ARGV[2], "started")
+            return 1
+            """,
+                2,
+                key(user_id, "lease"),
+                key(user_id, "processing_state"),
+                token,
+                raw,
+            )
+        ):
+            raise WorkerLeaseLost("Worker no longer owns an undispatched request.")
 
     def complete(self, user_id: str) -> bool:
         """Remove the in-flight request from the processing list after handling.
 
         Call once the run has been recorded (success or a recorded failure). If
         the worker crashes before this, the entry stays in ``processing`` and is
-        re-queued by ``reclaim_processing()`` on the next startup (at-least-once).
+        handled by ``reclaim_processing()`` on the next startup. Only requests
+        that have not reached backend dispatch can be re-queued.
         """
         raw = self._inflight.pop(user_id, None)
         if raw is None:
@@ -525,19 +574,25 @@ class RedisStore:
                 end
                 redis.call("LREM", KEYS[2], 1, ARGV[2])
                 redis.call("DEL", KEYS[3])
+                redis.call("HDEL", KEYS[4], ARGV[2])
                 return 1
                 """,
-                3,
+                4,
                 key(user_id, "lease"),
                 key(user_id, "processing"),
                 self._processing_claim_key(user_id, raw),
+                key(user_id, "processing_state"),
                 token,
                 raw,
             )
         )
 
     def reclaim_processing(self, user_id: str) -> int:
-        """Re-queue crashed work only while holding the user's current lease."""
+        """Resolve interrupted claims, retrying only proven undispatched work.
+
+        Missing state includes claims from older workers. Treat that uncertainty
+        conservatively: they may have dispatched external actions already.
+        """
 
         token = self._lease_tokens.get(user_id)
         if not token:
@@ -559,9 +614,9 @@ class RedisStore:
                 ) from None
         # dequeue() consumes the queue's RIGHT end and pushes each claim onto
         # the processing list's LEFT end, so processing holds the newest claim
-        # on the left. Moving LEFT -> RIGHT returns every interrupted request
-        # to the consumption end with the oldest claim next, ahead of requests
-        # queued behind it (RPOPLPUSH sent them to the back of the queue).
+        # on the left. Moving undispatched claims LEFT -> RIGHT keeps the oldest
+        # first, ahead of requests queued behind it. Started and unknown claims
+        # are removed without another backend call.
         moved = self.redis.eval(
             """
             if redis.call("GET", KEYS[1]) ~= ARGV[1] then
@@ -569,18 +624,25 @@ class RedisStore:
             end
             local moved = {}
             while true do
-                local value = redis.call("LMOVE", KEYS[2], KEYS[3], "LEFT", "RIGHT")
+                local value = redis.call("LINDEX", KEYS[2], 0)
                 if not value then
                     break
                 end
+                if redis.call("HGET", KEYS[4], value) == "claimed" then
+                    redis.call("LMOVE", KEYS[2], KEYS[3], "LEFT", "RIGHT")
+                else
+                    redis.call("LPOP", KEYS[2])
+                end
+                redis.call("HDEL", KEYS[4], value)
                 table.insert(moved, value)
             end
             return moved
             """,
-            3,
+            4,
             key(user_id, "lease"),
             processing_key,
             queue_key,
+            key(user_id, "processing_state"),
             token,
         )
         if moved is None or moved is False:
@@ -599,8 +661,8 @@ class RedisStore:
         """Close run records left "running" when their worker stopped mid-run.
 
         Only the lease owner calls this, before it starts a run of its own, so
-        no live worker can still be executing them. Their requests are queued
-        again and run under new records. The dashboard treats the newest
+        stale workers cannot persist their output. Only undispatched requests
+        may run under new records. The dashboard treats the newest
         "running" record as the active run, so one left behind stays "live".
         """
 
@@ -611,7 +673,8 @@ class RedisStore:
             return
         timestamp = now_ms()
         summary = (
-            "Run was interrupted before it finished; its request was queued again."
+            "Run was interrupted before it finished. Work that may have reached "
+            "the backend will not be retried automatically."
         )
 
         def mutate(current: list[dict[str, Any]]):

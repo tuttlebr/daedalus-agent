@@ -1,7 +1,6 @@
 """Tests for the autonomous worker reliable queue (F-013)."""
 
 import json
-import re
 
 import pytest
 from autonomous_agent.models import now_ms
@@ -15,6 +14,7 @@ class _FakeRedis:
         self.lists: dict[str, list[str]] = {}
         self.kv: dict[str, str] = {}
         self.sets: dict[str, set[str]] = {}
+        self.hashes: dict[str, dict[str, str]] = {}
 
     def execute_command(self, *_args, **_kwargs):
         # Force the store onto its plain GET/SET (non-RedisJSON) code path.
@@ -52,31 +52,38 @@ class _FakeRedis:
         return int(existed)
 
     def eval(self, script, num_keys, *args):
-        move = re.search(
-            r'"(RPOPLPUSH|LMOVE)", KEYS\[2\], KEYS\[3\](?:, "(\w+)", "(\w+)")?',
-            script,
-        )
-        if move:
-            # Execute the reclaim script's actual list move, including its
-            # directions, so tests observe the real queue order.
-            command, source_end, destination_end = move.groups()
-            if command == "RPOPLPUSH":
-                source_end, destination_end = "RIGHT", "LEFT"
-            lease_key, processing_key, queue_key, token = args
+        if '"LPOP"' in script:
+            lease_key, processing_key, queue_key, state_key, token = args
             if self.kv.get(lease_key) != token:
                 return None
             moved = []
-            while raw := self.lmove(
-                processing_key, queue_key, source_end, destination_end
-            ):
+            processing = self.lists.setdefault(processing_key, [])
+            states = self.hashes.setdefault(state_key, {})
+            while processing:
+                raw = processing.pop(0)
+                if states.pop(raw, None) == "claimed":
+                    self.lists.setdefault(queue_key, []).append(raw)
                 moved.append(raw)
             return moved
+        if '"HSET"' in script:
+            lease_key, state_key, token, raw = args
+            if self.kv.get(lease_key) != token:
+                return 0
+            states = self.hashes.setdefault(state_key, {})
+            if '"HGET"' in script:
+                if states.get(raw) != "claimed":
+                    return 0
+                states[raw] = "started"
+            else:
+                states[raw] = "claimed"
+            return 1
         if "LREM" in script:
-            lease_key, processing_key, claim_key, token, raw = args
+            lease_key, processing_key, claim_key, state_key, token, raw = args
             if self.kv.get(lease_key) != token:
                 return 0
             self.lrem(processing_key, 1, raw)
             self.delete(claim_key)
+            self.hashes.setdefault(state_key, {}).pop(raw, None)
             return 1
         assert num_keys == 1
         redis_key, token, *_rest = args
@@ -173,6 +180,61 @@ def test_crash_before_complete_is_reclaimed_not_lost():
     assert restarted.redis.llen(key("u", "processing")) == 0
     # The request is retried rather than silently dropped.
     assert restarted.dequeue("u", timeout=0) == {"id": "r1"}
+
+
+@pytest.mark.parametrize("completed", [False, True])
+def test_dispatched_request_is_not_replayed_after_a_crash(completed):
+    stopped = _txn_store()
+    assert stopped.acquire_lease("u")
+    stopped.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
+    assert stopped.dequeue("u", timeout=0) == {"id": "r1"}
+    stopped.upsert_run(
+        "u", {"id": "run-1", "status": "completed" if completed else "running"}
+    )
+    stopped.mark_backend_started("u")
+    stopped.redis.delete(key("u", "lease"))
+    restarted = RedisStore()
+    restarted.redis = stopped.redis
+    assert restarted.acquire_lease("u")
+
+    assert restarted.reclaim_processing("u") == 1
+
+    assert restarted.queue_length("u") == 0
+    assert restarted.redis.llen(key("u", "processing")) == 0
+    assert restarted.redis.hashes[key("u", "processing_state")] == {}
+    assert restarted.list_runs("u")[0]["status"] == (
+        "completed" if completed else "aborted"
+    )
+
+
+def test_legacy_claim_with_unknown_dispatch_state_is_not_replayed():
+    store = _store()
+    assert store.acquire_lease("u")
+    store.redis.lpush(key("u", "processing"), json.dumps({"id": "legacy"}))
+
+    assert store.reclaim_processing("u") == 1
+    assert store.queue_length("u") == 0
+
+
+def test_backend_dispatch_requires_current_lease_and_an_unstarted_claim():
+    from autonomous_agent.store import WorkerLeaseLost
+
+    store = _store()
+    assert store.acquire_lease("u")
+    with pytest.raises(WorkerLeaseLost):
+        store.mark_backend_started("u")
+    store.redis.lpush(key("u", "queue"), json.dumps({"id": "r1"}))
+    store.dequeue("u", timeout=0)
+    token = store._lease_tokens["u"]
+    store.redis.kv[key("u", "lease")] = "replacement-owner"
+    with pytest.raises(WorkerLeaseLost):
+        store.mark_backend_started("u")
+    store.redis.kv[key("u", "lease")] = token
+    store.mark_backend_started("u")
+    with pytest.raises(WorkerLeaseLost):
+        store.mark_backend_started("u")
+    assert store.complete("u")
+    assert store.redis.hashes[key("u", "processing_state")] == {}
 
 
 def test_reclaimed_request_runs_before_requests_queued_behind_it():

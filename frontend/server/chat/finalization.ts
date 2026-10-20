@@ -9,6 +9,7 @@ import {
   acquireFinalization,
   claimTerminalJobStatus,
   clearOAuthStatusFields,
+  finalizerLockKey,
   readLiveJobStatusSnapshot,
   releaseFinalizationLock,
   updateFinalizationJournal,
@@ -43,6 +44,7 @@ import { userJobGuardKey } from './userJobGuard';
 
 import {
   ConversationWriteError,
+  ConversationWriteFenceError,
   readConversationForUser,
   saveConversationForUser,
 } from '@/server/session/conversationStore';
@@ -128,6 +130,7 @@ function withSavedMetadata(
 async function applyConversationState(
   journal: JobFinalizationJournal,
   conversation: Conversation | null,
+  lockToken: string,
 ): Promise<Conversation | null | false> {
   if (!journal.conversation || !conversation) return conversation;
   let applied = conversation;
@@ -143,6 +146,9 @@ async function applyConversationState(
         );
         return applied;
       },
+      false,
+      undefined,
+      { key: finalizerLockKey(journal.jobId), token: lockToken },
     );
   } catch (error) {
     if (!(error instanceof ConversationWriteError)) throw error;
@@ -302,6 +308,7 @@ function planCompletion(
 /** Finish a journal whose finalizer lock this caller holds. */
 async function completeLockedFinalization(
   initial: JobFinalizationJournal,
+  lockToken: string,
 ): Promise<'completed' | 'pending'> {
   const { jobId } = initial;
   if (initial.state === 'completed' && initial.completedAt) return 'completed';
@@ -311,7 +318,11 @@ async function completeLockedFinalization(
     : conversationFromJournal(initial);
   let suppressed = Boolean(initial.conversationSuppressedAt);
   if (!initial.conversationAppliedAt) {
-    const applied = await applyConversationState(initial, conversation);
+    const applied = await applyConversationState(
+      initial,
+      conversation,
+      lockToken,
+    );
     if (applied === false) {
       suppressed = true;
       conversation = null;
@@ -376,7 +387,12 @@ async function completeWithLock(
   lockToken: string,
 ): Promise<'completed' | 'pending'> {
   try {
-    return await completeLockedFinalization(journal);
+    return await completeLockedFinalization(journal, lockToken);
+  } catch (error) {
+    // Another finalizer may have completed this journal and released its
+    // conversation while we were delayed. Let its owner or a retry finish.
+    if (error instanceof ConversationWriteFenceError) return 'pending';
+    throw error;
   } finally {
     await releaseFinalizationLock(journal.jobId, lockToken).catch(() => {
       // The lock's TTL still bounds a failed release.

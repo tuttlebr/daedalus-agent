@@ -6,6 +6,36 @@ from http.server import BaseHTTPRequestHandler
 import httpx
 
 
+class EventLines:
+    """Frame SSE on LF/CRLF without splitting Unicode inside JSON strings."""
+
+    def __init__(self):
+        self.pending = b""
+
+    def feed(self, chunk):
+        lines = (self.pending + chunk).split(b"\n")
+        self.pending = lines.pop()
+        return [line.removesuffix(b"\r").decode("utf-8") for line in lines]
+
+
+def response_lines(response):
+    lines = EventLines()
+    for chunk in response.iter_bytes():
+        yield from lines.feed(chunk)
+    if lines.pending:
+        yield from lines.feed(b"\n")
+
+
+async def async_response_lines(response):
+    lines = EventLines()
+    async for chunk in response.aiter_bytes():
+        for line in lines.feed(chunk):
+            yield line
+    if lines.pending:
+        for line in lines.feed(b"\n"):
+            yield line
+
+
 def handler(base_url, records, targets):
     class Gateway(BaseHTTPRequestHandler):
         def log_message(self, *_args):

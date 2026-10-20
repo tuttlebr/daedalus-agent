@@ -64,4 +64,75 @@ describe('McpApprovalCard', () => {
     ).toEqual(['Approve', 'Deny']);
     act(() => root.unmount());
   });
+
+  it('accepts slow status responses while the next poll is still pending', async () => {
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(json({ status: 'pending' })), 2000);
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<McpApprovalCard approval={approval} jobId="job-1" />);
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(container.textContent).not.toContain('Loading approval');
+      expect(
+        Array.from(container.querySelectorAll('button')).map(
+          (button) => button.textContent,
+        ),
+      ).toEqual(['Approve', 'Deny']);
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
+  it.each(['pending', 'error'])(
+    'keeps a completed decision when an older status read returns %s',
+    async (outcome) => {
+      let finish!: () => void;
+      const initial = new Promise<any>((resolve, reject) => {
+        finish = () =>
+          outcome === 'pending'
+            ? resolve(json({ status: 'pending' }))
+            : reject(new Error('Old status failed'));
+      });
+      const fetchMock = vi
+        .fn()
+        .mockReturnValueOnce(initial)
+        .mockResolvedValueOnce(json({ status: 'pending' }))
+        .mockResolvedValueOnce(json({ status: 'completed' }));
+      vi.stubGlobal('fetch', fetchMock);
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(<McpApprovalCard approval={approval} jobId="job-1" />);
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        await act(async () => vi.advanceTimersByTimeAsync(1500));
+        const approve = Array.from(container.querySelectorAll('button')).find(
+          (button) => button.textContent === 'Approve',
+        )!;
+        await act(async () => approve.click());
+        expect(container.textContent).toContain('Update completed');
+        await act(async () => {
+          finish();
+          await initial.catch(() => {});
+        });
+        expect(container.textContent).toContain('Update completed');
+        expect(container.querySelectorAll('button')).toHaveLength(0);
+        expect(container.textContent).not.toContain('Old status failed');
+      } finally {
+        act(() => root.unmount());
+      }
+    },
+  );
 });

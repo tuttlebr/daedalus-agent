@@ -237,11 +237,12 @@ export const useWebSocket = (
       });
 
       if (!wasVisible && visible) {
-        // Page became visible → reconnect if not connected
+        // Reacquire this hook's hold even if another hook kept the shared
+        // transport alive while this one was hidden.
         if (!managerRef.current?.isConnected) {
           logger.info('Page visible - reconnecting WebSocket');
-          connect();
         }
+        connect();
       } else if (wasVisible && !visible) {
         // Page hidden → disconnect if no active streaming
         const hasActiveStreaming = Object.keys(streamingStates).length > 0;

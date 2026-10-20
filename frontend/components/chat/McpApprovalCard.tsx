@@ -39,34 +39,54 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
   const [details, setDetails] = useState<McpApprovalPreview | undefined>();
   const [confirmingHighImpact, setConfirmingHighImpact] = useState(false);
   const decisionStarted = useRef(false);
+  const statusReadSequence = useRef(0);
+  const latestStatusApplied = useRef(0);
   const requiresAdditionalConfirmation =
     requiresAdditionalMcpConfirmation(approval);
+  const invalidateStatusReads = useCallback(() => {
+    latestStatusApplied.current = ++statusReadSequence.current;
+  }, []);
 
   const readStatus = useCallback(async () => {
-    const response = await fetch(
-      `/api/mcp-approvals/${encodeURIComponent(approval.requestId)}`,
-      { credentials: 'include', cache: 'no-store' },
-    );
-    if (response.status === 404) {
-      setState('failed');
-      setError('This approval request is missing or has expired.');
-      return;
-    }
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Status check failed');
-    setState(payload.status as ApprovalState);
-    setAuthUrl(
-      typeof payload.authUrl === 'string' ? payload.authUrl : undefined,
-    );
-    setError(typeof payload.error === 'string' ? payload.error : undefined);
-    if (payload.approval && typeof payload.approval === 'object') {
-      setDetails(payload.approval as McpApprovalPreview);
+    const read = ++statusReadSequence.current;
+    try {
+      const response = await fetch(
+        `/api/mcp-approvals/${encodeURIComponent(approval.requestId)}`,
+        { credentials: 'include', cache: 'no-store' },
+      );
+      if (read < latestStatusApplied.current) return;
+      if (response.status === 404) {
+        latestStatusApplied.current = read;
+        setState('failed');
+        setError('This approval request is missing or has expired.');
+        return;
+      }
+      const payload = await response.json();
+      if (read < latestStatusApplied.current) return;
+      if (!response.ok) throw new Error(payload.error || 'Status check failed');
+      // An unfinished newer poll must not starve responses that take longer
+      // than the polling interval. Only a newer applied response wins.
+      latestStatusApplied.current = read;
+      setState(payload.status as ApprovalState);
+      setAuthUrl(
+        typeof payload.authUrl === 'string' ? payload.authUrl : undefined,
+      );
+      setError(typeof payload.error === 'string' ? payload.error : undefined);
+      if (payload.approval && typeof payload.approval === 'object') {
+        setDetails(payload.approval as McpApprovalPreview);
+      }
+    } catch (error) {
+      if (read >= latestStatusApplied.current) {
+        latestStatusApplied.current = read;
+        throw error;
+      }
     }
   }, [approval.requestId]);
 
   useEffect(() => {
     void readStatus().catch(() => {});
-  }, [readStatus]);
+    return invalidateStatusReads;
+  }, [invalidateStatusReads, readStatus]);
 
   useEffect(() => {
     // Keep reading while the first status is unknown too: a transient failure
@@ -95,6 +115,7 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
     }
     if (decisionStarted.current) return;
     decisionStarted.current = true;
+    invalidateStatusReads();
     setState('submitting');
     setError(undefined);
     try {

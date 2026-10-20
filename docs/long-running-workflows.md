@@ -60,6 +60,12 @@ rollout; extending timeouts alone cannot make runs restartable. If resumable
 execution becomes necessary, checkpoint tool receipts and unresolved mutations
 before designing replay or adoption.
 
+Autonomous-worker recovery follows the same no-replay boundary. A durable
+processing phase allows retry before dispatch; started work is interrupted
+without being queued again. During an upgrade, older processing entries without
+this phase are treated as uncertain and are not replayed. Review the aborted
+run and any external results before submitting it again.
+
 ## Reproduce and validate
 
 Read logs locally and project only content-free fields. The full log can

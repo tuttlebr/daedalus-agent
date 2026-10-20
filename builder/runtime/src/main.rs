@@ -591,6 +591,63 @@ async fn proxy(State(app): State<App>, request: Request) -> Response {
     result
 }
 
+/// Observe request consumption without buffering or draining rejected uploads.
+struct TrackedRequestBody {
+    body: Body,
+    consumed: Arc<std::sync::atomic::AtomicBool>,
+}
+impl http_body::Body for TrackedRequestBody {
+    type Data = bytes::Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        use std::{sync::atomic::Ordering, task::Poll};
+        let frame = std::pin::Pin::new(&mut self.body).poll_frame(cx);
+        if matches!(&frame, Poll::Ready(None))
+            || matches!(&frame, Poll::Ready(Some(Ok(_)))) && self.body.is_end_stream()
+        {
+            self.consumed.store(true, Ordering::Relaxed);
+        }
+        frame
+    }
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.body.size_hint()
+    }
+}
+
+async fn close_unread_http1_body(request: Request, next: axum::middleware::Next) -> Response {
+    use axum::{body::HttpBody, http::Version};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    if !matches!(request.version(), Version::HTTP_10 | Version::HTTP_11)
+        || request.body().is_end_stream()
+    {
+        return next.run(request).await;
+    }
+    let consumed = Arc::new(AtomicBool::new(false));
+    let request = request.map(|body| {
+        Body::new(TrackedRequestBody {
+            body,
+            consumed: consumed.clone(),
+        })
+    });
+    let mut response = next.run(request).await;
+    if !consumed.load(Ordering::Relaxed) {
+        // Hyper may close HTTP/1 when a handler drops an unread body. Advertise
+        // that before the client attempts to reuse the connection for a new
+        // request. HTTP/2 streams have independent framing and forbid this header.
+        response
+            .headers_mut()
+            .insert(header::CONNECTION, "close".parse().unwrap());
+    }
+    response
+}
+
 fn router(app: App) -> Router {
     Router::new()
         .route(
@@ -622,6 +679,7 @@ fn router(app: App) -> Router {
         .merge(document_ingest_api::routes())
         .merge(collection_api::routes())
         .fallback(proxy)
+        .layer(axum::middleware::from_fn(close_unread_http1_body))
         .with_state(app)
 }
 
@@ -1053,6 +1111,110 @@ mod tests {
         while receiver.recv().await.is_some() {}
         supervisor.await.unwrap();
         assert!(!runs.lock().await.contains_key("failed"));
+    }
+
+    #[tokio::test]
+    async fn early_http1_rejections_close_unread_bodies_without_breaking_consumed_request_reuse() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        async fn response(
+            socket: &mut BufReader<tokio::net::TcpStream>,
+        ) -> (u16, HashMap<String, String>, Vec<u8>) {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                let mut line = String::new();
+                socket.read_line(&mut line).await.unwrap();
+                let status = line.split_whitespace().nth(1).unwrap().parse().unwrap();
+                let mut headers = HashMap::new();
+                loop {
+                    line.clear();
+                    assert_ne!(socket.read_line(&mut line).await.unwrap(), 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    let (name, value) = line.split_once(':').unwrap();
+                    headers.insert(name.to_ascii_lowercase(), value.trim().to_owned());
+                }
+                let mut body = vec![0; headers["content-length"].parse().unwrap()];
+                socket.read_exact(&mut body).await.unwrap();
+                (status, headers, body)
+            })
+            .await
+            .expect("response must not wait for the rejected upload body")
+        }
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = memory_api::tests::peers::app("http://127.0.0.1:1", "redis://127.0.0.1:1");
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        for (framing, body) in [
+            ("Content-Length: 2", "{}"),
+            ("Transfer-Encoding: chunked", "2\r\n{}\r\n0\r\n\r\n"),
+            (
+                "Transfer-Encoding: chunked\r\nTrailer: x-fixture",
+                "2\r\n{}\r\n0\r\nx-fixture: complete\r\n\r\n",
+            ),
+        ] {
+            let mut socket = BufReader::new(tokio::net::TcpStream::connect(address).await.unwrap());
+            // Json consumes both valid and malformed bodies before producing
+            // an authentication or parse error. Both preserve connection reuse.
+            for (body, expected_status) in [(body.to_owned(), 401), (body.replace("{}", "xx"), 400)]
+            {
+                socket.get_mut().write_all(format!(
+                    "POST /v1/chat/completions HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\n{framing}\r\n\r\n{body}"
+                ).as_bytes()).await.unwrap();
+                let (status, headers, _) = response(&mut socket).await;
+                assert_eq!(status, expected_status);
+                assert_ne!(headers.get("connection").map(String::as_str), Some("close"));
+            }
+            socket
+                .get_mut()
+                .write_all(format!("GET /health HTTP/1.1\r\nHost: {address}\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+            assert_eq!(response(&mut socket).await.0, 200);
+            // This route authenticates before reading the declared body. Send
+            // headers alone to deterministically exercise an unread upload.
+            socket.get_mut().write_all(format!(
+                "POST /v1/profile/import HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\n{framing}\r\n\r\n"
+            ).as_bytes()).await.unwrap();
+            let (status, headers, body) = response(&mut socket).await;
+            assert_eq!(status, 401);
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap(),
+                json!({"detail":"Internal API token is required"})
+            );
+            assert_eq!(
+                headers.get("connection").map(String::as_str),
+                Some("close"),
+                "{framing}"
+            );
+            let mut byte = [0];
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(2), socket.read(&mut byte))
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+        }
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn early_http2_rejections_do_not_add_connection_headers() {
+        let app = memory_api::tests::peers::app("http://127.0.0.1:1", "redis://127.0.0.1:1");
+        let response = app
+            .oneshot(
+                Request::post("/v1/profile/import")
+                    .version(axum::http::Version::HTTP_2)
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(!response.headers().contains_key(header::CONNECTION));
     }
 
     #[tokio::test]

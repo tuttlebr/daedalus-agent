@@ -15,6 +15,7 @@ import re
 import time
 
 import httpx
+from gateway import async_response_lines
 
 USER = ""
 BASE_URL = "http://127.0.0.1:8000"
@@ -153,7 +154,7 @@ async def run(client, case, rep):
             ) as response:
                 code = response.status_code
                 response.raise_for_status()
-                async for line in response.aiter_lines():
+                async for line in async_response_lines(response):
                     if line.startswith("intermediate_data: "):
                         event = json.loads(line[len("intermediate_data: ") :])
                         (

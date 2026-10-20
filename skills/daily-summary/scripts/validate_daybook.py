@@ -38,7 +38,10 @@ def _attrs(values: list[tuple[str, str | None]]) -> dict[str, str]:
 
 
 def _is_https(value: str) -> bool:
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
     return parsed.scheme == "https" and bool(parsed.netloc) and not parsed.username
 
 
@@ -401,6 +404,8 @@ def _load_policy(path: Path, errors: list[str]) -> EditionPolicy:
 
     raw_desks = value.get("desks")
     desks = _normalize_desks(raw_desks, "edition policy", errors)
+    if not isinstance(raw_desks, list):
+        raw_desks = []
     if isinstance(raw_desks, list):
         for index, desk in enumerate(raw_desks):
             if not isinstance(desk, dict):

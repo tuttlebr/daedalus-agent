@@ -12,6 +12,8 @@
 # users/passwords and synthetic-search-token) and source-file SHA-256 values.
 # Verified against each introducing commit and the corresponding export scripts.
 # Exact fingerprints only: future changes and unrelated credentials remain scanned.
+19eae665385138bf28c65e09e7365f924108940d:builder/runtime/tests/fixtures/milvus-index.json:generic-api-key:1563
+19eae665385138bf28c65e09e7365f924108940d:builder/runtime/tests/fixtures/milvus-index.json:generic-api-key:1611
 987e57f58b05cc90afa15c8d98c3a423bd877b77:builder/runtime/tests/fixtures/collections.json:generic-api-key:20180
 987e57f58b05cc90afa15c8d98c3a423bd877b77:builder/runtime/tests/fixtures/collections.json:generic-api-key:20196
 987e57f58b05cc90afa15c8d98c3a423bd877b77:builder/runtime/tests/fixtures/collections.json:generic-api-key:20212

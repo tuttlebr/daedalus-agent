@@ -513,6 +513,115 @@ describe.skipIf(!RUN_REAL_REDIS)(
       }
     });
 
+    it('fences a delayed finalizer after its lock expires and a later turn saves', async () => {
+      const delayedJob = `${jobId}-expired-lock`;
+      const delayedConversation = `${conversationId}-expired-lock`;
+      const conversationKey = redis.sessionKey([
+        'conversation',
+        delayedConversation,
+      ]);
+      const { reserveConversationForUser, saveConversationForUser } =
+        await import('@/server/session/conversationStore');
+      await reserveConversationForUser(userId, delayedConversation);
+      await redis.jsonSetWithExpiry(
+        redis.sessionKey(['async-job-status', delayedJob]),
+        { jobId: delayedJob, status: 'streaming', createdAt: 1 },
+        3600,
+      );
+      await claimTerminal(
+        delayedJob,
+        { status: 'error', error: 'Stopped', finalizedAt: 2 },
+        {
+          version: 1,
+          state: 'pending',
+          jobId: delayedJob,
+          finalizationId: `${delayedJob}-final`,
+          outcome: 'error',
+          userId,
+          finalizedAt: 2,
+          conversation: {
+            id: delayedConversation,
+            name: 'Delayed',
+            messages: [{ id: 'user-old', role: 'user', content: 'first' }],
+            assistantMessageId: 'assistant-old',
+            content: 'old answer',
+            intermediateSteps: [],
+            isPartial: true,
+            error: 'Stopped',
+          },
+        },
+      );
+
+      let releaseWrite!: () => void;
+      let reachedWrite!: () => void;
+      const blockedWrite = new Promise<void>(
+        (resolve) => (releaseWrite = resolve),
+      );
+      const writeStarted = new Promise<void>(
+        (resolve) => (reachedWrite = resolve),
+      );
+      const evaluate = client.eval.bind(client);
+      let delayed = false;
+      const evalSpy = vi
+        .spyOn(client, 'eval')
+        .mockImplementation(async (...args: any[]) => {
+          if (
+            !delayed &&
+            String(args[0]).includes('SAVE_OWNED_CONVERSATION') &&
+            args.includes(conversationKey)
+          ) {
+            delayed = true;
+            reachedWrite();
+            await blockedWrite;
+          }
+          return evaluate(...args);
+        });
+      const first = finalization.resumePendingFinalization(delayedJob);
+      // Keep a rejected first finalizer observed while the second runs.
+      const firstSettled = Promise.allSettled([first]);
+      try {
+        await writeStarted;
+        // Expire the real Redis lock without a 30-second wall-clock sleep.
+        await client.pexpire(state.finalizerLockKey(delayedJob), 0);
+        await expect(
+          finalization.resumePendingFinalization(delayedJob),
+        ).resolves.toBe('completed');
+        await saveConversationForUser(
+          userId,
+          delayedConversation,
+          (current) => ({
+            ...current,
+            messages: [
+              ...current!.messages,
+              { id: 'user-new', role: 'user', content: 'follow-up' },
+              { id: 'assistant-new', role: 'assistant', content: 'new answer' },
+            ],
+          }),
+        );
+        releaseWrite();
+        await firstSettled;
+        expect(
+          (await redis.jsonGet(conversationKey)).messages.map(
+            (message: any) => message.id,
+          ),
+        ).toEqual(['user-old', 'assistant-old', 'user-new', 'assistant-new']);
+      } finally {
+        releaseWrite();
+        await firstSettled;
+        evalSpy.mockRestore();
+        await client.del(
+          redis.sessionKey(['async-job-status', delayedJob]),
+          state.finalizationJournalKey(delayedJob),
+          state.finalizerLockKey(delayedJob),
+          conversationKey,
+        );
+        await client.srem(
+          redis.sessionKey(['user', userId, 'conversations']),
+          delayedConversation,
+        );
+      }
+    });
+
     it.each(['normal', 'recovery', 'deleted'])(
       'respects saved conversation state during %s finalization',
       async (mode) => {

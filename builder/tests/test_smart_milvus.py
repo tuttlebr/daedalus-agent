@@ -241,6 +241,42 @@ class TestMilvusRetrieverSearch:
         with pytest.raises(ValueError, match="'query' parameter is required"):
             asyncio.run(retriever.search(""))
 
+    @pytest.mark.parametrize("shape", ["dict", "hit"])
+    def test_distance_cutoff_keeps_matching_hits_before_reranking(self, shape):
+        from pymilvus.client.abstract import Hit
+
+        retriever = self._make_retriever()
+        hits = []
+        for text, distance in [("near", 0.25), ("boundary", 1.2), ("far", 1.3)]:
+            if shape == "dict":
+                # MilvusClient 2.5 returns to_dict() values; newer releases
+                # return Hit objects with compatibility attribute access.
+                hits.append({"entity": {"text": text}, "distance": distance})
+            else:
+                hit = Hit()
+                hit.fields = {"text": text}
+                hit.distance = distance
+                hits.append(hit)
+        retriever._client.search.return_value = [hits]
+        received = []
+
+        async def rerank(_query, documents):
+            received.extend(document.page_content for document in documents)
+            return list(reversed(documents))
+
+        retriever._rerank = rerank
+        result = asyncio.run(
+            retriever.search(
+                query="test", collection_name="testcol", top_k=5, distance_cutoff=1.2
+            )
+        )
+
+        assert received == ["near", "boundary"]
+        assert [document.page_content for document in result.results] == [
+            "boundary",
+            "near",
+        ]
+
     def test_collection_not_found_raises(self):
         mock_client = MagicMock()
         mock_client.list_collections.return_value = []
