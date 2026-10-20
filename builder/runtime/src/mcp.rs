@@ -432,6 +432,8 @@ impl Mcp {
         .into_iter()
         .collect()
     }
+    /// `background` is true for runs no user is watching (the autonomy
+    /// scope); the approval gate then refuses instead of pausing the run.
     pub async fn call(
         &self,
         full_name: &str,
@@ -439,8 +441,12 @@ impl Mcp {
         user: &str,
         token: &str,
         emit: &Emitter,
+        background: bool,
     ) -> ToolOutcome {
-        let mut outcome = match self.dispatch(full_name, args, user, token, emit).await {
+        let mut outcome = match self
+            .dispatch(full_name, args, user, token, emit, background)
+            .await
+        {
             Ok(outcome) => outcome,
             Err(error) => ToolOutcome {
                 content: format!(
@@ -492,6 +498,7 @@ impl Mcp {
         user: &str,
         token: &str,
         emit: &Emitter,
+        background: bool,
     ) -> Result<ToolOutcome> {
         let (name, tool_name) = full_name
             .split_once("__")
@@ -560,7 +567,7 @@ impl Mcp {
                 .await
         } else {
             self.approvals
-                .gate(user, token, name, tool_name, args, &annotations)
+                .gate(user, token, name, tool_name, args, &annotations, background)
                 .await
         };
         if let Gate::Denied(reason, terminal) = gate {

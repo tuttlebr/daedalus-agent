@@ -77,6 +77,17 @@ export const channels = {
   userUpdates: (userId: string) => `user:${userId}:updates`,
 };
 
+/** Job IDs accepted on every job-scoped route, socket message and channel. */
+export const JOB_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+/** Cross-session streaming marker for one conversation. */
+export interface StreamingState {
+  conversationId: string;
+  sessionId: string;
+  startedAt: number;
+  userId: string;
+}
+
 export function redisErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

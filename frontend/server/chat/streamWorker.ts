@@ -2,13 +2,16 @@ import { Logger } from '@/utils/logger';
 
 import { selectStreamBackendBaseUrl } from '@/server/chat/backendSelection';
 import { JOB_EXPIRY_SECONDS, sleep } from '@/server/chat/constants';
-import { conversationJobGuardKey } from '@/server/chat/conversationJobGuard';
+import {
+  conversationJobGuardKey,
+  releaseConversationJobGuard,
+} from '@/server/chat/conversationJobGuard';
 import { startBackgroundDocumentIngest } from '@/server/chat/documentIngest';
 import {
   finalizeError,
   resumePendingFinalization,
 } from '@/server/chat/finalization';
-import { abortKey, isTerminalJobStatus } from '@/server/chat/jobState';
+import { abortKey, isTerminalStatusRecord } from '@/server/chat/jobState';
 import { processDueMemoryRetentions } from '@/server/chat/memoryRetention';
 import {
   acknowledgeDuplicateStreamEntry,
@@ -27,10 +30,14 @@ import {
   ApiRouteError,
   PublicJobError,
   StreamUserCancellationError,
+  USER_CANCELLATION_MESSAGE,
   type AsyncJobRequest,
   type AsyncJobStatus,
 } from '@/server/chat/types';
-import { userJobGuardKey } from '@/server/chat/userJobGuard';
+import {
+  releaseUserJobGuard,
+  userJobGuardKey,
+} from '@/server/chat/userJobGuard';
 import { positiveIntegerFromEnv } from '@/server/config/env';
 import {
   getRedis,
@@ -115,7 +122,6 @@ class StreamWorkerDrainError extends Error {
   }
 }
 
-const USER_CANCELLATION_MESSAGE = new StreamUserCancellationError().message;
 const STARTED_BEFORE_RECLAIM_MESSAGE =
   'The stream worker stopped after backend execution began. The request was not replayed because backend tool execution is not resumable. Please try again.';
 const WORKER_FAILURE_MESSAGE =
@@ -138,12 +144,7 @@ function publicFailureMessage(jobId: string, error: unknown): string {
   return WORKER_FAILURE_MESSAGE;
 }
 
-function isTerminal(status: AsyncJobStatus | null): boolean {
-  return Boolean(
-    status &&
-      (status.finalizedAt !== undefined || isTerminalJobStatus(status.status)),
-  );
-}
+const isTerminal = isTerminalStatusRecord;
 
 async function loadJobRequest(jobId: string): Promise<AsyncJobRequest | null> {
   return (await jsonGet(
@@ -155,6 +156,47 @@ async function loadJobStatus(jobId: string): Promise<AsyncJobStatus | null> {
   return (await jsonGet(
     sessionKey(['async-job-status', jobId]),
   )) as AsyncJobStatus | null;
+}
+
+/**
+ * A queued job whose request and status expired before a worker claimed it
+ * still holds the user slot and conversation guard its submission reserved,
+ * and nothing else can identify their owner any more. Release them from the
+ * queue entry's own owner fields; entries written by earlier frontends carry
+ * none and are only acknowledged.
+ */
+async function releaseGuardsForExpiredJob(
+  entry: StreamQueueEntry,
+): Promise<void> {
+  if (!entry.userId) return;
+  await Promise.all([
+    releaseUserJobGuard(entry.userId, entry.jobId),
+    entry.conversationId
+      ? releaseConversationJobGuard(
+          entry.userId,
+          entry.conversationId,
+          entry.jobId,
+        )
+      : Promise.resolve(false),
+  ]);
+  logger.warn(
+    `Job ${entry.jobId}: records expired before execution; released its slot`,
+  );
+}
+
+/**
+ * Document ingestion is queued as `streaming`, so its status cannot show a
+ * `pending` transition. Progress the backend reported is start evidence that,
+ * like a chat job's streamed output, survives eviction of the marker key.
+ */
+function ingestProgressReported(status: AsyncJobStatus): boolean {
+  const progress = status.ingestProgress;
+  if (!progress) return false;
+  return (
+    (progress.phase !== undefined && progress.phase !== 'queued') ||
+    progress.completed > 0 ||
+    progress.percent > 0
+  );
 }
 
 async function acknowledgeTerminalEntry(
@@ -260,6 +302,7 @@ export async function processStreamQueueEntry(
     // evidence, stop signal and (for a runnable job) the model payload.
     let status = snapshot.status;
     if (!status) {
+      await releaseGuardsForExpiredJob(entry);
       await acknowledgeStreamQueueEntry(entry);
       return 'missing';
     }
@@ -271,15 +314,19 @@ export async function processStreamQueueEntry(
 
     let jobRequest = snapshot.request;
     if (!jobRequest) {
+      await releaseGuardsForExpiredJob(entry);
       await acknowledgeStreamQueueEntry(entry);
       return 'missing';
     }
 
-    // A stream job's status leaves `pending` only after its backend request
-    // was sent, so it is start evidence that survives eviction of the marker.
-    // Document ingestion is queued as `streaming` and relies on the marker.
+    // Start evidence that survives eviction of the marker key: a stream job's
+    // status leaves `pending` only after its backend request was sent, and an
+    // ingestion job's status carries progress only once the backend reported
+    // some. Document ingestion is queued as `streaming`, so it needs the latter.
     const backendStarted =
       (jobRequest.executionMode === 'stream' && status.status !== 'pending') ||
+      (jobRequest.executionMode === 'document_ingest' &&
+        ingestProgressReported(status)) ||
       snapshot.started;
     // Delivery history belongs to a stream entry, while execution belongs to
     // the job. A retried XADD can create a fresh entry for a started job after
@@ -464,6 +511,7 @@ export async function processStreamQueueEntry(
         ? 'recovered_as_error'
         : 'finalization_pending';
     }
+    await releaseGuardsForExpiredJob(entry);
     await acknowledgeStreamQueueEntry(entry);
     return 'missing';
   } finally {

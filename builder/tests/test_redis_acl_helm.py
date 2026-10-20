@@ -109,8 +109,9 @@ def test_migration_fixture_uses_the_shipped_backend_key_scopes():
 
 
 @pytest.mark.parametrize("tls", [False, True])
-@pytest.mark.parametrize("authenticated", [False, True])
-def test_health_probes_reject_redis_error_replies(tmp_path, tls, authenticated):
+def test_health_probes_reject_redis_error_replies(tmp_path, tls):
+    # Unauthenticated Redis is rejected at render time, so the probes are
+    # exercised with authentication only.
     rendered = subprocess.run(
         [
             "helm",
@@ -121,8 +122,6 @@ def test_health_probes_reject_redis_error_replies(tmp_path, tls, authenticated):
             f"redis.tls.enabled={str(tls).lower()}",
             "--set",
             "redis.tls.existingSecret=fixture-tls",
-            "--set",
-            f"redis.auth.enabled={str(authenticated).lower()}",
         ],
         capture_output=True,
         text=True,
@@ -146,7 +145,7 @@ def test_health_probes_reject_redis_error_replies(tmp_path, tls, authenticated):
     for name in ("livenessProbe", "readinessProbe"):
         command = container[name]["exec"]["command"]
         assert ("--tls" in command) is tls
-        assert ("--user" in command) is authenticated
+        assert "--user" in command
         for reply in (
             "PONG",
             "NOAUTH Authentication required.",
@@ -164,3 +163,79 @@ def test_health_probes_reject_redis_error_replies(tmp_path, tls, authenticated):
                 timeout=5,
             )
             assert (result.returncode == 0) is (reply == "PONG"), (name, reply)
+
+
+def _render(*values):
+    args = ["helm", "template", "test", str(CHART)]
+    for value in values:
+        args.extend(["--set", value])
+    result = subprocess.run(args, text=True, capture_output=True, check=False)
+    return result
+
+
+def _documents(result):
+    assert result.returncode == 0, result.stderr
+    return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+
+
+def test_redis_accepts_connections_only_from_this_release_workloads():
+    documents = _documents(_render())
+    policy = next(
+        doc
+        for doc in documents
+        if doc["kind"] == "NetworkPolicy"
+        and doc["metadata"]["name"] == "test-daedalus-redis"
+    )
+    assert policy["spec"]["policyTypes"] == ["Ingress"]
+    [rule] = policy["spec"]["ingress"]
+    components = {
+        peer["podSelector"]["matchLabels"]["app.kubernetes.io/component"]
+        for peer in rule["from"]
+    }
+    assert components == {
+        "frontend",
+        "frontend-stream-worker",
+        "backend-default",
+        "autonomous-agent",
+    }
+    for peer in rule["from"]:
+        assert (
+            peer["podSelector"]["matchLabels"]["app.kubernetes.io/instance"] == "test"
+        )
+    assert rule["ports"] == [{"protocol": "TCP", "port": 6379}]
+
+    cilium = _documents(_render("backend.networkPolicy.cilium.enabled=true"))
+    redis_cilium = next(
+        doc
+        for doc in cilium
+        if doc["kind"] == "CiliumNetworkPolicy"
+        and doc["metadata"]["name"] == "test-daedalus-redis-cilium"
+    )
+    [ingress] = redis_cilium["spec"]["ingress"]
+    assert {
+        peer["matchLabels"]["app.kubernetes.io/component"]
+        for peer in ingress["fromEndpoints"]
+    } == components
+
+
+def test_redis_is_not_restarted_by_the_redeploy_nonce():
+    documents = _documents(_render("forceRedeploy=1234"))
+    deployments = {
+        doc["metadata"]["name"]: doc for doc in documents if doc["kind"] == "Deployment"
+    }
+    redis = deployments["test-daedalus-redis"]
+    annotations = redis["spec"]["template"]["metadata"]["annotations"]
+    assert "deploy-timestamp" not in annotations
+    assert redis["spec"]["template"]["spec"]["terminationGracePeriodSeconds"] == 120
+    # The application workloads still roll on the nonce.
+    frontend = deployments["test-daedalus-frontend"]
+    assert (
+        frontend["spec"]["template"]["metadata"]["annotations"]["deploy-timestamp"]
+        == "1234"
+    )
+
+
+def test_unauthenticated_redis_is_rejected_at_render_time():
+    result = _render("redis.auth.enabled=false")
+    assert result.returncode != 0
+    assert "redis.auth.enabled=false is not supported" in result.stderr

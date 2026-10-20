@@ -118,6 +118,13 @@ make candidate-browser MIGRATION_PYTHON="$PWD/builder/.venv/bin/python"
 make migration-benchmark MIGRATION_PYTHON="$PWD/builder/.venv/bin/python"
 ```
 
+The frozen contracts under `builder/runtime/tests/fixtures/` were exported from
+the retained baseline image by the matching `builder/migration/export_*.py`
+script (`export_baseline.py` writes `contracts.json`); each file records the
+`baseline_sha` it came from. Regenerate a fixture only for a deliberate contract
+change, from that script, and review the resulting diff as a behavior change
+rather than accepting a candidate's output as the new expectation.
+
 Run benchmarks after builds and CPU-intensive checks finish. Preserve source and
 image digests with results. Existing reports for earlier revisions establish
 historical behavior only; rerun affected checks on the final candidate.

@@ -272,7 +272,9 @@ def test_close_reports_cancelled_execution_as_unconfirmed():
         )
         await started.wait()
         await executions.close()
-        assert record.status == "failed"
-        assert "did not confirm success" in record.payload()["error"]
+        # Shutdown cancels the task; that is a cancellation, not a confirmed
+        # failure, and the operation's state is still unknown to the caller.
+        assert record.status == "cancelled"
+        assert "cancelled before it confirmed success" in record.payload()["error"]
 
     asyncio.run(run())

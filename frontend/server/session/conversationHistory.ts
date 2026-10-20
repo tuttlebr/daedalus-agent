@@ -1,9 +1,9 @@
+import { stripBase64Content } from '@/utils/app/base64Content';
 import { dedupeConversationsById } from '@/utils/app/conversationList';
 
 import type { Conversation } from '@/types/chat';
 
 import { getRedis, sessionKey } from './redis';
-import { stripBase64FromObject } from './sanitize';
 
 const READ_JSON = `
 local function read(key)
@@ -82,15 +82,29 @@ export async function listConversationHistoryForUser(
   const history = parseHistory(raw);
   // Membership AND owner must match: stale membership never exposes a record
   // that another user now owns.
-  const owned = records
-    .map(([id, value]) => ({ ...JSON.parse(value), id } as Conversation))
-    .filter((record: any) => !record.ownerId || record.ownerId === username);
+  const parsed = records.map(
+    ([id, value]) => ({ ...JSON.parse(value), id } as Conversation),
+  );
+  const owned = parsed.filter(
+    (record: any) => !record.ownerId || record.ownerId === username,
+  );
+  const stale = parsed.filter((record) => !owned.includes(record));
   if (owned.length > 0) {
     await client.eval(
       PERSIST_RECORDS,
       owned.length,
       ...owned.map((record) => `${recordPrefix}${record.id}`),
     );
+  }
+  if (stale.length > 0) {
+    // A record another user owns is read on every listing while its id stays
+    // in this set. Drop the stale membership; the record itself is untouched.
+    await client
+      .srem(
+        sessionKey(['user', username, 'conversations']),
+        ...stale.map((record) => record.id),
+      )
+      .catch(() => undefined);
   }
   return dedupeConversationsById([...history, ...owned]);
 }
@@ -102,7 +116,7 @@ export async function mergeConversationHistoryForUser(
 ): Promise<void> {
   const client = getRedis();
   const key = sessionKey(['user', username, 'conversationHistory']);
-  const clean = stripBase64FromObject(incoming);
+  const clean = stripBase64Content(incoming) as Conversation[];
   const deadline = Date.now() + 5_000;
   do {
     const raw = (await client.eval(READ_HISTORY, 1, key)) as string;

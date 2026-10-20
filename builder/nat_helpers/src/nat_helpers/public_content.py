@@ -243,8 +243,13 @@ class PublicContentSession:
                 with phase_timing("daedalus.public_content.fetch"):
                     for attempt in range(3):
                         try:
+                            # The shared client's 30 s read timeout would
+                            # otherwise cap every caller's configured value.
                             response = await get_public_response_async(
-                                self.client, url, allowed_schemes=allowed_schemes
+                                self.client,
+                                url,
+                                allowed_schemes=allowed_schemes,
+                                timeout=httpx.Timeout(timeout, connect=5),
                             )
                             if (
                                 response.status_code

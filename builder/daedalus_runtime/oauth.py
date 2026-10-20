@@ -132,16 +132,24 @@ class GoogleOAuth:
                             "resource": config["server_url"],
                         },
                     )
-                    token = response.json()
-                    if response.is_success:
+                    token: dict | None = None
+                    if response.is_success or response.status_code == 400:
+                        try:
+                            decoded = response.json()
+                        except ValueError:
+                            decoded = None
+                        token = decoded if isinstance(decoded, dict) else None
+                    if response.is_success and token is not None:
                         return await self._save_token(key, token, saved)
                     if (
                         response.status_code == 400
+                        and token is not None
                         and token.get("error") == "invalid_grant"
                     ):
                         await self.redis.delete(key)
                     else:
-                        # Preserve offline grants through temporary outages.
+                        # Preserve offline grants through temporary outages,
+                        # including gateway errors whose bodies are not JSON.
                         raise RuntimeError(
                             "Google token refresh is temporarily unavailable"
                         )

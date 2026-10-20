@@ -189,14 +189,20 @@ export async function listGoals(userId: string): Promise<AutonomyGoal[]> {
   return getList<AutonomyGoal>(userId, 'goals');
 }
 
+/**
+ * Apply `mutate` to the latest goal list. An updater that returns null
+ * leaves the stored list untouched and publishes nothing, so a request for an
+ * unknown goal is not committed and broadcast as a change.
+ */
 export async function mutateGoals(
   userId: string,
-  mutate: (goals: AutonomyGoal[]) => AutonomyGoal[],
-): Promise<AutonomyGoal[]> {
-  const goals = (await updateJsonAtomically<AutonomyGoal[]>(
+  mutate: (goals: AutonomyGoal[]) => AutonomyGoal[] | null,
+): Promise<AutonomyGoal[] | null> {
+  const goals = await updateJsonAtomically<AutonomyGoal[]>(
     autonomyKey(userId, 'goals'),
     (current) => mutate(Array.isArray(current) ? current : []),
-  )) as AutonomyGoal[];
+  );
+  if (goals === null) return null;
   await publishSyncEvent(userId, {
     type: 'autonomy_status',
     timestamp: nowMs(),
@@ -298,7 +304,8 @@ export async function importGoals(
       : importedGoals;
   });
   return {
-    goals,
+    // The import updater always returns a list, so null cannot occur here.
+    goals: goals ?? [],
     imported: importedGoals.length,
     skipped: Math.max(0, rawGoals.length - importedGoals.length),
   };
@@ -622,14 +629,29 @@ export async function listFeed(userId: string): Promise<AutonomyFeedItem[]> {
   return getList<AutonomyFeedItem>(userId, 'feed');
 }
 
-// The worker caps AUTONOMY_REQUEST_TIMEOUT at 6900s, so the cancel flag must
+// The worker caps REQUEST_TIMEOUT at 6900s, so the cancel flag must
 // outlive the longest permitted run. At the previous 3600s it expired at
 // exactly the default request timeout, letting a cancelled run finish and
 // overwrite its own 'cancelled' status with 'completed'.
 const CANCEL_FLAG_TTL_SECONDS = 2 * 6900;
 
-export async function cancelRun(userId: string, runId: string): Promise<void> {
+/**
+ * Stop a queued or running run. Returns false, writing and publishing
+ * nothing, when no such run exists for this user: the UI then learns that the
+ * id is unknown or already finished instead of a success for a no-op.
+ */
+export async function cancelRun(
+  userId: string,
+  runId: string,
+): Promise<boolean> {
   const redis = getRedis();
+  const active = (await listRuns(userId)).some(
+    (run) => run.id === runId && ['queued', 'running'].includes(run.status),
+  );
+  if (!active) return false;
+  // The flag reaches the worker's open backend request first; the record
+  // then changes under the latest snapshot, which may already show the run
+  // finished (the flag still stops a worker that has not read it yet).
   await redis.set(
     autonomyKey(userId, `cancel:${runId}`),
     '1',
@@ -655,4 +677,5 @@ export async function cancelRun(userId: string, runId: string): Promise<void> {
     timestamp: nowMs(),
     data: { runId, status: 'cancelled' },
   });
+  return true;
 }

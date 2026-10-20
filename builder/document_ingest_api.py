@@ -184,7 +184,14 @@ def _resolve_request(
             ),
         )
 
-    collection = req.collection_name or req.collection or username
+    # Without a collection the upload goes to the user's advertised private
+    # collection, the one default search reads, not to one named after the
+    # user that no listing shows.
+    collection = (
+        req.collection_name
+        or req.collection
+        or os.getenv("DOCUMENT_INGEST_DEFAULT_COLLECTION", "user_uploads")
+    )
     try:
         collection_scope = validate_collection_scope(
             collection,

@@ -1,6 +1,10 @@
 import { Logger } from '@/utils/logger';
 
-import type { Conversation, Message } from '@/types/chat';
+import {
+  DEFAULT_CONVERSATION_TITLE,
+  type Conversation,
+  type Message,
+} from '@/types/chat';
 
 import { JOB_EXPIRY_SECONDS } from './constants';
 import { conversationJobGuardKey } from './conversationJobGuard';
@@ -35,10 +39,11 @@ import {
   streamResponseKey,
   streamStepsKey,
 } from './streamState';
-import type {
-  AsyncJobRequest,
-  AsyncJobStatus,
-  StreamFailureSnapshot,
+import {
+  USER_CANCELLATION_MESSAGE,
+  type AsyncJobRequest,
+  type AsyncJobStatus,
+  type StreamFailureSnapshot,
 } from './types';
 import { userJobGuardKey } from './userJobGuard';
 
@@ -77,8 +82,11 @@ function conversationFromJournal(
       ...(finalization.turnId ? { turnId: finalization.turnId } : {}),
       jobId: journal.jobId,
       finalizationId: journal.finalizationId,
+      // The browser models Stop as a stopped answer; the worker's record
+      // must agree, or the adopted record shows an error and a Retry.
+      ...(finalization.stopped ? { stopped: true } : {}),
     },
-    ...(finalization.error
+    ...(finalization.error && !finalization.stopped
       ? {
           errorMessages: {
             message: finalization.error,
@@ -96,7 +104,9 @@ function conversationFromJournal(
     messages: [...finalization.messages, assistantMessage],
     updatedAt: journal.finalizedAt,
     isPartial: finalization.isPartial,
-    ...(finalization.error ? { error: finalization.error } : {}),
+    ...(finalization.error && !finalization.stopped
+      ? { error: finalization.error }
+      : {}),
     completedAt: journal.finalizedAt,
   };
 }
@@ -449,13 +459,25 @@ export async function finalizeSuccess(
   jobId: string,
   jobRequest: AsyncJobRequest,
   rawOutput: string,
+  observedSteps: any[] = [],
 ): Promise<boolean> {
   // Independent reads: the steps for the journal and the live status the
   // terminal claim compares.
-  const [accumulatedSteps, statusSnapshot] = await Promise.all([
+  const [storedSteps, statusSnapshot] = await Promise.all([
     getStreamSteps(jobId),
     readLiveJobStatusSnapshot(jobId),
   ]);
+  // The answer text comes from the reader's memory while the steps are read
+  // back from an expiring Redis list. If that list was lost, the reader's own
+  // copy of every published step keeps the saved turn complete.
+  let accumulatedSteps = storedSteps;
+  if (observedSteps.length > storedSteps.length) {
+    logger.warn(
+      `Job ${jobId}: persisted stream steps are incomplete; finalizing from the reader's copy`,
+      { stored: storedSteps.length, observed: observedSteps.length },
+    );
+    accumulatedSteps = observedSteps;
+  }
   const outputWithArtifacts = attachSandboxArtifacts(
     rawOutput,
     sandboxArtifactsFromSteps(accumulatedSteps),
@@ -493,7 +515,7 @@ export async function finalizeSuccess(
       ? {
           conversation: {
             id: jobRequest.conversationId,
-            name: jobRequest.conversationName || 'New Conversation',
+            name: jobRequest.conversationName || DEFAULT_CONVERSATION_TITLE,
             messages: jobRequest.messages || [],
             assistantMessageId,
             ...(jobRequest.turnId ? { turnId: jobRequest.turnId } : {}),
@@ -606,8 +628,12 @@ export async function finalizeError(
   const assistantMessageId =
     jobRequest.assistantMessageId ||
     (jobRequest.conversationId ? uuidv4() : undefined);
+  // A Stop keeps whatever text had streamed, as the browser's own Stop does.
+  const stopped = errorMessage === USER_CANCELLATION_MESSAGE;
   const conversationContent = processedContent.trim()
     ? processedContent
+    : stopped
+    ? ''
     : '[Error occurred before response was generated]';
   const journal: NewJobFinalizationJournal = {
     version: 1,
@@ -621,7 +647,7 @@ export async function finalizeError(
       ? {
           conversation: {
             id: jobRequest.conversationId,
-            name: jobRequest.conversationName || 'New Conversation',
+            name: jobRequest.conversationName || DEFAULT_CONVERSATION_TITLE,
             messages: jobRequest.messages || [],
             assistantMessageId,
             ...(jobRequest.turnId ? { turnId: jobRequest.turnId } : {}),
@@ -629,6 +655,7 @@ export async function finalizeError(
             intermediateSteps,
             isPartial: true,
             error: errorMessage,
+            ...(stopped ? { stopped: true } : {}),
           },
         }
       : {}),

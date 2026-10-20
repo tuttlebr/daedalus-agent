@@ -152,10 +152,11 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
             },
             120,
           );
-          await queue.enqueueStreamJob(jobId, {
-            messagesForNat: [],
-            verifiedUsername: userId,
-          });
+          await queue.enqueueStreamJob(
+            jobId,
+            { messagesForNat: [], verifiedUsername: userId },
+            { userId, conversationId },
+          );
           const [entry] = await queue.readNewStreamJobs(
             client,
             'owner',
@@ -256,10 +257,11 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
         let processing: Promise<unknown> | undefined;
         try {
           await seedJob(jobId);
-          await queue.enqueueStreamJob(jobId, {
-            messagesForNat: [],
-            verifiedUsername: 'oauth-cancel-user',
-          });
+          await queue.enqueueStreamJob(
+            jobId,
+            { messagesForNat: [], verifiedUsername: 'oauth-cancel-user' },
+            { userId: 'oauth-cancel-user' },
+          );
           const [entry] = await queue.readNewStreamJobs(
             client,
             'owner',

@@ -153,11 +153,13 @@ def config_from_manifest(manifest: str) -> RagConfig | None:
         raise CheckError(
             "rendered Milvus configuration has no complete authentication Secret"
         )
+    # Name and component satisfy the policies that admit the backend; without
+    # the instance label the probe pod never joins the backend Services (and
+    # their stream-worker pod discovery) while it runs.
     labels = {}
     for label in (
         "app.kubernetes.io/name",
         "app.kubernetes.io/component",
-        "app.kubernetes.io/instance",
     ):
         match = re.search(
             rf"^\s+{re.escape(label)}:\s*(.+?)\s*$", document, re.MULTILINE

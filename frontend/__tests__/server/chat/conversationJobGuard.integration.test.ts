@@ -55,7 +55,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
           currentSerialized: await client.get(key),
         });
       }
-      expect(await client.ttl(key)).toBeGreaterThan(7190);
+      expect(await client.ttl(key)).toBeGreaterThan(3590);
     });
 
     it('replaces only the exact stale owner snapshot', async () => {
@@ -97,7 +97,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       expect([one, two].filter(Boolean)).toHaveLength(1);
       const stored = JSON.parse(await client.get(key));
       expect(stored.jobId).toBe((one ?? two)!.jobId);
-      expect(await client.ttl(key)).toBeGreaterThan(7190);
+      expect(await client.ttl(key)).toBeGreaterThan(3590);
     });
 
     it('releases only the matching owner and tolerates malformed records', async () => {

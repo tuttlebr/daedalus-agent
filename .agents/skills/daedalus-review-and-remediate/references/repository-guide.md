@@ -81,10 +81,17 @@ and Helm. Their precise selection and behavior live in the configuration. In par
   `builder/` test directories at all severities; `make security` scans only
   `builder/` production files at medium severity and above.
 - The Bash syntax hook selects files by identify type (`shell`/`bash`), not
-  extension, so executable shell scripts without a suffix are checked too.
-- `scripts/check_skill_links.py` checks Markdown links in runtime `skills/` and
-  maintenance `.agents/skills/`; it always runs so deletion-only commits cannot
-  bypass validation when a linked resource disappears.
+  extension, so executable shell scripts without a suffix are checked too. A
+  shebang script that is not executable gets no type and is skipped silently;
+  the repository's many interpreter-run scripts carry shebangs, so an
+  executability hook is not used. Keep shell scripts suffixed `.sh`.
+- `check-added-large-files` runs with `--enforce-all`: without it the upstream
+  hook inspects only files staged as added, so CI's all-files run and
+  `make hooks` would check nothing.
+- `scripts/check_skill_links.py` checks Markdown links and prose
+  `resource=<path>` references in runtime `skills/` and maintenance
+  `.agents/skills/`; it always runs so deletion-only commits cannot bypass
+  validation when a linked resource disappears.
 - `scripts/check_maintenance_skills.py` always runs, because a rename anywhere
   can strand a path or `make` target named by a maintenance skill.
 - The Helm hook lints the chart and renders it with default and `custom-values.yaml`
@@ -134,6 +141,13 @@ separately when reviewing migration or compatibility behavior.
 | Deployment/configuration                | `make helm`, and applicable `make redis-upgrade`, `make docker`, `make security` jobs. Inspect required tools and disposable infrastructure before execution. `builder/tests/test_redis_acl_helm.py` checks the rendered backend Redis ACL against the backend's key families; `builder/tests/test_deploy_helm_secret_allowlists.py` keeps `deploy.sh` and chart Secret allowlists aligned. |
 | Hooks                                   | `uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <changed-files>`; `make hooks` installs frontend dependencies and runs the same pinned release on all files.                                                                                                                                                                                                             |
 | Automatic CI gate                       | `make ci` runs the automatic CI counterparts sequentially. Inspect `make help` and current CI for prerequisites and coverage. Record every unavailable gate; do not relabel a partial run as full CI.                                                                                                                                                                                       |
+
+`npm run build` writes `frontend/public/precache-manifest.json` (ignored) for
+the service worker; the build must not rewrite tracked sources, so a dirty tree
+after `make frontend` or `make frontend-e2e` is a finding. Frozen Rust fixtures
+under `builder/runtime/tests/fixtures/` come from `builder/migration/export_*.py`
+against the baseline image (see `docs/rust-migration.md`); change them only for
+a deliberate contract change.
 
 Containerized Rust checks of several source trees mounted at the same path
 must not share a `CARGO_TARGET_DIR`: cargo's mtime fingerprints can reuse a test

@@ -18,8 +18,6 @@ import subprocess  # nosec B404
 import tempfile
 from pathlib import Path
 
-from image_vex import matching_statement, verify_native_evidence
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -209,9 +207,6 @@ def main():
                 f"Required scanner executable not found: {args.trivy}"
             )
         trivy = str(Path(trivy).resolve())
-        statements = json.loads((ROOT / "security/image-vex.json").read_text())[
-            "statements"
-        ]
         platforms = [args.platform] if args.platform else inventory["platforms"]
         for item, platform in itertools.product(
             inventory["upstream"] + inventory.get("derived", []), platforms
@@ -294,31 +289,15 @@ def main():
                     )
                 ):
                     raise SystemExit(f"Scanner failed for {item['id']}")
+                # Every CRITICAL/HIGH finding fails the scan. Fix findings in
+                # the vendor rebuilds under vendor-images/ rather than carrying
+                # exceptions here.
                 unresolved, count = [], 0
-                checked_native = False
                 for target in data.get("Results", []):
                     unresolved.extend(target.get("Secrets", []))
                     for finding in target.get("Vulnerabilities", []):
                         count += 1
-                        statement = matching_statement(
-                            statements,
-                            image,
-                            target["Target"],
-                            finding,
-                            architecture=data.get("Metadata", {})
-                            .get("ImageConfig", {})
-                            .get("architecture"),
-                        )
-                        if statement is None:
-                            unresolved.append(finding)
-                            continue
-                        if not checked_native:
-                            verify_native_evidence(image, statement["x-architecture"])
-                            checked_native = True
-                        print(
-                            f"VEX not_affected {finding['VulnerabilityID']}: exact digest/component and native evidence verified; expires {statement['x-expires']}",
-                            flush=True,
-                        )
+                        unresolved.append(finding)
                 if unresolved or (result.returncode and not count):
                     failures.append(f"{item['id']} ({platform})")
     if failures:

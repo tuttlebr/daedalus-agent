@@ -123,7 +123,7 @@ migration: migration-baseline ## differential, Python-free MCP/OAuth, TLS/ACL an
 	$(MIGRATION_PYTHON) builder/migration/llm_sandbox_http_check.py --python-image $(RUNTIME_IMAGE) --image $(RUNTIME_IMAGE) --minimal-image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --report $(MIGRATION_REPORT_DIR)/llm-sandbox-http.json
 	$(MIGRATION_PYTHON) builder/migration/exploration_http_check.py --image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --preparation rust
 	$(MIGRATION_PYTHON) builder/migration/exploration_http_check.py --image $(RUNTIME_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --preparation python
-	$(MIGRATION_PYTHON) builder/migration/exploration_http_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --executor none
+	$(MIGRATION_PYTHON) builder/migration/exploration_http_check.py --image $(MIGRATION_MINIMAL_IMAGE) --redis-image $(MIGRATION_REDIS_IMAGE) --executor disabled
 	$(MIGRATION_PYTHON) builder/migration/public_http_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/public-http-services.json
 	$(MIGRATION_PYTHON) builder/migration/nws_weather_check.py --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/nws-point-services.json
 	$(MIGRATION_PYTHON) builder/migration/nws_weather_check.py --weather --python-image $(RUNTIME_IMAGE) --report $(MIGRATION_REPORT_DIR)/nws-weather-services.json

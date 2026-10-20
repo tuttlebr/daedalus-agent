@@ -44,7 +44,8 @@ Python hook results depend on the interpreter that runs pre-commit.
 
 ## Testing Guidelines
 
-Name pytest files `test_*.py`, Vitest tests `*.test.ts`/`*.test.tsx`, and Playwright
+Name pytest files `test_*.py`, Vitest tests `*.test.ts`/`*.test.tsx` (build and CI
+scripts under `frontend/scripts/` keep `*.test.mjs` beside them), and Playwright
 specs `*.spec.ts`. Preserve the 65% Python coverage floor and frontend thresholds
 in `frontend/vitest.config.ts`. Add regression tests for behavior changes.
 Tool registration/provider changes also require a request against the built
@@ -86,5 +87,5 @@ features or dependencies in an issue first; see `CONTRIBUTING.md`.
 ## Security & Configuration Tips
 
 Start local configuration from `.env.example`. Keep credentials, conversations,
-and personal deployment data out of commits, logs, and fixtures. Follow
-`SECURITY.md` for vulnerability reports.
+and personal deployment data out of commits, logs, and fixtures. Report
+vulnerabilities privately as described in `CONTRIBUTING.md`.

@@ -87,13 +87,17 @@ def test_hue_egress_is_scoped_to_configured_namespace_pods_and_port(
         and doc["metadata"]["name"] == "test-daedalus-backend-env"
     )
     assert secret["stringData"]["HUE_MCP_TOKEN"] == "test-hue-token"
-    # Preflight pods satisfy Hue ingress but must never receive backend traffic.
-    probe_labels = {
-        "app.kubernetes.io/name": "daedalus",
-        "app.kubernetes.io/component": "backend-default",
-    }
-    for doc in resources:
-        if doc["kind"] == "Service" and "backend-default" in doc["metadata"]["name"]:
-            assert not all(
-                probe_labels.get(k) == v for k, v in doc["spec"]["selector"].items()
-            )
+    # Preflight pods (the MCP, object-storage and retrieval probes) carry the
+    # workload's name and component labels only. Every Service selector must
+    # also require the instance label, or a probe pod would become an endpoint
+    # that receives production traffic while it runs.
+    for component in ("backend-default", "frontend"):
+        probe_labels = {
+            "app.kubernetes.io/name": "daedalus",
+            "app.kubernetes.io/component": component,
+        }
+        for doc in resources:
+            if doc["kind"] == "Service" and component in doc["metadata"]["name"]:
+                assert not all(
+                    probe_labels.get(k) == v for k, v in doc["spec"]["selector"].items()
+                ), doc["metadata"]["name"]

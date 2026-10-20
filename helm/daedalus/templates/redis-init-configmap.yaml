@@ -23,6 +23,9 @@ data:
 
     echo "Starting Redis with modules..."
 
+    {{- if not .Values.redis.auth.enabled }}
+    {{- fail "redis.auth.enabled=false is not supported: Redis starts with protected mode and no password, so no workload could connect. Supply a password or an existing Secret through redis.auth." }}
+    {{- end }}
     AUTH_ARGS=()
     if [[ -n "${REDIS_PASSWORD:-}" ]]; then
       if [[ ! "${REDIS_USERNAME:-}" =~ ^[A-Za-z0-9._-]+$ ]]; then

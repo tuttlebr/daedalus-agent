@@ -472,6 +472,7 @@ else
 fi
 
 HELM_SECRET_ARGS=()
+TLS_SECRET_HELM_ARGS=()
 DOCUMENT_OBJECT_SECRET_PREPARED=false
 RAG_MILVUS_TARGET_SECRET="$RELEASE-milvus-auth"
 RAG_MINIO_TARGET_SECRET="$RELEASE-minio-auth"
@@ -632,7 +633,8 @@ PY
     NVIDIA_API_KEY OPENAI_API_KEY
     PERPLEXITY_SEARCH_API_KEY GITHUB_PAT
     IMAGE_AUGMENTATION_* IMAGE_COMPREHENSION_* IMAGE_GENERATION_*
-    HINDSIGHT_API_KEY HINDSIGHT_API_TIMEOUT_SECONDS DAEDALUS_MEMORY_READINESS_MODE
+    HINDSIGHT_API_URL HINDSIGHT_API_KEY HINDSIGHT_API_TIMEOUT_SECONDS DAEDALUS_MEMORY_READINESS_MODE
+    IMAGE_PROMPT_MODEL IMAGE_PROMPT_API_KEY IMAGE_PROMPT_BASE_URL
     DAEDALUS_MEMORY_CONTEXT_TIMEOUT_SECONDS
     DAEDALUS_PREPARATION DAEDALUS_AUTHORIZATION
     EMBEDDING_* RERANKER_* TOOL_CALLING_LLM_MODEL_*
@@ -925,6 +927,12 @@ if [[ "$SKIP_TLS" == false ]]; then
       kubectl -n "$NAMESPACE" create secret tls "$RELEASE-tls" \
         --cert="$TLS_CERT" --key="$TLS_KEY" --dry-run=client -o yaml | kubectl apply -f -
     fi
+    # The chart's values name a fixed Secret; point both consumers at the one
+    # this release just wrote so a non-default release name still serves TLS.
+    TLS_SECRET_HELM_ARGS=(
+      --set-string "nginx.https.tlsSecretName=$RELEASE-tls"
+      --set-string "ingress.tls[0].secretName=$RELEASE-tls"
+    )
   else
     echo "WARNING: TLS cert/key not found in $TLS_DIR -- skipping TLS secret" >&2
   fi
@@ -954,8 +962,12 @@ if [[ -f "$BACKEND_CONFIG" ]]; then
   )
 fi
 
-# Force pod recreation by changing the deploy-timestamp annotation
+# Force pod recreation of the application workloads by changing their
+# deploy-timestamp annotation; Redis keeps running (see its Deployment).
 HELM_CMD+=( --set forceRedeploy="$(date +%s)" )
+if [[ -n "${TLS_SECRET_HELM_ARGS[*]-}" ]]; then
+  HELM_CMD+=( "${TLS_SECRET_HELM_ARGS[@]}" )
+fi
 if [[ "$DRY_RUN" == false ]]; then
   HELM_CMD+=( "${IMAGE_DIGEST_ARGS[@]}" )
 fi

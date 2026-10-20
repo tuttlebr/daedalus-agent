@@ -377,7 +377,8 @@ class MilvusRetriever:
             ]
 
         if self.content_field not in output_fields:
-            output_fields.append(self.content_field)
+            # Copy: the list may be the caller's configuration object.
+            output_fields = [*output_fields, self.content_field]
 
         search_vector = await asyncio.to_thread(self._embedder.embed_query, query)
         res = await self._client_call(

@@ -185,7 +185,10 @@ async fn handle(State(app): State<App>, request: Request) -> Response {
         Ok(limit) => limit,
         Err(_) => return respond(detail(500, FAILED)),
     };
-    let resolved = match document_index::resolve(&input, &user, limit) {
+    let default_collection = preparation
+        .config
+        .variable("DOCUMENT_INGEST_DEFAULT_COLLECTION", "user_uploads");
+    let resolved = match document_index::resolve(&input, &user, limit, &default_collection) {
         Ok(resolved) => resolved,
         Err(error) => return respond(error),
     };

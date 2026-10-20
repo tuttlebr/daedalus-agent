@@ -100,11 +100,18 @@ export class PublicJobError extends Error {
   }
 }
 
+/**
+ * The terminal error recorded for a job the user stopped. Finalization saves
+ * such a turn as a stopped answer (`metadata.stopped`), not as an error the
+ * user should retry; the job status keeps this text for status readers.
+ */
+export const USER_CANCELLATION_MESSAGE = 'Job canceled by user';
+
 export class StreamUserCancellationError extends Error {
   snapshot?: StreamFailureSnapshot;
 
   constructor() {
-    super('Job canceled by user');
+    super(USER_CANCELLATION_MESSAGE);
     this.name = 'StreamUserCancellationError';
   }
 }

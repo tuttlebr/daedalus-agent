@@ -166,7 +166,9 @@ export default async function handler(
     // Initialize default users if needed
     await initializeUsers();
 
-    const { username, password } = req.body;
+    const body =
+      req.body && typeof req.body === 'object' ? (req.body as any) : {};
+    const { username, password } = body;
     const normalizedUsername =
       typeof username === 'string' ? username.trim() : '';
     const normalizedPassword = typeof password === 'string' ? password : '';

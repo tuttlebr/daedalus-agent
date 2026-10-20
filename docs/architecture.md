@@ -40,8 +40,9 @@ for the rest.
 Redis makes chat admission, queue ownership, streamed output and finalization
 recoverable. The model/tool execution itself lives in the backend process.
 A worker that loses its lease aborts its request; reclaim never resubmits a
-backend request that may have started (a start marker, streamed output, or a
-chat job's status past `pending`). It preserves completed output and reports
+backend request that may have started (a start marker, streamed output, a
+chat job's status past `pending`, or document-ingestion progress the backend
+reported). It preserves completed output and reports
 interruption, or the user's Stop, instead of risking duplicated external
 actions. There is no durable checkpoint/resume of an in-flight Rust agent. See the
 [long-running workflow guide](long-running-workflows.md) for scheduling,
@@ -57,6 +58,9 @@ sends it afterwards with bounded retries, and neither completion nor the next
 turn waits for the memory service. Retention polling continues while all chat
 execution slots are occupied, with at most one retention poll in progress.
 
+The autonomous worker serves one configured account (`autonomousAgent` in the
+chart); the dashboard accepts requests for any signed-in user, but only that
+account's queue is processed.
 Autonomous requests record a durable dispatch phase separately from their
 expiring worker lease. Recovery requeues only requests marked as claimed but
 undispatched. Started requests and legacy claims without a known phase are
@@ -134,7 +138,7 @@ and configuration-aware evaluation, including promotion criteria.
 | MCP discovery, sessions, OAuth and approvals                             | `builder/runtime/src/mcp.rs`, `oauth.rs`, `authorization.rs`                                       |
 | Recoverable output previews and exact retrieval                          | `builder/runtime/src/output.rs`, `output_retriever.rs`                                             |
 | Remaining Python leaf tools and fallback preparation                     | `builder/daedalus_runtime/tools.py`, `service.py` and each tool package                            |
-| Chat submission, admission, queue leases and recovery                    | `frontend/server/jobSubmission.ts`, `frontend/server/chat/streamQueue.ts`, `streamWorker.ts`       |
+| Chat submission, admission, queue leases and recovery                    | `frontend/pages/api/chat/async.ts`, `frontend/server/chat/streamQueue.ts`, `streamWorker.ts`       |
 | SSE reading, status persistence and finalization                         | `frontend/server/chat/streamReader.ts`, `streamState.ts`, `finalization.ts`                        |
 | Scheduled goals and autonomous work                                      | `builder/autonomous_agent/src/autonomous_agent/worker.py`, `backend_client.py`                     |
 | Enabled capabilities and deployment                                      | `backend/tool-calling-config.yaml`, `backend/local-chat-config.yaml`, `helm/daedalus`, `deploy.sh` |
@@ -306,7 +310,10 @@ Google refresh grants remain at their existing per-user Redis keys. The
 reader accepts legacy and versioned stored formats and writes versioned grants without
 losing refresh tokens. Model or user instructions cannot bypass approval:
 the MCP gate binds a one-use credential to the user, server, operation, and
-canonical arguments. Uncertain remote mutations are never automatically retried.
+canonical arguments. A scheduled autonomy run has no user watching it, so the
+gate refuses an operation that would need approval instead of recording an
+approval nobody can answer; the worker records the refusal as a blocked run.
+Uncertain remote mutations are never automatically retried.
 
 ## Optional telemetry
 

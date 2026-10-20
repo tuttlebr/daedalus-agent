@@ -51,6 +51,22 @@ class _FakeRedis:
         self.kv.pop(k, None)
         return int(existed)
 
+    def hset(self, k, field, value):
+        self.hashes.setdefault(k, {})[field] = value
+        return 1
+
+    def hdel(self, k, *fields):
+        states = self.hashes.get(k, {})
+        return sum(1 for field in fields if states.pop(field, None) is not None)
+
+    def hgetall(self, k):
+        return dict(self.hashes.get(k, {}))
+
+    def lrange(self, k, start, end):
+        lst = self.lists.get(k) or []
+        end = len(lst) if end == -1 else end + 1
+        return list(lst[start:end])
+
     def eval(self, script, num_keys, *args):
         if '"LPOP"' in script:
             lease_key, processing_key, queue_key, state_key, token = args
@@ -64,6 +80,8 @@ class _FakeRedis:
                 if states.pop(raw, None) == "claimed":
                     self.lists.setdefault(queue_key, []).append(raw)
                 moved.append(raw)
+            # The script deletes the phase hash once no claims remain.
+            self.hashes.pop(state_key, None)
             return moved
         if '"HSET"' in script:
             lease_key, state_key, token, raw = args
@@ -201,7 +219,8 @@ def test_dispatched_request_is_not_replayed_after_a_crash(completed):
 
     assert restarted.queue_length("u") == 0
     assert restarted.redis.llen(key("u", "processing")) == 0
-    assert restarted.redis.hashes[key("u", "processing_state")] == {}
+    # With no claims left, the phase hash itself is gone.
+    assert restarted.redis.hashes.get(key("u", "processing_state"), {}) == {}
     assert restarted.list_runs("u")[0]["status"] == (
         "completed" if completed else "aborted"
     )
@@ -1032,3 +1051,66 @@ def test_default_config_never_overwrites_a_concurrent_dashboard_create(monkeypat
     assert config["enabled"] is False
     assert config["intervalSeconds"] == 7200
     assert _stored_config(store) == {"enabled": False, "intervalSeconds": 7200}
+
+
+def test_claim_phase_is_recorded_before_the_lease_refresh_can_fail():
+    """A claim interrupted right after the pop is still a proven-undispatched claim."""
+    store = _txn_store()
+    assert store.acquire_lease("u", ttl_seconds=60)
+    store.redis.lpush(
+        key("u", "queue"),
+        json.dumps({"id": "req-1", "trigger": "manual", "prompt": "hi"}),
+    )
+    # The lease expires while BRPOPLPUSH blocks; the refresh after the pop fails.
+    original_pop = store.redis.brpoplpush
+
+    def expiring_pop(src, dst, timeout=0):
+        store.redis.kv.pop(key("u", "lease"), None)
+        return original_pop(src, dst, timeout)
+
+    store.redis.brpoplpush = expiring_pop
+    with pytest.raises(RuntimeError, match="lease was lost while dequeuing"):
+        store.dequeue("u", timeout=1)
+    processing = store.redis.lists[key("u", "processing")]
+    assert len(processing) == 1
+    assert store.redis.hashes[key("u", "processing_state")] == {
+        processing[0]: "claimed"
+    }
+
+    # A replacement owner requeues it instead of dropping it as unknown.
+    restarted = RedisStore()
+    restarted.redis = store.redis
+    restarted._watch_error_type = store._watch_error_type
+    assert restarted.acquire_lease("u", ttl_seconds=60)
+    assert restarted.reclaim_processing("u") == 1
+    assert store.redis.lists[key("u", "processing")] == []
+    assert [
+        json.loads(entry)["id"] for entry in store.redis.lists[key("u", "queue")]
+    ] == ["req-1"]
+    assert key("u", "processing_state") not in store.redis.hashes
+
+
+def test_reclaim_summary_says_a_requeued_request_runs_again():
+    store = _txn_store()
+    assert store.acquire_lease("u", ttl_seconds=60)
+    store.redis.lpush(
+        key("u", "queue"),
+        json.dumps({"id": "req-2", "trigger": "manual", "prompt": "hi"}),
+    )
+    request = store.dequeue("u", timeout=1)
+    store.upsert_run(
+        "u",
+        {"id": "run-2", "status": "running", "goalId": None, "metrics": {}},
+    )
+    store.release_lease("u")
+
+    restarted = RedisStore()
+    restarted.redis = store.redis
+    restarted._watch_error_type = store._watch_error_type
+    assert restarted.acquire_lease("u", ttl_seconds=60)
+    assert restarted.reclaim_processing("u") == 1
+    [run] = [r for r in restarted.list_runs("u") if r["id"] == "run-2"]
+    assert run["status"] == "aborted"
+    assert "queued again" in run["summary"]
+    assert "will not be retried" not in run["summary"]
+    assert request["id"] == "req-2"

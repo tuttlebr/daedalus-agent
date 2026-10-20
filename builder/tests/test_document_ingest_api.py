@@ -173,7 +173,7 @@ class TestRouter:
                 "complete",
                 {
                     "status": "success",
-                    "collection": "alice",
+                    "collection": "user_uploads",
                     "documents": 1,
                     "output": "Processed document",
                 },
@@ -337,7 +337,9 @@ class TestIngestRequest:
             req, " alice "
         )
 
-        assert (username, collection, scope) == ("alice", "alice", "user")
+        # Without a collection the upload targets the advertised private
+        # default, the one default search reads, not one named after the user.
+        assert (username, collection, scope) == ("alice", "user_uploads", "user")
         assert refs == [{"documentId": "doc-a", "sessionId": "sess-1"}]
 
     def test_rejects_batches_above_the_request_limit(self, monkeypatch):

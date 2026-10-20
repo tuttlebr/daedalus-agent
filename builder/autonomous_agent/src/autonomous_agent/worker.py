@@ -11,20 +11,28 @@ import threading
 import time
 from typing import Any
 
-from .backend_client import BackendClient, OAuthRequiredError, RunAbortedError
+from .backend_client import (
+    ApprovalRequiredError,
+    BackendClient,
+    OAuthRequiredError,
+    RunAbortedError,
+)
 from .exploration import build_exploration_context
 from .models import new_run, now_ms
 from .prompt import (
     build_messages,
     feed_items_from_output,
     load_workspace,
-    output_requests_approval,
     parse_structured_output,
     workspace_key,
 )
 from .store import RedisStore, WorkerLeaseLost
 
 STOP = False
+# Set with STOP on SIGTERM/SIGINT. The lease heartbeat observes it and aborts
+# the open backend request, so a rollout records the run as aborted instead of
+# being SIGKILLed mid-stream with a record left "running".
+SHUTDOWN = threading.Event()
 _CADENCE_TAG_RE = re.compile(r"^cadence:(\d+)([hd])$", re.IGNORECASE)
 
 # Hard ceiling on a single autonomous run. A worker blocked on one backend
@@ -88,6 +96,7 @@ def _handle_signal(signum: int, _frame: Any) -> None:
     global STOP
     log(f"received signal {signum}; stopping after current operation")
     STOP = True
+    SHUTDOWN.set()
 
 
 def apply_workspace_updates(
@@ -236,16 +245,19 @@ def run_once(
             request=request,
             exploration=exploration,
         )
-        # Preserve the previous lastRunAt in the prompt's freshness context.
-        # A missing/deleted explicit goal must never become general exploration.
+        store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
+        execution_id = str(request.get("id") or run["id"])
+        # The fence is the no-replay guarantee for every caller, not only the
+        # lease-heartbeat path.
+        store.mark_backend_started(user_id)
+        # Goal bookkeeping follows the dispatch fence: a request requeued from
+        # before the fence must select this goal again, not skip it for a
+        # whole cadence because it was already marked as run. The prompt above
+        # was built with the previous lastRunAt, so freshness context is kept.
         if goal_id and callable(mark_goal_run):
             mark_goal_run(
                 user_id, goal_id, run["startedAt"], require_lease=abort is not None
             )
-        store.log_event(user_id, run["id"], "backend_call", "Calling backend workflow.")
-        execution_id = str(request.get("id") or run["id"])
-        if abort is not None:
-            store.mark_backend_started(user_id)
         response = backend.call(messages, execution_id=execution_id, abort=abort)
         run["metrics"]["responseChars"] = len(response or "")
 
@@ -279,23 +291,6 @@ def run_once(
             store.upsert_run(user_id, run)
             store.log_event(
                 user_id, run["id"], "run_aborted", run["summary"], level="warn"
-            )
-            return run
-
-        if output_requests_approval(response):
-            # Autonomous work must be non-interactive. The backend safety gates
-            # can still refuse a protected operation, but the worker must not
-            # turn that refusal into a durable approval task for the user.
-            run["status"] = "failed"
-            run["error"] = "Autonomous runs cannot request user approval."
-            run["completedAt"] = now_ms()
-            store.upsert_run(user_id, run)
-            store.log_event(
-                user_id,
-                run["id"],
-                "approval_blocked",
-                run["error"],
-                level="error",
             )
             return run
 
@@ -348,6 +343,13 @@ def run_once(
             run["status"] = "cancelled"
             run["summary"] = "Run cancelled while the backend request was open."
             event, level = "run_cancelled", "warn"
+        elif abort is not None and abort.is_set() and SHUTDOWN.is_set():
+            run["status"] = "aborted"
+            run["summary"] = (
+                "Run aborted because the worker was shutting down. Work that "
+                "may have reached the backend will not be retried automatically."
+            )
+            event, level = "run_aborted", "warn"
         elif abort is not None and abort.is_set():
             run["status"] = "aborted"
             run["summary"] = "Run aborted after losing the worker lease."
@@ -360,6 +362,22 @@ def run_once(
         run["completedAt"] = now_ms()
         store.upsert_run(user_id, run)
         store.log_event(user_id, run["id"], event, run["summary"], level=level)
+        return run
+    except ApprovalRequiredError:
+        # Autonomous work must be non-interactive. The backend gate refuses
+        # protected operations for background runs; if a run still ends at an
+        # approval boundary, record the refusal rather than an approval task.
+        run["status"] = "failed"
+        run["error"] = "Autonomous runs cannot request user approval."
+        run["completedAt"] = now_ms()
+        store.upsert_run(user_id, run)
+        store.log_event(
+            user_id,
+            run["id"],
+            "approval_blocked",
+            run["error"],
+            level="error",
+        )
         return run
     except OAuthRequiredError:
         # OAuth always requires interactive browser state. Treat an attempted
@@ -474,6 +492,10 @@ def run_with_lease_heartbeat(
     def heartbeat() -> None:
         next_refresh = time.monotonic() + heartbeat_interval
         while not stop.wait(poll_interval):
+            if SHUTDOWN.is_set():
+                abort.set()
+                log("worker is shutting down; aborting current run")
+                return
             if time.monotonic() >= next_refresh:
                 next_refresh = time.monotonic() + heartbeat_interval
                 try:

@@ -26,7 +26,9 @@ import { createHash } from 'node:crypto';
 const APPROVAL_STATUS_TTL_SECONDS = 7 * 24 * 60 * 60;
 const EXECUTION_START_TIMEOUT_MS = 135_000;
 const EXECUTION_POLL_TIMEOUT_MS = 15_000;
-const TERMINAL_STATUSES = ['completed', 'failed', 'denied'];
+// `cancelled`: the backend stopped the approved operation (for example at
+// shutdown) before it confirmed success; its state is unknown like `failed`.
+const TERMINAL_STATUSES = ['completed', 'failed', 'denied', 'cancelled'];
 
 interface ApprovalExecutionState {
   requestId: string;

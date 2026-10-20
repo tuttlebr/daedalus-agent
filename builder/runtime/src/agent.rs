@@ -4,7 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use futures::{StreamExt, stream::FuturesUnordered};
 use http::HeaderMap;
 use rig_core::completion::{CompletionRequest, FinishReason, ToolDefinition};
@@ -782,6 +782,9 @@ impl Agent {
             let mut active_groups = HashMap::<String, usize>::new();
             let concurrency = if prepared.parallel_tool_calls { 8 } else { 1 };
             let mut terminal = None;
+            // Where the approval boundary's own result sits in the transcript,
+            // so a redirect that pre-empts the approval can neutralise it.
+            let mut terminal_result = None;
             while !queued.is_empty() || !active.is_empty() {
                 self.drain().await?;
                 while active.len() < concurrency {
@@ -811,17 +814,6 @@ impl Agent {
                             reason = "redirected_or_terminal"
                         );
                         history.push(Message::tool_result(call.id, call.function.name, "Not executed: this run was redirected or reached an approval boundary."));
-                        continue;
-                    }
-                    if !prepared.tools.iter().any(|tool| tool.name == name)
-                        || (final_synthesis && !prepared.final_tools.contains(&name))
-                    {
-                        tracing::warn!(event = "tool_call_skipped", reason = "unavailable");
-                        history.push(Message::tool_result(
-                            call.id,
-                            call.function.name,
-                            "Tool is unavailable for this phase.",
-                        ));
                         continue;
                     }
                     let tool_call = self
@@ -899,7 +891,35 @@ impl Agent {
                     Some(result) = active.next() => result,
                     _ = self.events.sender.closed() => bail!("Client disconnected"),
                 };
-                let mut outcome = outcome?;
+                // One call's transport or decoding failure is that call's result,
+                // not the run's: ending the run here would drop the sibling calls
+                // still in flight (their remote effects unknown) and lose results
+                // that completed but were not yet collected. Only a disconnected
+                // client ends the run.
+                let mut outcome = match outcome {
+                    Ok(outcome) => outcome,
+                    Err(error) if error.root_cause().to_string() == "Client disconnected" => {
+                        return Err(error);
+                    }
+                    Err(error) => {
+                        let details = crate::logging::failure(&error);
+                        // Transport failures name only their kind; the runtime's
+                        // own fixed messages carry no private values.
+                        let reason = if details.kind == "application" {
+                            error.root_cause().to_string()
+                        } else {
+                            details.kind.to_owned()
+                        };
+                        ToolOutcome {
+                            content: format!(
+                                "Tool failed ({reason}). Check its arguments and service availability."
+                            ),
+                            is_error: true,
+                            error_signature: reason,
+                            ..Default::default()
+                        }
+                    }
+                };
                 let name = call.function.name.to_string();
                 if !outcome.is_error && !outcome.terminal {
                     requirement.succeeded(&name);
@@ -936,6 +956,8 @@ impl Agent {
                 self.events
                     .tool(&call.id.to_string(), &name, true, Value::String(visible))
                     .await?;
+                let approval_boundary =
+                    outcome.terminal && outcome.terminal_reason == "mcp_approval_required";
                 if outcome.terminal && terminal.is_none() {
                     terminal = Some((outcome.content.clone(), outcome.terminal_reason));
                 }
@@ -973,6 +995,10 @@ impl Agent {
                 } else {
                     0
                 };
+                if approval_boundary && terminal_result.is_none() {
+                    terminal_result =
+                        Some((history.len(), call.id.clone(), call.function.name.clone()));
+                }
                 history.push(Message::tool_result(
                     call.id,
                     call.function.name,
@@ -994,6 +1020,17 @@ impl Agent {
             if let Some((content, reason)) = terminal {
                 self.drain().await?;
                 if !self.pending.is_empty() || !self.handle.finish_if_idle(&self.inbox).await {
+                    // The user's direction wins over the approval boundary. The
+                    // gated call never ran and its approval is never requested, so
+                    // its marker must not stay in the transcript as a result the
+                    // model can quote.
+                    if let Some((index, id, name)) = terminal_result.take() {
+                        history[index] = Message::tool_result(
+                            id,
+                            name,
+                            "Not executed: this call needs the user's approval, and the run was redirected before approval could be requested.",
+                        );
+                    }
                     continue;
                 }
                 if reason == "mcp_approval_required" {
@@ -1091,6 +1128,7 @@ impl Agent {
             };
             tokio::pin!(call);
             let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+            heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             heartbeat.tick().await;
             let result = loop {
                 tokio::select! {
@@ -1181,6 +1219,7 @@ impl Agent {
             );
             tokio::pin!(call);
             let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+            heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             heartbeat.tick().await;
             let content = loop {
                 tokio::select! {
@@ -1215,9 +1254,12 @@ impl Agent {
             let user = crate::preparation::header(&headers, "x-user-id");
             let token = crate::preparation::header(&headers, "x-daedalus-approval-token");
             let emit = crate::oauth::Emitter::Chat(events.clone());
-            let call = mcp.call(name, arguments, user, token, &emit);
+            let background = crate::preparation::header(&headers, "x-daedalus-execution-scope")
+                .eq_ignore_ascii_case("autonomy");
+            let call = mcp.call(name, arguments, user, token, &emit, background);
             tokio::pin!(call);
             let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+            heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             heartbeat.tick().await;
             let mut outcome = loop {
                 tokio::select! {
@@ -1283,13 +1325,28 @@ impl Agent {
             request["context"] = context.clone();
         }
         let user = crate::preparation::header(&headers, "x-user-id").to_string();
-        let response = http
-            .post(url)
-            .headers(headers)
-            .json(&request)
-            .send()
-            .await?
-            .error_for_status()?;
+        // The tool service writes a heartbeat line every 15 s while a call
+        // runs, so a longer silence means the peer or its socket died without
+        // closing. Without this bound a hung call would hold the run until
+        // the whole-run deadline.
+        let idle = Duration::from_secs_f64(
+            preparation
+                .as_ref()
+                .and_then(|p| {
+                    p.config
+                        .variable("DAEDALUS_TOOL_STREAM_IDLE_SECONDS", "60")
+                        .trim()
+                        .parse::<f64>()
+                        .ok()
+                })
+                .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+                .unwrap_or(60.0),
+        );
+        let response =
+            tokio::time::timeout(idle, http.post(url).headers(headers).json(&request).send())
+                .await
+                .map_err(|_| anyhow!("Tool service did not accept the call in time"))??
+                .error_for_status()?;
         let mut stream = response.bytes_stream();
         let mut buffer = Vec::new();
         // The legacy executor compacted before transport. Version 1 transports
@@ -1302,8 +1359,13 @@ impl Agent {
                 .saturating_mul(6)
                 .saturating_add(8 * 1024 * 1024)
         });
-        while let Some(chunk) = stream.next().await {
-            buffer.extend_from_slice(&chunk?);
+        loop {
+            let chunk = match tokio::time::timeout(idle, stream.next()).await {
+                Ok(Some(chunk)) => chunk?,
+                Ok(None) => break,
+                Err(_) => bail!("Tool stream stalled"),
+            };
+            buffer.extend_from_slice(&chunk);
             if buffer.len() > event_limit {
                 bail!("Tool event exceeds size limit");
             }
@@ -1381,6 +1443,51 @@ mod tests {
     struct Model {
         scripts: StdMutex<VecDeque<Option<Vec<Value>>>>,
         requests: StdMutex<Vec<Value>>,
+        tool_calls: StdMutex<Vec<Value>>,
+    }
+
+    /// A scripted tool service. The call's `query` argument selects the
+    /// reply: `fail` answers 500, `stall` writes one heartbeat line and then
+    /// never finishes, anything else returns a result naming the query.
+    async fn tool_call(
+        State(model): State<Arc<Model>>,
+        Json(body): Json<Value>,
+    ) -> axum::response::Response {
+        model.tool_calls.lock().unwrap().push(body.clone());
+        let query = body["arguments"]["query"].as_str().unwrap_or("").to_owned();
+        if query == "fail" {
+            return (
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+                "tool service failed",
+            )
+                .into_response();
+        }
+        if query == "stall" {
+            let (sender, receiver) = mpsc::channel::<Result<String, std::convert::Infallible>>(4);
+            tokio::spawn(async move {
+                if sender
+                    .send(Ok("{\"event\":\"heartbeat\",\"data\":{}}\n".into()))
+                    .await
+                    .is_ok()
+                {
+                    // Hold the stream open without another byte.
+                    std::future::pending::<()>().await;
+                }
+            });
+            return (
+                [(http::header::CONTENT_TYPE, "application/x-ndjson")],
+                axum::body::Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(
+                    receiver,
+                )),
+            )
+                .into_response();
+        }
+        let result = json!({"event":"result","data":{"content":format!("result for {query}")}});
+        (
+            [(http::header::CONTENT_TYPE, "application/x-ndjson")],
+            format!("{result}\n"),
+        )
+            .into_response()
     }
 
     async fn respond(
@@ -1426,12 +1533,16 @@ mod tests {
     }
 
     async fn catalogue() -> Json<Value> {
-        Json(
-            json!({"briefing_renderer_tool":[{"name":"briefing_renderer_tool",
-            "description":"Render the briefing edition.",
-            "parameters":{"type":"object","required":["edition"],"additionalProperties":false,
-                "properties":{"edition":{"type":"object"}}}}]}),
-        )
+        Json(json!({
+            "briefing_renderer_tool":[{"name":"briefing_renderer_tool",
+                "description":"Render the briefing edition.",
+                "parameters":{"type":"object","required":["edition"],"additionalProperties":false,
+                    "properties":{"edition":{"type":"object"}}}}],
+            "lookup_tool":[{"name":"lookup_tool",
+                "description":"Look up a query.",
+                "parameters":{"type":"object","required":["query"],"additionalProperties":false,
+                    "properties":{"query":{"type":"string"}}}}]
+        }))
     }
 
     fn call(id: &str, name: &str, arguments: &str) -> Value {
@@ -1548,6 +1659,7 @@ mod tests {
         let router = Router::new()
             .route("/v1/responses", post(respond))
             .route("/runtime/v1/catalog", post(catalogue))
+            .route("/runtime/v1/tools/call", post(tool_call))
             .with_state(model.clone());
         let peer = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let mut raw = json!({
@@ -1563,6 +1675,8 @@ mod tests {
             [
                 ("DAEDALUS_MEMORY_MODE".into(), "disabled".into()),
                 ("REDIS_URL".into(), "redis://127.0.0.1:1".into()),
+                // Keep a stalled scripted tool stream from waiting a minute.
+                ("DAEDALUS_TOOL_STREAM_IDLE_SECONDS".into(), "1".into()),
             ]
             .into(),
         )
@@ -1735,6 +1849,54 @@ mod tests {
             .find(|item| item["call_id"] == "corrected" && item["type"] == "function_call_output")
             .unwrap();
         assert!(!corrected.to_string().contains("invalid_tool_batch"));
+    }
+
+    #[tokio::test]
+    async fn one_failed_leaf_call_does_not_abort_its_batch_siblings() {
+        let outcome = run(
+            json!({"lookup_tool":{"_type":"webscrape"}}),
+            json!({"tools":["lookup_tool"],"parallel_tool_calls":true}),
+            "Look things up",
+            vec![
+                completed(vec![
+                    call("ok", "lookup_tool", "{\"query\":\"alpha\"}"),
+                    call("bad", "lookup_tool", "{\"query\":\"fail\"}"),
+                ]),
+                completed(vec![text("Done.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        // The failed call is its own error result; its sibling's result is
+        // bound to its call in the next model request.
+        let input = outcome.requests[1]["input"].to_string();
+        assert!(input.contains("result for alpha"), "{input}");
+        assert!(input.contains("Tool failed (http_status)"), "{input}");
+        assert!(outcome.stream.contains("\"finish_reason\":\"stop\""));
+        assert!(!outcome.stream.contains("event: error"));
+    }
+
+    #[tokio::test]
+    async fn a_silent_tool_service_stream_fails_the_call_not_the_run() {
+        let started = Instant::now();
+        let outcome = run(
+            json!({"lookup_tool":{"_type":"webscrape"}}),
+            json!({"tools":["lookup_tool"]}),
+            "Look it up",
+            vec![
+                completed(vec![call("hang", "lookup_tool", "{\"query\":\"stall\"}")]),
+                completed(vec![text("Done without it.")]),
+            ],
+        )
+        .await;
+        outcome.result.unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the idle bound did not end the stalled call: {:?}",
+            started.elapsed()
+        );
+        let input = outcome.requests[1]["input"].to_string();
+        assert!(input.contains("Tool stream stalled"), "{input}");
     }
 
     #[tokio::test]

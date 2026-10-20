@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 import time
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
@@ -20,17 +19,8 @@ from .exploration import (
 )
 from .models import new_feed_item, now_ms
 
-WORKSPACE_FILES = {
-    "identity": "/config/identity.md",
-    "soul": "/config/soul.md",
-    "interests": "/config/interests.md",
-    "schema": "/config/schema.md",
-    "user": "/config/user.md",
-    "heartbeat": "/config/heartbeat.md",
-    "memory": "/config/memory.md",
-    "inner_state": "/config/inner-state.md",
-}
-
+# Workspace sections, seeded from these defaults the first time a user's
+# worker runs and then owned by the model's own updates in Redis.
 DEFAULT_WORKSPACE = {
     "identity": """
 ## Identity
@@ -91,13 +81,6 @@ Start each run with a small, bounded plan and record the next useful follow-up.
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 _THINK_RE = re.compile(r"<think(?:\s[^>]*)?>.*?</think\s*>", re.DOTALL | re.IGNORECASE)
-# F-011: require the structured marker emitted by the approval tool.
-# Detection requires this exact bold heading (not merely an advisory phrase like
-# "proceed? (yes/no)") so a model casually echoing the words cannot trip the gate.
-_APPROVAL_MARKER_RE = re.compile(
-    r"\*\*(?:Action requiring confirmation|Deep research plan approval):\*\*",
-    re.IGNORECASE,
-)
 _SOURCE_POLICY_IDS = frozenset(SOURCE_POLICY_IDS)
 
 # Workspace notes are model-authored and persisted between runs, so a bad or
@@ -225,13 +208,6 @@ def _profile_memory_query(selected_goal: dict[str, Any] | None) -> str:
     return f"{query}; current goal: {title} {tags}".strip()
 
 
-def read_seed(name: str, path: str) -> str:
-    try:
-        return Path(path).read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        return DEFAULT_WORKSPACE.get(name, "")
-
-
 def workspace_key(user_id: str, name: str) -> str:
     return f"autonomous:{user_id}:workspace:{name}"
 
@@ -240,13 +216,12 @@ def load_workspace(
     store: Any, user_id: str, *, require_lease: bool = False
 ) -> dict[str, str]:
     workspace: dict[str, str] = {}
-    for name, seed_path in WORKSPACE_FILES.items():
+    for name, seed in DEFAULT_WORKSPACE.items():
         key = workspace_key(user_id, name)
         current = store.get_text(key)
         if current is not None:
             workspace[name] = current
             continue
-        seed = read_seed(name, seed_path)
         workspace[name] = seed
         if seed:
             store.set_text(key, seed, lease_user=user_id if require_lease else None)
@@ -300,7 +275,7 @@ def build_messages(
 
     bounded_workspace = {
         name: _bounded_text(workspace.get(name), _MAX_WORKSPACE_SECTION_CHARS)
-        for name in WORKSPACE_FILES
+        for name in DEFAULT_WORKSPACE
     }
 
     stable_sections = [
@@ -688,12 +663,3 @@ def feed_items_from_output(run_id: str, output: dict[str, Any]) -> list[dict[str
             )
         )
     return result
-
-
-def output_requests_approval(text: str) -> bool:
-    # F-011: require the structured approval marker, not any advisory phrase.
-    # This keeps the worker-side pause aligned with the backend approval gate.
-    # The worker pause is paired with the backend MCPToolClient gate: mutation
-    # attempts have no credential on this first turn, while the authenticated
-    # approval route supplies one exact, single-use credential on resume.
-    return bool(_APPROVAL_MARKER_RE.search(text or ""))

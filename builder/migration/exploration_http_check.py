@@ -213,7 +213,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
     parser.add_argument("--preparation", choices=["rust", "python"], default="rust")
-    parser.add_argument("--executor", choices=["python", "none"], default="python")
+    parser.add_argument("--executor", choices=["python", "disabled"], default="python")
     parser.add_argument("--redis-image", default="daedalus:redis-migration-check")
     args = parser.parse_args()
     main(args.image, args.preparation, args.redis_image, args.executor)

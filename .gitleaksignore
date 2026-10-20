@@ -4,10 +4,6 @@
 # Reviewed deploy dry-run placeholder; not a credential.
 11576340278450bcce58338bb7eefa6d33706d74:deploy.sh:generic-api-key:157
 
-# Public SHA-256 of baseline daedalus_runtime/oauth.py, verified against the
-# retained image and source commit. The filename triggers generic-api-key.
-039f3dd97777b77b3b30d8eb1139aa31a9b1f758:builder/runtime/tests/fixtures/baseline-inventory.json:generic-api-key:3286
-
 # Reviewed synthetic Milvus authorization recordings (base64 of fixture-only
 # users/passwords and synthetic-search-token) and source-file SHA-256 values.
 # Verified against each introducing commit and the corresponding export scripts.

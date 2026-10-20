@@ -111,9 +111,17 @@ export async function verifyCredentials(
 ): Promise<Omit<User, 'passwordHash'> | null> {
   await initializeUsers();
   const decoyHash = await getDecoyPasswordHash();
-  const user = isConfiguredUsername(username)
+  let user = isConfiguredUsername(username)
     ? await getUserByUsername(username)
     : null;
+  if (!user && isConfiguredUsername(username)) {
+    // The records were initialized once for this process. If Redis lost
+    // them since (restore, flush, new volume), recreate them now instead of
+    // refusing every configured account until the frontend restarts.
+    initializeUsersPromise = null;
+    await initializeUsers();
+    user = await getUserByUsername(username);
+  }
 
   const isValid = await bcrypt.compare(
     password,

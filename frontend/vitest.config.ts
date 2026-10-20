@@ -34,7 +34,7 @@ export default defineConfig({
         'ws-server.ts',
         'stream-worker.ts',
         // Every server module and client store, including job admission,
-        // atomic JSON/history writers, push subscriptions and OAuth state.
+        // atomic JSON/history writers and OAuth state.
         'server/**/*.ts',
         'state/**/*.ts',
         // Runtime helpers outside the directories above: upload limits,
@@ -43,10 +43,14 @@ export default defineConfig({
         'constants/**/*.ts',
         'types/**/*.ts',
         'pages/*.tsx',
+        // Build and CI policy scripts, including the production dependency
+        // audit gate, whose tests live beside them as *.test.mjs.
+        'scripts/**/*.{js,mjs}',
       ],
       exclude: [
         '**/*.test.ts',
         '**/*.test.tsx',
+        '**/*.test.mjs',
         '**/*.d.ts',
         'node_modules/**',
       ],

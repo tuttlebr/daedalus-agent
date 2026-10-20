@@ -224,11 +224,15 @@ describe('backend stream reader persistence', () => {
       'event: message\ndata: {"choices":[{"delta":{},"finish_reason":"stop","daedalus_terminal":true}]}\n\n',
     );
     await reading;
+    // Finalization also receives the reader's own copy of every published
+    // step, so a lost Redis step list cannot shorten the saved turn.
     expect(mocks.finalizeSuccess).toHaveBeenCalledWith(
       'job-1',
       expect.anything(),
       'Let me check. Checking pods.',
+      mocks.steps,
     );
+    expect(mocks.finalizeSuccess.mock.calls[0][3]).toHaveLength(3);
     expect(mocks.finalizeError).not.toHaveBeenCalled();
   });
 
@@ -264,6 +268,7 @@ describe('backend stream reader persistence', () => {
       'job-1',
       expect.anything(),
       'Done',
+      [],
     );
   });
 
@@ -311,7 +316,9 @@ describe('backend stream reader persistence', () => {
           'job-1',
           expect.anything(),
           '',
+          mocks.steps,
         );
+        expect(mocks.steps).toHaveLength(1);
         expect(mocks.finalizeError).not.toHaveBeenCalled();
       } else {
         expect(mocks.finalizeSuccess).not.toHaveBeenCalled();
@@ -391,6 +398,7 @@ describe('backend stream reader persistence', () => {
       'job-1',
       expect.anything(),
       'The pods are ready.',
+      [],
     );
   });
 

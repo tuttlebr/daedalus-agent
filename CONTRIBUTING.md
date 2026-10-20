@@ -115,6 +115,15 @@ steps you could not test in the
 [pull request description](.github/pull_request_template.md). Never put real
 credentials, conversations, or private model endpoints in examples or fixtures.
 
+## Security reports
+
+Report a suspected vulnerability privately through the repository's GitHub
+security advisories ("Report a vulnerability" under the Security tab) instead
+of a public issue or pull request. Include the commit, the affected
+component, reproduction steps and the impact you observed; redact credentials
+and personal content. Fixes land through the normal review path once the
+report is confirmed.
+
 ## Pull requests
 
 Explain the problem, the resulting behavior, and how you verified it. Keep the

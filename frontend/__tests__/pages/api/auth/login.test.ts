@@ -73,6 +73,21 @@ describe('/api/auth/login', () => {
     vi.mocked(releaseLimitedAttempt).mockResolvedValue(undefined);
   });
 
+  it('rejects a non-object JSON body as a bad request without reserving an attempt', async () => {
+    const { req, res } = createMockReqRes(
+      null as unknown as Record<string, unknown>,
+    );
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Username and password are required',
+    });
+    expect(reserveLimitedAttempt).not.toHaveBeenCalled();
+    expect(mocks.verifyCredentials).not.toHaveBeenCalled();
+  });
+
   it('creates a session with sanitized user data and clears failed attempts', async () => {
     const user = {
       id: '1',

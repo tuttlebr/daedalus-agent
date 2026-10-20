@@ -29,6 +29,8 @@ export interface JobFinalizationConversation {
   intermediateSteps: any[];
   isPartial: boolean;
   error?: string;
+  /** The user stopped this response; it is saved as stopped, not failed. */
+  stopped?: boolean;
 }
 
 export interface JobFinalizationJournal {
@@ -159,6 +161,21 @@ export async function recordOAuthJobRequest(
       updatedAt: Date.now(),
     };
   });
+}
+
+/**
+ * A status record is terminal once finalization stamped it or its status is
+ * terminal. This is the TypeScript form of the checks the Lua scripts in this
+ * module and in streamQueue make; every reader uses it so legacy records are
+ * classified the same way everywhere.
+ */
+export function isTerminalStatusRecord(
+  status: Pick<AsyncJobStatus, 'status' | 'finalizedAt'> | null | undefined,
+): boolean {
+  return Boolean(
+    status &&
+      (status.finalizedAt !== undefined || isTerminalJobStatus(status.status)),
+  );
 }
 
 export function isTerminalJobStatus(status: AsyncJobStatus['status']): boolean {

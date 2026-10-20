@@ -603,16 +603,41 @@ def create_app(config_path: str | None = None) -> FastAPI:
         async def stream():
             queue = asyncio.Queue(maxsize=16)
 
+            emitted_result = False
+
             async def emit(event, data):
+                nonlocal emitted_result
                 if event == "oauth_required":
                     log_event(
                         "tool_oauth_required",
                         run_id=request.headers.get("x-daedalus-request-id", ""),
                         tool=body.name,
                     )
+                if event == "result":
+                    emitted_result = True
                 await queue.put({"event": event, "data": data})
 
             async def invoke():
+                try:
+                    await invoke_once()
+                finally:
+                    # The consumer below ends only on a result. A failure after
+                    # the handler's own error handling (or a non-Exception
+                    # escape) must still terminate the stream instead of
+                    # leaving heartbeats running until the runtime's deadline.
+                    if not emitted_result:
+                        with contextlib.suppress(asyncio.QueueFull):
+                            queue.put_nowait(
+                                {
+                                    "event": "result",
+                                    "data": {
+                                        "content": "Tool failed (RuntimeError). Check its arguments and service availability.",
+                                        "is_error": True,
+                                    },
+                                }
+                            )
+
+            async def invoke_once():
                 started = time.monotonic()
                 with log_context(
                     run_id=request.headers.get("x-daedalus-request-id", ""),

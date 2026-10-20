@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Supervise the Rust agent and its loopback-only Python tool service."""
 
+import contextlib
 import logging
 import os
 import signal
@@ -35,7 +36,9 @@ def main():
         stopping = True
         for child in children:
             if child.poll() is None:
-                os.killpg(child.pid, signal.SIGTERM)
+                # The group can vanish between poll() and the signal.
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(child.pid, signal.SIGTERM)
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
@@ -119,7 +122,8 @@ def main():
             try:
                 child.wait(timeout=max(0.1, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(child.pid, signal.SIGKILL)
                 child.wait()
 
 

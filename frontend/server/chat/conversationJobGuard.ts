@@ -3,7 +3,11 @@ import { JOB_EXPIRY_SECONDS } from './constants';
 import { getRedis, sessionKey } from '@/server/session/redis';
 import type Redis from 'ioredis';
 
-export const CONVERSATION_JOB_GUARD_TTL_SECONDS = JOB_EXPIRY_SECONDS * 2;
+// A guard never outlives the job records it protects. The worker heartbeat
+// renews both together for a running job, so a longer standalone TTL would
+// only keep a slot or conversation locked after an unclaimed job's records
+// expired, with nothing left that could release them.
+export const CONVERSATION_JOB_GUARD_TTL_SECONDS = JOB_EXPIRY_SECONDS;
 export const CONVERSATION_JOB_INITIALIZATION_GRACE_MS = 60_000;
 
 export interface ConversationJobGuard {

@@ -1,5 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
+import {
+  ownsGeneratedImage,
+  readGeneratedImageRecord,
+} from '@/server/images/generatedImage';
 import { enforceRateLimit, ruleFromEnv } from '@/server/rateLimit';
 import {
   getStorageSessionId,
@@ -547,10 +551,17 @@ export async function touchImage(
     }
   }
 
-  const generatedKey = `generated:image:${imageId}`;
-  const generatedExists = await redis.exists(generatedKey);
-  if (generatedExists) {
-    await redis.expire(generatedKey, IMAGE_EXPIRY_SECONDS);
+  // A conversation can mention any generated-image id; only its owner's save
+  // extends the asset's lifetime.
+  const generated = await readGeneratedImageRecord(imageId);
+  if (
+    generated &&
+    ownsGeneratedImage(generated, {
+      userId: userId ?? '',
+      sessionId: sessionId ?? '',
+    })
+  ) {
+    await redis.expire(`generated:image:${imageId}`, IMAGE_EXPIRY_SECONDS);
     console.log(
       `Touched generated image ${imageId}, TTL refreshed to ${IMAGE_EXPIRY_SECONDS}s`,
     );

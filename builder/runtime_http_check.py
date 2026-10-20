@@ -938,6 +938,38 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def write_report(report, captured_requests, status):
+    """Write the model-request capture with its outcome.
+
+    Only the clock's result is nondeterministic. Keep all model requests, tool
+    arguments, schemas, errors and affinity IDs; a failed run writes what it
+    captured so far so the failing contract can be localized from the evidence.
+    """
+    requests = json.loads(json.dumps(captured_requests))
+    for request in requests:
+        clock_calls = {
+            item["call_id"]
+            for item in request.get("input", [])
+            if item.get("type") == "function_call"
+            and item.get("name") == "current_datetime_tool"
+        }
+        for item in request.get("input", []):
+            if (
+                item.get("type") == "function_call_output"
+                and item.get("call_id") in clock_calls
+            ):
+                value = item.get("output", "")
+                if re.fullmatch(
+                    r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?[+-]\d\d:\d\d",
+                    value,
+                ):
+                    item["output"] = "<clock-instant>"
+    Path(report).write_text(
+        json.dumps({"version": 1, "status": status, "requests": requests}, indent=2)
+        + "\n"
+    )
+
+
 def check(image=None, binary=None, redis_image=None, preparation="rust", report=None):
     if os.sys.flags.optimize:
         raise RuntimeError("Run runtime contracts without Python optimization")
@@ -2071,31 +2103,7 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
                     )
                 ), "Routing affinity was lost across model/tool/retry rounds"
                 if report:
-                    # Only the clock's result is nondeterministic. Keep all model
-                    # requests, tool arguments, schemas, errors and affinity IDs.
-                    requests = json.loads(json.dumps(peers.requests))
-                    for request in requests:
-                        clock_calls = {
-                            item["call_id"]
-                            for item in request.get("input", [])
-                            if item.get("type") == "function_call"
-                            and item.get("name") == "current_datetime_tool"
-                        }
-                        for item in request.get("input", []):
-                            if (
-                                item.get("type") == "function_call_output"
-                                and item.get("call_id") in clock_calls
-                            ):
-                                value = item.get("output", "")
-                                if re.fullmatch(
-                                    r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?[+-]\d\d:\d\d",
-                                    value,
-                                ):
-                                    item["output"] = "<clock-instant>"
-                    Path(report).write_text(
-                        json.dumps({"version": 1, "requests": requests}, indent=2)
-                        + "\n"
-                    )
+                    write_report(report, peers.requests, "passed")
                 print(
                     "HTTP contract passed: streaming, native tools, bounded provider retry, incomplete rejection, user isolation, idempotent steering during model/MCP calls, retained results, skipped queued calls, and cancellation."
                     " Batch validation, call IDs, required-tool enforcement, structured lifecycle logs, failure diagnostics, run correlation, and private-data exclusion passed."
@@ -2111,6 +2119,13 @@ def check(image=None, binary=None, redis_image=None, preparation="rust", report=
             log.flush()
             log.seek(0)
             print(log.read()[-6000:])
+            # The requests captured so far localize a failed contract; the
+            # differential and CI evidence uploads expect the file.
+            if report:
+                try:
+                    write_report(report, peers.requests, "failed")
+                except OSError as error:
+                    print(f"could not write the partial report: {error}")
             raise
         finally:
             peers.release_model.set()

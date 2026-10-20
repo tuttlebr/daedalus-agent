@@ -27,6 +27,12 @@ type ApprovalState =
   | 'denied'
   | 'failed';
 
+// The backend can also report `cancelled`: it stopped the approved operation
+// before it confirmed success, which the card presents like a failure.
+function approvalState(status: unknown): ApprovalState {
+  return status === 'cancelled' ? 'failed' : (status as ApprovalState);
+}
+
 interface McpApprovalCardProps {
   approval: McpApprovalMarker;
   jobId?: string;
@@ -67,7 +73,7 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
       // An unfinished newer poll must not starve responses that take longer
       // than the polling interval. Only a newer applied response wins.
       latestStatusApplied.current = read;
-      setState(payload.status as ApprovalState);
+      setState(approvalState(payload.status));
       setAuthUrl(
         typeof payload.authUrl === 'string' ? payload.authUrl : undefined,
       );
@@ -132,7 +138,7 @@ export function McpApprovalCard({ approval, jobId }: McpApprovalCardProps) {
       if (!response.ok) {
         throw new Error(payload.error || 'Approval could not be resolved');
       }
-      setState(payload.status as ApprovalState);
+      setState(approvalState(payload.status));
       if (typeof payload.authUrl === 'string') {
         setAuthUrl(payload.authUrl);
       }

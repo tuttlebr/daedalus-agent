@@ -30,6 +30,25 @@ def test_deleted_resource_is_reported(tmp_path, monkeypatch, directory):
     ]
 
 
+def test_prose_resource_references_resolve_against_the_skill_directory(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(links, "ROOT", tmp_path)
+    skill = tmp_path / "skills/demo"
+    (skill / "references").mkdir(parents=True)
+    (skill / "references/guide.md").write_text("# Guide\n")
+    (skill / "SKILL.md").write_text(
+        "# Demo\n\nLoad `agent_skills_tool` with resource=references/guide.md, "
+        "or browse resource=references/ for more. In code: `resource=ignored.md`.\n"
+    )
+    assert links.check(tmp_path / "skills") == []
+
+    (skill / "references/guide.md").unlink()
+    assert links.check(tmp_path / "skills") == [
+        f"skills/demo/SKILL.md: missing resource {(skill / 'references/guide.md').resolve()}"
+    ]
+
+
 def test_same_file_anchors_are_checked_against_the_linking_file(tmp_path, monkeypatch):
     monkeypatch.setattr(links, "ROOT", tmp_path)
     skill = tmp_path / "skills/demo"

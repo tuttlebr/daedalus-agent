@@ -1,0 +1,29 @@
+{{- if and .Values.redis.enabled .Values.backend.networkPolicy.cilium.enabled }}
+# Cilium ingress policy for Redis: the same four workloads as the standard
+# NetworkPolicy, on the Redis service port only.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-redis-cilium
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  ingress:
+    - fromEndpoints:
+        {{- range $component := list "frontend" "frontend-stream-worker" "backend-default" "autonomous-agent" }}
+        - matchLabels:
+            app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+            app.kubernetes.io/component: {{ $component }}
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.redis.service.port | quote }}
+              protocol: TCP
+{{- end }}

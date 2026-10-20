@@ -329,6 +329,21 @@ describe('MCP OAuth redirect API', () => {
     expect(completeOAuthJobRequest).not.toHaveBeenCalled();
   });
 
+  it('retains the target after a transient backend server error', async () => {
+    vi.mocked(fetchWithTimeout).mockResolvedValue(
+      new Response('upstream restarting', { status: 503 }),
+    );
+    const { req, res } = createMockReqRes('POST', { state: 'oauth-state' });
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    await expect(
+      loadOAuthCallbackTarget('oauth-state'),
+    ).resolves.not.toBeNull();
+    expect(completeOAuthJobRequest).not.toHaveBeenCalled();
+  });
+
   it('does not report OAuth completion for a rejected backend callback', async () => {
     vi.mocked(fetchWithTimeout).mockResolvedValue(
       new Response('authorization denied', { status: 400 }),

@@ -1,13 +1,14 @@
 import { primeDns } from './dns-cache';
 import {
-  DEFAULT_REDIS_URL,
-  REDIS_CLIENT_OPTIONS,
   channels,
   createRedisErrorThrottle,
+  DEFAULT_REDIS_URL,
   parseRedisJsonResult,
+  REDIS_CLIENT_OPTIONS,
   redisErrorMessage,
   resolveRedisUrl,
   sessionKey,
+  type StreamingState,
 } from './redisShared';
 
 import Redis from 'ioredis';
@@ -288,43 +289,6 @@ export async function jsonSetWithExpiry(
   }
 }
 
-// JSON.MGET silently returns null for plain-string keys, including new records
-// written by conversationStore. Read both formats in one round trip and keep
-// JSON opaque in Lua so empty arrays and large integers survive unchanged.
-const READ_JSON_BATCH_LUA = `
--- READ_JSON_BATCH
-local values = {}
-for _, key in ipairs(KEYS) do
-  local kind = redis.call('TYPE', key).ok
-  local raw = false
-  if kind == 'string' then
-    raw = redis.call('GET', key)
-  elseif string.find(string.lower(kind), 'rejson', 1, true) then
-    raw = redis.call('JSON.GET', key, ARGV[1])
-  end
-  table.insert(values, {kind, raw})
-end
-return values
-`;
-
-export async function jsonMGet(
-  keys: string[],
-  path: string = '$',
-): Promise<any[]> {
-  if (!keys.length) return [];
-  const values = (await getRedis().eval(
-    READ_JSON_BATCH_LUA,
-    keys.length,
-    ...keys,
-    path,
-  )) as [string, string | null][];
-  // A failed read must reach the caller's error handler, never look like an
-  // empty conversation list. Plain strings retain jsonGet's root semantics.
-  return values.map(([kind, raw]) =>
-    kind === 'string' ? parsePlainJson(raw) : parseRedisJsonResult(raw, path),
-  );
-}
-
 // Pub/Sub client management
 // Publisher client for sending messages
 export function getPublisher(): Redis {
@@ -350,12 +314,7 @@ export function getPublisher(): Redis {
 }
 
 // Streaming state storage for cross-session sync
-export interface StreamingState {
-  conversationId: string;
-  sessionId: string;
-  startedAt: number;
-  userId: string;
-}
+export type { StreamingState } from './redisShared';
 
 // Auto-cleanup for an abandoned run; the stream worker's lease heartbeat
 // renews it while the job that owns it is still running.

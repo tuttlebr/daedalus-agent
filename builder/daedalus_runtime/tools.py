@@ -176,6 +176,9 @@ class ToolRegistry:
         self._locks: dict[str, asyncio.Lock] = {}
         self._llms: dict[tuple[str, str], Any] = {}
         self._embedders: dict[str, Any] = {}
+        # Concurrent first uses (the source verifier runs two claims at once)
+        # must not each construct and register a client.
+        self._client_lock = asyncio.Lock()
 
     async def close(self):
         await self._stack.aclose()
@@ -209,42 +212,52 @@ class ToolRegistry:
     async def get_llm(self, name: str, *, wrapper_type=LLMFramework.LANGCHAIN):
         """LLM clients for leaf tools such as source verification, never agents."""
         key = (name, str(wrapper_type))
-        if key not in self._llms:
-            import httpx
-            from langchain_openai import ChatOpenAI
+        if key in self._llms:
+            return self._llms[key]
+        async with self._client_lock:
+            if key not in self._llms:
+                import httpx
+                from langchain_openai import ChatOpenAI
 
-            config = self.config["llms"][name]
-            if wrapper_type != LLMFramework.LANGCHAIN:
-                raise ValueError("Python helper tools require the LANGCHAIN wrapper")
-            sync_http = httpx.Client()
-            async_http = httpx.AsyncClient()
-            self._stack.callback(sync_http.close)
-            self._stack.push_async_callback(async_http.aclose)
-            self._llms[key] = ChatOpenAI(
-                http_client=sync_http,
-                http_async_client=async_http,
-                model=config["model_name"],
-                api_key=config.get("api_key") or "unused",
-                base_url=config.get("base_url"),
-                timeout=float(config.get("request_timeout", 60)),
-                max_retries=int(config.get("max_retries", 3)),
-                use_responses_api=config.get("api_type") == "responses",
-                use_previous_response_id=False,
-            )
+                config = self.config["llms"][name]
+                if wrapper_type != LLMFramework.LANGCHAIN:
+                    raise ValueError(
+                        "Python helper tools require the LANGCHAIN wrapper"
+                    )
+                sync_http = httpx.Client()
+                async_http = httpx.AsyncClient()
+                self._stack.callback(sync_http.close)
+                self._stack.push_async_callback(async_http.aclose)
+                self._llms[key] = ChatOpenAI(
+                    http_client=sync_http,
+                    http_async_client=async_http,
+                    model=config["model_name"],
+                    api_key=config.get("api_key") or "unused",
+                    base_url=config.get("base_url"),
+                    timeout=float(config.get("request_timeout", 60)),
+                    max_retries=int(config.get("max_retries", 3)),
+                    use_responses_api=config.get("api_type") == "responses",
+                    use_previous_response_id=False,
+                )
         return self._llms[key]
 
     async def get_embedder(self, name: str, *, wrapper_type=None):
-        if name not in self._embedders:
-            from nat_helpers.vllm_embeddings import (
-                DaedalusVLLMEmbedderConfig,
-                create_embeddings,
-            )
+        if name in self._embedders:
+            return self._embedders[name]
+        async with self._client_lock:
+            if name not in self._embedders:
+                from nat_helpers.vllm_embeddings import (
+                    DaedalusVLLMEmbedderConfig,
+                    create_embeddings,
+                )
 
-            raw = dict(self.config["embedders"][name])
-            raw.pop("_type", None)
-            client = create_embeddings(DaedalusVLLMEmbedderConfig.model_validate(raw))
-            self._embedders[name] = client
-            self._stack.push_async_callback(client.aclose)
+                raw = dict(self.config["embedders"][name])
+                raw.pop("_type", None)
+                client = create_embeddings(
+                    DaedalusVLLMEmbedderConfig.model_validate(raw)
+                )
+                self._embedders[name] = client
+                self._stack.push_async_callback(client.aclose)
         return self._embedders[name]
 
 

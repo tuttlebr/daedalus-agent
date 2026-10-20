@@ -947,7 +947,8 @@ describe('chat/async backend pinning helpers', () => {
       'daedalus:async-user-jobs:testuser',
       expect.any(String),
       5,
-      7200,
+      // The full guard TTL equals the job records' lifetime.
+      3600,
       // Provisional until the job's records are written.
       120,
     );
@@ -2988,7 +2989,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     'fails transport EOF without a terminal marker, preserving partial content %j',
     async (content) => {
       const { statusKey, store } = await runStreamTurn([
-        'intermediate_data: {"name":"Function Complete: <calc>","id":"t1","payload":"**Function Output:**\\n```\\nIntermediate result\\n```"}\n',
+        'intermediate_data: {"name":"Function Complete: <calc>","id":"t1","payload":"Intermediate result"}\n',
         `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`,
       ]);
 
@@ -3312,14 +3313,17 @@ describe('chat/async streaming + finalize (characterization)', () => {
     },
   );
 
-  it('promotes the last tool output when the stream produced no content tokens', async () => {
+  it('keeps a tool result as tool history, never as the answer, when the stream produced no content tokens', async () => {
     const { statusKey, store } = await runStreamTurn([
-      'intermediate_data: {"name":"Function Complete: <calc>","id":"t1","parent_id":"root","payload":"Preamble\\n**Function Output:**\\n```\\nThe answer is 42.\\n```"}\n',
+      'intermediate_data: {"name":"Function Complete: <calc>","id":"t1","parent_id":"root","payload":"The answer is 42."}\n',
       'data: [DONE]\n',
     ]);
     const status = store.get(statusKey);
     expect(status?.status).toBe('completed');
-    expect(status?.fullResponse).toBe('The answer is 42.');
+    // The answer is the model's text; an empty one gets the placeholder.
+    expect(status?.fullResponse).toBe('[No response was generated]');
+    expect(status?.fullResponse).not.toContain('The answer is 42.');
+    expect(status?.intermediateSteps).toHaveLength(1);
   });
 
   it('stops the model turn on a gate-owned approval marker', async () => {
@@ -3336,17 +3340,19 @@ describe('chat/async streaming + finalize (characterization)', () => {
         argumentsSha256: hash,
       }),
     ).toString('base64url')}-->`;
-    const toolPayload =
-      'Preamble\n**Function Output:**\n```\n' + marker + '\n```';
+    // The runtime masks the approval tool's result and sends the marker as
+    // its own event; a wrapped marker inside tool output is ordinary history.
     const toolEvent = `intermediate_data: ${JSON.stringify({
       name: 'Function Complete: <docs_mcp_server__update_doc>',
       id: 'approval-tool-1',
       parent_id: 'root',
-      payload: toolPayload,
+      payload: 'Waiting at the approval boundary.',
     })}\n`;
 
     const { statusKey, store } = await runStreamTurn([
       toolEvent,
+      'event: mcp_approval_required\n',
+      `data: ${JSON.stringify({ marker })}\n`,
       'data: {"choices":[{"delta":{"content":"I will wait for your confirmation."}}]}\n',
       'data: [DONE]\n',
     ]);
@@ -3355,7 +3361,11 @@ describe('chat/async streaming + finalize (characterization)', () => {
     expect(fullResponse).toBe(marker);
     expect(fullResponse).not.toContain('I will wait');
     expect(fullResponse).not.toContain('"text":"hello"');
-    expect(store.get(statusKey)?.intermediateSteps).toEqual([]);
+    // The masked tool result stays in the turn's tool history.
+    expect(store.get(statusKey)?.intermediateSteps).toHaveLength(1);
+    expect(JSON.stringify(store.get(statusKey)?.intermediateSteps)).toContain(
+      'Waiting at the approval boundary.',
+    );
   });
 
   it('finalizes immediately on the backend-owned approval event', async () => {
@@ -3384,7 +3394,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
 
   it('fails an explicit backend error without promoting the last tool output', async () => {
     const { statusKey, store } = await runStreamTurn([
-      'intermediate_data: {"name":"Function Complete: <agent_skills_tool>","id":"t1","parent_id":"root","payload":"Preamble\\n**Function Output:**\\n```\\n{\\"skills\\":[{\\"name\\":\\"daily-summary\\"}]}\\n```"}\n',
+      'intermediate_data: {"name":"Function Complete: <agent_skills_tool>","id":"t1","parent_id":"root","payload":"{\\"skills\\":[{\\"name\\":\\"daily-summary\\"}]}"}\n',
       'data: {"error":{"message":"Extra inputs are not permitted, field: reasoning"}}\n',
       'data: [DONE]\n',
     ]);
@@ -4874,7 +4884,7 @@ describe('chat/async submission recovery and validation', () => {
       1,
       'daedalus:async-user-jobs:testuser',
       jobId,
-      7200,
+      3600,
     ]);
     expect(mocks.redisEval.mock.invocationCallOrder[confirm]).toBeLessThan(
       mocks.redisXadd.mock.invocationCallOrder[0],

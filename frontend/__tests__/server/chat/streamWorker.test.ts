@@ -209,6 +209,7 @@ describe('durable stream worker entry processing', () => {
     );
     mocks.releaseStreamLease.mockResolvedValue(true);
     mocks.releaseConversationJobGuard.mockResolvedValue(true);
+    mocks.releaseUserJobGuard.mockResolvedValue(undefined);
     mocks.renewStreamLease.mockResolvedValue(true);
     mocks.selectStreamBackendBaseUrl.mockResolvedValue(
       'http://backend-new:8000',
@@ -863,8 +864,137 @@ describe('durable stream worker entry processing', () => {
       expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
       expect(mocks.finalizeError).not.toHaveBeenCalled();
       expect(mocks.acknowledgeStreamQueueEntry).toHaveBeenCalledWith(entry);
+      // Entries written before owner fields existed cannot release anything.
+      expect(mocks.releaseUserJobGuard).not.toHaveBeenCalled();
+      expect(mocks.releaseConversationJobGuard).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ['status', 'daedalus:async-job-status:job-1'],
+    ['request', 'daedalus:async-job-request:job-1'],
+  ])(
+    'releases the user slot and conversation guard of an owned entry whose %s expired',
+    async (_record, key) => {
+      mocks.store.delete(key);
+      const owned = { ...entry, userId: 'testuser', conversationId: 'conv-1' };
+      const order: string[] = [];
+      mocks.releaseUserJobGuard.mockImplementation(async () => {
+        order.push('release');
+      });
+      mocks.acknowledgeStreamQueueEntry.mockImplementation(async () => {
+        order.push('ack');
+      });
+
+      await expect(
+        processStreamQueueEntry(owned, options, undefined, 'owner-missing'),
+      ).resolves.toBe('missing');
+
+      expect(mocks.releaseUserJobGuard).toHaveBeenCalledWith(
+        'testuser',
+        'job-1',
+      );
+      expect(mocks.releaseConversationJobGuard).toHaveBeenCalledWith(
+        'testuser',
+        'conv-1',
+        'job-1',
+      );
+      // A failed release leaves the entry pending for the next worker.
+      expect(order).toEqual(['release', 'ack']);
+      expect(mocks.startBackgroundStreamReader).not.toHaveBeenCalled();
+      expect(mocks.finalizeError).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not acknowledge a record-less owned entry when releasing its slot fails', async () => {
+    mocks.store.delete('daedalus:async-job-status:job-1');
+    mocks.store.delete('daedalus:async-job-request:job-1');
+    mocks.releaseUserJobGuard.mockRejectedValue(new Error('Redis down'));
+
+    await expect(
+      processStreamQueueEntry(
+        { ...entry, userId: 'testuser' },
+        options,
+        undefined,
+        'owner-missing',
+      ),
+    ).rejects.toThrow('Redis down');
+
+    expect(mocks.acknowledgeStreamQueueEntry).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a later phase', { phase: 'indexing', completed: 0, percent: 0 }],
+    ['completed documents', { phase: 'queued', completed: 1, percent: 0 }],
+    ['a percentage', { phase: 'queued', completed: 0, percent: 50 }],
+  ])(
+    'treats reported ingest progress (%s) as start evidence when the marker was evicted',
+    async (_label, progress) => {
+      const request = mocks.store.get('daedalus:async-job-request:job-1');
+      mocks.store.set('daedalus:async-job-request:job-1', {
+        ...request,
+        executionMode: 'document_ingest',
+      });
+      // Ingestion is queued as `streaming`; only the marker or progress the
+      // backend reported can prove the previous owner sent the request.
+      mocks.store.set('daedalus:async-job-status:job-1', {
+        jobId: 'job-1',
+        status: 'streaming',
+        ingestProgress: { total: 2, ...progress },
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      mocks.hasBackendRequestStarted.mockResolvedValue(false);
+      const reclaimed = { ...entry, reclaimed: true };
+
+      await expect(
+        processStreamQueueEntry(reclaimed, options, undefined, 'owner-evicted'),
+      ).resolves.toBe('recovered_as_error');
+
+      expect(mocks.startBackgroundDocumentIngest).not.toHaveBeenCalled();
+      expect(mocks.finalizeError).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({ executionMode: 'document_ingest' }),
+        expect.stringContaining('not replayed'),
+      );
+    },
+  );
+
+  it('still runs a reclaimed ingestion whose status only shows the queued placeholder', async () => {
+    const request = mocks.store.get('daedalus:async-job-request:job-1');
+    mocks.store.set('daedalus:async-job-request:job-1', {
+      ...request,
+      executionMode: 'document_ingest',
+    });
+    mocks.store.set('daedalus:async-job-status:job-1', {
+      jobId: 'job-1',
+      status: 'streaming',
+      ingestProgress: { total: 2, phase: 'queued', completed: 0, percent: 0 },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    mocks.startBackgroundDocumentIngest.mockImplementation(
+      async (jobId: string) => {
+        const key = `daedalus:async-job-status:${jobId}`;
+        mocks.store.set(key, {
+          ...mocks.store.get(key),
+          status: 'completed',
+          finalizedAt: 2,
+        });
+      },
+    );
+
+    await expect(
+      processStreamQueueEntry(
+        { ...entry, reclaimed: true },
+        options,
+        undefined,
+        'owner-queued',
+      ),
+    ).resolves.toBe('completed');
+
+    expect(mocks.startBackgroundDocumentIngest).toHaveBeenCalled();
+  });
 
   it('fences document ingestion with the backend start marker', async () => {
     const request = mocks.store.get('daedalus:async-job-request:job-1');

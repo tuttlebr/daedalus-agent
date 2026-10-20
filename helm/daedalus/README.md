@@ -266,7 +266,7 @@ or deployment.
 
 | Values path               | Purpose                                                                                                                                         |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `forceRedeploy`           | Rollout nonce for externally managed Secret changes                                                                                             |
+| `forceRedeploy`           | Rollout nonce for externally managed Secret changes; applies to the application workloads, never to Redis                                       |
 | `images.*`                | Container repositories, tags, and pull policy                                                                                                   |
 | `retrieval.*`             | Milvus/MinIO endpoints, Secret refs, policy ports, readiness                                                                                    |
 | `frontend.*`              | Frontend, stream-worker, services, and scoped env settings                                                                                      |
@@ -350,6 +350,19 @@ They retain backend authentication requirements. Set
 - The frontend is job-oriented by default and expects Redis to be available.
 - The backends expose headless pod services in addition to normal services so the frontend can pin each live stream to an individual pod.
 - Network policies allow frontend-to-backend and backend-to-Redis traffic, and optionally restrict backend egress to approved destinations.
+- Redis accepts connections only from this release's frontend, stream worker,
+  backend and autonomous worker pods (`networkpolicy-redis.yaml`, with a Cilium
+  counterpart when `backend.networkPolicy.cilium.enabled` is set). Disabling
+  Redis authentication is rejected at render time: an unauthenticated Redis
+  would start in protected mode and refuse every pod.
+- nginx appends to `X-Forwarded-For`, so the client address survives the
+  Ingress hop. Set `AUTH_TRUSTED_PROXY_HOPS=2` in the frontend environment when
+  the Ingress is enabled (Ingress + nginx) so per-IP login lockouts key on real
+  clients, and list the controller's CIDRs in `nginx.config.trustedProxyCidrs`
+  so nginx's own per-IP limits do too. Without them, those limits apply to the
+  Ingress address shared by every browser.
+- `make deploy` restarts the application workloads through `forceRedeploy`;
+  Redis is excluded and rolls only when its auth or init configuration changes.
 - Document-object egress is isolated to the configured namespace, CIDRs, or
   FQDNs for the frontend. The stream worker has no object credential and can
   reach only DNS, Redis, and the backend. The backend also hosts arbitrary URL

@@ -1513,8 +1513,12 @@ def test_public_nginx_has_bounded_clients_and_https_only_deployed_service():
         "client_body_timeout {{ .Values.nginx.config.resourceLimits.clientBodyTimeout }};"
         in template
     )
-    assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for" not in template
-    assert "proxy_set_header X-Forwarded-For $remote_addr" in template
+    # Behind the default Ingress, $remote_addr is the controller. The chain
+    # keeps the client address and the frontend selects it by trusted hops.
+    assert "proxy_set_header X-Forwarded-For $remote_addr" not in template
+    assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for" in template
+    assert "real_ip_header X-Forwarded-For" in template
+    assert "with .Values.nginx.config.trustedProxyCidrs" in template
     assert "if .Values.nginx.service.exposeHttp" in service
     assert custom["nginx"]["service"]["exposeHttp"] is False
     assert custom["nginx"]["https"]["hsts"]["enabled"] is True

@@ -72,10 +72,14 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
 
   it('reclaims an unacknowledged entry after the owning lease expires', async () => {
     await queue.ensureStreamConsumerGroup(client);
-    await queue.enqueueStreamJob(jobId, {
-      messagesForNat: [{ role: 'user', content: 'hello' }],
-      verifiedUsername: 'testuser',
-    });
+    await queue.enqueueStreamJob(
+      jobId,
+      {
+        messagesForNat: [{ role: 'user', content: 'hello' }],
+        verifiedUsername: 'testuser',
+      },
+      { userId: 'testuser' },
+    );
 
     const [owned] = await queue.readNewStreamJobs(
       client,
@@ -152,10 +156,14 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
           { jobId: selectedJob, userId: 'testuser', additionalProps },
           60,
         );
-        await queue.enqueueStreamJob(selectedJob, {
-          messagesForNat: [{ role: 'user', content: 'fixture' }],
-          verifiedUsername: 'testuser',
-        });
+        await queue.enqueueStreamJob(
+          selectedJob,
+          {
+            messagesForNat: [{ role: 'user', content: 'fixture' }],
+            verifiedUsername: 'testuser',
+          },
+          { userId: 'testuser' },
+        );
         const [entry] = await queue.readNewStreamJobs(
           client,
           'profile-worker',
@@ -219,7 +227,11 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
         messagesForNat: [],
         verifiedUsername: 'duplicate-user',
       };
-      entries.push(await queue.enqueueStreamJob(duplicateJob, payload));
+      entries.push(
+        await queue.enqueueStreamJob(duplicateJob, payload, {
+          userId: 'duplicate-user',
+        }),
+      );
       await queue.readNewStreamJobs(client, 'original-worker', 1, 100);
       expect(
         await queue.acquireStreamLeaseSnapshot(
@@ -241,7 +253,11 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
 
       // A lost XADD reply can be retried by Redis transport. Its new stream ID
       // has never been delivered, although this job has already called backend.
-      entries.push(await queue.enqueueStreamJob(duplicateJob, payload));
+      entries.push(
+        await queue.enqueueStreamJob(duplicateJob, payload, {
+          userId: 'duplicate-user',
+        }),
+      );
       const [duplicate] = await queue.readNewStreamJobs(
         client,
         'replacement-worker',
@@ -344,7 +360,8 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
         expect(await client.ttl(key)).toBeGreaterThanOrEqual(3599);
         expect(await client.get(key)).toBe('saved progress');
       }
-      expect(await client.ttl(guardKey)).toBeGreaterThanOrEqual(7199);
+      // The guard TTL equals the job records' lifetime (JOB_EXPIRY_SECONDS).
+      expect(await client.ttl(guardKey)).toBeGreaterThanOrEqual(3599);
 
       await client.set(
         guardKey,
@@ -807,6 +824,7 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
             messagesForNat: [{ role: 'user', content: 'hi' }],
             verifiedUsername: 'u',
           },
+          { userId: 'u' },
           {
             submissionKey,
             notice: { channel, payload: '{"type":"streaming_started"}' },
@@ -828,7 +846,10 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
         entries[0],
         entries[0],
       );
-      expect([entryId, fields]).toEqual([entries[0], ['jobId', enqueueJob]]);
+      expect([entryId, fields]).toEqual([
+        entries[0],
+        ['jobId', enqueueJob, 'userId', 'u', 'conversationId', ''],
+      ]);
       await observer.ping();
       expect(notices).toEqual(['{"type":"streaming_started"}']);
 
@@ -846,6 +867,7 @@ describe.skipIf(!RUN_REAL_REDIS)('durable stream queue with real Redis', () => {
           queue.enqueueStreamJob(
             enqueueJob,
             { messagesForNat: [], verifiedUsername: 'u' },
+            { userId: 'u' },
             { submissionKey },
           ),
         ).rejects.toThrow(/WRONGTYPE/);

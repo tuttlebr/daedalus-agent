@@ -3,6 +3,8 @@ import { buildBackendUrlFromBase } from '@/utils/app/backendApi';
 import { buildNatRequestHeaders } from './natMessages';
 import type { AsyncJobRequest } from './types';
 
+import { JOB_ID_PATTERN } from '@/server/session/redisShared';
+
 export interface SteeringCommand {
   jobId: string;
   commandId: string;
@@ -13,7 +15,7 @@ export function validateSteeringCommand(value: any): SteeringCommand {
   if (
     !value ||
     typeof value.jobId !== 'string' ||
-    !/^[A-Za-z0-9._-]{1,128}$/.test(value.jobId) ||
+    !JOB_ID_PATTERN.test(value.jobId) ||
     typeof value.commandId !== 'string' ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       value.commandId,

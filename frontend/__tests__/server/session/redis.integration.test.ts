@@ -63,35 +63,21 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       },
     );
 
-    it('retains values, order, duplicate keys and missing keys across storage formats', async () => {
+    it('reads values across storage formats and treats malformed plain strings as absent', async () => {
       const plain = key(prefix, 'plain');
       const json = key(prefix, 'json');
-      const absent = key(prefix, 'absent');
+      const invalid = key(prefix, 'invalid');
+      const empty = key(prefix, 'empty');
       const value = { nested: [[], {}, 9007199254740991] };
       await client.set(plain, JSON.stringify(value));
       await client.call('JSON.SET', json, '$', JSON.stringify([value]));
-      expect(await redis.jsonMGet([plain, json, absent, plain])).toEqual([
-        value,
-        [value],
-        null,
-        value,
-      ]);
-      expect(await redis.jsonMGet([json], '.')).toEqual([[value]]);
-      expect(await redis.jsonMGet([])).toEqual([]);
-    });
-
-    it('matches individual reads for malformed plain-string records', async () => {
-      const invalid = key(prefix, 'invalid');
-      const empty = key(prefix, 'empty');
-      const valid = key(prefix, 'valid');
       await client.set(invalid, '{invalid json');
       await client.set(empty, '');
-      await client.set(valid, '[1,2]');
-      const requested = [invalid, empty, valid];
-      expect(await redis.jsonMGet(requested)).toEqual(
-        await Promise.all(requested.map((entry) => redis.jsonGet(entry))),
-      );
-      expect(await redis.jsonMGet(requested)).toEqual([null, null, [1, 2]]);
+      expect(await redis.jsonGet(plain)).toEqual(value);
+      expect(await redis.jsonGet(json)).toEqual([value]);
+      expect(await redis.jsonGet(key(prefix, 'absent'))).toBeNull();
+      expect(await redis.jsonGet(invalid)).toBeNull();
+      expect(await redis.jsonGet(empty)).toBeNull();
     });
 
     it.each(['string', 'json'])(
@@ -183,9 +169,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       const evalCommand = vi.spyOn(client, 'eval').mockRejectedValue(outage);
       const get = vi.spyOn(client, 'get').mockRejectedValue(outage);
       try {
-        await expect(
-          redis.jsonMGet([key(prefix, 'unavailable')]),
-        ).rejects.toThrow('synthetic read outage');
+        await expect(redis.jsonGet(key(prefix, 'unavailable'))).rejects.toThrow(
+          'synthetic read outage',
+        );
         const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
         await handler({ method: 'GET' } as any, res as any);
         expect(res.status).toHaveBeenCalledWith(500);

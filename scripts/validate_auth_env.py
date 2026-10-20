@@ -39,6 +39,37 @@ def find_unquoted_password_hashes(path: Path) -> list[str]:
     return sorted(unquoted)
 
 
+def _env_value(key: str, value: str) -> str:
+    """Interpret one value the way Compose's dotenv reader does.
+
+    A quoted value ends at its closing quote; anything after it is a comment.
+    An unquoted value ends at the first ` #`. Compose also expands `$VAR` in
+    unquoted and double-quoted values, which the Secret writer does not do, so
+    such a value is rejected instead of silently differing between the two.
+    """
+    if value[:1] in "\"'":
+        quote = value[0]
+        closing = value.find(quote, 1)
+        if closing == -1:
+            raise ValueError(f"{key} has an unterminated {quote} quote")
+        inner, rest = value[1:closing], value[closing + 1 :].strip()
+        if rest and not rest.startswith("#"):
+            raise ValueError(f"{key} has text after its closing quote")
+        if quote == '"' and "$" in inner:
+            raise ValueError(
+                f"{key} is double-quoted and contains '$': Compose would "
+                "interpolate it; use single quotes for a literal value"
+            )
+        return inner
+    value = re.split(r"\s+#", value, maxsplit=1)[0].strip()
+    if "$" in value:
+        raise ValueError(
+            f"{key} contains '$': Compose would interpolate it; single-quote "
+            "the value for a literal"
+        )
+    return value
+
+
 def load_env(path: Path) -> dict[str, str]:
     entries: dict[str, str] = {}
     for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -51,10 +82,7 @@ def load_env(path: Path) -> dict[str, str]:
         key = key.strip()
         if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
             continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        entries[key] = value
+        entries[key] = _env_value(key, value.strip())
     return entries
 
 

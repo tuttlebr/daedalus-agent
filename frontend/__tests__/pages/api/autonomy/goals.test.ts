@@ -132,7 +132,7 @@ describe('autonomy goals API handler', () => {
     expect(res.json).toHaveBeenCalledWith(expected);
     expect(existing).toEqual(goal('goal_edit', 'Original'));
     expect(
-      vi.mocked(mutateGoals).mock.calls[0][1]([existing, other])[1],
+      vi.mocked(mutateGoals).mock.calls[0][1]([existing, other])![1],
     ).toEqual(other);
   });
 

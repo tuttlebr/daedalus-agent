@@ -92,9 +92,9 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       // Scores come from the Redis clock; compare them with each other.
       const confirmed = Number(await client.zscore(key, 'job-0'));
       const provisional = Number(await client.zscore(key, 'job-submitting'));
-      expect(confirmed - provisional).toBeGreaterThan(7_000_000);
+      expect(confirmed - provisional).toBeGreaterThan(3_400_000);
       // A short reservation never shortens the slots of other jobs.
-      expect(await client.ttl(key)).toBeGreaterThan(7000);
+      expect(await client.ttl(key)).toBeGreaterThan(3500);
       expect(await guard.acquireUserJobGuard(user, 'job-sixth', client)).toBe(
         false,
       );
@@ -104,7 +104,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
       ).toBe(true);
       expect(
         Number(await client.zscore(key, 'job-submitting')) - provisional,
-      ).toBeGreaterThan(7_000_000);
+      ).toBeGreaterThan(3_400_000);
       expect(await client.zcard(key)).toBe(5);
     });
 

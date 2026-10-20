@@ -108,16 +108,6 @@ pub trait Extraction: Send + 'static {
     fn write(self, progress: Stages) -> impl Future<Output = Result<Ingested>> + Send;
 }
 
-/// A service-side timeout has the same no-retry behavior as a waiter timeout.
-#[derive(Debug)]
-pub struct PipelineTimeout;
-impl std::fmt::Display for PipelineTimeout {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Document pipeline timed out")
-    }
-}
-impl std::error::Error for PipelineTimeout {}
-
 #[derive(Clone)]
 pub struct Stages {
     callback: Option<Progress>,
@@ -465,9 +455,7 @@ pub async fn run<S: Services>(
                     error: String::new(),
                 };
             }
-            Err(WaitError::Failed(error)) if error.downcast_ref::<PipelineTimeout>().is_none() => {
-                error
-            }
+            Err(WaitError::Failed(error)) => error,
             _ => {
                 return failure(
                     format!(
@@ -648,12 +636,10 @@ mod tests {
                 gate.started.notify_one();
                 gate.release.notified().await;
             }
-            if self.attempt as u64 <= self.fake.case["failed_attempts"].as_u64().unwrap_or(0) {
-                match self.fake.case["error_stage"].as_str() {
-                    Some("ingest") => bail!("Synthetic ingest failure"),
-                    Some("timeout") => return Err(PipelineTimeout.into()),
-                    _ => (),
-                }
+            if self.attempt as u64 <= self.fake.case["failed_attempts"].as_u64().unwrap_or(0)
+                && self.fake.case["error_stage"].as_str() == Some("ingest")
+            {
+                bail!("Synthetic ingest failure");
             }
             Ok(self)
         }

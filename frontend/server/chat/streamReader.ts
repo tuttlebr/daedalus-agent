@@ -3,10 +3,7 @@ import {
   parseIntermediateDataLine,
 } from '@/utils/app/asyncStepParser';
 import { buildBackendUrlFromBase } from '@/utils/app/backendApi';
-import {
-  googleWorkspaceAuthRecoveryMessage,
-  inferGoogleWorkspaceService,
-} from '@/utils/app/googleWorkspace';
+import { inferGoogleWorkspaceService } from '@/utils/app/googleWorkspace';
 import {
   extractMcpApprovalMarkerText,
   parseMcpApprovalMarker,
@@ -29,7 +26,12 @@ import {
   debugReplayLog,
 } from './debugReplay';
 import { finalizeError, finalizeSuccess } from './finalization';
-import { abortKey, markJobStreaming, recordOAuthJobRequest } from './jobState';
+import {
+  abortKey,
+  isTerminalStatusRecord,
+  markJobStreaming,
+  recordOAuthJobRequest,
+} from './jobState';
 import { validateModelProfile } from './modelProfile';
 import { buildNatRequestHeaders } from './natMessages';
 import { sanitizeSandboxArtifactStep } from './sandboxArtifacts';
@@ -40,12 +42,13 @@ import {
 } from './streamState';
 import {
   ApiRouteError,
-  PublicJobError,
-  StreamUserCancellationError,
   type AsyncJobRequest,
   type AsyncJobStatus,
   type BackgroundExecutionControl,
   type OAuthRequest,
+  PublicJobError,
+  StreamUserCancellationError,
+  USER_CANCELLATION_MESSAGE,
 } from './types';
 
 import { saveOAuthCallbackTarget } from '@/server/mcpOAuth';
@@ -281,12 +284,14 @@ export async function startBackgroundStreamReader(
     }
   };
   let accumulatedStepCount = 0;
+  // Every step published in this run, in order. Finalization reads the
+  // persisted list back from Redis; this copy fills in if that key was lost.
+  const observedSteps: any[] = [];
   let pendingSteps: any[] = [];
   let partialResponse = '';
   let pendingResponseDelta = '';
   let persistedResponseBytes = 0;
   let persistedStepCount = 0;
-  let lastToolOutput = '';
   let pendingApprovalMarker: string | null = null;
   let streamDone = false;
   // Once this backend stream has requested interactive authorization, keep its
@@ -524,78 +529,32 @@ export async function startBackgroundStreamReader(
           if (step) {
             // Step outputs are recorded verbatim; only private sandbox
             // artifact markers are removed before persistence/publication.
-            const eventType = step?.payload?.event_type;
             sanitizeSandboxArtifactStep(step);
 
-            const raw = step.payload?.data?.output;
-            const exactApprovalMarker =
-              eventType === 'TOOL_END'
-                ? extractMcpApprovalMarkerText(raw)
-                : null;
-            if (
-              exactApprovalMarker &&
-              parseMcpApprovalMarker(exactApprovalMarker)
-            ) {
-              pendingApprovalMarker = exactApprovalMarker;
-              lastToolOutput = '';
-              streamDone = true;
-            }
+            accumulatedStepCount += 1;
+            observedSteps.push(step);
+            pendingSteps.push(step);
+            // Append only new events so live polling doesn't rewrite history.
+            await flushSteps();
+            await flushStreamingStatus();
 
-            // The approval result is a terminal control event, not tool
-            // history. Never persist or publish the potentially large wrapped
-            // function output that carried it.
-            if (!streamDone) {
-              accumulatedStepCount += 1;
-              pendingSteps.push(step);
-              // Append only new events so live polling doesn't rewrite history.
-              await flushSteps();
-              await flushStreamingStatus();
-
-              if (tokenChannel) {
-                flushTokens();
-                publisher
-                  .publish(
-                    tokenChannel,
-                    JSON.stringify({
-                      type: 'chat_intermediate_step',
-                      conversationId,
-                      jobId,
-                      turnId: jobRequest.turnId,
-                      assistantMessageId: jobRequest.assistantMessageId,
-                      step,
-                    }),
-                  )
-                  .catch(() => {});
-              }
-            }
-
-            // Extract ordinary function output for partial response tracking.
-            if (
-              !streamDone &&
-              eventType === 'TOOL_END' &&
-              typeof raw === 'string'
-            ) {
-              const marker = '**Function Output:**\n```';
-              const mIdx = raw.lastIndexOf(marker);
-              if (mIdx !== -1) {
-                const contentStart = raw.indexOf('\n', mIdx + marker.length);
-                if (contentStart !== -1) {
-                  let output = raw.slice(contentStart + 1);
-                  const lastFence = output.lastIndexOf('\n```');
-                  if (lastFence !== -1) output = output.slice(0, lastFence);
-                  if (output.trim() && output.trim() !== '[]') {
-                    lastToolOutput = output.trim();
-                    const recoveryMessage =
-                      googleWorkspaceAuthRecoveryMessage(lastToolOutput);
-                    if (recoveryMessage) {
-                      throw new PublicJobError(recoveryMessage);
-                    }
-                  }
-                }
-              }
+            if (tokenChannel) {
+              flushTokens();
+              publisher
+                .publish(
+                  tokenChannel,
+                  JSON.stringify({
+                    type: 'chat_intermediate_step',
+                    conversationId,
+                    jobId,
+                    turnId: jobRequest.turnId,
+                    assistantMessageId: jobRequest.assistantMessageId,
+                    step,
+                  }),
+                )
+                .catch(() => {});
             }
           }
-          if (streamDone) break;
         }
 
         // ── data: lines → extract content tokens ──
@@ -682,7 +641,6 @@ export async function startBackgroundStreamReader(
               );
             }
             pendingApprovalMarker = marker;
-            lastToolOutput = '';
             streamDone = true;
             break;
           }
@@ -818,13 +776,6 @@ export async function startBackgroundStreamReader(
     }
     flushTokens();
 
-    // A cleanly completed tool-only workflow may intentionally return its final
-    // tool output without content tokens; promote that output as the answer.
-    if (!partialResponse.trim() && lastToolOutput) {
-      partialResponse = lastToolOutput;
-      pendingResponseDelta += partialResponse;
-    }
-
     // Flush only the final unpersisted deltas before taking the terminal
     // snapshot. Each normalized key keeps its own bounded TTL.
     await persistPendingState();
@@ -840,7 +791,7 @@ export async function startBackgroundStreamReader(
       });
     }
 
-    await finalizeSuccess(jobId, jobRequest, partialResponse);
+    await finalizeSuccess(jobId, jobRequest, partialResponse, observedSteps);
 
     logger.info(`Job ${jobId}: Stream reader finished`, {
       steps: accumulatedStepCount,
@@ -853,11 +804,7 @@ export async function startBackgroundStreamReader(
       // connection/idle deadlines must persist their error and release slots.
       logger.info(`Job ${jobId}: Stream reader aborted cleanly`);
       const currentStatus = (await jsonGet(statusKey)) as AsyncJobStatus | null;
-      if (
-        currentStatus?.finalizedAt ||
-        currentStatus?.status === 'completed' ||
-        currentStatus?.status === 'error'
-      ) {
+      if (isTerminalStatusRecord(currentStatus)) {
         pendingResponseDelta = '';
         pendingSteps = [];
         await clearStreamState(jobId).catch(() => {});
@@ -885,15 +832,12 @@ export async function startBackgroundStreamReader(
         logger.info(`Job ${jobId}: Backend acknowledged cancellation`);
       else if (error instanceof PublicJobError)
         logger.error(`Job ${jobId}: Stream reader error: ${error.message}`);
-      // A tool result is intermediate data, not an assistant answer. Preserve
-      // any actual content tokens, but never promote lastToolOutput when the
-      // backend reports an error.
       await persistPendingState().catch(() => {});
       await finalizeError(
         jobId,
         jobRequest,
         cancelled
-          ? 'Job canceled by user'
+          ? USER_CANCELLATION_MESSAGE
           : publicStreamErrorMessage(jobId, error),
         {
           response: partialResponse,

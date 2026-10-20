@@ -187,7 +187,7 @@ class TestPinnedPublicTransport:
             def __init__(self):
                 self.urls = []
 
-            async def get(self, url):
+            async def get(self, url, **_options):
                 self.urls.append(url)
                 return SimpleNamespace(
                     is_redirect=True,
@@ -219,7 +219,7 @@ class TestPinnedPublicTransport:
             def __init__(self):
                 self.urls = []
 
-            async def get(self, url):
+            async def get(self, url, **_options):
                 self.urls.append(url)
                 return SimpleNamespace(
                     is_redirect=True,

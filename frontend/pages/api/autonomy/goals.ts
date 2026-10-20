@@ -67,13 +67,16 @@ export default async function handler(
       sanitized.priority = Number(updates.priority);
     }
     const next = await mutateGoals(userId, (goals) =>
-      goals.map(
-        (goal): AutonomyGoal =>
-          goal.id === id
-            ? { ...goal, ...sanitized, id: goal.id, updatedAt: nowMs() }
-            : goal,
-      ),
+      goals.some((goal) => goal.id === id)
+        ? goals.map(
+            (goal): AutonomyGoal =>
+              goal.id === id
+                ? { ...goal, ...sanitized, id: goal.id, updatedAt: nowMs() }
+                : goal,
+          )
+        : null,
     );
+    if (!next) return res.status(404).json({ error: 'Goal not found' });
     return res.status(200).json(next.find((goal) => goal.id === id) || null);
   }
 

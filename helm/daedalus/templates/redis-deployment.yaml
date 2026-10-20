@@ -22,12 +22,19 @@ spec:
         app.kubernetes.io/component: redis
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
-        deploy-timestamp: {{ .Values.forceRedeploy | default "" | quote }}
+        # No deploy-timestamp here: `forceRedeploy` is a rollout nonce for the
+        # application workloads. Redis runs one replica with Recreate, so a
+        # restart per deployment would interrupt every session, stream and job
+        # and replay the AOF while all readiness probes fail. Auth and init
+        # changes still roll it through the checksums below.
         checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
         checksum/redis-init: {{ include (print $.Template.BasePath "/redis-init-configmap.yaml") . | sha256sum }}
     spec:
       {{- include "daedalus.nodePlacement" (dict "Values" .Values "allowedArchitectures" .Values.redis.nodePlacement.allowedArchitectures) | nindent 6 }}
       automountServiceAccountToken: false
+      # The shutdown RDB save of a multi-gigabyte dataset outlives kubelet's
+      # default 30 s grace; a SIGKILL there leaves recovery to the AOF alone.
+      terminationGracePeriodSeconds: {{ .Values.redis.terminationGracePeriodSeconds | default 120 }}
       {{- with .Values.redis.securityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}

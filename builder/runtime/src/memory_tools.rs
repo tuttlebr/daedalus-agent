@@ -231,7 +231,9 @@ pub struct Tools {
     pub hindsight: crate::hindsight::Client,
     store: Store,
     enabled: bool,
-    ttl: String,
+    /// Parsed once with the ledger's shared parser; an invalid value fails
+    /// startup instead of every autonomous memory write.
+    ttl: u64,
 }
 
 impl Tools {
@@ -243,7 +245,7 @@ impl Tools {
                 .variable("DAEDALUS_MEMORY_MODE", "hindsight")
                 .trim()
                 .eq_ignore_ascii_case("hindsight"),
-            ttl: config.variable("AUTONOMY_IDEMPOTENCY_TTL_SECONDS", "604800"),
+            ttl: crate::document_store::idempotency_ttl_seconds(config)?,
         })
     }
 
@@ -265,10 +267,6 @@ impl Tools {
             .command_with_timeout(cmd, Duration::from_secs(5))
             .await
     }
-    fn ttl(&self) -> Result<u64> {
-        Ok(self.ttl.trim().parse::<i64>()?.max(3600) as u64)
-    }
-
     async fn reserve(&self, user: &str, execution: &str, args: &Value) -> Result<Reserved> {
         let (key, digest) = operation_key(user, execution, args);
         let owner = crate::authorization::nonce();
@@ -282,7 +280,7 @@ impl Tools {
                         .arg(&payload)
                         .arg("NX")
                         .arg("EX")
-                        .arg(self.ttl()?),
+                        .arg(self.ttl),
                 )
                 .await?;
             if result.is_some() {
@@ -320,7 +318,7 @@ impl Tools {
                     .arg(&reservation.key)
                     .arg(&reservation.owner)
                     .arg(json!({"state":"completed","result":ADDED}).to_string())
-                    .arg(self.ttl()?),
+                    .arg(self.ttl),
             )
             .await?;
         Ok(done == 1)

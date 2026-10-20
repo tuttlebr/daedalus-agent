@@ -55,10 +55,15 @@ describe('durable stream queue', () => {
     mocks.redis.eval.mockResolvedValueOnce('1-0');
 
     await expect(
-      enqueueStreamJob('job-1', payload, {
-        submissionKey: 'daedalus:job-submission:chat:testuser:sub-1',
-        notice: { channel: 'user:testuser:updates', payload: '{}' },
-      }),
+      enqueueStreamJob(
+        'job-1',
+        payload,
+        { userId: 'testuser', conversationId: 'conv-1' },
+        {
+          submissionKey: 'daedalus:job-submission:chat:testuser:sub-1',
+          notice: { channel: 'user:testuser:updates', payload: '{}' },
+        },
+      ),
     ).resolves.toBe('1-0');
 
     expect(mocks.redis.eval).toHaveBeenCalledOnce();
@@ -74,6 +79,8 @@ describe('durable stream queue', () => {
       'job-1',
       'user:testuser:updates',
       '{}',
+      'testuser',
+      'conv-1',
     );
     expect(mocks.redis.xadd).not.toHaveBeenCalled();
   });
@@ -98,16 +105,29 @@ describe('durable stream queue', () => {
     mocks.redis.eval.mockRejectedValueOnce(new Error('Redis unavailable'));
 
     await expect(
-      enqueueStreamJob('job-failed', {
-        messagesForNat: [],
-        verifiedUsername: 'testuser',
-      }),
+      enqueueStreamJob(
+        'job-failed',
+        { messagesForNat: [], verifiedUsername: 'testuser' },
+        { userId: 'testuser' },
+      ),
     ).rejects.toThrow('Redis unavailable');
   });
 
   it('parses new and reclaimed Redis Stream entries', async () => {
     mocks.redis.xreadgroup.mockResolvedValue([
-      [STREAM_QUEUE_KEY, [['2-0', ['jobId', 'job-new']]]],
+      [
+        STREAM_QUEUE_KEY,
+        [
+          [
+            '2-0',
+            ['jobId', 'job-new', 'userId', 'alice', 'conversationId', 'conv-9'],
+          ],
+          // Entries written before owner fields existed, and jobs without a
+          // conversation, carry no owner or an empty conversation.
+          ['3-0', ['jobId', 'job-legacy']],
+          ['4-0', ['jobId', 'job-bare', 'userId', 'bob', 'conversationId', '']],
+        ],
+      ],
     ]);
     mocks.redis.xautoclaim.mockResolvedValue([
       '0-0',
@@ -118,7 +138,15 @@ describe('durable stream queue', () => {
     await expect(
       readNewStreamJobs(mocks.redis as any, 'consumer-1', 2, 1000),
     ).resolves.toEqual([
-      { entryId: '2-0', jobId: 'job-new', reclaimed: false },
+      {
+        entryId: '2-0',
+        jobId: 'job-new',
+        reclaimed: false,
+        userId: 'alice',
+        conversationId: 'conv-9',
+      },
+      { entryId: '3-0', jobId: 'job-legacy', reclaimed: false },
+      { entryId: '4-0', jobId: 'job-bare', reclaimed: false, userId: 'bob' },
     ]);
     await expect(
       claimStaleStreamJobs(mocks.redis as any, 'consumer-1', 45000, 2),

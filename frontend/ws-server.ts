@@ -18,15 +18,18 @@ import type { AsyncJobRequest } from './server/chat/types';
 import { positiveIntegerFromEnv } from './server/config/env';
 import { primeDns } from './server/session/dns-cache';
 import {
-  DEFAULT_REDIS_URL,
-  REDIS_CLIENT_OPTIONS,
   channels,
   createRedisErrorThrottle,
+  DEFAULT_REDIS_URL,
+  JOB_ID_PATTERN,
+  parseRedisJsonResult,
   readConversationOwner,
   readJsonFields,
+  REDIS_CLIENT_OPTIONS,
   redisErrorMessage,
   resolveRedisUrl,
   sessionKey,
+  type StreamingState,
 } from './server/session/redisShared';
 
 import { parse as parseCookie } from 'cookie';
@@ -49,7 +52,6 @@ const CLIENT_TIMEOUT = 90_000; // Close if no ping received in 90s
 // rotation revokes the realtime channel, not just the next HTTP request.
 const SESSION_REVALIDATE_INTERVAL =
   positiveIntegerFromEnv('WS_SESSION_REVALIDATE_SECONDS', 60) * 1000;
-const JOB_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
 const MAX_WS_MESSAGE_BYTES = positiveIntegerFromEnv(
   'WS_MAX_MESSAGE_BYTES',
@@ -254,17 +256,12 @@ function isRedisJsonUnavailableForRead(error: unknown): boolean {
   );
 }
 
-function parseRedisJsonResult<T>(raw: string | null): T | null {
-  if (!raw) return null;
-  const parsed = JSON.parse(raw);
-  return (Array.isArray(parsed) ? parsed[0] : parsed) as T;
-}
-
 async function getJsonOrPlain<T>(redis: Redis, key: string): Promise<T | null> {
   try {
-    return parseRedisJsonResult<T>(
+    return parseRedisJsonResult(
       (await redis.call('JSON.GET', key, '$')) as string | null,
-    );
+      '$',
+    ) as T | null;
   } catch (error) {
     if (!isRedisJsonUnavailableForRead(error)) {
       throw error;
@@ -321,12 +318,7 @@ export async function readConfiguredSession(
 
 // ---------- Streaming State ----------
 
-export interface StreamingState {
-  conversationId: string;
-  sessionId: string;
-  startedAt: number;
-  userId: string;
-}
+export type { StreamingState };
 
 type AsyncJobRequestMeta = Pick<AsyncJobRequest, 'jobId' | 'userId'> &
   Partial<
@@ -412,7 +404,7 @@ export async function readStreamingStates(
     )) as Array<string | null>;
     for (const raw of values) {
       try {
-        const state = parseRedisJsonResult<StreamingState>(raw);
+        const state = parseRedisJsonResult(raw, '$') as StreamingState | null;
         if (state?.conversationId) states[state.conversationId] = state;
       } catch {
         // Skip a malformed record; other conversations remain visible.

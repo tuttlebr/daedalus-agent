@@ -543,7 +543,16 @@ pub fn validate(input: &Value) -> ApiResult<Value> {
         Err((422, json!({"detail":errors})))
     }
 }
-pub fn resolve(input: &Value, user: &str, limit: i64) -> ApiResult<Value> {
+/// `default_collection` is the base name of the user's private collection
+/// (`DOCUMENT_INGEST_DEFAULT_COLLECTION`), the one `collections::metadata`
+/// advertises and default search reads. A request without a collection goes
+/// there, never to a collection named after the user that nothing lists.
+pub fn resolve(
+    input: &Value,
+    user: &str,
+    limit: i64,
+    default_collection: &str,
+) -> ApiResult<Value> {
     let username = input["username"]
         .as_str()
         .filter(|s| !s.is_empty())
@@ -575,7 +584,7 @@ pub fn resolve(input: &Value, user: &str, limit: i64) -> ApiResult<Value> {
         .as_str()
         .filter(|s| !s.is_empty())
         .or_else(|| input["collection"].as_str().filter(|s| !s.is_empty()))
-        .unwrap_or(username);
+        .unwrap_or(default_collection);
     let scope = collections::scope(collection, input["collection_scope"].as_str(), false)
         .map_err(|e| detail(400, &e.to_string()))?;
     if scope == "shared" {
@@ -713,7 +722,7 @@ mod tests {
         }
         for case in data["resolutions"].as_array().unwrap() {
             let input = validate(&case["input"]).unwrap();
-            let result = resolve(&input, "alice", 500)
+            let result = resolve(&input, "alice", 500, "user_uploads")
                 .map(|v| json!({"ok":v}))
                 .unwrap_or_else(|(s, v)| json!({"status":s,"detail":v["detail"]}));
             assert_eq!(result, case["expected"], "{case}");

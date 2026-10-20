@@ -4170,7 +4170,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -4206,7 +4206,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -4229,7 +4229,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -8245,7 +8245,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10287,7 +10287,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10310,7 +10310,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10333,7 +10333,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10356,7 +10356,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10431,7 +10431,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10454,7 +10454,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10610,7 +10610,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10633,7 +10633,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10789,7 +10789,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10812,7 +10812,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10887,7 +10887,7 @@
               "sessionId": "session-1"
             }
           ],
-          "alice",
+          "user_uploads",
           "user",
           null
         ]
@@ -10903,7 +10903,7 @@
       },
       "expected": {
         "status": 400,
-        "detail": "collection_scope 'shared' does not match collection 'alice' (user)."
+        "detail": "collection_scope 'shared' does not match collection 'user_uploads' (user)."
       }
     },
     {

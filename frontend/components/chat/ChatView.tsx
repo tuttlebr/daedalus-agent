@@ -41,7 +41,11 @@ import {
   type BufferedStreamingUpdate,
 } from '@/utils/app/streamingBuffer';
 
-import { Conversation, Message } from '@/types/chat';
+import {
+  Conversation,
+  DEFAULT_CONVERSATION_TITLE,
+  Message,
+} from '@/types/chat';
 import { IntermediateStep } from '@/types/intermediateSteps';
 
 import { useAuth } from '@/components/auth';
@@ -110,7 +114,7 @@ function findAssistantMessage(
 function newConversation(): Conversation {
   return {
     id: uuidv4(),
-    name: 'New Conversation',
+    name: DEFAULT_CONVERSATION_TITLE,
     messages: [],
     folderId: null,
     updatedAt: Date.now(),

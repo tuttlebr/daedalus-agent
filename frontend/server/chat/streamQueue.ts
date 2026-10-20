@@ -21,6 +21,19 @@ export interface StreamQueueEntry {
   entryId: string;
   jobId: string;
   reclaimed: boolean;
+  /**
+   * The submission's owner, written with the entry so a worker can release
+   * the user slot and conversation guard of a job whose request and status
+   * expired before any worker claimed it. Absent on entries written by
+   * earlier frontends.
+   */
+  userId?: string;
+  conversationId?: string;
+}
+
+export interface StreamJobOwner {
+  userId: string;
+  conversationId?: string;
 }
 
 export interface StreamQueueClaim {
@@ -57,7 +70,15 @@ function parseEntries(value: unknown, reclaimed: boolean): StreamQueueEntry[] {
     const entryId = String(rawEntry[0]);
     const fields = parseFieldList(rawEntry[1]);
     if (!fields.jobId) continue;
-    entries.push({ entryId, jobId: fields.jobId, reclaimed });
+    entries.push({
+      entryId,
+      jobId: fields.jobId,
+      reclaimed,
+      ...(fields.userId ? { userId: fields.userId } : {}),
+      ...(fields.conversationId
+        ? { conversationId: fields.conversationId }
+        : {}),
+    });
   }
   return entries;
 }
@@ -108,7 +129,8 @@ if #KEYS >= 4 then
       and submission['cancelled'] == true
   end
 end
-local entry = redis.call('XADD', KEYS[2], '*', 'jobId', ARGV[3])
+local entry = redis.call('XADD', KEYS[2], '*', 'jobId', ARGV[3],
+  'userId', ARGV[6], 'conversationId', ARGV[7])
 redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
 if cancelled then redis.call('SET', KEYS[3], 'true', 'EX', ARGV[2]) end
 if ARGV[4] ~= '' then redis.call('PUBLISH', ARGV[4], ARGV[5]) end
@@ -129,6 +151,7 @@ export interface StreamEnqueueOptions {
 export async function enqueueStreamJob(
   jobId: string,
   payload: StreamQueuePayload,
+  owner: StreamJobOwner,
   options: StreamEnqueueOptions = {},
 ): Promise<string> {
   const keys = [streamPayloadKey(jobId), STREAM_QUEUE_KEY, abortKey(jobId)];
@@ -143,6 +166,8 @@ export async function enqueueStreamJob(
     jobId,
     options.notice?.channel ?? '',
     options.notice?.payload ?? '',
+    owner.userId,
+    owner.conversationId ?? '',
   );
   if (!entryId) throw new Error('Redis did not return a stream entry ID');
   return String(entryId);

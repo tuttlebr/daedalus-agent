@@ -17,6 +17,8 @@ export default async function handler(
     return res.status(405).end('Method Not Allowed');
   }
 
-  await cancelRun(userId, runId);
+  if (!(await cancelRun(userId, runId))) {
+    return res.status(404).json({ error: 'Run not found or already finished' });
+  }
   return res.status(200).json({ success: true });
 }

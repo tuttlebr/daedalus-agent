@@ -95,11 +95,17 @@ def _frontend_deployment(manifest: str) -> str | None:
 
 
 def _pod_labels(document: str) -> dict[str, str]:
+    """Labels for the probe pod: the frontend's name and component only.
+
+    Network policies that admit the frontend match these two labels. The
+    frontend Service selector also requires the instance label, so a probe
+    pod without it never becomes a Service endpoint that nginx could route
+    browser traffic to while the probe runs.
+    """
     labels: dict[str, str] = {}
     for name in (
         "app.kubernetes.io/name",
         "app.kubernetes.io/component",
-        "app.kubernetes.io/instance",
     ):
         match = re.search(
             rf"^\s+{re.escape(name)}:\s*(.+?)\s*$", document, re.MULTILINE

@@ -74,7 +74,7 @@ def create_mcp_approval_router() -> APIRouter:
             200
             if record.status == "completed"
             else 422
-            if record.status == "failed"
+            if record.status in ("failed", "cancelled")
             else 202
         )
         return JSONResponse(record.payload(initial=True), status_code=status)

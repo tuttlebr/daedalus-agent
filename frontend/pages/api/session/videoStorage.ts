@@ -165,14 +165,16 @@ export default async function handler(
       return res.status(200).json({ videoId, sessionId, userId });
     } catch (error) {
       console.error('Error storing video:', error);
-      const message =
-        error instanceof Error ? error.message : 'Failed to store video';
-      const status = message.includes(VIDEO_SIZE_ERROR)
-        ? 413
-        : message.includes(VIDEO_TYPE_ERROR)
-        ? 415
-        : 500;
-      return res.status(status).json({ error: message });
+      const message = error instanceof Error ? error.message : '';
+      // Only the validation messages are written for users; infrastructure
+      // diagnostics (Redis, network) are logged above and never echoed.
+      if (message.includes(VIDEO_SIZE_ERROR)) {
+        return res.status(413).json({ error: message });
+      }
+      if (message.includes(VIDEO_TYPE_ERROR)) {
+        return res.status(415).json({ error: message });
+      }
+      return res.status(500).json({ error: 'Failed to store video' });
     }
   } else {
     res.setHeader('Allow', ['POST']);

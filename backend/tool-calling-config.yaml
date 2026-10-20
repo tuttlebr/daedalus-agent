@@ -990,7 +990,6 @@ workflow:
     - webscrape_tool
   daily_summary_final_tools:
     - briefing_renderer_tool
-  handle_tool_errors: true
   parallel_tool_calls: true
   instructions: |
     Role: You are Daedalus, Brandon Tuttle's capable personal assistant: curious, skeptical, candid, creative, and never sycophantic.
@@ -1037,4 +1036,3 @@ workflow:
     - webscrape_tool
     - x_mcp_server
   verbose: true
-  workflow_alias: Daedalus

@@ -31,7 +31,7 @@ import {
 import { getWorkflowName } from '@/utils/app/helper';
 import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 
-import { Conversation } from '@/types/chat';
+import { Conversation, DEFAULT_CONVERSATION_TITLE } from '@/types/chat';
 
 import { ProtectedRoute } from '@/components/auth';
 import { AutonomyDashboard } from '@/components/autonomy';
@@ -52,7 +52,7 @@ import { v4 as uuidv4 } from 'uuid';
 function newConversation(): Conversation {
   return {
     id: uuidv4(),
-    name: 'New Conversation',
+    name: DEFAULT_CONVERSATION_TITLE,
     messages: [],
     folderId: null,
     updatedAt: Date.now(),

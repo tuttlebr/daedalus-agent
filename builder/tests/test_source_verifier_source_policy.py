@@ -22,7 +22,7 @@ class _SessionClient:
         self._responses = list(responses)
         self.requested_urls = []
 
-    async def get(self, url):
+    async def get(self, url, **_options):
         self.requested_urls.append(url)
         response = self._responses.pop(0)
         if isinstance(response, BaseException):

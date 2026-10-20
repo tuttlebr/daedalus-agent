@@ -47,6 +47,24 @@ describe('credential verification timing', () => {
     ).toMatchObject({ username: 'current' });
   });
 
+  it('recreates a configured account whose Redis record was lost', async () => {
+    const users = await import('@/utils/auth/users');
+    expect(
+      await users.verifyCredentials('current', 'current-password'),
+    ).toMatchObject({ username: 'current' });
+
+    // A restore, flush or new volume removes the records this process
+    // initialized once; the next login must not fail until a restart.
+    records.clear();
+    expect(await users.verifyCredentials('current', 'wrong')).toBeNull();
+    expect(
+      await users.verifyCredentials('current', 'current-password'),
+    ).toMatchObject({ username: 'current' });
+    expect(records.get('auth-user:current')).toMatchObject({
+      username: 'current',
+    });
+  });
+
   it('never accepts an unknown username, even with the decoy password', async () => {
     const users = await import('@/utils/auth/users');
     const compare = vi.spyOn(bcrypt, 'compare');

@@ -121,6 +121,33 @@ describe('durable memory retention polling', () => {
     expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
   });
 
+  it('settles every due job even when one of them fails', async () => {
+    for (const jobId of ['job-fails', 'job-sibling']) {
+      await enqueueMemoryRetention({
+        jobId,
+        userId: 'alice',
+        operationId: `operation-${jobId}`,
+        acceptedAt: Date.now() - 3000,
+      });
+    }
+    const originalSet = mocks.redis.set.getMockImplementation()!;
+    mocks.redis.set.mockImplementation((async (key: string, ...rest: any[]) => {
+      if (key.includes('job-fails')) throw new Error('Redis lock failure');
+      return (originalSet as any)(key, ...rest);
+    }) as any);
+    mocks.fetchWithTimeout.mockResolvedValue(
+      new Response(JSON.stringify({ status: 'completed' }), { status: 200 }),
+    );
+
+    // The batch reports both jobs and the sibling's poll still ran.
+    await expect(processDueMemoryRetentions()).resolves.toBe(2);
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(1);
+    expect(String(mocks.fetchWithTimeout.mock.calls[0][0])).toContain(
+      'operation-job-sibling',
+    );
+    mocks.redis.set.mockImplementation(originalSet as any);
+  });
+
   it('backs off instead of re-polling every loop when a status body is not JSON', async () => {
     await enqueueMemoryRetention({
       jobId: 'job-invalid',

@@ -199,7 +199,7 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
           acquiredAt,
         }),
         'EX',
-        7200,
+        3600,
       );
       expect(await acquireUserJobGuard(prefix, deadJob, client, 120)).toBe(
         true,

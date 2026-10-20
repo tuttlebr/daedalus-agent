@@ -28,6 +28,21 @@ MIN_SCHEDULE_INTERVAL_SECONDS = 300
 MAX_SCHEDULE_INTERVAL_SECONDS = 7 * 24 * 60 * 60
 
 
+def _text(value: Any) -> str | None:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return value if isinstance(value, str) else None
+
+
+def _bounded(value: Any, default: int, maximum: int) -> int:
+    """Clamp a stored list size as the frontend's config validation does."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(number, maximum))
+
+
 def key(user_id: str, name: str) -> str:
     return f"autonomy:{user_id}:{name}"
 
@@ -369,7 +384,7 @@ class RedisStore:
 
     def upsert_run(self, user_id: str, run: dict[str, Any]) -> None:
         run["updatedAt"] = now_ms()
-        max_runs = int(self.get_config(user_id).get("maxRunsStored") or 100)
+        max_runs = _bounded(self.get_config(user_id).get("maxRunsStored"), 100, 1000)
 
         def mutate(current: list[dict[str, Any]]):
             runs = [r for r in current if r.get("id") != run.get("id")]
@@ -427,7 +442,7 @@ class RedisStore:
         config = self.get_config(user_id)
         dedupe_enabled = config.get("feedDedupeEnabled", True)
         window_ms = window_ms_for_days(config.get("feedDedupeWindowDays"))
-        max_items = int(config.get("maxFeedItems") or 200)
+        max_items = _bounded(config.get("maxFeedItems"), 200, 2000)
 
         # F-016: de-dupe and cap inside an atomic read-modify-write so a
         # concurrent writer (e.g. after a lease expiry) cannot clobber the feed.
@@ -487,6 +502,16 @@ class RedisStore:
         raw = self.redis.brpoplpush(queue_key, processing_key, timeout)
         if not raw:
             return None
+        # Persist the safe-to-retry phase in the very next command after the
+        # claim, before anything that can fail. A replacement must not infer
+        # that a claim without a phase was dispatched; without this fact a
+        # request interrupted here would be dropped as "unknown". The write
+        # is not fenced on the lease: it records that this request has not
+        # been dispatched, which stays true even if the lease was just lost,
+        # because dispatch itself is fenced below. The reclaim script clears
+        # the hash once the processing list is empty, so a stale entry from
+        # a lost lease cannot accumulate.
+        self.redis.hset(key(user_id, "processing_state"), raw, "claimed")
         lease_ttl = self._lease_ttls.get(user_id, 60)
         if not self.refresh_lease(user_id, ttl_seconds=lease_ttl):
             # The request remains in processing for the replacement owner.
@@ -499,26 +524,9 @@ class RedisStore:
             # Poison entry: drop it from processing so it cannot wedge the worker.
             with contextlib.suppress(Exception):
                 self.redis.lrem(processing_key, 1, raw)
+                self.redis.hdel(key(user_id, "processing_state"), raw)
             return None
         self._inflight[user_id] = raw
-        # Persist the safe-to-retry phase independently of the expiring lease
-        # and visibility claim. A replacement must not infer that an expired
-        # claim means the backend never received the request.
-        if not self.redis.eval(
-            """
-            if redis.call("GET", KEYS[1]) ~= ARGV[1] then
-                return 0
-            end
-            redis.call("HSET", KEYS[2], ARGV[2], "claimed")
-            return 1
-            """,
-            2,
-            key(user_id, "lease"),
-            key(user_id, "processing_state"),
-            self._lease_tokens[user_id],
-            raw,
-        ):
-            raise WorkerLeaseLost("Worker lease was lost while claiming a request.")
         self._write_processing_claim(user_id, raw)
         return parsed
 
@@ -601,17 +609,25 @@ class RedisStore:
             )
         processing_key = key(user_id, "processing")
         queue_key = key(user_id, "queue")
-        if self.redis.llen(processing_key):
-            # Close interrupted records first, so a failure here leaves the
-            # requests in processing for the next reclaim to retry both.
-            try:
-                self._abort_interrupted_runs(user_id)
-            except WorkerLeaseLost:
-                self._lease_tokens.pop(user_id, None)
-                self._lease_ttls.pop(user_id, None)
-                raise RuntimeError(
-                    "cannot reclaim processing work after losing the lease"
-                ) from None
+        if not self.redis.llen(processing_key):
+            return 0
+        # Requests the script below will queue again: every processing entry
+        # whose recorded phase proves it never reached the backend.
+        states = self.redis.hgetall(key(user_id, "processing_state")) or {}
+        requeued = all(
+            _text(states.get(raw)) == "claimed"
+            for raw in (self.redis.lrange(processing_key, 0, -1) or [])
+        )
+        # Close interrupted records first, so a failure here leaves the
+        # requests in processing for the next reclaim to retry both.
+        try:
+            self._abort_interrupted_runs(user_id, requeued=requeued)
+        except WorkerLeaseLost:
+            self._lease_tokens.pop(user_id, None)
+            self._lease_ttls.pop(user_id, None)
+            raise RuntimeError(
+                "cannot reclaim processing work after losing the lease"
+            ) from None
         # dequeue() consumes the queue's RIGHT end and pushes each claim onto
         # the processing list's LEFT end, so processing holds the newest claim
         # on the left. Moving undispatched claims LEFT -> RIGHT keeps the oldest
@@ -636,6 +652,8 @@ class RedisStore:
                 redis.call("HDEL", KEYS[4], value)
                 table.insert(moved, value)
             end
+            -- No claims remain, so no phase does either.
+            redis.call("DEL", KEYS[4])
             return moved
             """,
             4,
@@ -657,13 +675,16 @@ class RedisStore:
                 self.redis.delete(self._processing_claim_key(user_id, raw))
         return len(moved)
 
-    def _abort_interrupted_runs(self, user_id: str) -> None:
+    def _abort_interrupted_runs(self, user_id: str, *, requeued: bool = False) -> None:
         """Close run records left "running" when their worker stopped mid-run.
 
         Only the lease owner calls this, before it starts a run of its own, so
         stale workers cannot persist their output. Only undispatched requests
         may run under new records. The dashboard treats the newest
         "running" record as the active run, so one left behind stays "live".
+        ``requeued`` says the interrupted requests were all proven undispatched
+        and run again under new records, so the summary must not claim the
+        opposite.
         """
 
         if not any(
@@ -673,8 +694,11 @@ class RedisStore:
             return
         timestamp = now_ms()
         summary = (
-            "Run was interrupted before it finished. Work that may have reached "
-            "the backend will not be retried automatically."
+            "Run was interrupted before its request reached the backend. The "
+            "request was queued again and runs under a new record."
+            if requeued
+            else "Run was interrupted before it finished. Work that may have "
+            "reached the backend will not be retried automatically."
         )
 
         def mutate(current: list[dict[str, Any]]):

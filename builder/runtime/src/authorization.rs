@@ -450,6 +450,10 @@ impl Approvals {
             URL_SAFE_NO_PAD.encode(ascii_json(&marker))
         ))
     }
+    /// `background` marks a run no user is watching (the autonomy worker):
+    /// an operation that would need approval is refused outright, because a
+    /// pending approval nobody can see would only expire unanswered.
+    #[allow(clippy::too_many_arguments)]
     pub async fn gate(
         &self,
         user: &str,
@@ -458,6 +462,7 @@ impl Approvals {
         tool: &str,
         args: &Value,
         annotations: &Value,
+        background: bool,
     ) -> Gate {
         if self.policies.allowed(server, tool, args, annotations) {
             return Gate::Allowed;
@@ -475,6 +480,12 @@ impl Approvals {
             return Gate::Denied("authenticated approval context is required before an execution credential can be created".into(),false);
         }
         if token.trim().is_empty() {
+            if background {
+                return Gate::Denied(
+                    "This action needs the user's approval, which a background run cannot request. The call was not executed; leave it for an interactive chat.".into(),
+                    false,
+                );
+            }
             return match self.pending(user, server, tool, args).await {
                 Ok(marker) => Gate::Denied(marker, true),
                 Err(_) => Gate::Denied("protected approval creation is unavailable".into(), false),

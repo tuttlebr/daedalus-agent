@@ -8,7 +8,6 @@ import argparse
 import asyncio
 import importlib
 import json
-import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -220,77 +219,6 @@ def check_configuration(config):
                 not overrides.intersection(group.get("exclude", [])),
                 f"Override for excluded MCP tool: {name}",
             )
-
-
-def check_mcp_catalog(config, catalog, skills_directory=None):
-    """Validate a tools/list capture without executing any remote leaf tools."""
-    groups = config["function_groups"]
-    require(
-        set(groups) == set(catalog), "MCP capture does not cover every configured group"
-    )
-    exposed = {}
-    for name, group in groups.items():
-        entry = catalog[name]
-        require(
-            entry.get("status") == "ok",
-            f"MCP catalog unavailable or incomplete: {name}",
-        )
-        tools = {tool["name"]: tool for tool in entry["tools"]}
-        require(len(tools) == len(entry["tools"]), f"Duplicate MCP leaf names: {name}")
-        included = set(group.get("include", [])) or (
-            set(tools) - set(group.get("exclude", []))
-        )
-        require(
-            included <= set(tools),
-            f"Configured MCP tools missing: {name}: {included - set(tools)}",
-        )
-        exposed[name] = {leaf: tools[leaf] for leaf in included}
-    samples = (
-        ("gmail_mcp_server", "get_thread", {"threadId": "fixture"}),
-        (
-            "calendar_mcp_server",
-            "list_events",
-            {
-                "startTime": "2026-09-11T00:00:00-04:00",
-                "endTime": "2026-09-15T00:00:00-04:00",
-                "timeZone": "America/Detroit",
-            },
-        ),
-        ("calendar_mcp_server", "get_event", {"eventId": "fixture"}),
-        ("k8s_mcp_server", "getAPIResources", {}),
-        (
-            "unifi_mcp_server",
-            "listAdoptedDevices",
-            {"siteId": "fixture", "offset": 0, "limit": 25},
-        ),
-        (
-            "espn_mcp_server",
-            "get_roster",
-            {"league_id": 1, "season": 2026, "team_id": 1, "week": 1},
-        ),
-    )
-    for group, leaf, arguments in samples:
-        schema = exposed[group][leaf]["inputSchema"]
-        require(
-            set(arguments) <= set(schema.get("properties", {})),
-            f"Unsupported arguments for {group}.{leaf}",
-        )
-        require(
-            set(schema.get("required", [])) <= set(arguments),
-            f"Missing arguments for {group}.{leaf}",
-        )
-    if skills_directory:
-        for path in Path(skills_directory).rglob("*.md"):
-            for group, leaf in re.findall(
-                r"\b([a-z_]+_mcp_server)\.([A-Za-z_]+)", path.read_text()
-            ):
-                require(
-                    leaf in exposed.get(group, {}),
-                    f"Unavailable skill tool: {path}: {group}.{leaf}",
-                )
-    print(
-        f"Validated {len(exposed)} MCP groups and {sum(len(tools) for tools in exposed.values())} exposed leaves."
-    )
 
 
 @patch.dict(
@@ -515,11 +443,6 @@ def main():
     parser.add_argument("--config", type=Path)
     parser.add_argument("--skills", type=Path)
     parser.add_argument("--output", type=Path)
-    parser.add_argument(
-        "--mcp-catalog",
-        type=Path,
-        help="Read-only tools/list JSON capture; requires --config",
-    )
     args = parser.parse_args()
     config = None
     if args.config:
@@ -527,9 +450,6 @@ def main():
 
         config = yaml.safe_load(args.config.read_text())
     catalog = asyncio.run(check_catalog(config, args.skills))
-    if args.mcp_catalog:
-        require(config is not None, "--mcp-catalog requires --config")
-        check_mcp_catalog(config, json.loads(args.mcp_catalog.read_text()), args.skills)
     if args.output:
         args.output.write_text(json.dumps(catalog, indent=2) + "\n")
 

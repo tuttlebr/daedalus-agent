@@ -354,6 +354,10 @@ nginx:
     documentUploadMaxBodySize: '201M' # 200 MiB raw file plus bounded multipart framing
     videoUploadMaxBodySize: '150M' # Legacy base64 route parser ceiling
     imageUploadMaxBodySize: '41M' # 30 MiB raw image plus base64/JSON framing
+    # Proxies allowed to set the client address through X-Forwarded-For (the
+    # Ingress controller's pod or node CIDRs). Empty keeps the connecting
+    # address, which behind an Ingress makes nginx's per-IP limits global.
+    trustedProxyCidrs: []
     resourceLimits:
       clientBodyTimeout: 30s
       clientHeaderTimeout: 15s
@@ -528,6 +532,11 @@ autonomousAgent:
         memory: 32Mi
 
 ingress:
+  # The frontend reads the client address from the X-Forwarded-For chain and
+  # expects AUTH_TRUSTED_PROXY_HOPS trusted proxies in front of it: set 2 in
+  # the frontend environment when this Ingress is enabled (Ingress + nginx),
+  # 1 when nginx is the first hop. nginx appends its own observation, so a
+  # client-supplied header cannot displace the trusted entries.
   enabled: true
   className: ''
   annotations:

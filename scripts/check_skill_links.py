@@ -38,9 +38,36 @@ def local_links(path):
         yield resolved.resolve(), unquote(parsed.fragment)
 
 
+def skill_directory(path):
+    """The skill root a resource path is relative to: the nearest ancestor
+    holding SKILL.md, or the file's own directory."""
+    for directory in [path.parent, *path.parents]:
+        if (directory / "SKILL.md").is_file():
+            return directory
+    return path.parent
+
+
+def resource_references(path):
+    """Resources named in prose for `load_skill(... resource=<path>)` calls.
+
+    The loader resolves them against the skill directory; a renamed file would
+    otherwise fail only at run time, inside the model's tool call."""
+    root = skill_directory(path)
+    for target in re.findall(r"\bresource=([^\s`'\")\],]+)", prose(path.read_text())):
+        target = target.strip().rstrip(".")
+        if not target or any(marker in target for marker in "<>{}$"):
+            continue
+        yield (root / target).resolve()
+
+
 def check(root=ROOT / "skills"):
     errors = []
     for source in sorted(root.rglob("*.md")):
+        for resource in resource_references(source):
+            if not resource.exists():
+                errors.append(
+                    f"{source.relative_to(ROOT)}: missing resource {resource}"
+                )
         for target, anchor in local_links(source):
             if not target.is_file():
                 errors.append(

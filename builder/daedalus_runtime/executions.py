@@ -83,7 +83,11 @@ class Executions:
                 "toolName": body.tool_name,
                 "argumentsSha256": body.arguments_sha256,
             }
-        except (Exception, asyncio.CancelledError):
+        except asyncio.CancelledError:
+            record.status = "cancelled"
+            record.error = "The approved MCP operation was cancelled before it confirmed success. Check its current state before retrying."
+            raise
+        except Exception:
             record.status = "failed"
             record.error = "The approved MCP operation did not confirm success. Check its current state before retrying."
         finally:

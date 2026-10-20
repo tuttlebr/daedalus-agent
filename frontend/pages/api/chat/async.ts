@@ -55,10 +55,12 @@ import {
   type AsyncJobRequest,
   type AsyncJobStatus,
   type DocumentIngestProgress,
+  USER_CANCELLATION_MESSAGE,
 } from '@/server/chat/types';
 import {
   acquireUserJobGuard,
   confirmUserJobGuard,
+  MAX_ACTIVE_CHATS_PER_USER,
   releaseUserJobGuard,
 } from '@/server/chat/userJobGuard';
 import {
@@ -91,6 +93,24 @@ const logger = new Logger('AsyncJob');
 
 // Per-user throttle on the (LLM-cost-bearing) async chat submit path. Generous
 // enough for normal interactive use; caps runaway/abusive submission floods.
+// The limit is read aloud and shown in prose, so small counts are spelled out.
+const SMALL_COUNT_WORDS = [
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+];
+function spelledOut(count: number): string {
+  return SMALL_COUNT_WORDS[count] ?? String(count);
+}
+
 const CHAT_ASYNC_RATE_LIMIT = ruleFromEnv(
   'chat-async',
   'RATE_LIMIT_CHAT',
@@ -452,7 +472,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     ) {
       throw new ApiRouteError(
         429,
-        'You already have five chats running. Wait for one to finish or stop a response before starting another.',
+        `You already have ${spelledOut(
+          MAX_ACTIVE_CHATS_PER_USER,
+        )} chats running. Wait for one to finish or stop a response before starting another.`,
         'active_chat_limit',
       );
     }
@@ -692,6 +714,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     await enqueueStreamJob(
       jobId,
       { messagesForNat: messagesWithIdentity, verifiedUsername },
+      {
+        userId: verifiedUsername,
+        ...(conversationId ? { conversationId } : {}),
+      },
       {
         ...(submissionId
           ? {
@@ -945,7 +971,7 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
           requestKey,
         )) as AsyncJobRequest | null;
         canceled = jobRequest
-          ? await finalizeError(jobId, jobRequest, 'Job canceled by user')
+          ? await finalizeError(jobId, jobRequest, USER_CANCELLATION_MESSAGE)
           : false;
       }
     }

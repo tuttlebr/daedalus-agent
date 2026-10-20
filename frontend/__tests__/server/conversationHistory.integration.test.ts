@@ -121,6 +121,10 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
             copy,
           ]);
           expect(await client.ttl(ck)).toBeGreaterThan(0);
+          // The stale membership is dropped so later listings stop reading
+          // the foreign record; the record itself is untouched.
+          expect(await client.sismember(f.membership, other.id)).toBe(0);
+          expect(await client.exists(ck)).toBe(1);
         });
 
         it('preserves concurrent imports and independent conversation saves', async () => {

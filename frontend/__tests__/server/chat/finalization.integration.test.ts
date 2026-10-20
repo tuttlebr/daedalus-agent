@@ -1146,5 +1146,89 @@ describe.skipIf(!RUN_REAL_REDIS)(
         );
       }
     });
+
+    it.each([
+      ['a user stop', true],
+      ['a backend failure', false],
+    ])(
+      'saves %s with the stopped flag only when the user stopped the response',
+      async (_label, stopped) => {
+        const { USER_CANCELLATION_MESSAGE } = await import(
+          '@/server/chat/types'
+        );
+        const stopJob = `${jobId}-stop-${stopped ? 'user' : 'error'}`;
+        const stopConversation = `${conversationId}-stop-${stopped}`;
+        const statusKey = redis.sessionKey(['async-job-status', stopJob]);
+        const conversationKey = redis.sessionKey([
+          'conversation',
+          stopConversation,
+        ]);
+        await redis.jsonSetWithExpiry(
+          statusKey,
+          { jobId: stopJob, status: 'streaming', createdAt: Date.now() },
+          120,
+        );
+        // Chat submission reserves the conversation before the worker runs.
+        const { reserveConversationForUser } = await import(
+          '@/server/session/conversationStore'
+        );
+        await reserveConversationForUser(
+          userId,
+          stopConversation,
+          'Stop',
+          stopJob,
+        );
+        await streamState.appendStreamResponseDelta(stopJob, 'Partial ans', 0);
+        try {
+          await expect(
+            finalization.finalizeError(
+              stopJob,
+              {
+                jobId: stopJob,
+                natBaseUrl: 'http://127.0.0.1:1',
+                executionMode: 'stream',
+                messages: [{ id: 'stop-user', role: 'user', content: 'Go' }],
+                userId,
+                conversationId: stopConversation,
+                conversationName: 'Stop',
+                assistantMessageId: 'stop-assistant',
+              },
+              stopped ? USER_CANCELLATION_MESSAGE : 'Backend failed',
+            ),
+          ).resolves.toBe(true);
+
+          // The job status keeps the cancellation text for status readers.
+          expect(await redis.jsonGet(statusKey)).toMatchObject({
+            status: 'error',
+            error: stopped ? USER_CANCELLATION_MESSAGE : 'Backend failed',
+            partialResponse: 'Partial ans',
+          });
+          const saved = await redis.jsonGet(conversationKey);
+          const assistant = saved.messages.at(-1);
+          expect(assistant.content).toBe('Partial ans');
+          if (stopped) {
+            // The browser models Stop as a stopped answer; the adopted
+            // worker record must not show an error with a Retry action.
+            expect(assistant.metadata.stopped).toBe(true);
+            expect(assistant.errorMessages).toBeUndefined();
+            expect(saved.error).toBeUndefined();
+          } else {
+            expect(assistant.metadata.stopped).toBeUndefined();
+            expect(assistant.errorMessages).toMatchObject({
+              message: 'Backend failed',
+              recoverable: true,
+            });
+            expect(saved.error).toBe('Backend failed');
+          }
+        } finally {
+          await client.del(
+            statusKey,
+            conversationKey,
+            state.finalizationJournalKey(stopJob),
+            state.finalizerLockKey(stopJob),
+          );
+        }
+      },
+    );
   },
 );

@@ -323,6 +323,62 @@ describe('useAsyncChat streaming callbacks', () => {
     },
   );
 
+  it('publishes the streaming transition on the first token and refreshes the status at a bounded rate', async () => {
+    const probe = renderProbe({ userId: 'alice', pollingInterval: 3000 });
+    const { root } = probe;
+    // `api` is read through the probe so each read sees the latest render.
+    const api = () => probe.api;
+    await act(async () => {
+      await api().startAsyncJob([], {}, 'alice', 'conv-1', 'Test');
+    });
+    expect(api().jobStatusByConversationId['conv-1']?.status).not.toBe(
+      'streaming',
+    );
+
+    // The worker records pending -> streaming without publishing it, so the
+    // first live token is what moves the heartbeat off "Queued".
+    act(() => {
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: 'Hello',
+        responseStart: 0,
+      });
+    });
+    const first = api().jobStatusByConversationId['conv-1'];
+    expect(first).toMatchObject({
+      status: 'streaming',
+      partialResponse: 'Hello',
+    });
+
+    // Tokens inside the publish interval update only the live ref.
+    act(() => {
+      vi.advanceTimersByTime(200);
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: ' there',
+        responseStart: 5,
+      });
+    });
+    expect(api().jobStatusByConversationId['conv-1']).toBe(first);
+
+    // After the interval the published status carries a fresh updatedAt.
+    act(() => {
+      vi.advanceTimersByTime(1000);
+      emit('chat_token', {
+        jobId: 'job-1',
+        conversationId: 'conv-1',
+        content: '!',
+        responseStart: 11,
+      });
+    });
+    const refreshed = api().jobStatusByConversationId['conv-1'];
+    expect(refreshed.updatedAt).toBeGreaterThan(first.updatedAt);
+    expect(refreshed.partialResponse).toBe('Hello there!');
+    act(() => root.unmount());
+  });
+
   it('queues live subscriptions during disconnection and resumes token delivery', async () => {
     mocks.manager.isConnected = false;
     const onToken = vi.fn();

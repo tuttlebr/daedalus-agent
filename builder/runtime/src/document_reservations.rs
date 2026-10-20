@@ -51,19 +51,7 @@ impl Reservation {
 }
 
 fn ttl(config: &Config) -> Result<String> {
-    let configured =
-        document_store::integer(&config.variable("AUTONOMY_IDEMPOTENCY_TTL_SECONDS", "604800"))
-            .ok_or_else(|| anyhow!("Invalid idempotency TTL"))?;
-    Ok(
-        if configured.starts_with('-')
-            || configured.len() < 4
-            || configured.len() == 4 && configured.as_str() < "3600"
-        {
-            "3600".into()
-        } else {
-            configured
-        },
-    )
+    Ok(document_store::idempotency_ttl_seconds(config)?.to_string())
 }
 
 async fn command<T: redis::FromRedisValue>(store: &Store, cmd: &mut redis::Cmd) -> Result<T> {

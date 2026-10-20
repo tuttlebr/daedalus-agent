@@ -129,15 +129,22 @@ async def get_public_response_async(
     *,
     allowed_schemes: Iterable[str] = ("http", "https"),
     max_redirects: int = _DEFAULT_MAX_REDIRECTS,
+    timeout: httpx.Timeout | None = None,
 ) -> httpx.Response:
-    """Fetch a public URL and validate every redirect before following it."""
+    """Fetch a public URL and validate every redirect before following it.
+
+    ``timeout`` overrides the client's per-request timeouts so a caller's
+    configured deadline bounds slow reads as well as the whole operation.
+    """
     current_url = url
     schemes = tuple(allowed_schemes)
     for _ in range(max_redirects + 1):
         await asyncio.to_thread(
             validate_public_url, current_url, allowed_schemes=schemes, check_dns=True
         )
-        response = await client.get(current_url)
+        response = await client.get(
+            current_url, **({"timeout": timeout} if timeout is not None else {})
+        )
         if response.is_redirect is not True:
             return response
         location = response.headers.get("location")

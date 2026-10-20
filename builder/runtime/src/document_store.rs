@@ -109,6 +109,24 @@ pub(super) fn integer(text: &str) -> Option<String> {
     })
 }
 
+/// Lifetime of an autonomous idempotency record, in seconds. The setting is
+/// shared with the Python owner, so Python `int()` syntax (underscores,
+/// Unicode digits) is accepted everywhere, and values under an hour are
+/// raised to one hour as the ledger does.
+pub(super) fn idempotency_ttl_seconds(config: &Config) -> anyhow::Result<u64> {
+    let configured = integer(&variable(
+        config,
+        "AUTONOMY_IDEMPOTENCY_TTL_SECONDS",
+        "604800",
+    ))
+    .ok_or_else(|| anyhow!("Invalid AUTONOMY_IDEMPOTENCY_TTL_SECONDS"))?;
+    Ok(if configured.starts_with('-') {
+        3600
+    } else {
+        configured.parse::<u64>().unwrap_or(u64::MAX).max(3600)
+    })
+}
+
 fn maximum(config: &Config) -> usize {
     integer(&variable(config, "DOCUMENT_INGEST_MAX_SIZE_BYTES", ""))
         .filter(|n| n != "0" && !n.starts_with('-'))

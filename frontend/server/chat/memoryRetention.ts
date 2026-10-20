@@ -517,7 +517,20 @@ export async function processDueMemoryRetentions(limit = 10): Promise<number> {
     ),
   );
   const due = [...new Set([...submissions, ...polls])].slice(0, count);
-  await Promise.all(due.map((jobId) => processMemoryRetention(jobId)));
+  // Every job settles before this poll ends, so the worker's single-poll
+  // guard is released only when nothing is still running; a failed job is
+  // logged and retried by its own schedule instead of aborting the batch.
+  const outcomes = await Promise.allSettled(
+    due.map((jobId) => processMemoryRetention(jobId)),
+  );
+  outcomes.forEach((outcome, index) => {
+    if (outcome.status === 'rejected') {
+      logger.warn(
+        `Job ${due[index]}: memory retention processing failed`,
+        outcome.reason,
+      );
+    }
+  });
   return due.length;
 }
 

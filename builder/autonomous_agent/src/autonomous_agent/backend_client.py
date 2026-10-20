@@ -20,6 +20,15 @@ class RunAbortedError(RuntimeError):
     """The in-flight backend request was stopped before it produced an answer."""
 
 
+class ApprovalRequiredError(RuntimeError):
+    """The backend stopped at an approval boundary.
+
+    The Rust gate ends such a run with ``finish_reason`` ``mcp_approval_required``
+    and a dedicated SSE event carrying the approval marker. Autonomous work is
+    non-interactive, so the worker records the refusal instead of a result.
+    """
+
+
 class OAuthRequiredError(RuntimeError):
     def __init__(
         self,
@@ -255,6 +264,10 @@ class BackendClient:
                         raise RunAbortedError("backend sent an invalid stream event")
                     if current_sse_event == "error" or chunk.get("error"):
                         raise RunAbortedError("backend stream reported an error")
+                    if current_sse_event == "mcp_approval_required":
+                        raise ApprovalRequiredError(
+                            "The backend requires user approval to continue."
+                        )
                     oauth_payload = extract_oauth_required_payload(
                         current_sse_event,
                         chunk,
@@ -289,6 +302,10 @@ class BackendClient:
                             )
                         if finish_reason == "error":
                             raise RunAbortedError("backend stream reported an error")
+                        if finish_reason == "mcp_approval_required":
+                            raise ApprovalRequiredError(
+                                "The backend requires user approval to continue."
+                            )
                         content = delta.get("content")
                         if content is not None and not isinstance(content, str):
                             raise RunAbortedError(

@@ -64,6 +64,48 @@ def test_reports_hash_source_that_compose_would_interpolate(tmp_path, source):
     ]
 
 
+def test_load_env_reads_values_as_compose_does(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "# comment",
+                "PLAIN=bar # trailing comment",
+                "QUOTED='quoted' # c",
+                "LITERAL='keep $this'",
+                'DQ="x y"',
+                "SPACED=' spaced '",
+                "export EXP=1",
+                "HASH=value#not-a-comment",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert validate_auth_env.load_env(env_path) == {
+        "PLAIN": "bar",
+        "QUOTED": "quoted",
+        "LITERAL": "keep $this",
+        "DQ": "x y",
+        "SPACED": " spaced ",
+        "EXP": "1",
+        "HASH": "value#not-a-comment",
+    }
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["KEY=a$FOO", 'KEY="a$FOO"', "KEY='unterminated", 'KEY="done" trailing'],
+)
+def test_load_env_rejects_values_compose_would_read_differently(tmp_path, line):
+    env_path = tmp_path / ".env"
+    env_path.write_text(line + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="KEY"):
+        validate_auth_env.load_env(env_path)
+
+
 @pytest.mark.parametrize(
     ("entries", "message"),
     [

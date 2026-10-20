@@ -1,3 +1,5 @@
+import { DEFAULT_CONVERSATION_TITLE } from '@/types/chat';
+
 import { getRedis, sessionKey } from './redis';
 
 import { abortKey } from '@/server/chat/jobState';
@@ -178,7 +180,7 @@ export async function reserveConversationForUser(
     (current) =>
       current ?? {
         id,
-        name: typeof name === 'string' ? name : 'New conversation',
+        name: typeof name === 'string' ? name : DEFAULT_CONVERSATION_TITLE,
         messages: [],
         folderId: null,
         updatedAt: 0,

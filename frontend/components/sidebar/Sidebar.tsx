@@ -24,7 +24,7 @@ import {
 } from '@/utils/app/conversation';
 import { downloadFilename } from '@/utils/app/sandboxArtifactDownload';
 
-import { Conversation } from '@/types/chat';
+import { Conversation, DEFAULT_CONVERSATION_TITLE } from '@/types/chat';
 
 import { useAuth } from '@/components/auth';
 import { AppearanceSettings } from '@/components/layout/AppearanceSettings';
@@ -88,7 +88,7 @@ export const Sidebar = memo(() => {
   const handleNewConversation = useCallback(() => {
     const newConv: Conversation = {
       id: uuidv4(),
-      name: 'New Conversation',
+      name: DEFAULT_CONVERSATION_TITLE,
       messages: [],
       folderId: null,
       updatedAt: Date.now(),

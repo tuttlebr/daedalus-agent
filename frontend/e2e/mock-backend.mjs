@@ -86,13 +86,18 @@ async function streamChat(req, res) {
         argumentsSha256,
       }),
     ).toString('base64url')}-->`;
+    // The runtime masks the gated tool's result in tool history and ends the
+    // run with its own approval event carrying the marker.
     res.write(
       `intermediate_data: ${JSON.stringify({
         name: 'Function Complete: <docs_mcp_server__update_doc>',
         id: 'approval-tool-1',
         parent_id: 'root',
-        payload: `Preamble\n**Function Output:**\n\`\`\`\n${marker}\n\`\`\``,
-      })}\n`,
+        payload: 'Waiting at the approval boundary.',
+      })}\n\n`,
+    );
+    res.write(
+      `event: mcp_approval_required\ndata: ${JSON.stringify({ marker })}\n\n`,
     );
     // A real backend may begin another model iteration before HTTP
     // cancellation arrives. The stream worker must ignore this frame.

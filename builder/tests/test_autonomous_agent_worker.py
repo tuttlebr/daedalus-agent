@@ -12,7 +12,6 @@ from autonomous_agent.prompt import (
     build_messages,
     feed_items_from_output,
     load_workspace,
-    output_requests_approval,
     parse_structured_output,
 )
 from autonomous_agent.worker import (
@@ -960,21 +959,19 @@ def test_run_once_finishes_quietly_when_a_rewritten_story_claims_to_be_an_update
     assert store.feed == [old]
 
 
-def test_run_once_rejects_backend_approval_request():
-    arguments_hash = "a" * 64
+def test_run_once_records_the_backend_approval_boundary_as_blocked():
+    from autonomous_agent.backend_client import ApprovalRequiredError
+
     store = FakeStore()
-    backend = FakeBackend(
-        "**Action requiring confirmation:**\n\nDelete thing\n\nProceed? (yes/no)\n"
-        "No executable credential has been created.\n"
-        "Approval scope: action_type=`mcp_mutation`, target=`prod-item`, "
-        "server_name=`inventory`, tool_name=`delete_item`, "
-        "approval_request_id=`pending-1`, "
-        f"arguments_sha256=`{arguments_hash}`."
-    )
+
+    class ApprovalBackend(FakeBackend):
+        def call(self, messages, *, execution_id="", abort=None):
+            super().call(messages, execution_id=execution_id, abort=abort)
+            raise ApprovalRequiredError("The backend requires user approval.")
 
     run = run_once(
         store=store,
-        backend=backend,
+        backend=ApprovalBackend(""),
         user_id="test-user",
         request={"trigger": "manual"},
     )
@@ -982,32 +979,52 @@ def test_run_once_rejects_backend_approval_request():
     assert run["status"] == "failed"
     assert run["error"] == "Autonomous runs cannot request user approval."
     assert store.events[-1]["type"] == "approval_blocked"
-    assert output_requests_approval(backend.response)
+    # The marker itself never becomes a durable approval task or feed item.
+    assert store.feed == []
 
 
-def test_run_once_rejects_deep_research_plan_approval():
-    store = FakeStore()
-    backend = FakeBackend(
-        "**Deep research plan approval:** AIQ follow-up report\n\n"
-        "**Planned report sections:**\n"
-        "1. Source Registry\n"
-        "2. Plan Approval\n\n"
-        "Reply yes to approve this plan, or describe changes.\n"
-        "No executable credential has been created.\n"
-        "Approval scope: action_type=`deep_research_plan`, "
-        "target=`aiq-report`."
-    )
+def _approval_stream(client_module, body: str):
+    import httpx
 
-    run = run_once(
-        store=store,
-        backend=backend,
-        user_id="test-user",
-        request={"trigger": "manual"},
-    )
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=body.encode("utf-8"),
+        )
 
-    assert run["status"] == "failed"
-    assert run["error"] == "Autonomous runs cannot request user approval."
-    assert output_requests_approval(backend.response)
+    original = client_module.httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original(*args, **kwargs)
+
+    return factory
+
+
+def test_backend_client_raises_on_the_runtime_approval_terminal(monkeypatch):
+    from autonomous_agent import backend_client
+
+    marker = "<!--daedalus-mcp-approval:eyJ2ZXJzaW9uIjoxfQ-->"
+    for body in (
+        # The dedicated approval event precedes the marker text.
+        f'event: mcp_approval_required\ndata: {{"marker":"{marker}"}}\n\n'
+        f'data: {{"choices":[{{"delta":{{"content":"{marker}"}}}}]}}\n\n',
+        # Or only the terminal finish reason reaches the worker.
+        'data: {"choices":[{"delta":{},"finish_reason":"mcp_approval_required",'
+        '"daedalus_terminal":true}]}\n\ndata: [DONE]\n\n',
+    ):
+        monkeypatch.setattr(
+            backend_client.httpx, "AsyncClient", _approval_stream(backend_client, body)
+        )
+        client = backend_client.BackendClient(
+            base_url="http://backend.invalid:8000",
+            api_path="/v1/chat/completions",
+            user_id="test-user",
+            request_timeout=5,
+        )
+        with pytest.raises(backend_client.ApprovalRequiredError):
+            client.call([{"role": "user", "content": "do it"}])
 
 
 def test_build_messages_includes_sanitized_source_policy_message():
@@ -1181,17 +1198,6 @@ def test_make_backend_accepts_the_maximum_permitted_timeout(monkeypatch):
     assert backend.request_timeout == MAX_AUTONOMOUS_REQUEST_TIMEOUT_SECONDS
 
 
-def test_output_requests_approval_requires_structured_marker():
-    # F-011: a bare advisory phrase (no structured bold marker) must NOT trip
-    # the gate, while the approval tool's structured markers do.
-    assert not output_requests_approval("Proceed? (yes/no) before I continue.")
-    assert not output_requests_approval(
-        "I will reply yes to approve this plan once ready."
-    )
-    assert output_requests_approval("**Action requiring confirmation:** Delete it")
-    assert output_requests_approval("**Deep research plan approval:** Topic X")
-
-
 def test_run_once_does_not_pause_on_advisory_phrase_without_marker():
     # F-011: an LLM that merely echoes "proceed? (yes/no)" without the structured
     # marker should complete normally, not be parked as waiting_approval.
@@ -1216,19 +1222,20 @@ def test_run_once_does_not_pause_on_advisory_phrase_without_marker():
 
 
 def test_run_once_does_not_store_raw_approval_response():
+    from autonomous_agent.backend_client import ApprovalRequiredError
+
     store = FakeStore()
-    raw = (
-        "**Action requiring confirmation:** Delete the production index\n\n"
-        "SECRET INTERNAL CHAIN OF THOUGHT THAT SHOULD NOT BE PUBLISHED\n\n"
-        "Proceed? (yes/no)\n"
-        "Approval scope: action_type=`mcp_mutation`, target=`prod-index`, "
-        "approval_request_id=`pending-2`."
-    )
-    backend = FakeBackend(raw)
+
+    class ApprovalBackend(FakeBackend):
+        def call(self, messages, *, execution_id="", abort=None):
+            super().call(messages, execution_id=execution_id, abort=abort)
+            raise ApprovalRequiredError(
+                "SECRET INTERNAL CHAIN OF THOUGHT THAT SHOULD NOT BE PUBLISHED"
+            )
 
     run = run_once(
         store=store,
-        backend=backend,
+        backend=ApprovalBackend(""),
         user_id="test-user",
         request={"trigger": "manual"},
     )
@@ -1474,3 +1481,28 @@ def test_cancel_polling_does_not_refresh_the_lease_on_every_poll(monkeypatch):
     # The initial claim plus one interval refresh, despite dozens of polls.
     assert 2 <= store.refresh_calls <= 3
     assert store.cancel_checks >= 10
+
+
+def test_shutdown_signal_aborts_the_open_backend_request(monkeypatch):
+    import threading
+
+    from autonomous_agent import worker
+
+    store = _CancellableStore()
+    backend = _BlockingBackend()
+    monkeypatch.setattr(worker, "SHUTDOWN", threading.Event())
+    worker.SHUTDOWN.set()
+    try:
+        run = worker.run_with_lease_heartbeat(
+            store=store,
+            backend=backend,
+            user_id="test-user",
+            request={"trigger": "manual"},
+            lease_ttl=30,
+        )
+    finally:
+        worker.SHUTDOWN.clear()
+
+    assert run["status"] == "aborted"
+    assert "shutting down" in run["summary"]
+    assert store.events[-1]["type"] == "run_aborted"

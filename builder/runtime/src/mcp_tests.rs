@@ -157,7 +157,7 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
     assert_eq!(manager.capabilities()["available"], json!(["fixture"]));
     let (emit, _events) = emit();
     let connected = manager
-        .call("fixture__connect", &json!({}), "alice", "", &emit)
+        .call("fixture__connect", &json!({}), "alice", "", &emit, false)
         .await;
     assert!(!connected.is_error);
     assert_eq!(connected.tools.len(), 5);
@@ -168,16 +168,31 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
             "alice",
             "",
             &emit,
+            false,
         )
         .await;
     assert!(invalid.content.contains("ValidationError"));
     assert_eq!(count(&peer, "tools/call"), 0);
     let hidden = manager
-        .call("fixture__hidden", &json!({"value":1}), "alice", "", &emit)
+        .call(
+            "fixture__hidden",
+            &json!({"value":1}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
         .await;
     assert!(hidden.content.contains("ValueError"));
     let result = manager
-        .call("fixture__inspect", &json!({"value":3}), "alice", "", &emit)
+        .call(
+            "fixture__inspect",
+            &json!({"value":3}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
         .await;
     assert!(!result.is_error, "{}", result.content);
     assert_eq!(
@@ -193,7 +208,14 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
     *peer.mode.lock().unwrap() = "sse".into();
     assert!(
         !manager
-            .call("fixture__inspect", &json!({"value":4}), "bob", "", &emit)
+            .call(
+                "fixture__inspect",
+                &json!({"value":4}),
+                "bob",
+                "",
+                &emit,
+                false
+            )
             .await
             .is_error
     );
@@ -213,13 +235,21 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
                 &json!({"value":0}),
                 "alice",
                 "",
-                &emit
+                &emit,
+                false,
             )
             .await
             .is_error
     );
     let marker = manager
-        .call("fixture__marker", &json!({"value":0}), "alice", "", &emit)
+        .call(
+            "fixture__marker",
+            &json!({"value":0}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
         .await;
     assert!(!marker.is_error && !marker.terminal);
     assert!(
@@ -234,6 +264,7 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
             "alice",
             "",
             &emit,
+            false,
         )
         .await;
     assert_eq!(bad_output.content, crate::mcp::UNCONFIRMED);
@@ -241,7 +272,14 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
         *peer.mode.lock().unwrap() = mode.into();
         let before = count(&peer, "tools/call");
         let result = manager
-            .call("fixture__mutate", &json!({"value":2}), "alice", "", &emit)
+            .call(
+                "fixture__mutate",
+                &json!({"value":2}),
+                "alice",
+                "",
+                &emit,
+                false,
+            )
             .await;
         assert_eq!(result.content, crate::mcp::UNCONFIRMED, "{mode}");
         assert_eq!(count(&peer, "tools/call"), before + 1);
@@ -249,7 +287,14 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
     *peer.mode.lock().unwrap() = "expired".into();
     let before = count(&peer, "tools/call");
     let result = manager
-        .call("fixture__mutate", &json!({"value":2}), "alice", "", &emit)
+        .call(
+            "fixture__mutate",
+            &json!({"value":2}),
+            "alice",
+            "",
+            &emit,
+            false,
+        )
         .await;
     assert_eq!(result.content, crate::mcp::UNCONFIRMED);
     assert_eq!(
@@ -267,7 +312,14 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
     *peer.mode.lock().unwrap() = "".into();
     assert!(
         !manager
-            .call("fixture__inspect", &json!({"value":2}), "alice", "", &emit)
+            .call(
+                "fixture__inspect",
+                &json!({"value":2}),
+                "alice",
+                "",
+                &emit,
+                false
+            )
             .await
             .is_error
     );
@@ -278,7 +330,14 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
         let emit = emit.clone();
         tokio::spawn(async move {
             manager
-                .call("fixture__inspect", &json!({"value":2}), "alice", "", &emit)
+                .call(
+                    "fixture__inspect",
+                    &json!({"value":2}),
+                    "alice",
+                    "",
+                    &emit,
+                    false,
+                )
                 .await
         })
     };
@@ -295,7 +354,14 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
     *peer.mode.lock().unwrap() = "".into();
     assert!(
         !manager
-            .call("fixture__inspect", &json!({"value":2}), "bob", "", &emit)
+            .call(
+                "fixture__inspect",
+                &json!({"value":2}),
+                "bob",
+                "",
+                &emit,
+                false
+            )
             .await
             .is_error
     );
@@ -304,7 +370,14 @@ async fn mcp_sessions_exposure_validation_and_uncertain_calls() {
     let initialized = count(&peer, "initialize");
     let resumed = tokio::time::timeout(
         Duration::from_secs(5),
-        manager.call("fixture__inspect", &json!({"value":2}), "alice", "", &emit),
+        manager.call(
+            "fixture__inspect",
+            &json!({"value":2}),
+            "alice",
+            "",
+            &emit,
+            false,
+        ),
     )
     .await
     .expect("a stopped call must not hold its session");
@@ -376,6 +449,7 @@ async fn mcp_duplicate_or_undocumented_catalogues_fail_before_execution() {
                 "synthetic",
                 "",
                 &emit,
+                false,
             )
             .await;
         assert!(outcome.is_error);
@@ -415,7 +489,14 @@ async fn catalogue_does_not_wait_behind_another_runs_tool_call() {
         let manager = manager.clone();
         tokio::spawn(async move {
             manager
-                .call("fixture__inspect", &json!({"value":1}), "alice", "", &emit)
+                .call(
+                    "fixture__inspect",
+                    &json!({"value":1}),
+                    "alice",
+                    "",
+                    &emit,
+                    false,
+                )
                 .await
         })
     };
@@ -477,7 +558,14 @@ async fn catalogue_does_not_wait_behind_another_runs_authorization() {
         let manager = manager.clone();
         tokio::spawn(async move {
             manager
-                .call("fixture__inspect", &json!({"value":1}), "alice", "", &emit)
+                .call(
+                    "fixture__inspect",
+                    &json!({"value":1}),
+                    "alice",
+                    "",
+                    &emit,
+                    false,
+                )
                 .await
         })
     };

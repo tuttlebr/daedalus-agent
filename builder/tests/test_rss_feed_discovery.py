@@ -56,7 +56,7 @@ class FeedHarness:
             async def __aexit__(self, *args):
                 harness.closed += 1
 
-            async def get(self, url):
+            async def get(self, url, **_options):
                 harness.network_gets.append(url)
                 return httpx.Response(200, text="[]", request=httpx.Request("GET", url))
 

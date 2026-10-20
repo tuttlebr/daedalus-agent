@@ -1,0 +1,33 @@
+{{- if and .Values.redis.enabled .Values.backend.networkPolicy.enabled }}
+# Network Policy for Redis — only this release's workloads may connect. Redis
+# holds sessions, conversation history, job state and OAuth grants; without an
+# ingress rule any pod in the cluster could reach it and only the ACL passwords
+# would stand in the way.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "daedalus.fullname" . }}-redis
+  labels:
+    {{- include "daedalus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "daedalus.name" . }}
+      app.kubernetes.io/component: redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range $component := list "frontend" "frontend-stream-worker" "backend-default" "autonomous-agent" }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "daedalus.name" $ }}
+              app.kubernetes.io/component: {{ $component }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.redis.service.port }}
+{{- end }}

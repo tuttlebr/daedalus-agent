@@ -166,3 +166,5 @@ yarn-debug.log*
 yarn-error.log*
 .yarn-integrity
 *.zip
+# Written by frontend/scripts/inject-precache.js during `npm run build`.
+frontend/public/precache-manifest.json

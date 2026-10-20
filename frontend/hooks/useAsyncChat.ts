@@ -294,6 +294,11 @@ export const useAsyncChat = (
     userId = 'anon',
   } = options;
 
+  // Tokens update the live status ref only; React state follows at most this
+  // often so the activity heartbeat sees `streaming` and a fresh `updatedAt`
+  // without a render per token.
+  const TOKEN_STATE_PUBLISH_INTERVAL_MS = 1000;
+  const tokenStatePublishedAtRef = useRef<Record<string, number>>({});
   const [jobStatusByConversationId, setJobStatusByConversationId] = useState<
     Record<string, AsyncJobStatus>
   >({});
@@ -402,6 +407,7 @@ export const useAsyncChat = (
       delete activeJobsRef.current[jobId];
       delete jobStatusByJobIdRef.current[jobId];
       delete lastWsEventByJobRef.current[jobId];
+      delete tokenStatePublishedAtRef.current[jobId];
       completedJobsRef.current.delete(jobId);
 
       if (clearStatus && trackedConversationId) {
@@ -522,6 +528,15 @@ export const useAsyncChat = (
           responseStart,
         );
       }
+      // The first token moves the published status from `pending` to
+      // `streaming` (the worker records that transition without publishing
+      // it); later tokens refresh it at a bounded rate.
+      const now = Date.now();
+      const publishedAt = tokenStatePublishedAtRef.current[event.jobId];
+      const publishState =
+        publishedAt === undefined ||
+        now - publishedAt >= TOKEN_STATE_PUBLISH_INTERVAL_MS;
+      if (publishState) tokenStatePublishedAtRef.current[event.jobId] = now;
       updateLiveStatus(
         event.jobId,
         conversationId,
@@ -540,7 +555,7 @@ export const useAsyncChat = (
           assistantMessageId:
             event.assistantMessageId || current?.assistantMessageId,
         },
-        false,
+        publishState,
       );
 
       onToken?.({ ...event, partialResponse });
