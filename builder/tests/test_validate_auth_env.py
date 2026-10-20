@@ -77,6 +77,9 @@ def test_load_env_reads_values_as_compose_does(tmp_path):
                 "SPACED=' spaced '",
                 "export EXP=1",
                 "HASH=value#not-a-comment",
+                "EMPTY=",
+                "EMPTY_SQ=''",
+                'EMPTY_DQ=""',
             ]
         )
         + "\n",
@@ -91,7 +94,21 @@ def test_load_env_reads_values_as_compose_does(tmp_path):
         "SPACED": " spaced ",
         "EXP": "1",
         "HASH": "value#not-a-comment",
+        "EMPTY": "",
+        "EMPTY_SQ": "",
+        "EMPTY_DQ": "",
     }
+
+
+def test_load_env_accepts_the_shipped_template():
+    # Optional settings ship as bare `KEY=` lines; a deployment starts from
+    # this file, so the parser must read them as empty values.
+    template = Path(__file__).resolve().parents[2] / ".env.template"
+
+    entries = validate_auth_env.load_env(template)
+
+    assert entries
+    assert "" in entries.values()
 
 
 @pytest.mark.parametrize(

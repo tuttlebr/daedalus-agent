@@ -47,7 +47,7 @@ def _env_value(key: str, value: str) -> str:
     unquoted and double-quoted values, which the Secret writer does not do, so
     such a value is rejected instead of silently differing between the two.
     """
-    if value[:1] in "\"'":
+    if value and value[0] in "\"'":
         quote = value[0]
         closing = value.find(quote, 1)
         if closing == -1:
