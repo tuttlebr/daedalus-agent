@@ -212,7 +212,7 @@ describe('AutonomyDashboard refresh strategy', () => {
         });
         await flushRequests();
         expect(container.textContent).toContain(
-          resource === 'config' ? 'paused' : 'idle',
+          resource === 'config' ? 'Paused' : 'Idle',
         );
         expect(container.textContent).toContain(
           resource === 'feed' ? 'New feed item' : 'Initial feed item',

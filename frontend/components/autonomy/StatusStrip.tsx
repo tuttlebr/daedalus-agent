@@ -41,24 +41,24 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
     const last = relativeTime(lastRunAt);
 
     return (
-      <div className="sticky top-0 z-30 -mx-4 mb-4 border-b border-separator/70 app-chrome px-4 py-3 backdrop-blur-xl md:-mx-6 md:px-6">
-        <div className="mx-auto flex max-w-[720px] items-center gap-3">
+      <div className="app-pane-inset sticky top-0 z-30 mb-4 border-b border-separator/70 app-chrome">
+        <div className="mx-auto flex max-w-[760px] items-center gap-3 px-4 py-3 md:px-6">
           <PulseDot live={live} enabled={enabled} />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
               <h1 className="font-display text-base font-semibold tracking-tight text-dark-text-primary">
                 Autonomy
               </h1>
-              <span className="font-mono text-[0.75rem] uppercase tracking-[0.18em] text-dark-text-subtle">
-                {enabled ? (live ? 'thinking' : 'idle') : 'paused'}
+              <span className="text-xs font-medium text-dark-text-muted">
+                {enabled ? (live ? 'Thinking' : 'Idle') : 'Paused'}
               </span>
             </div>
-            <div className="mt-0.5 truncate font-mono text-[0.75rem] text-dark-text-muted">
-              <Meta>last {last}</Meta>
+            <div className="mt-0.5 truncate text-xs tabular-nums text-dark-text-muted">
+              <Meta>{lastRunAt ? `Last run ${last}` : 'No runs yet'}</Meta>
               {enabled && next && (
                 <>
                   <Sep />
-                  <Meta>next {next}</Meta>
+                  <Meta>Next {next}</Meta>
                 </>
               )}
               {queuedRequests > 0 && (
@@ -70,7 +70,7 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
               {!wsConnected && (
                 <>
                   <Sep />
-                  <Meta className="text-nvidia-orange">reconnecting…</Meta>
+                  <Meta className="text-nvidia-orange">Reconnecting…</Meta>
                 </>
               )}
             </div>
@@ -116,9 +116,10 @@ function PulseDot({ live, enabled }: { live: boolean; enabled: boolean }) {
       <span
         className={classNames(
           'relative h-2 w-2 rounded-full',
+          // Paused reads as an empty ring rather than a fill matching the bar.
           enabled
             ? 'bg-nvidia-green shadow-[0_0_10px_rgb(var(--accent)/0.6)]'
-            : 'bg-control',
+            : 'border border-separator',
         )}
       />
     </span>

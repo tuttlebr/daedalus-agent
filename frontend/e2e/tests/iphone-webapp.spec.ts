@@ -280,7 +280,9 @@ test('landscape touch controls stay visible and Chat images save their original 
     bytes: Array.from(original),
   });
   await page.getByRole('button', { name: 'Toggle sidebar' }).click();
-  const rename = page.getByRole('button', { name: 'Rename conversation' });
-  await expect(rename).toBeVisible();
-  await expect(rename.locator('..')).toHaveCSS('opacity', '1');
+  // Touch has no hover: every row's More button stays visible.
+  const more = page.getByRole('button', { name: /^Actions for / });
+  await expect(more.first()).toBeVisible();
+  for (const button of await more.all())
+    await expect(button).toHaveCSS('opacity', '1');
 });

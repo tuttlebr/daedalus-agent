@@ -171,7 +171,12 @@ export const UserMessage = memo(
           )}
         </div>
 
-        <Avatar role="user" size="sm" className="flex-shrink-0 mt-1" />
+        {/* Compact widths give the message the space, as in a 1:1 thread. */}
+        <Avatar
+          role="user"
+          size="sm"
+          className="mt-1 hidden flex-shrink-0 md:flex"
+        />
       </div>
     );
   },

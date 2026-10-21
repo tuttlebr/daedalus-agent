@@ -51,7 +51,7 @@ export function HistoryToggleButton() {
       <IconHistory size={16} />
       <span className="image-history-label">History</span>
       {historyCount > 0 && (
-        <span className="text-xs text-muted tabular-nums md:text-[0.75rem]">
+        <span className="min-w-5 rounded-full bg-fill/[0.08] px-1.5 text-center text-xs font-medium tabular-nums text-primary">
           {historyCount}
         </span>
       )}

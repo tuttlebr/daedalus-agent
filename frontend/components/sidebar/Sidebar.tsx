@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  IconBrain,
   IconPlus,
   IconSearch,
   IconLogout,
@@ -9,9 +8,6 @@ import {
   IconX,
   IconCheck,
   IconRobot,
-  IconDownload,
-  IconPencil,
-  IconPlugConnected,
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -19,24 +15,35 @@ import { useFileSave } from '@/hooks/useFileSave';
 
 import { apiDelete } from '@/utils/app/api';
 import {
+  createConversation,
   persistSelectedConversation,
   saveConversation,
 } from '@/utils/app/conversation';
 import { downloadFilename } from '@/utils/app/sandboxArtifactDownload';
 
-import { Conversation, DEFAULT_CONVERSATION_TITLE } from '@/types/chat';
+import { Conversation } from '@/types/chat';
 
 import { useAuth } from '@/components/auth';
 import { AppearanceSettings } from '@/components/layout/AppearanceSettings';
 import { Button, IconButton, Input } from '@/components/primitives';
 import { GlassPanel } from '@/components/surfaces';
 
+import { ConversationActions } from './ConversationActions';
+
 import { useConversationStore, useUISettingsStore } from '@/state';
 import classNames from 'classnames';
-import { v4 as uuidv4 } from 'uuid';
 
 const rowActionClasses =
   'flex h-[44px] w-[44px] items-center justify-center rounded-md text-dark-text-muted transition-all md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
+const confirmActionClasses =
+  'min-h-touch-min rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-50 md:min-h-8';
+
+/** Return focus to a conversation's More button after its menu action ends. */
+function focusConversationActions(id: string) {
+  requestAnimationFrame(() =>
+    document.getElementById(`conversation-actions-${id}`)?.focus(),
+  );
+}
 
 export const Sidebar = memo(() => {
   const { logout } = useAuth();
@@ -86,13 +93,7 @@ export const Sidebar = memo(() => {
   }, [setShowChatbar]);
 
   const handleNewConversation = useCallback(() => {
-    const newConv: Conversation = {
-      id: uuidv4(),
-      name: DEFAULT_CONVERSATION_TITLE,
-      messages: [],
-      folderId: null,
-      updatedAt: Date.now(),
-    };
+    const newConv = createConversation();
     addConversation(newConv);
     selectConversation(newConv.id);
     void persistSelectedConversation(newConv.id);
@@ -166,9 +167,7 @@ export const Sidebar = memo(() => {
   const cancelRename = useCallback((id: string) => {
     setRenamingId(null);
     setError(null);
-    requestAnimationFrame(() =>
-      document.getElementById(`rename-conversation-${id}`)?.focus(),
-    );
+    focusConversationActions(id);
   }, []);
 
   const commitRename = useCallback(async () => {
@@ -381,42 +380,44 @@ export const Sidebar = memo(() => {
             if (isConfirmingDelete) {
               return (
                 <li key={conv.id}>
-                  <div className="flex min-h-touch-min items-center gap-1 rounded-lg bg-error/10 px-3 py-1.5 text-sm text-primary">
-                    <span className="min-w-0 flex-1 truncate">
+                  <div
+                    role="group"
+                    aria-label={`Delete ${conv.name}`}
+                    className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-error bg-error/10 px-3 py-2 text-sm text-primary"
+                  >
+                    <span className="min-w-0 flex-[1_1_8rem] truncate">
                       Delete &ldquo;{conv.name}&rdquo;?
                     </span>
-                    <button
-                      type="button"
-                      ref={confirmDeleteRef}
-                      aria-label="Confirm delete"
-                      disabled={pending !== null}
-                      className={classNames(
-                        rowActionClasses,
-                        'text-primary hover:bg-error/15',
-                      )}
-                      onClick={() => handleDelete(conv.id)}
-                    >
-                      <IconCheck size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Cancel delete"
-                      disabled={pending !== null}
-                      className={classNames(
-                        rowActionClasses,
-                        'hover:bg-fill/[0.06] hover:text-dark-text-primary',
-                      )}
-                      onClick={() => {
-                        setConfirmingDeleteId(null);
-                        requestAnimationFrame(() =>
-                          document
-                            .getElementById(`delete-conversation-${conv.id}`)
-                            ?.focus(),
-                        );
-                      }}
-                    >
-                      <IconX size={16} />
-                    </button>
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label="Cancel delete"
+                        disabled={pending !== null}
+                        className={classNames(
+                          confirmActionClasses,
+                          'text-dark-text-primary hover:bg-fill/[0.06]',
+                        )}
+                        onClick={() => {
+                          setConfirmingDeleteId(null);
+                          focusConversationActions(conv.id);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        ref={confirmDeleteRef}
+                        aria-label="Confirm delete"
+                        disabled={pending !== null}
+                        className={classNames(
+                          confirmActionClasses,
+                          'bg-error text-on-action hover:bg-error/85',
+                        )}
+                        onClick={() => handleDelete(conv.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </li>
               );
@@ -426,86 +427,42 @@ export const Sidebar = memo(() => {
               <li key={conv.id}>
                 <div
                   className={classNames(
-                    'group w-full rounded-lg px-2 py-1 text-left transition-colors duration-150',
+                    'group flex w-full items-center gap-1 rounded-lg pl-2 pr-1 text-left transition-colors duration-150',
+                    // A neutral fill, like platform list selection, in both
+                    // appearances.
                     isActive
-                      ? isAutonomous
-                        ? 'bg-nvidia-purple/10 border-l-2 border-nvidia-purple text-dark-text-primary'
-                        : 'bg-nvidia-green/10 border-l-2 border-nvidia-green text-dark-text-primary'
-                      : 'text-dark-text-secondary hover:bg-fill/[0.04] border-l-2 border-transparent',
+                      ? 'bg-fill/[0.10] text-dark-text-primary'
+                      : 'text-dark-text-secondary hover:bg-fill/[0.04]',
                   )}
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-1">
-                    <button
-                      type="button"
-                      aria-current={isActive ? 'true' : undefined}
-                      onClick={() => handleSelect(conv.id)}
-                      className="flex min-h-11 min-w-0 flex-[1_1_7rem] items-center gap-2 rounded-lg px-1 text-left"
-                    >
-                      {isAutonomous && (
-                        <IconRobot
-                          size={14}
-                          className="text-nvidia-purple flex-shrink-0"
-                        />
-                      )}
-                      <span className="truncate text-sm">{conv.name}</span>
-                    </button>
-                    {!isAutonomous && (
-                      <div className="flex flex-shrink-0 items-center opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
-                        <button
-                          type="button"
-                          id={`rename-conversation-${conv.id}`}
-                          aria-label="Rename conversation"
-                          disabled={pending !== null}
-                          title="Rename"
-                          className={classNames(
-                            rowActionClasses,
-                            'hover:bg-fill/[0.06] hover:text-dark-text-primary',
-                          )}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            startRename(conv);
-                          }}
-                        >
-                          <IconPencil size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="Download conversation traces"
-                          title="Download traces"
-                          className={classNames(
-                            rowActionClasses,
-                            'hover:bg-fill/[0.06] hover:text-dark-text-primary',
-                          )}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDownloadTraces(conv.id);
-                          }}
-                        >
-                          <IconDownload size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          id={`delete-conversation-${conv.id}`}
-                          aria-label="Delete conversation"
-                          disabled={pending !== null}
-                          title="Delete conversation"
-                          className={classNames(
-                            rowActionClasses,
-                            'hover:bg-error/10 hover:text-primary',
-                          )}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setConfirmingDeleteId(conv.id);
-                          }}
-                        >
-                          <IconX size={16} />
-                        </button>
-                      </div>
+                  <button
+                    type="button"
+                    aria-current={isActive ? 'true' : undefined}
+                    onClick={() => handleSelect(conv.id)}
+                    className={classNames(
+                      'flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-1 text-left md:min-h-9',
+                      isActive && 'font-medium',
                     )}
-                  </div>
+                  >
+                    {isAutonomous && (
+                      <IconRobot
+                        size={14}
+                        className="text-nvidia-purple flex-shrink-0"
+                      />
+                    )}
+                    <span className="truncate text-sm">{conv.name}</span>
+                  </button>
+                  {!isAutonomous && (
+                    <ConversationActions
+                      conversationId={conv.id}
+                      conversationName={conv.name}
+                      disabled={pending !== null}
+                      emphasized={isActive}
+                      onRename={() => startRename(conv)}
+                      onDownload={() => void handleDownloadTraces(conv.id)}
+                      onDelete={() => setConfirmingDeleteId(conv.id)}
+                    />
+                  )}
                 </div>
               </li>
             );
@@ -517,50 +474,45 @@ export const Sidebar = memo(() => {
       <div className="app-sidebar-footer flex min-h-0 flex-shrink flex-col max-h-[45%] border-t border-separator">
         <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pt-3 space-y-1">
           <AppearanceSettings />
-          <button
-            onClick={() => {
-              setActiveView('memory');
-              closeSidebarOnMobile();
-            }}
-            className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-          >
-            <IconBrain size={16} />
-            <span>Memory Center</span>
-          </button>
-          <button
-            onClick={() => {
-              setActiveView('connections');
-              closeSidebarOnMobile();
-            }}
-            className="flex min-h-touch-min w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-          >
-            <IconPlugConnected size={16} />
-            <span>Connections</span>
-          </button>
-
           {/* Clear all conversations */}
           {conversations.length > 0 && (
             <div>
               {isConfirmingClear ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-sm text-primary">
-                  <span className="flex-1">Clear all conversations?</span>
-                  <IconButton
-                    icon={<IconCheck size={16} />}
-                    aria-label="Confirm clear"
-                    isLoading={pending === 'clear-all'}
-                    disabled={pending !== null}
-                    variant="danger"
-                    size="sm"
-                    onClick={handleClearAll}
-                  />
-                  <IconButton
-                    icon={<IconX size={16} />}
-                    aria-label="Cancel"
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending !== null}
-                    onClick={() => setIsConfirmingClear(false)}
-                  />
+                <div
+                  role="group"
+                  aria-label="Clear all conversations"
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-error bg-error/10 px-3 py-2 text-sm text-primary"
+                >
+                  <span className="flex-[1_1_8rem]">
+                    Clear all conversations?
+                  </span>
+                  <div className="flex flex-shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label="Cancel"
+                      disabled={pending !== null}
+                      className={classNames(
+                        confirmActionClasses,
+                        'text-dark-text-primary hover:bg-fill/[0.06]',
+                      )}
+                      onClick={() => setIsConfirmingClear(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Confirm clear"
+                      aria-busy={pending === 'clear-all'}
+                      disabled={pending !== null}
+                      className={classNames(
+                        confirmActionClasses,
+                        'bg-error text-on-action hover:bg-error/85',
+                      )}
+                      onClick={handleClearAll}
+                    >
+                      {pending === 'clear-all' ? 'Clearing…' : 'Clear'}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <button

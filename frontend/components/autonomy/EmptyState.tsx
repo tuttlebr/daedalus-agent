@@ -29,9 +29,7 @@ export function EmptyState({
         <p className="font-sans text-[17px] italic leading-relaxed text-dark-text-muted">
           Nothing in this lane yet.
         </p>
-        <p className="mt-2 font-mono text-[0.75rem] uppercase tracking-[0.18em] text-dark-text-subtle">
-          try another filter
-        </p>
+        <p className="mt-2 text-sm text-dark-text-muted">Try another filter.</p>
       </div>
     );
   }
@@ -46,10 +44,10 @@ export function EmptyState({
           ? 'Daedalus hasn’t surfaced anything yet.'
           : 'Daedalus is paused.'}
       </p>
-      <p className="mt-2 font-mono text-[0.75rem] uppercase tracking-[0.18em] text-dark-text-subtle">
+      <p className="mt-2 text-sm text-dark-text-muted">
         {enabled
-          ? `next sweep in about ${formatInterval(intervalSeconds)}`
-          : 'open the workspace to wake her up'}
+          ? `The next sweep starts in about ${formatInterval(intervalSeconds)}.`
+          : 'Open the workspace to wake her up.'}
       </p>
     </div>
   );

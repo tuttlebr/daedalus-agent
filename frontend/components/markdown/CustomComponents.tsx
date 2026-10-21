@@ -122,6 +122,22 @@ export const getReactMarkDownCustomComponents = (
         },
       ),
 
+      // A fenced block's <code> renders a complete code block or diagram with
+      // its own frame and scroller; a surrounding <pre> would add another.
+      pre: ({ node, children, ...props }: MarkdownComponentProps) => {
+        const content = (node?.children || []).filter(
+          (child: any) => child.type !== 'text' || child.value.trim(),
+        );
+        if (
+          content.length === 1 &&
+          content[0].type === 'element' &&
+          content[0].tagName === 'code'
+        ) {
+          return <>{children}</>;
+        }
+        return <pre {...props}>{children}</pre>;
+      },
+
       chart: memo(
         ({ children }: MarkdownComponentProps) => {
           try {
@@ -198,7 +214,7 @@ export const getReactMarkDownCustomComponents = (
           // Wide tables scroll horizontally instead of crushing columns
           // into unreadable slivers on narrow screens.
           <div className="my-3 max-w-full overflow-x-auto overscroll-x-contain">
-            <table className="border-collapse border border-separator min-w-full table-auto">
+            <table className="min-w-full table-auto border-collapse">
               {children}
             </table>
           </div>
@@ -212,12 +228,9 @@ export const getReactMarkDownCustomComponents = (
       th: memo(
         ({ children }: MarkdownComponentProps) => (
           <th
-            className="border border-separator bg-panel px-3 py-1 text-primary align-top"
-            style={{
-              wordBreak: 'break-word',
-              overflowWrap: 'anywhere',
-              whiteSpace: 'normal',
-            }}
+            className="border bg-panel px-3 py-2 text-left font-semibold text-primary align-top"
+            // Whole words set the column width; the wrapper scrolls instead.
+            style={{ overflowWrap: 'break-word', whiteSpace: 'normal' }}
           >
             {children}
           </th>
@@ -231,12 +244,9 @@ export const getReactMarkDownCustomComponents = (
       td: memo(
         ({ children }: MarkdownComponentProps) => (
           <td
-            className="border border-separator px-3 py-1 align-top"
-            style={{
-              wordBreak: 'break-word',
-              overflowWrap: 'anywhere',
-              whiteSpace: 'normal',
-            }}
+            className="border px-3 py-2 align-top"
+            // Whole words set the column width; the wrapper scrolls instead.
+            style={{ overflowWrap: 'break-word', whiteSpace: 'normal' }}
           >
             {children}
           </td>

@@ -82,7 +82,7 @@ export function LaneFilterChips({
             <span>{label}</span>
             <span
               className={classNames(
-                'font-mono text-[0.75rem] tabular-nums',
+                'text-[0.75rem] tabular-nums',
                 active ? 'text-dark-text-secondary' : 'text-dark-text-subtle',
               )}
             >

@@ -5,7 +5,6 @@ import {
   IconCheck,
   IconExternalLink,
   IconMenu2,
-  IconPlus,
   IconRobot,
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
@@ -18,6 +17,7 @@ import { getWebSocketManager } from '@/services/websocket';
 import { apiGet } from '@/utils/app/api';
 import { cleanConversationHistory } from '@/utils/app/clean';
 import {
+  createConversation,
   persistSelectedConversation,
   saveConversation,
   type ConversationChange,
@@ -41,17 +41,14 @@ import {
   type BufferedStreamingUpdate,
 } from '@/utils/app/streamingBuffer';
 
-import {
-  Conversation,
-  DEFAULT_CONVERSATION_TITLE,
-  Message,
-} from '@/types/chat';
+import { Conversation, Message } from '@/types/chat';
 import { IntermediateStep } from '@/types/intermediateSteps';
 
 import { useAuth } from '@/components/auth';
 import { IconButton } from '@/components/primitives';
 
 import { ChatInput } from './ChatInput';
+import { ChatTitle, NewChatButton } from './ChatTitle';
 import { DocumentIngestProgress } from './DocumentIngestProgress';
 import { MessageBubble } from './MessageBubble';
 
@@ -109,16 +106,6 @@ function findAssistantMessage(
   }
 
   return null;
-}
-
-function newConversation(): Conversation {
-  return {
-    id: uuidv4(),
-    name: DEFAULT_CONVERSATION_TITLE,
-    messages: [],
-    folderId: null,
-    updatedAt: Date.now(),
-  };
 }
 
 function getCompactActivityText(step: IntermediateStep): string {
@@ -202,7 +189,6 @@ export const ChatView = memo(() => {
   );
 
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
-  const setShowChatbar = useUISettingsStore((s) => s.setShowChatbar);
   const enableIntermediateSteps = useUISettingsStore(
     (s) => s.enableIntermediateSteps,
   );
@@ -1118,7 +1104,7 @@ export const ChatView = memo(() => {
         // example one deleted on another device). The composer has already
         // cleared its input, so send to a new conversation instead of
         // discarding the message.
-        selectedConversation = newConversation();
+        selectedConversation = createConversation();
         store.addConversation(selectedConversation);
         store.selectConversation(selectedConversation.id);
         void persistSelectedConversation(selectedConversation.id);
@@ -1272,16 +1258,6 @@ export const ChatView = memo(() => {
     handleSend(messageToResend as Message);
   }, [selectedConversation, handleSend]);
 
-  const handleNewConversation = useCallback(() => {
-    const conversation = newConversation();
-    const store = useConversationStore.getState();
-    store.addConversation(conversation);
-    store.selectConversation(conversation.id);
-    void persistSelectedConversation(conversation.id);
-    setShowChatbar(false);
-    void saveConversation(conversation).catch(() => undefined);
-  }, [setShowChatbar]);
-
   const handleStop = useCallback(async () => {
     if (selectedConversationId) {
       flushPendingStreamingUpdates(selectedConversationId);
@@ -1360,41 +1336,24 @@ export const ChatView = memo(() => {
 
   return (
     <div className="flex flex-col h-full w-full bg-dark-bg-primary">
-      <header className="chat-header app-chrome safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-separator/70 px-3 md:px-4">
+      {/* Wider windows show the title and New chat in the shared toolbar. */}
+      <header className="chat-header app-chrome safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-separator/70 px-3 md:hidden">
         <div className="flex items-center gap-3 min-w-0">
           <IconButton
             icon={<IconMenu2 />}
             aria-label="Open conversation history"
-            className="chat-header-action md:hidden"
+            className="chat-header-action"
             variant="ghost"
             size="md"
             onClick={toggleChatbar}
           />
-          {isAutonomousConversation && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-nvidia-purple/15 border border-nvidia-purple/30 text-nvidia-purple text-[0.75rem] font-medium">
-              <IconRobot size={12} />
-              Autonomous
-            </span>
-          )}
-          <h1 className="text-sm font-medium text-dark-text-primary truncate">
-            {selectedConversation?.name || 'New Chat'}
-          </h1>
-          {isStreaming && (
-            <span className="flex items-center gap-1.5 text-xs text-nvidia-green">
-              <span className="w-1.5 h-1.5 rounded-full bg-nvidia-green animate-heartbeat-breathe" />
-              Streaming
-            </span>
-          )}
+          <ChatTitle as="h1" />
         </div>
-        <IconButton
-          icon={<IconPlus />}
-          aria-label="New chat"
-          variant="ghost"
-          size="md"
-          onClick={handleNewConversation}
-          className="chat-header-action flex-shrink-0"
-        />
+        <NewChatButton className="chat-header-action" />
       </header>
+      <h1 className="sr-only hidden md:block">
+        {selectedConversation?.name || 'New Chat'}
+      </h1>
       <div className="sr-only" role="status" aria-live="polite">
         {streamAnnouncement}
       </div>

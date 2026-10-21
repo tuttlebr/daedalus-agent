@@ -70,7 +70,7 @@ function FeedItemImpl({
         )}
       />
 
-      <header className="flex flex-wrap items-baseline gap-2 font-mono text-[0.75rem] uppercase tracking-[0.16em] text-dark-text-muted">
+      <header className="flex flex-wrap items-baseline gap-2 text-xs font-medium tabular-nums text-dark-text-muted">
         <span>{LANE_LABELS[lane]}</span>
         <span aria-hidden>·</span>
         <time dateTime={new Date(item.createdAt).toISOString()}>
@@ -80,7 +80,8 @@ function FeedItemImpl({
           <>
             <span>·</span>
             <span title={item.confidenceReason || undefined}>
-              {item.confidence}
+              {item.confidence.charAt(0).toUpperCase()}
+              {item.confidence.slice(1)} confidence
             </span>
           </>
         )}
@@ -125,7 +126,7 @@ function FeedItemImpl({
         </div>
       )}
 
-      <footer className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-dark-text-muted">
+      <footer className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-dark-text-muted">
         {hasBody && (
           <button
             type="button"
@@ -142,7 +143,7 @@ function FeedItemImpl({
                 expanded && 'rotate-90',
               )}
             />
-            <span>{expanded ? 'collapse' : 'read more'}</span>
+            <span>{expanded ? 'Show Less' : 'Show More'}</span>
           </button>
         )}
         {sourceUrl && (
@@ -152,7 +153,7 @@ function FeedItemImpl({
             rel="noreferrer noopener"
             className="inline-flex min-h-11 items-center gap-0.5 text-nvidia-green transition hover:underline focus-visible:outline-none focus-visible:text-nvidia-green"
           >
-            <span>source</span>
+            <span>Source</span>
             <IconArrowUpRight size={11} />
           </a>
         )}

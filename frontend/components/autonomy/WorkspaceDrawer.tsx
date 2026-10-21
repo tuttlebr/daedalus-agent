@@ -220,7 +220,7 @@ export function WorkspaceDrawer({
                   .
                 </p>
                 {hasActiveRun && (
-                  <p className="mt-1 font-mono text-[0.75rem] text-dark-text-muted">
+                  <p className="mt-1 text-xs capitalize text-dark-text-muted">
                     {activeRun?.status} · started{' '}
                     {relativeTime(activeRun?.startedAt || activeRun?.createdAt)}
                   </p>
@@ -452,7 +452,7 @@ export function WorkspaceDrawer({
                           <p className="break-words font-display text-[0.875rem] font-semibold text-dark-text-primary">
                             {goal.title}
                           </p>
-                          <span className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle">
+                          <span className="shrink-0 text-xs font-medium capitalize text-dark-text-muted">
                             {goal.status}
                           </span>
                         </div>
@@ -503,16 +503,16 @@ export function WorkspaceDrawer({
                   >
                     <div className="flex flex-wrap items-baseline justify-between gap-3">
                       <div className="flex min-w-0 items-baseline gap-2">
-                        <span className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-nvidia-green">
+                        <span className="shrink-0 text-xs font-medium tabular-nums text-nvidia-green">
                           {request.position === 1
-                            ? 'next'
+                            ? 'Next'
                             : `#${request.position}`}
                         </span>
-                        <span className="truncate font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle">
+                        <span className="truncate text-xs capitalize text-dark-text-muted">
                           {request.trigger}
                         </span>
                       </div>
-                      <span className="shrink-0 font-mono text-[0.75rem] text-dark-text-subtle">
+                      <span className="shrink-0 text-xs tabular-nums text-dark-text-muted">
                         {relativeTime(request.createdAt)}
                       </span>
                     </div>
@@ -532,9 +532,9 @@ export function WorkspaceDrawer({
                         type="button"
                         onClick={() => onCancelQueuedRequest(request.id)}
                         disabled={busy === request.id}
-                        className="shrink-0 font-mono text-[0.75rem] uppercase tracking-wider text-dark-text-subtle transition-colors hover:text-primary disabled:opacity-40"
+                        className="shrink-0 text-xs font-medium text-dark-text-muted transition-colors hover:text-primary disabled:opacity-40"
                       >
-                        {busy === request.id ? 'cancelling' : 'cancel'}
+                        {busy === request.id ? 'Canceling…' : 'Cancel'}
                       </button>
                     </div>
                   </article>
@@ -558,13 +558,13 @@ export function WorkspaceDrawer({
                     <div className="flex flex-wrap items-baseline justify-between gap-3">
                       <span
                         className={classNames(
-                          'font-mono text-[0.75rem] uppercase tracking-wider',
+                          'text-xs font-medium capitalize',
                           runStatusTone(run.status),
                         )}
                       >
                         {run.status}
                       </span>
-                      <span className="font-mono text-[0.75rem] text-dark-text-subtle">
+                      <span className="text-xs tabular-nums text-dark-text-muted">
                         {relativeTime(run.startedAt || run.createdAt)}
                       </span>
                     </div>
@@ -632,7 +632,7 @@ function Section({
 }) {
   return (
     <section className="mb-6">
-      <h3 className="mb-2 font-mono text-[0.75rem] uppercase tracking-[0.22em] text-dark-text-subtle">
+      <h3 className="mb-2 text-sm font-semibold text-dark-text-primary">
         {title}
       </h3>
       {children}

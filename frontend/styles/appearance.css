@@ -271,6 +271,11 @@ svg.tabler-icon {
 .app-dialog-panel:focus-visible {
   outline: none !important;
 }
+/* Row menus are top-layer popovers that script places beside their button. */
+.app-menu {
+  inset: auto;
+  margin: 0;
+}
 .app-sidebar {
   /* History is text-heavy: a solid surface keeps the page behind the drawer
      from competing with its labels, including in WebKit's modal top layer. */
@@ -327,14 +332,38 @@ body:has(dialog[open]) .app-install-prompt {
 .app-page {
   padding-top: max(1.5rem, var(--safe-area-inset-top));
 }
+/* A destination's own top bar clears the status bar on phones. Wider windows
+   place the shared toolbar above it, which already does. */
+.app-pane-inset {
+  padding-top: var(--safe-area-inset-top);
+}
+@media (min-width: 768px) {
+  .app-pane-inset {
+    padding-top: 0;
+  }
+}
 .app-nav-item {
   min-height: 3rem;
+}
+/* The toolbar clears the status bar in phone landscape and otherwise keeps an
+   even margin around its controls. */
+.app-view-tabs {
+  padding-top: max(0.375rem, var(--safe-area-inset-top));
+  padding-bottom: 0.375rem;
+}
+@media (pointer: fine) {
+  .app-view-tabs .app-nav-item {
+    min-height: 2.25rem;
+  }
 }
 .app-nav-item[aria-current='page'],
 .app-nav-item[aria-selected='true'] {
   color: var(--text-on-accent);
   background: var(--accent-primary);
   font-weight: 600;
+}
+.app-tab-bar {
+  container-type: inline-size;
 }
 .app-bottom-nav {
   display: grid;
@@ -355,6 +384,13 @@ body:has(dialog[open]) .app-install-prompt {
   line-height: 1.35;
   overflow-wrap: anywhere;
   max-width: 100%;
+}
+/* Tab bar items share the width equally once every label fits on one line.
+   The em threshold follows text size, so enlarged text keeps the fallback. */
+@container (min-width: 25em) {
+  .app-bottom-nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
 }
 
 /* Text size follows browser preferences and zoom. Coarse pointers include
@@ -501,8 +537,14 @@ body:has(dialog[open]) .app-install-prompt {
   background: var(--accent-secondary);
   color: var(--text-on-accent);
 }
-.prose :where(kbd, details, aside, th, td, blockquote) {
+.prose :where(kbd, details, aside) {
   border-color: currentColor;
+}
+.prose :where(blockquote) {
+  border-inline-start-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.prose .codeblock {
+  margin-block: 0.75rem;
 }
 .codeblock {
   --message-text: var(--text-primary);
@@ -532,19 +574,14 @@ body:has(dialog[open]) .app-install-prompt {
   color: rgb(var(--raised-secondary));
   font-weight: 600;
 }
-.typing-indicator {
-  display: inline-flex;
-  gap: 0.25rem;
-  flex-shrink: 0;
-  padding: 0.5rem;
-  border-radius: 1rem;
-  background: rgb(var(--palette-slate));
+/* Inline code is set in the mono face; Markdown backticks are not content. */
+.prose :where(code):not(:where(pre *))::before,
+.prose :where(code):not(:where(pre *))::after {
+  content: none;
 }
-.typing-indicator .typing-dot {
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 50%;
-  background: var(--accent-secondary);
+/* Table rules separate cells without competing with the text they frame. */
+.prose :where(th, td) {
+  border-color: color-mix(in srgb, currentColor 28%, transparent);
 }
 /* Keep the requested apricot ring; the inner contrasting edge also remains
    visible on white, where apricot alone is below 3:1. */
@@ -553,27 +590,9 @@ input:disabled,
 textarea:disabled {
   border-color: var(--accent-neutral);
 }
-* {
-  scrollbar-color: var(--text-secondary) var(--accent-neutral);
-}
-::-webkit-scrollbar-track,
-.dark ::-webkit-scrollbar-track,
-::-webkit-scrollbar-track:hover,
-.dark ::-webkit-scrollbar-track:hover {
-  background: var(--accent-neutral);
-}
-::-webkit-scrollbar-thumb,
-.dark ::-webkit-scrollbar-thumb {
-  background: var(--text-secondary);
-}
-::-webkit-scrollbar-thumb:hover,
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-primary);
-}
+/* Scroll indicators stay native: overlay scrollers on macOS and iOS follow
+   the system "Show scroll bars" preference and the current appearance. */
 @media (forced-colors: active) {
-  * {
-    scrollbar-color: auto;
-  }
   :focus-visible {
     outline-color: Highlight !important;
   }

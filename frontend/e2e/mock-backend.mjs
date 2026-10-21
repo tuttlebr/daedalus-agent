@@ -194,7 +194,7 @@ async function streamChat(req, res) {
 
   if (prompt.includes('E2E_LONG_MARKDOWN')) {
     const paragraphs = Array.from(
-      { length: 24 },
+      { length: 40 },
       (_, index) =>
         `Paragraph ${index + 1} keeps the document tall and readable.`,
     ).join('\n\n');

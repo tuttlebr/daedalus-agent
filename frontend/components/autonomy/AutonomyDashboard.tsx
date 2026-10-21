@@ -567,19 +567,18 @@ export function AutonomyDashboard() {
 
   return (
     <div className="h-full overflow-y-auto bg-app text-dark-text-primary">
-      <BackgroundGrain />
-      <div className="relative mx-auto w-full max-w-[760px] px-4 pt-1 pb-8 md:px-6">
-        <StatusStrip
-          ref={workspaceButtonRef}
-          config={state.config}
-          activeRun={activeRun}
-          lastRunAt={lastRunAt}
-          queuedRequests={state.queue.length}
-          onOpenWorkspace={() => setDrawerOpen(true)}
-          onRefresh={() => refresh()}
-          refreshing={refreshing}
-          wsConnected={wsConnected}
-        />
+      <StatusStrip
+        ref={workspaceButtonRef}
+        config={state.config}
+        activeRun={activeRun}
+        lastRunAt={lastRunAt}
+        queuedRequests={state.queue.length}
+        onOpenWorkspace={() => setDrawerOpen(true)}
+        onRefresh={() => refresh()}
+        refreshing={refreshing}
+        wsConnected={wsConnected}
+      />
+      <div className="relative mx-auto w-full max-w-[760px] px-4 pb-8 md:px-6">
         {loadError && (
           <p
             role="status"
@@ -615,19 +614,6 @@ export function AutonomyDashboard() {
         onDeleteGoal={deleteGoal}
       />
     </div>
-  );
-}
-
-function BackgroundGrain() {
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none fixed inset-0 z-0 opacity-[0.025] mix-blend-overlay"
-      style={{
-        backgroundImage:
-          "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.7'/></svg>\")",
-      }}
-    />
   );
 }
 

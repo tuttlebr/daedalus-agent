@@ -12,7 +12,7 @@ export function DayGroup({ label, children }: DayGroupProps) {
     <section className="mb-10 last:mb-2">
       <header className="-mx-1 mb-4 bg-app px-1 py-2">
         <div className="flex items-baseline gap-3">
-          <h2 className="font-mono text-[0.75rem] uppercase tracking-[0.24em] text-dark-text-muted">
+          <h2 className="text-sm font-semibold text-dark-text-primary">
             {label}
           </h2>
           <span className="h-px flex-1 bg-separator" />

@@ -1,8 +1,4 @@
 /* ================================================================
-   DAEDALUS DESIGN SYSTEM - Mobile-First Foundation
-   ================================================================ */
-
-/* ================================================================
    1. FLUID TYPOGRAPHY SYSTEM
    ================================================================ */
 :root {
@@ -196,58 +192,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.btn-sm {
-  min-height: var(--button-height-sm);
-  padding-inline: var(--space-3);
-  font-size: var(--font-size-sm);
-}
-
-.btn-lg {
-  min-height: var(--button-height-lg);
-  padding-inline: var(--space-5);
-  font-size: var(--font-size-lg);
-}
-
 /* Touch-friendly inputs */
 .input {
   min-height: var(--input-height-md);
   padding-inline: var(--space-3);
   font-size: var(--font-size-base);
   touch-action: manipulation;
-}
-
-.input-sm {
-  min-height: var(--input-height-sm);
-  padding-inline: var(--space-2);
-  font-size: var(--font-size-sm);
-}
-
-.input-lg {
-  min-height: var(--input-height-lg);
-  padding-inline: var(--space-4);
-  font-size: var(--font-size-lg);
-}
-
-/* Icon buttons */
-.icon-btn {
-  width: var(--icon-button-md);
-  height: var(--icon-button-md);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.icon-btn-sm {
-  width: var(--icon-button-sm);
-  height: var(--icon-button-sm);
-}
-
-.icon-btn-lg {
-  width: var(--icon-button-lg);
-  height: var(--icon-button-lg);
 }
 
 /* ================================================================
@@ -262,29 +212,6 @@
 
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
-}
-
-/* Show scrollbar */
-.scrollbar-show {
-  -ms-overflow-style: auto;
-  scrollbar-width: auto;
-}
-
-.scrollbar-show::-webkit-scrollbar {
-  display: block;
-}
-
-/* Smooth momentum scrolling on iOS */
-.momentum-scroll {
-  -webkit-overflow-scrolling: touch;
-  overflow-y: auto;
-}
-
-/* Prevent text selection on interactive elements */
-.no-select {
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  user-select: none;
 }
 
 /* Safe area padding utilities */
@@ -315,43 +242,11 @@
 }
 
 /* ================================================================
-   8. CONTAINER QUERIES (Progressive Enhancement)
-   ================================================================ */
-@supports (container-type: inline-size) {
-  .container-query {
-    container-type: inline-size;
-  }
-
-  /* Component-level responsive styles */
-  @container (min-width: 320px) {
-    .cq\:text-base {
-      font-size: var(--font-size-base);
-    }
-  }
-
-  @container (min-width: 480px) {
-    .cq\:text-lg {
-      font-size: var(--font-size-lg);
-    }
-  }
-}
-
-/* ================================================================
    9. MOTION & ANIMATION PREFERENCES
    ================================================================ */
 @media (prefers-reduced-motion: no-preference) {
-  .transition-smooth {
-    transition-property: all;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 200ms;
-  }
-
   .animate-slide-up {
     animation: slideUp 0.3s ease-out;
-  }
-
-  .animate-slide-down {
-    animation: slideDown 0.3s ease-out;
   }
 
   .animate-fade-in {
@@ -381,17 +276,6 @@
   }
 }
 
-@keyframes slideDown {
-  from {
-    transform: translateY(-100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -408,22 +292,6 @@
 :focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
-}
-
-/* Skip to main content link */
-.skip-link {
-  position: absolute;
-  top: -40px;
-  left: 0;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  padding: var(--space-2) var(--space-4);
-  z-index: 100;
-  text-decoration: none;
-}
-
-.skip-link:focus {
-  top: 0;
 }
 
 /* Screen reader only content */

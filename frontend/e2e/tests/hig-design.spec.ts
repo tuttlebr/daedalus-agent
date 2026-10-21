@@ -41,10 +41,9 @@ test('Alaska diagrams and charts follow the selected appearance', async ({
   );
   await page.reload();
   await expect(page.locator('.codeblock svg .node').first()).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Show Full Response' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Show Full Response' }).click();
+  // Short answers are no longer collapsed; expand when this viewport does.
+  const expand = page.getByRole('button', { name: 'Show Full Response' });
+  if (await expand.isVisible()) await expand.click();
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     const color =
@@ -123,6 +122,21 @@ test('Alaska chat colors keep messages, actions, focus, and errors readable', as
     );
     await expect(send).toHaveCSS('background-color', 'rgb(245, 163, 95)');
     await expect(send).toHaveCSS('color', 'rgb(22, 29, 39)');
+    // Inline code is set in the mono face; Markdown backticks are not shown.
+    expect(
+      await assistant
+        .locator('code', { hasText: 'inline code' })
+        .evaluate((code) => [
+          getComputedStyle(code, '::before').content,
+          getComputedStyle(code, '::after').content,
+        ]),
+    ).toEqual(['none', 'none']);
+    // Scroll indicators follow the platform instead of custom colors.
+    expect(
+      await page
+        .getByLabel('Conversation messages')
+        .evaluate((pane) => getComputedStyle(pane).scrollbarColor),
+    ).toBe('auto');
     await expect(
       page
         .getByRole('alert')
@@ -302,6 +316,96 @@ test('destinations reflow in both appearances and at twice the text size', async
       path: testInfo.outputPath(`${view}-large-text.png`),
     });
   }
+});
+
+test('wide Markdown tables keep words whole and scroll inside the response', async ({
+  page,
+}) => {
+  const conversation = {
+    id: 'table-review',
+    name: 'Table review',
+    folderId: null,
+    messages: [
+      {
+        role: 'assistant' as const,
+        content: [
+          '| Configuration | Tokens/s | Latency | Accelerators | Cost |',
+          '| --- | ---: | ---: | ---: | --- |',
+          '| Disaggregated | 18,900 | 395 ms | 16 | Moderate |',
+        ].join('\n'),
+      },
+    ],
+  };
+  await openApp(page, [conversation]);
+  await page.route('**/api/session/selectedConversation', (route) =>
+    route.fulfill({ json: conversation }),
+  );
+  await page.reload();
+  const table = page.locator('.chat-bubble-assistant table');
+  await expect(table).toBeVisible();
+  // Each cell holds a single word; a word broken across lines spans two.
+  const lines = await table.locator('th, td').evaluateAll((cells) =>
+    cells.map((cell) => {
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      return new Set(
+        Array.from(range.getClientRects()).map((rect) => Math.round(rect.top)),
+      ).size;
+    }),
+  );
+  expect(lines.every((count) => count === 1)).toBe(true);
+  // A table wider than the column scrolls inside the response, not the page.
+  await assertFits(page);
+  const wrapper = await table.evaluate((element) => {
+    const scroller = element.parentElement!;
+    return {
+      overflowX: getComputedStyle(scroller).overflowX,
+      fits: scroller.getBoundingClientRect().right <= window.innerWidth + 1,
+    };
+  });
+  expect(wrapper).toEqual({ overflowX: 'auto', fits: true });
+});
+
+test('wide windows use one toolbar; phones keep the Chat header', async ({
+  page,
+}) => {
+  const conversation = {
+    id: 'toolbar-review',
+    name: 'Quarterly planning',
+    folderId: null,
+    messages: [],
+  };
+  await openApp(page, [conversation]);
+  await page.route('**/api/session/selectedConversation', (route) =>
+    route.fulfill({ json: conversation }),
+  );
+  await page.reload();
+  const panel = page.getByRole('tabpanel', { name: 'Chat', exact: true });
+  await expect(
+    panel.getByRole('heading', { level: 1, name: 'Quarterly planning' }),
+  ).toBeAttached();
+  const toolbar = page.locator('.app-view-tabs');
+  const header = page.locator('.chat-header');
+  if (page.viewportSize()!.width >= 768) {
+    await expect(header).toBeHidden();
+    await expect(toolbar.getByText('Quarterly planning')).toBeVisible();
+    // Tabs keep an even margin from the top edge of the window.
+    const tab = (await page.getByRole('tab', { name: 'Chat' }).boundingBox())!;
+    const bar = (await toolbar.boundingBox())!;
+    expect(tab.y - bar.y).toBeGreaterThanOrEqual(4);
+    // The bottom margin also includes the toolbar's 1px separator.
+    const bottom = bar.y + bar.height - (tab.y + tab.height);
+    expect(Math.abs(bottom - (tab.y - bar.y))).toBeLessThanOrEqual(1);
+  } else {
+    await expect(toolbar).toBeHidden();
+    await expect(
+      header.getByRole('heading', { name: 'Quarterly planning' }),
+    ).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'How can I help?' }),
+  ).toBeVisible();
 });
 
 test('new-chat content uses the top of the mobile pane and centers on desktop', async ({
@@ -485,11 +589,16 @@ test('navigation fits the screen and the drawer uses a single safe inset', async
       );
     for (const label of labels)
       expect(label.height).toBeLessThanOrEqual(label.lineHeight + 1);
+    const widths: number[] = [];
     for (const button of await navigation.getByRole('button').all()) {
       const box = (await button.boundingBox())!;
       expect(box.width).toBeGreaterThanOrEqual(44);
       expect(box.height).toBeGreaterThanOrEqual(44);
+      widths.push(box.width);
     }
+    // Tab bar items share the width once every label fits on one line.
+    if (page.viewportSize()!.width >= 390)
+      expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1);
   }
 
   // Browser emulation has no home indicator. Exercise the same safe-area
@@ -946,13 +1055,34 @@ test('populated activity stays readable and supports keyboard search and details
   await expect(
     history.getByRole('button', { name: 'Design review', exact: true }),
   ).toHaveAttribute('aria-current', 'true');
-  const rename = history.getByRole('button', { name: 'Rename conversation' });
-  await rename.focus();
+  const more = history.getByRole('button', {
+    name: 'Actions for Design review',
+  });
+  await more.focus();
   await settleTransitions(page);
-  const result = await new AxeBuilder({ page })
+  let result = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
     .analyze();
   expect(result.violations).toEqual([]);
+  await more.press('Enter');
+  const menu = page.getByRole('menu', { name: 'Actions for Design review' });
+  const rename = menu.getByRole('menuitem', { name: 'Rename' });
+  await expect(rename).toBeFocused();
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  result = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze();
+  expect(result.violations).toEqual([]);
+  // Menus move between items with the arrow keys and close with Escape.
+  await page.keyboard.press('ArrowDown');
+  await expect(
+    menu.getByRole('menuitem', { name: 'Download Activity' }),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(more).toBeFocused();
+  await more.press('Enter');
+  await expect(rename).toBeFocused();
   await rename.press('Enter');
   await expect(
     page.getByRole('textbox', { name: 'Conversation name' }),
@@ -963,7 +1093,7 @@ test('populated activity stays readable and supports keyboard search and details
   await expect(
     history.getByRole('button', { name: 'Design review', exact: true }),
   ).toBeVisible();
-  await expect(rename).toBeFocused();
+  await expect(more).toBeFocused();
 });
 
 test('populated Autonomy groups support appearance, text scaling, and scoped keyboard navigation', async ({

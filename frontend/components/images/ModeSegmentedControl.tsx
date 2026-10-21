@@ -27,7 +27,7 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
       role="radiogroup"
       aria-label="Image creation mode"
       className={classNames(
-        'inline-grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] rounded-lg border border-separator/70 bg-fill/5 p-0.5',
+        'inline-grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] rounded-lg bg-fill/[0.08] p-0.5',
         fullWidth && 'w-full md:w-auto',
       )}
     >
@@ -48,7 +48,9 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
               className={classNames(
                 'flex min-h-11 flex-wrap items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm text-secondary transition-colors md:min-h-9',
                 'peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus',
-                selected && 'bg-panel font-semibold text-primary shadow-sm',
+                // The selected segment is raised above the track, as in a platform
+                // segmented control.
+                selected && 'bg-elevated font-semibold text-primary shadow',
                 loading && 'cursor-not-allowed opacity-50',
               )}
             >

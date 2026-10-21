@@ -1,5 +1,6 @@
 import {
   assertFits,
+  chooseConversationAction,
   navigate,
   openApp,
   openSidebar,
@@ -366,15 +367,7 @@ test('conversation selection reaches Chat and failed deletion preserves history'
   await page.route('**/api/conversations/review-1', (route) =>
     route.fulfill({ status: fail ? 503 : 200, json: {} }),
   );
-  const row = page.getByRole('listitem').filter({
-    has: page.getByRole('button', {
-      name: 'Review conversation 1',
-      exact: true,
-    }),
-  });
-  await row
-    .getByRole('button', { name: 'Delete conversation', exact: true })
-    .click();
+  await chooseConversationAction(page, 'Review conversation 1', 'Delete…');
   await page
     .getByRole('button', { name: 'Confirm delete', exact: true })
     .click();
@@ -388,10 +381,14 @@ test('conversation selection reaches Chat and failed deletion preserves history'
   await expect(
     page.getByRole('button', { name: 'Review conversation 1', exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole('button', {
+      name: 'Actions for Review conversation 1',
+      exact: true,
+    }),
+  ).toBeFocused();
   fail = false;
-  await row
-    .getByRole('button', { name: 'Delete conversation', exact: true })
-    .click();
+  await chooseConversationAction(page, 'Review conversation 1', 'Delete…');
   await page
     .getByRole('button', { name: 'Confirm delete', exact: true })
     .click();
@@ -412,13 +409,7 @@ test('failed rename retains the edit and a partial clear keeps failed conversati
       json: {},
     }),
   );
-  const row = page.getByRole('listitem').filter({
-    has: page.getByRole('button', {
-      name: 'Review conversation 1',
-      exact: true,
-    }),
-  });
-  await row.getByRole('button', { name: 'Rename conversation' }).click();
+  await chooseConversationAction(page, 'Review conversation 1', 'Rename');
   const name = page.getByRole('textbox', { name: 'Conversation name' });
   await name.fill('Renamed conversation');
   await page.getByRole('button', { name: 'Save name' }).click();

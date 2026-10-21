@@ -746,7 +746,9 @@ test('fullscreen preserves HTML preview and Markdown formatting', async ({
   await htmlDialog.getByRole('button', { name: 'Close fullscreen' }).click();
 
   await sendMessage(page, 'E2E_LONG_MARKDOWN');
-  await expect(page.getByText('Long response')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Show Full Response', exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'View fullscreen' }).last().click();
 
   const markdownDialog = page.getByRole('dialog', {

@@ -1,6 +1,10 @@
 import { apiGet, apiPost, apiPut, ConflictError } from '@/utils/app/api';
 
-import { Conversation, Message } from '@/types/chat';
+import {
+  Conversation,
+  DEFAULT_CONVERSATION_TITLE,
+  Message,
+} from '@/types/chat';
 
 import { cleanConversationHistory } from './clean';
 import { conversationRevision } from './conversationRevision';
@@ -8,6 +12,7 @@ import { cleanMessagesForStorage, stripBase64Content } from './imageHandler';
 import { getUserSessionItem, setUserSessionItem } from './storage';
 
 import { useConversationStore } from '@/state/conversationStore';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * What a save changed in the browser's copy. The server accepts a save only
@@ -298,4 +303,29 @@ export function persistSelectedConversation(id: string): Promise<void> {
     }
   });
   return selectionWrites;
+}
+
+/** An empty conversation with a new id and the default title. */
+export function createConversation(): Conversation {
+  return {
+    id: uuidv4(),
+    name: DEFAULT_CONVERSATION_TITLE,
+    messages: [],
+    folderId: null,
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Open a new, empty conversation the user asked for: select it here, save the
+ * choice for reloads and other devices, and save the conversation itself.
+ */
+export function startNewConversation(): Conversation {
+  const conversation = createConversation();
+  const store = useConversationStore.getState();
+  store.addConversation(conversation);
+  store.selectConversation(conversation.id);
+  void persistSelectedConversation(conversation.id);
+  void saveConversation(conversation).catch(() => undefined);
+  return conversation;
 }

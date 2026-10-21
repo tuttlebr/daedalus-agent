@@ -10,6 +10,7 @@ import {
 } from '@tabler/icons-react';
 import React, { useRef } from 'react';
 
+import { ChatTitle, NewChatButton } from '@/components/chat/ChatTitle';
 import { IconButton } from '@/components/primitives';
 
 import { useUISettingsStore, type AppView } from '@/state/uiSettingsStore';
@@ -27,6 +28,10 @@ const TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
+/**
+ * The single toolbar for wider windows: sidebar, destinations and, in Chat,
+ * the conversation title and New chat. Phones use the tab bar instead.
+ */
 export function ViewTabs() {
   const activeView = useUISettingsStore((s) => s.activeView);
   const setActiveView = useUISettingsStore((s) => s.setActiveView);
@@ -48,7 +53,7 @@ export function ViewTabs() {
   };
 
   return (
-    <div className="app-view-tabs app-chrome hidden min-w-0 items-center gap-2 border-b px-3 py-2 safe-top md:flex">
+    <div className="app-view-tabs app-chrome hidden min-w-0 items-center gap-2 border-b px-3 md:flex">
       <IconButton
         icon={<IconLayoutSidebar size={20} />}
         aria-label="Toggle sidebar"
@@ -77,7 +82,7 @@ export function ViewTabs() {
               onClick={() => setActiveView(tab.id)}
               onKeyDown={(e) => handleKeyDown(e, index)}
               className={classNames(
-                'app-nav-item relative inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+                'app-nav-item relative inline-flex items-center gap-2 rounded-xl px-3 text-sm font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset',
                 active ? 'text-nvidia-green' : 'text-muted hover:text-primary',
               )}
@@ -88,6 +93,12 @@ export function ViewTabs() {
           );
         })}
       </div>
+      {activeView === 'chat' && (
+        <div className="app-toolbar-title flex min-w-[6rem] flex-1 items-center gap-2 border-l border-separator/70 pl-3">
+          <ChatTitle className="flex-1" />
+          <NewChatButton />
+        </div>
+      )}
     </div>
   );
 }

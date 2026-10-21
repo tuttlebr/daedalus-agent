@@ -76,7 +76,7 @@ export const BottomNav = memo(
 
     return (
       <nav
-        className="app-chrome md:hidden flex-shrink-0 border-t z-40"
+        className="app-chrome app-tab-bar md:hidden flex-shrink-0 border-t z-40"
         role="navigation"
         aria-label="Primary navigation"
       >

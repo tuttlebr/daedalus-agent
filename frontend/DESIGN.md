@@ -9,7 +9,11 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
 
 - Content comes first: quiet solid backgrounds and cards, a readable chat
   column, a gallery of actual images, concise empty states, and a single
-  accent color for interactive emphasis.
+  accent color for interactive emphasis. Messages and the composer share one
+  column capped at 52rem, so prose stays near 70-90 characters per line;
+  tables and code scroll inside it rather than breaking words. Phones omit
+  message avatars, as in a one-to-one thread. Responses collapse only when
+  they would hide a substantial part of a long answer.
 - Text, including the Autonomy feed, prefers SF Pro for regular, italic, and
   bold styles. Code, inline code, and diagrams prefer SF Mono. Shared CSS font
   variables also drive Tailwind and syntax highlighting. These are device-local
@@ -25,10 +29,20 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   settings sheets use solid surfaces. Increased contrast and reduced
   transparency remove backdrop filters; reduced motion removes transitions
   and smooth scrolling. Forced-colors selection retains a visible outline.
-- Five peer destinations remain visible in the mobile tab bar. Commands are
-  placed in toolbars. Desktop navigation uses labeled tabs, a conversation
-  sidebar, arrow/Home/End navigation, and an adjustable divider. Visited tabs
-  retain drafts, selections, and scroll position.
+  Scroll indicators are the platform's own, so macOS and iOS overlay
+  scrollers follow system settings and appearance.
+- Five peer destinations remain visible in the mobile tab bar, whose items
+  share its width while every label fits on one line. Commands are placed in
+  toolbars. Wider windows, including phones in landscape, use one toolbar
+  with the sidebar toggle, labeled tabs with arrow/Home/End navigation and,
+  in Chat, the conversation title and New chat. The sidebar has an adjustable
+  divider and lists conversations only; destinations are not repeated there.
+  Visited tabs retain drafts, selections, and scroll position.
+- Each conversation has one More button whose menu offers Rename, Download
+  Activity and Delete. The menu is a top-layer popover with arrow-key
+  navigation; Escape and canceled actions return focus to the More button.
+  Deleting or clearing conversations asks for confirmation with labeled
+  Cancel and destructive buttons.
 - Coarse-pointer controls have at least 44 CSS pixels of target height, including
   iPad at desktop widths. Safe-area padding and the existing visual viewport
   keyboard compensation remain part of the PWA shell. Zoom remains enabled.
@@ -89,8 +103,8 @@ mention of user bubbles under `--text-on-accent`. Bot text measures 7.84:1 in li
 mode and 10.39:1 in dark mode. Filled primary actions use apricot with navy text
 (8.30:1), switching to gold on hover (10.40:1). Links remain readable blue or inherit
 message text with an underline. Gold is used as a fill, never as bot message text.
-The streaming indicator has three gold dots on a small slate backdrop (6.85:1).
-Minor errors use mauve borders/tints, normal primary text, and existing labels/icons.
+Minor errors use mauve borders/tints, normal primary text, and existing labels/icons;
+destructive confirmations fill mauve with navy text.
 
 Two local text adjustments satisfy AA without adding colors: secondary text on
 a light bot bubble uses deep slate (5.16:1), and secondary text/placeholders on
@@ -110,10 +124,8 @@ artwork. Code highlighting and built-in chart styling consume palette tokens.
 
 Palette regression coverage lives in `e2e/tests/hig-design.spec.ts`: both themes,
 populated messages and errors, Markdown, primary-action hover, focus, placeholders,
-input boundaries, appearance persistence, and WCAG AA scans. The streaming
-cancellation case in `e2e/tests/agentic-app.spec.ts` also checks the three gold dots
-and their removal after Stop. Browser emulation does not replace physical-device
-or assistive-technology checks.
+input boundaries, appearance persistence, and WCAG AA scans. Browser emulation does
+not replace physical-device or assistive-technology checks.
 
 ## Source guidance
 
@@ -148,8 +160,16 @@ The populated-activity cases check contrast in light and dark appearances,
 keyboard disclosure independently of details, search with no matches, and
 details at 200% text. Additional cases exercise invalid custom dimensions and
 a failed memory save followed by a successful retry with the same draft,
-conversation rename cancellation, and populated Autonomy articles with text
-scaling and keyboard navigation.
+the conversation menu's keyboard navigation and rename cancellation, and
+populated Autonomy articles with text scaling and keyboard navigation. Layout
+cases check that wide windows use a single toolbar with even margins while
+phones keep the Chat header, that tab bar items share its width, that inline
+code shows no Markdown backticks, that scroll indicators are native, and that
+table cells keep words whole while wide tables scroll inside the response.
+
+On macOS, WebKit moves Tab focus to buttons only when the system's keyboard
+navigation setting is on, as in Safari. Checks that Tab to a button therefore
+fail in local macOS WebKit runs with the default setting; CI runs Linux WebKit.
 
 With Node 22, Docker, and Playwright browser dependencies available, run:
 

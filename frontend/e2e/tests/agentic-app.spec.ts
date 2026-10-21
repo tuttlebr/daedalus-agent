@@ -1,4 +1,5 @@
 import { assertAuthenticatedSession } from '../helpers/auth';
+import { chooseConversationAction } from '../helpers/design';
 
 import { expect, test, type Page, type Response } from '@playwright/test';
 import Redis from 'ioredis';
@@ -268,10 +269,7 @@ test('deletes a history-only conversation through the real API and keeps it dele
       await redis.sismember('user:e2e-user:conversations', target.id),
     ).toBe(0);
 
-    const row = page.getByRole('listitem').filter({ has: targetButton });
-    await row
-      .getByRole('button', { name: 'Delete conversation', exact: true })
-      .click();
+    await chooseConversationAction(page, target.name, 'Delete…');
     const [deletion] = await Promise.all([
       page.waitForResponse(
         (response) =>

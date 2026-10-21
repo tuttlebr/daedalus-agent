@@ -46,8 +46,9 @@ const IntermediateSteps = lazy(() =>
   })),
 );
 
-const COLLAPSED_MAX_HEIGHT = 300; // px
-const COLLAPSE_RENDERED_HEIGHT = COLLAPSED_MAX_HEIGHT + 50;
+// Collapse only long answers, and only when doing so hides a substantial part.
+const COLLAPSED_MAX_HEIGHT = 560; // px
+const COLLAPSE_RENDERED_HEIGHT = COLLAPSED_MAX_HEIGHT + 280;
 
 function formatGenerationDuration(milliseconds: number): string {
   if (milliseconds < 1000) return '<1s';
@@ -142,15 +143,25 @@ export const AssistantMessage = memo(
     };
 
     const feedClasses = 'autonomous-feed-render max-w-none';
-    const showDocumentHeader =
-      !isStreaming && (needsCollapse || responseDocument.kind === 'html');
+    const showDocumentHeader = !isStreaming && responseDocument.kind === 'html';
+    const fullscreenButton = (
+      <button
+        type="button"
+        onClick={() => setIsFullscreen(true)}
+        className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-9 md:w-9"
+        aria-label="View fullscreen"
+      >
+        <IconMaximize size={14} />
+      </button>
+    );
 
     return (
       <div className="group flex w-full gap-3 animate-morph-in">
+        {/* Compact widths give the response the space, as in a 1:1 thread. */}
         <Avatar
           role={isAgent ? 'agent' : 'assistant'}
           size="sm"
-          className="flex-shrink-0 mt-1"
+          className="mt-1 hidden flex-shrink-0 md:flex"
         />
 
         <div className="flex w-full min-w-0 flex-1 flex-col">
@@ -166,13 +177,13 @@ export const AssistantMessage = memo(
             <div
               role="alert"
               className={classNames(
-                'mb-2 flex items-start gap-2 px-3 py-2 rounded-xl rounded-tl-lg',
+                'mb-2 flex items-center gap-2 px-3 py-2 rounded-xl rounded-tl-lg',
                 'bg-error/10 border border-error text-sm text-dark-text-primary',
               )}
             >
               <IconAlertCircle
                 size={16}
-                className="mt-0.5 flex-shrink-0 text-primary"
+                className="flex-shrink-0 text-primary"
               />
               <div className="flex-1 min-w-0">
                 <div className="font-medium">{errorMessages!.message}</div>
@@ -222,29 +233,14 @@ export const AssistantMessage = memo(
                     isStreaming && 'border-nvidia-green/20',
                   )}
                 >
-                  {/* Long content header with document icon */}
+                  {/* HTML documents name their format above the preview. */}
                   {showDocumentHeader && (
                     <div className="flex items-center justify-between mb-2 pb-2 border-b border-separator/70">
                       <div className="flex min-w-0 items-center gap-2 text-xs text-dark-text-muted">
                         <IconFileText size={14} className="text-nvidia-green" />
-                        <span className="truncate">
-                          {responseDocument.kind === 'html'
-                            ? 'HTML preview'
-                            : `Long response (${Math.ceil(
-                                content.length / 1000,
-                              )}k chars)`}
-                        </span>
+                        <span className="truncate">HTML preview</span>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setIsFullscreen(true)}
-                          className="grid h-11 w-11 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-9 md:w-9"
-                          aria-label="View fullscreen"
-                        >
-                          <IconMaximize size={14} />
-                        </button>
-                      </div>
+                      {fullscreenButton}
                     </div>
                   )}
 
@@ -293,24 +289,27 @@ export const AssistantMessage = memo(
 
                   {/* Expand/collapse toggle */}
                   {needsCollapse && !isStreaming && (
-                    <button
-                      type="button"
-                      onClick={() => setIsExpanded(!isExpanded)}
-                      aria-expanded={isExpanded}
-                      className="flex items-center gap-1.5 w-full mt-2 pt-2 border-t border-separator/70 text-xs font-medium text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                    >
-                      {isExpanded ? (
-                        <>
-                          <IconChevronUp size={14} />
-                          <span>Show Less</span>
-                        </>
-                      ) : (
-                        <>
-                          <IconChevronDown size={14} />
-                          <span>Show Full Response</span>
-                        </>
-                      )}
-                    </button>
+                    <div className="mt-2 flex items-center gap-2 border-t border-separator/70 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        aria-expanded={isExpanded}
+                        className="flex min-h-11 flex-1 items-center gap-1.5 text-xs font-medium text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:min-h-9"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <IconChevronUp size={14} />
+                            <span>Show Less</span>
+                          </>
+                        ) : (
+                          <>
+                            <IconChevronDown size={14} />
+                            <span>Show Full Response</span>
+                          </>
+                        )}
+                      </button>
+                      {fullscreenButton}
+                    </div>
                   )}
                 </div>
 

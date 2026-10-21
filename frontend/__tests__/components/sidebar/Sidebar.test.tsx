@@ -128,6 +128,49 @@ describe('Sidebar conversation selection and rename', () => {
     expect(selectionWrites()).toEqual([]);
   });
 
+  it('offers the actions for each conversation from one menu button', () => {
+    const more = document.getElementById('conversation-actions-conv-b')!;
+    expect(more.getAttribute('aria-label')).toBe('Actions for Second chat');
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    const menu = document.getElementById(more.getAttribute('aria-controls')!)!;
+    expect(menu.getAttribute('role')).toBe('menu');
+    expect(menu.getAttribute('popover')).toBe('auto');
+    expect(more.getAttribute('popovertarget')).toBe(menu.id);
+    expect(
+      Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) =>
+        item.textContent?.trim(),
+      ),
+    ).toEqual(['Rename', 'Download Activity', 'Delete…']);
+    // Navigation destinations are tabs, not repeated in the history footer.
+    expect(
+      Array.from(document.querySelectorAll('button')).map((b) =>
+        b.textContent?.trim(),
+      ),
+    ).not.toEqual(expect.arrayContaining(['Memory Center', 'Connections']));
+  });
+
+  it.each([
+    ['delete', 'delete-conversation-conv-b', 'Cancel delete'],
+    ['rename', 'rename-conversation-conv-b', 'Cancel rename'],
+  ])(
+    'returns focus to the More button when a %s is canceled',
+    async (_action, itemId, cancel) => {
+      await act(async () => {
+        document
+          .getElementById(itemId)!
+          .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+      await act(async () => {
+        button(cancel).click();
+      });
+      // The More button returns with the row; focus moves on the next frame.
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(document.activeElement?.id).toBe('conversation-actions-conv-b');
+      expect(mocks.apiDelete).not.toHaveBeenCalled();
+    },
+  );
+
   it('saves a rename as a change to the name only', async () => {
     await act(async () => {
       document

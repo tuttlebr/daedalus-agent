@@ -123,3 +123,18 @@ export async function assertFits(page: Page) {
   });
   expect(overflow).toEqual([]);
 }
+
+/** Choose an action from a conversation's More menu in the history list. */
+export async function chooseConversationAction(
+  page: Page,
+  conversation: string,
+  action: 'Rename' | 'Download Activity' | 'Delete…',
+) {
+  await page
+    .getByRole('button', { name: `Actions for ${conversation}`, exact: true })
+    .click();
+  await page
+    .getByRole('menu', { name: `Actions for ${conversation}`, exact: true })
+    .getByRole('menuitem', { name: action, exact: true })
+    .click();
+}

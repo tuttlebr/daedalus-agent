@@ -19,10 +19,10 @@ import { apiGet } from '@/utils/app/api';
 import { cleanConversationHistory } from '@/utils/app/clean';
 import {
   cachedSelectedConversationId,
+  createConversation,
   loadSelectedConversationId,
-  persistSelectedConversation,
   rememberSelectedConversation,
-  saveConversation,
+  startNewConversation,
 } from '@/utils/app/conversation';
 import {
   conversationRevision,
@@ -31,7 +31,7 @@ import {
 import { getWorkflowName } from '@/utils/app/helper';
 import { getUserSessionItem, setUserSessionItem } from '@/utils/app/storage';
 
-import { Conversation, DEFAULT_CONVERSATION_TITLE } from '@/types/chat';
+import { Conversation } from '@/types/chat';
 
 import { ProtectedRoute } from '@/components/auth';
 import { AutonomyDashboard } from '@/components/autonomy';
@@ -47,17 +47,6 @@ import { branding } from '@/generated/branding';
 import { useConversationStore, useUISettingsStore } from '@/state';
 import { useImageChatDraftStore } from '@/state/imageChatDraftStore';
 import { useImagePanelStore } from '@/state/imagePanelStore';
-import { v4 as uuidv4 } from 'uuid';
-
-function newConversation(): Conversation {
-  return {
-    id: uuidv4(),
-    name: DEFAULT_CONVERSATION_TITLE,
-    messages: [],
-    folderId: null,
-    updatedAt: Date.now(),
-  };
-}
 
 /**
  * Replace this tab's copy with a server record. A streaming conversation is
@@ -82,11 +71,7 @@ const Home = () => {
     shortcuts: [
       commonShortcuts.toggleSidebar(() => toggleChatbar()),
       commonShortcuts.newItem(() => {
-        const newConv = newConversation();
-        useConversationStore.getState().addConversation(newConv);
-        useConversationStore.getState().selectConversation(newConv.id);
-        void persistSelectedConversation(newConv.id);
-        void saveConversation(newConv).catch(() => undefined);
+        startNewConversation();
       }),
     ],
   });
@@ -272,7 +257,7 @@ const Home = () => {
           if (next) {
             selectConversation(next.id);
           } else {
-            const newConv = newConversation();
+            const newConv = createConversation();
             addConversation(newConv);
             selectConversation(newConv.id);
           }
@@ -341,7 +326,7 @@ const Home = () => {
       if (selected) {
         store.selectConversation(selected);
       } else {
-        const newConv = newConversation();
+        const newConv = createConversation();
         store.addConversation(newConv);
         store.selectConversation(newConv.id);
       }
