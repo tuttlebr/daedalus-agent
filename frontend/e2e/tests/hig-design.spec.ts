@@ -112,10 +112,14 @@ test('Alaska chat colors keep messages, actions, focus, and errors readable', as
     await settleTransitions(page);
     await expect(user).toHaveCSS('background-color', 'rgb(76, 109, 139)');
     await expect(user.locator('p')).toHaveCSS('color', 'rgb(245, 247, 248)');
-    await expect(assistant).toHaveCSS(
-      'background-color',
-      theme === 'light' ? 'rgb(157, 181, 181)' : 'rgb(37, 61, 86)',
-    );
+    // Reading surfaces stay opaque beneath the translucent control layer.
+    expect(
+      await assistant.evaluate((element) => {
+        const color = getComputedStyle(element).backgroundColor;
+        const channels = color.match(/[\d.]+/g)!.map(Number);
+        return channels.length === 3 || channels[3] === 1;
+      }),
+    ).toBe(true);
     await expect(assistant.locator('p').first()).toHaveCSS(
       'color',
       theme === 'light' ? 'rgb(22, 29, 39)' : 'rgb(245, 247, 248)',
@@ -180,33 +184,57 @@ test('Alaska chat colors keep messages, actions, focus, and errors readable', as
     // Check component boundaries and placeholder text, which axe does not
     // reliably include in its normal visible-text contrast scan.
     const ratios = await input.evaluate((element) => {
-      const luminance = (rgb: string) => {
-        const channels = rgb
-          .match(/[\d.]+/g)!
+      const parse = (color: string) => color.match(/[\d.]+/g)!.map(Number);
+      const blend = (foreground: number[], background: number[]) => {
+        const alpha = foreground[3] ?? 1;
+        return foreground
           .slice(0, 3)
-          .map(Number)
-          .map((n) => {
-            const v = n / 255;
-            return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-          });
+          .map((n, i) => n * alpha + background[i] * (1 - alpha));
+      };
+      const backgroundBehind = (target: Element) => {
+        const ancestors: Element[] = [];
+        for (let node: Element | null = target; node; node = node.parentElement)
+          ancestors.unshift(node);
+        return ancestors.reduce(
+          (background, node) =>
+            blend(parse(getComputedStyle(node).backgroundColor), background),
+          [255, 255, 255],
+        );
+      };
+      const luminance = (rgb: number[]) => {
+        const channels = rgb.slice(0, 3).map((n) => {
+          const v = n / 255;
+          return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        });
         return (
           channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
         );
       };
-      const contrast = (a: string, b: string) => {
+      const contrast = (a: number[], b: number[]) => {
         const first = luminance(a);
         const second = luminance(b);
         return (
           (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
         );
       };
-      const style = getComputedStyle(element);
+      const composer = element.closest('.chat-composer-surface')!;
+      const fieldBackground = backgroundBehind(element);
+      const composerBackground = backgroundBehind(composer);
       return {
         placeholder: contrast(
-          getComputedStyle(element, '::placeholder').color,
-          style.backgroundColor,
+          blend(
+            parse(getComputedStyle(element, '::placeholder').color),
+            fieldBackground,
+          ),
+          fieldBackground,
         ),
-        border: contrast(style.borderColor, style.backgroundColor),
+        border: contrast(
+          blend(
+            parse(getComputedStyle(composer).borderColor),
+            composerBackground,
+          ),
+          composerBackground,
+        ),
       };
     });
     expect(ratios.placeholder).toBeGreaterThanOrEqual(4.5);
@@ -339,6 +367,85 @@ test('destinations reflow in both appearances and at twice the text size', async
   }
 });
 
+test('glass navigation adapts to contrast and transparency preferences', async ({
+  page,
+  browserName,
+}, testInfo) => {
+  await openApp(page);
+  const navigation = page.locator(
+    page.viewportSize()!.width < 768
+      ? '.app-bottom-nav'
+      : '.app-navigation-cluster',
+  );
+  const material = () =>
+    navigation.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const channels = style.backgroundColor.match(/[\d.]+/g)!.map(Number);
+      return {
+        opacity: channels[3] ?? 1,
+        filter:
+          style.backdropFilter ||
+          style.getPropertyValue('-webkit-backdrop-filter'),
+      };
+    });
+
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme, contrast: 'no-preference' });
+    await settleTransitions(page);
+    const glass = await material();
+    expect(glass.opacity).toBeGreaterThan(0);
+    expect(glass.opacity).toBeLessThan(1);
+    expect(glass.filter).toContain('blur(');
+    await page.screenshot({
+      path: testInfo.outputPath(`glass-navigation-${colorScheme}.png`),
+    });
+
+    await page.emulateMedia({ contrast: 'more', reducedMotion: 'reduce' });
+    await settleTransitions(page);
+    const solid = await material();
+    expect(solid.opacity).toBe(1);
+    expect(solid.filter).toBe('none');
+    await navigate(page, 'Memory');
+    await assertFits(page);
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+          .analyze()
+      ).violations,
+    ).toEqual([]);
+    await navigate(page, 'Chat');
+  }
+
+  // Playwright's shared media API has no reduced-transparency setting. CDP
+  // lets Chromium exercise the real preference independently of contrast.
+  if (browserName === 'chromium') {
+    const session = await page.context().newCDPSession(page);
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await session.send('Emulation.setEmulatedMedia', {
+        features: [
+          { name: 'prefers-color-scheme', value: colorScheme },
+          { name: 'prefers-contrast', value: 'no-preference' },
+          { name: 'prefers-reduced-transparency', value: 'reduce' },
+        ],
+      });
+      expect(
+        await page.evaluate(
+          () => matchMedia('(prefers-reduced-transparency: reduce)').matches,
+        ),
+      ).toBe(true);
+      await settleTransitions(page);
+      const solid = await material();
+      expect(solid.opacity).toBe(1);
+      expect(solid.filter).toBe('none');
+      await page.screenshot({
+        path: testInfo.outputPath(`reduced-transparency-${colorScheme}.png`),
+      });
+    }
+    await session.detach();
+  }
+});
+
 test('wide Markdown tables keep words whole and scroll inside the response', async ({
   page,
 }) => {
@@ -426,6 +533,66 @@ test('wide windows use one toolbar; phones keep the Chat header', async ({
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'How can I help?' }),
+  ).toBeVisible();
+});
+
+test('resizing the sidebar keeps narrow desktop navigation and history usable', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium');
+  await page.setViewportSize({ width: 768, height: 540 });
+  await openApp(page);
+  await openSidebar(page);
+  const separator = page.getByRole('separator', { name: 'Resize sidebar' });
+  await separator.focus();
+  await page.keyboard.press('End');
+  await expect(separator).toHaveAttribute('aria-valuenow', '500');
+
+  for (const width of [768, 1024]) {
+    await page.setViewportSize({ width, height: 540 });
+    await settleTransitions(page);
+    await assertFits(page);
+    const sidebar = (await page.locator('.app-sidebar').boundingBox())!;
+    const divider = (await separator.boundingBox())!;
+    expect(sidebar.x + sidebar.width).toBeLessThanOrEqual(divider.x);
+    expect(sidebar.y + sidebar.height).toBeLessThanOrEqual(540);
+    const items = await page
+      .locator(
+        '.app-view-tabs [role="tab"], .app-sidebar-toggle, .app-toolbar-title',
+      )
+      .evaluateAll((elements) =>
+        elements.map((element) => {
+          const { x, y, width, height } = element.getBoundingClientRect();
+          return { x, y, width, height };
+        }),
+      );
+    for (const [index, a] of items.entries()) {
+      for (const b of items.slice(index + 1)) {
+        const overlap =
+          a.x < b.x + b.width &&
+          a.x + a.width > b.x &&
+          a.y < b.y + b.height &&
+          a.y + a.height > b.y;
+        expect(overlap).toBe(false);
+      }
+    }
+    const signOut = page.getByRole('button', { name: 'Sign Out' });
+    await signOut.scrollIntoViewIfNeeded();
+    await expect(signOut).toBeInViewport({ ratio: 1 });
+    await expect(
+      page.getByRole('button', { name: 'Close sidebar' }),
+    ).toBeInViewport({ ratio: 1 });
+    await page.screenshot({
+      path: testInfo.outputPath(`sidebar-narrow-${width}.png`),
+    });
+  }
+  await page.getByRole('tab', { name: 'Chat', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(
+    page.getByRole('tab', { name: 'Create', exact: true }),
+  ).toBeFocused();
+  await expect(
+    page.getByRole('tabpanel', { name: 'Create', exact: true }),
   ).toBeVisible();
 });
 
@@ -559,7 +726,9 @@ test('installed iPhone shell covers the screen outside the shortened percentage 
   expect(geometry.shellBottom).toBeCloseTo(IPHONE_17_PRO.height, 0);
   expect(geometry.navigationBottom).toBeCloseTo(IPHONE_17_PRO.height, 0);
   expect(geometry.navigationGap).toBeCloseTo(0, 0);
-  expect(geometry.lastTabGap).toBeCloseTo(homeIndicatorInset, 0);
+  // The floating capsule includes a small inner gutter above the safe area.
+  expect(geometry.lastTabGap).toBeGreaterThanOrEqual(homeIndicatorInset);
+  expect(geometry.lastTabGap).toBeLessThanOrEqual(homeIndicatorInset + 16);
 
   await openSidebar(page);
   await settleTransitions(page);
@@ -577,7 +746,12 @@ test('installed iPhone shell covers the screen outside the shortened percentage 
   expect(dialogBox!.y).toBeCloseTo(0, 0);
   expect(dialogBox!.height).toBeCloseTo(IPHONE_17_PRO.height, 0);
   expect(dialogBox!.y + dialogBox!.height).toBeCloseTo(IPHONE_17_PRO.height, 0);
-  expect(panelBox!.y + panelBox!.height).toBeCloseTo(IPHONE_17_PRO.height, 0);
+  expect(panelBox!.y + panelBox!.height).toBeLessThanOrEqual(
+    IPHONE_17_PRO.height,
+  );
+  expect(
+    IPHONE_17_PRO.height - panelBox!.y - panelBox!.height,
+  ).toBeLessThanOrEqual(16);
 
   await page.screenshot({
     path: testInfo.outputPath('iphone-17-pro-standalone-shell.png'),
@@ -638,10 +812,9 @@ test('navigation fits the screen and the drawer uses a single safe inset', async
         .getByRole('button')
         .last()
         .boundingBox())!;
-      expect(box.y + box.height - lastTab.y - lastTab.height).toBeCloseTo(
-        Math.max(6, inset),
-        0,
-      );
+      const gap = box.y + box.height - lastTab.y - lastTab.height;
+      expect(gap).toBeGreaterThanOrEqual(Math.max(6, inset));
+      expect(gap).toBeLessThanOrEqual(Math.max(6, inset) + 16);
     }
     await openSidebar(page);
     await settleTransitions(page);
@@ -650,10 +823,9 @@ test('navigation fits the screen and the drawer uses a single safe inset', async
     });
     const panel = history.locator('..');
     const panelBox = (await panel.boundingBox())!;
-    expect(panelBox.y + panelBox.height).toBeCloseTo(
-      page.viewportSize()!.height,
-      0,
-    );
+    const panelBottom = panelBox.y + panelBox.height;
+    expect(panelBottom).toBeLessThanOrEqual(page.viewportSize()!.height);
+    expect(page.viewportSize()!.height - panelBottom).toBeLessThanOrEqual(16);
     const lastConversation = history.getByRole('button', {
       name: 'Conversation 20',
       exact: true,
@@ -682,8 +854,15 @@ test('navigation fits the screen and the drawer uses a single safe inset', async
       ),
       contentType: 'application/json',
     });
+    const panelBorder = await panel.evaluate((element) =>
+      parseFloat(getComputedStyle(element).borderBottomWidth),
+    );
     expect(
-      panelBox.y + panelBox.height - buttonBox.y - buttonBox.height,
+      panelBox.y +
+        panelBox.height -
+        buttonBox.y -
+        buttonBox.height -
+        panelBorder,
     ).toBeCloseTo(Math.max(12, inset), 0);
     await expect(
       page.getByRole('button', { name: 'Close sidebar' }),
@@ -694,6 +873,27 @@ test('navigation fits the screen and the drawer uses a single safe inset', async
     });
     await page.getByRole('button', { name: 'Close sidebar' }).click();
     await settleTransitions(page);
+  }
+
+  if (mobile) {
+    const lastTab = navigation.getByRole('button').last();
+    const before = (await lastTab.boundingBox())!;
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty(
+        '--safe-area-inset-bottom',
+        '68px',
+      ),
+    );
+    const after = (await lastTab.boundingBox())!;
+    // An additional 34px safe area moves the control once, independently of
+    // the capsule's decorative inset and inner padding.
+    expect(before.y - after.y).toBeCloseTo(34, 0);
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty(
+        '--safe-area-inset-bottom',
+        '34px',
+      ),
+    );
   }
 
   await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
@@ -1268,6 +1468,8 @@ test('custom image dimensions have persistent labels and recoverable validation'
   await apply.click();
   await expect(imageWidth).toHaveAttribute('aria-invalid', 'false');
   await expect(validation).toHaveCount(0);
+  await settleTransitions(page);
+  await page.screenshot({ path: testInfo.outputPath('create-settings.png') });
   await page.evaluate(() => (document.documentElement.style.fontSize = '200%'));
   await settleTransitions(page);
   await assertFits(page);

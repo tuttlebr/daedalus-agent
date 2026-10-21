@@ -60,11 +60,11 @@ const variantClasses: Record<ButtonVariant, string> = {
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
-  xs: 'px-2 py-1 text-xs rounded-md min-h-[28px]',
-  sm: 'px-3 py-1.5 text-sm rounded-lg min-h-[32px]',
-  md: 'px-4 py-2 text-sm rounded-lg min-h-[40px]',
-  lg: 'px-5 py-2.5 text-base rounded-xl min-h-touch-min',
-  xl: 'px-6 py-3 text-lg rounded-xl min-h-[52px]',
+  xs: 'px-2.5 py-1 text-xs rounded-full min-h-[28px]',
+  sm: 'px-3 py-1.5 text-sm rounded-full min-h-[32px]',
+  md: 'px-4 py-2 text-sm rounded-full min-h-[40px]',
+  lg: 'px-5 py-2.5 text-base rounded-full min-h-touch-min',
+  xl: 'px-6 py-3 text-lg rounded-full min-h-[52px]',
 };
 
 export interface ButtonProps

@@ -27,9 +27,14 @@ export const MobileShell = memo(
     const setShowChatbar = useUISettingsStore((s) => s.setShowChatbar);
 
     return (
-      <div className={classNames('relative flex flex-col h-full', className)}>
+      <div
+        className={classNames(
+          'app-shell relative flex h-full min-h-0 flex-col',
+          className,
+        )}
+      >
         {/* Main content */}
-        <div className="app-safe-x min-h-0 flex-1 overflow-hidden">
+        <div className="app-shell-content app-safe-x min-h-0 flex-1 overflow-hidden">
           {children}
         </div>
 

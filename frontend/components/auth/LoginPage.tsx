@@ -67,17 +67,21 @@ export const LoginPage: React.FC = () => {
     <main
       id="main-content"
       tabIndex={-1}
-      className="min-h-[100dvh] flex items-center justify-center bg-app app-safe-x safe-y py-8"
+      className="app-login min-h-[100dvh] flex items-center justify-center bg-app app-safe-x safe-y py-8"
     >
       <div className="w-full max-w-md px-4">
-        <GlassCard variant="elevated" padding="lg" className="space-y-8">
+        <GlassCard
+          variant="elevated"
+          padding="lg"
+          className="login-card space-y-8"
+        >
           {/* Logo */}
           <div className="text-center">
-            <div className="flex justify-center mb-6">
+            <div className="login-mark mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[1.75rem]">
               <img
                 src={branding.assets['/favicon.png']}
                 alt="Daedalus"
-                className="h-16 w-auto"
+                className="h-12 w-auto"
               />
             </div>
             <h1 className="text-2xl font-bold text-dark-text-primary tracking-tight">

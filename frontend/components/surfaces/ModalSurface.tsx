@@ -157,6 +157,7 @@ export const ModalSurface = memo(
           <div
             ref={panelRef}
             tabIndex={-1}
+            data-position={position}
             className={classNames(
               'app-dialog-panel relative z-10 outline-none animate-fade-in motion-reduce:animate-none',
               className,

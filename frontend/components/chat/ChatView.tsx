@@ -2,10 +2,13 @@
 
 import {
   IconArrowDown,
+  IconArrowUpRight,
+  IconCalendarEvent,
   IconCheck,
   IconExternalLink,
   IconMenu2,
   IconRobot,
+  IconTrophy,
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
@@ -246,6 +249,8 @@ export const ChatView = memo(() => {
   // Refs for async callbacks
   const selectedIdRef = useRef(selectedConversationId);
   selectedIdRef.current = selectedConversationId;
+  const hasMessagesRef = useRef(false);
+  hasMessagesRef.current = Boolean(selectedConversation?.messages.length);
 
   // Streaming follows by default, but the first explicit upward gesture pauses
   // it immediately. Content growth never gets to reinterpret reading intent.
@@ -284,6 +289,7 @@ export const ChatView = memo(() => {
   }, [pauseFollowing]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (!hasMessagesRef.current) return;
     isFollowingRef.current = true;
     setShowScrollToBottom(false);
     const container = scrollContainerRef.current;
@@ -300,12 +306,12 @@ export const ChatView = memo(() => {
   }, [scrollToBottom]);
 
   const scrollToBottomSoon = useCallback(() => {
-    if (!isFollowingRef.current) return;
+    if (!hasMessagesRef.current || !isFollowingRef.current) return;
     if (scrollFrameRef.current !== null) return;
     scrollFrameRef.current = requestAnimationFrame(() => {
       scrollFrameRef.current = null;
       const container = scrollContainerRef.current;
-      if (container && isFollowingRef.current) {
+      if (container && hasMessagesRef.current && isFollowingRef.current) {
         container.scrollTop = container.scrollHeight;
         lastScrollTopRef.current = container.scrollTop;
       }
@@ -737,14 +743,14 @@ export const ChatView = memo(() => {
     setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
   }, [selectedConversationId]);
 
-  // Jump straight to the latest messages when switching conversations
-  // (no long smooth-scroll animation through the history).
+  // Existing threads open at their latest messages. An overflowing welcome
+  // screen starts at the top so its heading remains reachable on small screens.
   useEffect(() => {
     isFollowingRef.current = true;
     setShowScrollToBottom(false);
     const container = scrollContainerRef.current;
     if (container) {
-      container.scrollTop = container.scrollHeight;
+      container.scrollTop = hasMessagesRef.current ? container.scrollHeight : 0;
       lastScrollTopRef.current = container.scrollTop;
     }
   }, [selectedConversationId]);
@@ -1335,21 +1341,21 @@ export const ChatView = memo(() => {
       : 'Google authorization required';
 
   return (
-    <div className="flex flex-col h-full w-full bg-dark-bg-primary">
+    <div className="chat-workspace flex flex-col h-full w-full">
       {/* Wider windows show the title and New chat in the shared toolbar. */}
-      <header className="chat-header app-chrome safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-separator/70 px-3 md:hidden">
+      <header className="chat-header safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 px-3 md:hidden">
         <div className="flex items-center gap-3 min-w-0">
           <IconButton
             icon={<IconMenu2 />}
             aria-label="Open conversation history"
-            className="chat-header-action"
+            className="chat-header-action app-chrome"
             variant="ghost"
             size="md"
             onClick={toggleChatbar}
           />
           <ChatTitle as="h1" />
         </div>
-        <NewChatButton className="chat-header-action" />
+        <NewChatButton className="chat-header-action app-chrome" />
       </header>
       <h1 className="sr-only hidden md:block">
         {selectedConversation?.name || 'New Chat'}
@@ -1384,7 +1390,7 @@ export const ChatView = memo(() => {
               }
             />
           ) : (
-            <div className="chat-content-rail py-6 space-y-6">
+            <div className="chat-content-rail py-6 space-y-8 md:py-8">
               {hiddenMessageCount > 0 && (
                 <div className="flex justify-center">
                   <button
@@ -1482,7 +1488,7 @@ export const ChatView = memo(() => {
             type="button"
             onClick={jumpToLatest}
             aria-label="Jump to latest messages"
-            className="absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-separator/70 bg-dark-bg-elevated/90 text-dark-text-secondary shadow-lg backdrop-blur-md transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-10 md:w-10"
+            className="chat-jump-latest app-chrome absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-separator/70 text-dark-text-secondary transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-10 md:w-10"
           >
             <IconArrowDown size={20} />
           </button>
@@ -1556,22 +1562,41 @@ export const ChatView = memo(() => {
 ChatView.displayName = 'ChatView';
 
 const SUGGESTED_PROMPTS = [
-  'Run my daily briefing.',
-  "Run the last completed week's fantasy football recap for Fowling Friends.",
-  "Run the last completed week's fantasy football recap for Driveway Tailgaters.",
+  {
+    title: 'Your daily briefing',
+    detail: 'Start with what matters today',
+    prompt: 'Run my daily briefing.',
+    icon: IconCalendarEvent,
+  },
+  {
+    title: 'Fowling Friends',
+    detail: 'Last week in fantasy football',
+    prompt:
+      "Run the last completed week's fantasy football recap for Fowling Friends.",
+    icon: IconTrophy,
+  },
+  {
+    title: 'Driveway Tailgaters',
+    detail: 'Last week in fantasy football',
+    prompt:
+      "Run the last completed week's fantasy football recap for Driveway Tailgaters.",
+    icon: IconTrophy,
+  },
 ];
 
 const EmptyState = memo(
   ({ onSuggestion }: { onSuggestion?: (text: string) => void }) => (
     <div className="chat-empty-state flex min-h-full flex-col items-center px-5 py-6 md:py-8">
-      <div className="w-full max-w-md space-y-5 text-center md:my-auto">
-        <img
-          src={branding.assets['/favicon.png']}
-          alt="Daedalus"
-          className="h-14 w-auto mx-auto"
-        />
-        <div className="space-y-2">
-          <h2 className="text-3xl font-semibold tracking-tight text-primary">
+      <div className="w-full max-w-lg space-y-6 text-center md:my-auto">
+        <div className="chat-welcome-mark mx-auto flex h-20 w-20 items-center justify-center rounded-[1.75rem]">
+          <img
+            src={branding.assets['/favicon.png']}
+            alt="Daedalus"
+            className="h-12 w-auto"
+          />
+        </div>
+        <div className="space-y-3">
+          <h2 className="text-3xl font-semibold tracking-tight text-primary md:text-4xl">
             How can I help?
           </h2>
           <p className="text-base text-secondary">
@@ -1579,15 +1604,29 @@ const EmptyState = memo(
           </p>
         </div>
         {onSuggestion && (
-          <div className="flex flex-col gap-2">
-            {SUGGESTED_PROMPTS.map((prompt) => (
+          <div className="chat-suggestions flex flex-col gap-2 text-left">
+            {SUGGESTED_PROMPTS.map(({ title, detail, prompt, icon: Icon }) => (
               <button
                 key={prompt}
                 type="button"
                 onClick={() => onSuggestion(prompt)}
-                className="min-h-touch-min rounded-xl border border-separator/70 bg-fill/[0.03] px-4 py-2.5 text-sm text-dark-text-secondary transition-colors hover:border-nvidia-green/40 hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                title={prompt}
+                className="chat-suggestion flex min-h-touch-min items-center gap-3 rounded-2xl border border-separator/70 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               >
-                {prompt}
+                <span className="chat-suggestion-icon flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl">
+                  <Icon size={20} strokeWidth={1.5} aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-primary">
+                    {title}
+                  </span>
+                  <span className="block text-xs text-secondary">{detail}</span>
+                </span>
+                <IconArrowUpRight
+                  size={16}
+                  className="text-secondary"
+                  aria-hidden
+                />
               </button>
             ))}
           </div>

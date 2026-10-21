@@ -17,14 +17,30 @@ import { useUISettingsStore, type AppView } from '@/state/uiSettingsStore';
 import classNames from 'classnames';
 
 const TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
-  { id: 'chat', label: 'Chat', icon: <IconMessageCircle size={16} /> },
-  { id: 'create', label: 'Create', icon: <IconSparkles size={16} /> },
-  { id: 'autonomy', label: 'Autonomy', icon: <IconRobot size={16} /> },
-  { id: 'memory', label: 'Memory', icon: <IconBrain size={16} /> },
+  {
+    id: 'chat',
+    label: 'Chat',
+    icon: <IconMessageCircle size={17} aria-hidden="true" />,
+  },
+  {
+    id: 'create',
+    label: 'Create',
+    icon: <IconSparkles size={17} aria-hidden="true" />,
+  },
+  {
+    id: 'autonomy',
+    label: 'Autonomy',
+    icon: <IconRobot size={17} aria-hidden="true" />,
+  },
+  {
+    id: 'memory',
+    label: 'Memory',
+    icon: <IconBrain size={17} aria-hidden="true" />,
+  },
   {
     id: 'connections',
     label: 'Connections',
-    icon: <IconPlugConnected size={16} />,
+    icon: <IconPlugConnected size={17} aria-hidden="true" />,
   },
 ];
 
@@ -53,17 +69,18 @@ export function ViewTabs() {
   };
 
   return (
-    <div className="app-view-tabs app-chrome hidden min-w-0 items-center gap-2 border-b px-3 md:flex">
+    <div className="app-view-tabs hidden min-w-0 items-center gap-3 md:flex">
       <IconButton
         icon={<IconLayoutSidebar size={20} />}
         aria-label="Toggle sidebar"
         variant="ghost"
+        className="app-chrome app-sidebar-toggle shrink-0 rounded-full"
         onClick={toggleChatbar}
       />
       <div
         role="tablist"
         aria-label="Views"
-        className="flex min-w-0 flex-wrap items-center gap-1"
+        className="app-navigation-cluster app-chrome flex min-w-0 flex-wrap items-center gap-1 rounded-full p-1"
       >
         {TABS.map((tab, index) => {
           const active = activeView === tab.id;
@@ -75,6 +92,8 @@ export function ViewTabs() {
               }}
               type="button"
               role="tab"
+              aria-label={tab.label}
+              title={tab.label}
               id={`view-tab-${tab.id}`}
               aria-controls={`view-panel-${tab.id}`}
               aria-selected={active}
@@ -82,19 +101,19 @@ export function ViewTabs() {
               onClick={() => setActiveView(tab.id)}
               onKeyDown={(e) => handleKeyDown(e, index)}
               className={classNames(
-                'app-nav-item relative inline-flex items-center gap-2 rounded-xl px-3 text-sm font-medium transition-colors',
+                'app-nav-item relative inline-flex items-center justify-center gap-2 rounded-full px-3 text-sm font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset',
-                active ? 'text-nvidia-green' : 'text-muted hover:text-primary',
+                !active && 'text-muted hover:text-primary',
               )}
             >
               {tab.icon}
-              <span>{tab.label}</span>
+              <span className="app-nav-label">{tab.label}</span>
             </button>
           );
         })}
       </div>
       {activeView === 'chat' && (
-        <div className="app-toolbar-title flex min-w-[6rem] flex-1 items-center gap-2 border-l border-separator/70 pl-3">
+        <div className="app-toolbar-title flex min-w-[6rem] flex-1 items-center gap-2 pl-1">
           <ChatTitle className="flex-1" />
           <NewChatButton />
         </div>

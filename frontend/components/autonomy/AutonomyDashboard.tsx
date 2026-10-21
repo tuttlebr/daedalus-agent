@@ -533,7 +533,7 @@ export function AutonomyDashboard() {
 
   if (loading) {
     return (
-      <div className="h-full overflow-y-auto bg-app">
+      <div className="app-workspace h-full overflow-y-auto">
         <div className="mx-auto max-w-[720px] px-4 py-12 md:px-6">
           <SkeletonFeed />
         </div>
@@ -544,7 +544,7 @@ export function AutonomyDashboard() {
   // A failed first load must not masquerade as an empty feed.
   if (loadError && !state.config && state.feed.length === 0) {
     return (
-      <div className="h-full overflow-y-auto bg-app text-dark-text-primary">
+      <div className="app-workspace h-full overflow-y-auto text-dark-text-primary">
         <div className="mx-auto flex h-full max-w-[720px] flex-col items-center justify-center gap-4 px-4 text-center">
           <p className="text-sm text-dark-text-secondary">
             Could not load the autonomy dashboard. Check your connection and try
@@ -566,7 +566,7 @@ export function AutonomyDashboard() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-app text-dark-text-primary">
+    <div className="app-workspace h-full overflow-y-auto text-dark-text-primary">
       <StatusStrip
         ref={workspaceButtonRef}
         config={state.config}

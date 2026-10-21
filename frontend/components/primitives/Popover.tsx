@@ -161,8 +161,6 @@ export const Popover = memo(
             aria-label={accessibleLabel}
             className={classNames(
               'app-popover-sheet flex min-h-0 w-full flex-col',
-              'rounded-t-3xl bg-panel',
-              'border-t border-separator/70',
               className,
             )}
           >
@@ -217,9 +215,8 @@ export const Popover = memo(
             role="dialog"
             aria-label={accessibleLabel}
             className={classNames(
-              'absolute z-50',
-              'bg-panel max-h-[70dvh] max-w-[calc(100vw-1rem)] overflow-y-auto',
-              'border border-separator/70 rounded-xl shadow-xl',
+              'app-popover absolute z-50',
+              'max-h-[70dvh] max-w-[calc(100vw-1rem)] overflow-y-auto',
               'animate-scale-in min-w-[200px]',
               positionClasses[position],
               alignClasses[align],

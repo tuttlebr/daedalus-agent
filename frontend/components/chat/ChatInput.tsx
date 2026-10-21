@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  IconSend,
+  IconArrowUp,
   IconSquare,
   IconPaperclip,
   IconX,
@@ -732,247 +732,261 @@ export const ChatInput = memo(
     );
 
     return (
-      <GlassToolbar data-chat-input className="flex-shrink-0 py-3">
+      <div data-chat-input className="chat-composer flex-shrink-0 py-3">
         {fileSaveDialog}
         <div className="chat-content-rail space-y-2">
-          <DropZone onDrop={handleFileSelect} className="chat-input-dropzone">
-            {hasComposerExtras && (
-              <div className="chat-input-extras mb-2 space-y-2">
-                {/* Upload progress bars */}
-                {uploading.length > 0 && (
-                  <div className="space-y-1.5">
-                    {uploading.map((u) => (
-                      <div
-                        key={u.id}
-                        className={classNames(
-                          'flex items-center gap-2 text-xs px-2 py-1 rounded-md',
-                          u.error && 'bg-error/5 border border-error',
-                        )}
-                      >
-                        {u.type === 'image' ? (
-                          <IconPhoto size={14} className="text-nvidia-green" />
-                        ) : u.type === 'document' ? (
-                          <IconFileText
-                            size={14}
-                            className="text-nvidia-blue"
-                          />
-                        ) : (
-                          <IconPhoto size={14} className="text-nvidia-purple" />
-                        )}
-                        <span className="text-dark-text-muted truncate flex-1">
-                          {u.file.name}
-                        </span>
-                        {u.error ? (
-                          <>
-                            <span className="text-primary whitespace-nowrap">
-                              {u.error}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => retryUpload(u.id)}
-                              aria-label="Retry upload"
-                              className="p-0.5 rounded text-primary hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                            >
-                              <IconRefresh size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => dismissUpload(u.id)}
-                              aria-label="Dismiss"
-                              className="p-0.5 rounded text-dark-text-muted hover:bg-fill/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
-                            >
-                              <IconX size={12} />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <div className="w-20">
-                              <ProgressBar
-                                value={u.progress}
-                                size="sm"
-                                variant={
-                                  u.progress === 100 ? 'success' : 'accent'
-                                }
-                              />
-                            </div>
-                            {u.progress < 100 && (
+          <GlassToolbar className="chat-composer-surface rounded-[1.75rem] border p-2">
+            <DropZone onDrop={handleFileSelect} className="chat-input-dropzone">
+              {hasComposerExtras && (
+                <div className="chat-input-extras mb-2 space-y-2">
+                  {/* Upload progress bars */}
+                  {uploading.length > 0 && (
+                    <div className="space-y-1.5">
+                      {uploading.map((u) => (
+                        <div
+                          key={u.id}
+                          className={classNames(
+                            'flex items-center gap-2 text-xs px-2 py-1 rounded-md',
+                            u.error && 'bg-error/5 border border-error',
+                          )}
+                        >
+                          {u.type === 'image' ? (
+                            <IconPhoto
+                              size={14}
+                              className="text-nvidia-green"
+                            />
+                          ) : u.type === 'document' ? (
+                            <IconFileText
+                              size={14}
+                              className="text-nvidia-blue"
+                            />
+                          ) : (
+                            <IconPhoto
+                              size={14}
+                              className="text-nvidia-purple"
+                            />
+                          )}
+                          <span className="text-dark-text-muted truncate flex-1">
+                            {u.file.name}
+                          </span>
+                          {u.error ? (
+                            <>
+                              <span className="text-primary whitespace-nowrap">
+                                {u.error}
+                              </span>
                               <button
                                 type="button"
-                                onClick={() => cancelUpload(u.id)}
-                                aria-label="Cancel upload"
-                                className="p-0.5 rounded text-dark-text-muted hover:bg-fill/[0.05] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
+                                onClick={() => retryUpload(u.id)}
+                                aria-label="Retry upload"
+                                className="p-0.5 rounded text-primary hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                              >
+                                <IconRefresh size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => dismissUpload(u.id)}
+                                aria-label="Dismiss"
+                                className="p-0.5 rounded text-dark-text-muted hover:bg-fill/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
                               >
                                 <IconX size={12} />
                               </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Attachment previews */}
-                {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {attachments.map((att, i) => (
-                      <div
-                        key={i}
-                        className={classNames(
-                          'chat-attachment-chip inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg text-xs border',
-                          att.type === 'image'
-                            ? 'bg-nvidia-green/5 border-nvidia-green/20 text-nvidia-green'
-                            : att.type === 'document'
-                            ? 'bg-nvidia-blue/5 border-nvidia-blue/20 text-nvidia-blue'
-                            : 'bg-nvidia-purple/5 border-nvidia-purple/20 text-nvidia-purple',
-                        )}
-                      >
-                        {att.type === 'image' ? (
-                          <IconPhoto size={12} />
-                        ) : att.type === 'document' ? (
-                          <IconFileText size={12} />
-                        ) : (
-                          <IconPhoto size={12} />
-                        )}
-                        <span className="truncate max-w-[120px]">
-                          {att.content}
-                        </span>
-                        <button
-                          onClick={() => removeAttachment(i)}
-                          className="p-0.5 rounded hover:bg-fill/10 transition-colors"
-                          aria-label="Remove attachment"
-                        >
-                          <IconX size={12} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Collection selector for documents */}
-                {showCollections && (
-                  <div className="px-1">
-                    <div className="flex items-center gap-2">
-                      <IconDatabase
-                        size={14}
-                        className="text-nvidia-blue flex-shrink-0"
-                      />
-                      <span className="text-xs text-dark-text-muted flex-shrink-0">
-                        Ingest to:
-                      </span>
-                      <Select
-                        value={selectedCollection}
-                        onChange={(e) => setSelectedCollection(e.target.value)}
-                        aria-label="Ingest to knowledge base"
-                        containerClassName="flex-1"
-                      >
-                        <option value="">Select a knowledge base...</option>
-                        <option value={INLINE_MODE}>
-                          Read inline (skip ingest, single doc)
-                        </option>
-                        {collections.length > 0 && (
-                          <option value="" disabled>
-                            ── knowledge bases ──
-                          </option>
-                        )}
-                        {collections.map((collection) => (
-                          <option key={collection.name} value={collection.name}>
-                            {collection.displayName}
-                          </option>
-                        ))}
-                      </Select>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-20">
+                                <ProgressBar
+                                  value={u.progress}
+                                  size="sm"
+                                  variant={
+                                    u.progress === 100 ? 'success' : 'accent'
+                                  }
+                                />
+                              </div>
+                              {u.progress < 100 && (
+                                <button
+                                  type="button"
+                                  onClick={() => cancelUpload(u.id)}
+                                  aria-label="Cancel upload"
+                                  className="p-0.5 rounded text-dark-text-muted hover:bg-fill/[0.05] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
+                                >
+                                  <IconX size={12} />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    {selectedCollection === INLINE_MODE && (
-                      <div className="mt-2 flex flex-col gap-2 rounded-lg border border-nvidia-blue/20 bg-nvidia-blue/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                        <span className="text-xs text-dark-text-muted">
-                          Chat reads up to 50K characters. The full Markdown
-                          download stays outside chat and history.
-                        </span>
-                        {inlineDownloadAttachment?.documentRef ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              downloadDocumentAsMarkdown(
-                                inlineDownloadAttachment.documentRef!,
-                                inlineDownloadAttachment.content,
-                              )
-                            }
-                            disabled={downloadingDocumentId !== null}
-                            className="inline-flex flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-nvidia-blue/30 px-2.5 py-1.5 text-xs font-medium text-nvidia-blue transition-colors hover:bg-nvidia-blue/10 disabled:cursor-wait disabled:opacity-60"
-                          >
-                            <IconFileDownload size={14} aria-hidden />
-                            {downloadingDocumentId
-                              ? 'Preparing Markdown...'
-                              : 'Download full Markdown'}
-                          </button>
-                        ) : (
-                          <span className="text-xs text-nvidia-yellow">
-                            Keep one document attached to use inline mode.
+                  )}
+
+                  {/* Attachment previews */}
+                  {attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {attachments.map((att, i) => (
+                        <div
+                          key={i}
+                          className={classNames(
+                            'chat-attachment-chip inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg text-xs border',
+                            att.type === 'image'
+                              ? 'bg-nvidia-green/5 border-nvidia-green/20 text-nvidia-green'
+                              : att.type === 'document'
+                              ? 'bg-nvidia-blue/5 border-nvidia-blue/20 text-nvidia-blue'
+                              : 'bg-nvidia-purple/5 border-nvidia-purple/20 text-nvidia-purple',
+                          )}
+                        >
+                          {att.type === 'image' ? (
+                            <IconPhoto size={12} />
+                          ) : att.type === 'document' ? (
+                            <IconFileText size={12} />
+                          ) : (
+                            <IconPhoto size={12} />
+                          )}
+                          <span className="truncate max-w-[120px]">
+                            {att.content}
                           </span>
-                        )}
+                          <button
+                            onClick={() => removeAttachment(i)}
+                            className="p-0.5 rounded hover:bg-fill/10 transition-colors"
+                            aria-label="Remove attachment"
+                          >
+                            <IconX size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Collection selector for documents */}
+                  {showCollections && (
+                    <div className="px-1">
+                      <div className="flex items-center gap-2">
+                        <IconDatabase
+                          size={14}
+                          className="text-nvidia-blue flex-shrink-0"
+                        />
+                        <span className="text-xs text-dark-text-muted flex-shrink-0">
+                          Ingest to:
+                        </span>
+                        <Select
+                          value={selectedCollection}
+                          onChange={(e) =>
+                            setSelectedCollection(e.target.value)
+                          }
+                          aria-label="Ingest to knowledge base"
+                          containerClassName="flex-1"
+                        >
+                          <option value="">Select a knowledge base...</option>
+                          <option value={INLINE_MODE}>
+                            Read inline (skip ingest, single doc)
+                          </option>
+                          {collections.length > 0 && (
+                            <option value="" disabled>
+                              ── knowledge bases ──
+                            </option>
+                          )}
+                          {collections.map((collection) => (
+                            <option
+                              key={collection.name}
+                              value={collection.name}
+                            >
+                              {collection.displayName}
+                            </option>
+                          ))}
+                        </Select>
                       </div>
-                    )}
-                  </div>
+                      {selectedCollection === INLINE_MODE && (
+                        <div className="mt-2 flex flex-col gap-2 rounded-lg border border-nvidia-blue/20 bg-nvidia-blue/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="text-xs text-dark-text-muted">
+                            Chat reads up to 50K characters. The full Markdown
+                            download stays outside chat and history.
+                          </span>
+                          {inlineDownloadAttachment?.documentRef ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                downloadDocumentAsMarkdown(
+                                  inlineDownloadAttachment.documentRef!,
+                                  inlineDownloadAttachment.content,
+                                )
+                              }
+                              disabled={downloadingDocumentId !== null}
+                              className="inline-flex flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-nvidia-blue/30 px-2.5 py-1.5 text-xs font-medium text-nvidia-blue transition-colors hover:bg-nvidia-blue/10 disabled:cursor-wait disabled:opacity-60"
+                            >
+                              <IconFileDownload size={14} aria-hidden />
+                              {downloadingDocumentId
+                                ? 'Preparing Markdown...'
+                                : 'Download full Markdown'}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-nvidia-yellow">
+                              Keep one document attached to use inline mode.
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Input row */}
+              <div className="chat-input-row flex items-end gap-2">
+                <IconButton
+                  icon={<IconPaperclip />}
+                  aria-label="Attach file"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="chat-input-action mb-0.5 flex-shrink-0"
+                />
+
+                <div className="flex-1 min-w-0">
+                  <Textarea
+                    ref={textareaRef}
+                    aria-label="Message"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
+                    placeholder={
+                      isStreaming && onSteer
+                        ? 'Add clarification...'
+                        : hasDocumentAttachment
+                        ? 'Add instructions or send to ingest...'
+                        : attachments.some((a) => a.type === 'image')
+                        ? 'Ask about this image...'
+                        : 'Send a message...'
+                    }
+                    maxRows={maxTextareaRows}
+                    autoResize
+                    className="chat-composer-textarea block"
+                  />
+                </div>
+
+                {isStreaming && (
+                  <IconButton
+                    icon={<IconSquare />}
+                    aria-label="Stop generating"
+                    variant="danger"
+                    size="md"
+                    onClick={onStop}
+                    className="chat-input-action mb-0.5 flex-shrink-0"
+                  />
+                )}
+                {(!isStreaming || !!onSteer) && (
+                  <IconButton
+                    icon={<IconArrowUp />}
+                    aria-label={isStreaming ? 'Steer response' : 'Send message'}
+                    variant={canSend ? 'accent' : 'ghost'}
+                    size="md"
+                    onClick={handleSend}
+                    disabled={!canSend}
+                    className="chat-input-action chat-composer-send mb-0.5 flex-shrink-0 rounded-full"
+                  />
                 )}
               </div>
-            )}
-
-            {/* Input row */}
-            <div className="chat-input-row flex items-end gap-2">
-              <IconButton
-                icon={<IconPaperclip />}
-                aria-label="Attach file"
-                variant="ghost"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                className="chat-input-action mb-0.5 flex-shrink-0"
-              />
-
-              <div className="flex-1 min-w-0">
-                <Textarea
-                  ref={textareaRef}
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onPaste={handlePaste}
-                  placeholder={
-                    isStreaming && onSteer
-                      ? 'Add clarification...'
-                      : hasDocumentAttachment
-                      ? 'Add instructions or send to ingest...'
-                      : attachments.some((a) => a.type === 'image')
-                      ? 'Ask about this image...'
-                      : 'Send a message...'
-                  }
-                  maxRows={maxTextareaRows}
-                  autoResize
-                  className="block bg-dark-bg-tertiary"
-                />
-              </div>
-
-              {isStreaming && (
-                <IconButton
-                  icon={<IconSquare />}
-                  aria-label="Stop generating"
-                  variant="danger"
-                  size="md"
-                  onClick={onStop}
-                  className="chat-input-action mb-0.5 flex-shrink-0"
-                />
-              )}
-              {(!isStreaming || !!onSteer) && (
-                <IconButton
-                  icon={<IconSend />}
-                  aria-label={isStreaming ? 'Steer response' : 'Send message'}
-                  variant={canSend ? 'accent' : 'ghost'}
-                  size="md"
-                  onClick={handleSend}
-                  disabled={!canSend}
-                  className="chat-input-action mb-0.5 flex-shrink-0"
-                />
-              )}
-            </div>
-          </DropZone>
+            </DropZone>
+          </GlassToolbar>
 
           {/* Hidden file input */}
           <input
@@ -989,7 +1003,7 @@ export const ChatInput = memo(
             }}
           />
         </div>
-      </GlassToolbar>
+      </div>
     );
   },
 );

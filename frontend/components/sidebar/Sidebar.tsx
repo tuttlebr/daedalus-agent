@@ -7,6 +7,7 @@ import {
   IconTrash,
   IconX,
   IconCheck,
+  IconMessageCircle,
   IconRobot,
 } from '@tabler/icons-react';
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
@@ -34,7 +35,7 @@ import { useConversationStore, useUISettingsStore } from '@/state';
 import classNames from 'classnames';
 
 const rowActionClasses =
-  'flex h-[44px] w-[44px] items-center justify-center rounded-md text-dark-text-muted transition-all md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
+  'flex h-[44px] w-[44px] items-center justify-center rounded-full text-dark-text-muted transition-colors md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
 const confirmActionClasses =
   'min-h-touch-min rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-50 md:min-h-8';
 
@@ -269,10 +270,18 @@ export const Sidebar = memo(() => {
 
   return (
     <GlassPanel className="app-sidebar w-full h-full min-h-0 flex flex-col">
-      <div className="flex min-h-14 shrink-0 items-center justify-between px-5 pt-safe-top">
-        <span className="min-w-0 truncate text-lg font-semibold tracking-tight text-primary">
-          Daedalus
-        </span>
+      <div className="app-sidebar-header flex shrink-0 items-center justify-between gap-2 px-5 pt-safe-top">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            className="app-sidebar-brand flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base font-semibold"
+            aria-hidden="true"
+          >
+            D
+          </span>
+          <span className="min-w-0 truncate text-lg font-semibold tracking-tight text-primary">
+            Daedalus
+          </span>
+        </div>
         <IconButton
           icon={<IconX size={18} />}
           aria-label="Close sidebar"
@@ -282,14 +291,14 @@ export const Sidebar = memo(() => {
         />
       </div>
       {/* Header */}
-      <div className="flex-shrink-0 p-3 space-y-2">
+      <div className="app-sidebar-controls flex-shrink-0 space-y-3 px-4 pb-3 pt-1">
         <Button
           variant="accent"
           fullWidth
           size="md"
           leftIcon={<IconPlus size={18} />}
           onClick={handleNewConversation}
-          className="min-h-touch-min"
+          className="min-h-touch-min rounded-full"
         >
           New Chat
         </Button>
@@ -313,17 +322,20 @@ export const Sidebar = memo(() => {
           {error}
         </p>
       )}
+      <h2 className="app-sidebar-section-label px-5 pb-2 pt-3 text-xs font-medium text-muted">
+        Conversations
+      </h2>
       {/* Conversation list */}
       <nav
         aria-label="Conversation history"
-        className="min-h-[6rem] flex-1 overflow-y-auto overscroll-contain px-2 py-1"
+        className="app-sidebar-history flex-1 overflow-y-auto overscroll-contain px-3 py-1"
       >
         {sorted.length === 0 && (
           <p className="text-center text-xs text-dark-text-muted py-8">
             {searchTerm ? 'No conversations found' : 'No conversations yet'}
           </p>
         )}
-        <ul className="space-y-0.5" role="list">
+        <ul className="space-y-1" role="list">
           {sorted.map((conv) => {
             const isActive = conv.id === selectedConversationId;
             const isAutonomous = conv.id === 'autonomous-agent-thoughts';
@@ -333,7 +345,7 @@ export const Sidebar = memo(() => {
             if (isRenaming) {
               return (
                 <li key={conv.id}>
-                  <div className="flex items-center gap-1 rounded-lg border-l-2 border-nvidia-green bg-nvidia-green/10 px-2 py-1.5">
+                  <div className="flex items-center gap-1 rounded-2xl bg-fill/[0.08] px-2 py-1.5 ring-1 ring-inset ring-separator/50">
                     <input
                       ref={renameInputRef}
                       value={renameValue}
@@ -426,12 +438,11 @@ export const Sidebar = memo(() => {
             return (
               <li key={conv.id}>
                 <div
+                  data-selected={isActive}
                   className={classNames(
-                    'group flex w-full items-center gap-1 rounded-lg pl-2 pr-1 text-left transition-colors duration-150',
-                    // A neutral fill, like platform list selection, in both
-                    // appearances.
+                    'app-history-row group flex w-full items-center gap-1 rounded-2xl pl-2 pr-1 text-left transition-colors duration-150',
                     isActive
-                      ? 'bg-fill/[0.10] text-dark-text-primary'
+                      ? 'text-dark-text-primary'
                       : 'text-dark-text-secondary hover:bg-fill/[0.04]',
                   )}
                 >
@@ -440,14 +451,21 @@ export const Sidebar = memo(() => {
                     aria-current={isActive ? 'true' : undefined}
                     onClick={() => handleSelect(conv.id)}
                     className={classNames(
-                      'flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-1 text-left md:min-h-9',
+                      'flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1.5 text-left',
                       isActive && 'font-medium',
                     )}
                   >
-                    {isAutonomous && (
+                    {isAutonomous ? (
                       <IconRobot
-                        size={14}
+                        size={16}
+                        aria-hidden="true"
                         className="text-nvidia-purple flex-shrink-0"
+                      />
+                    ) : (
+                      <IconMessageCircle
+                        size={16}
+                        aria-hidden="true"
+                        className="flex-shrink-0 text-muted"
                       />
                     )}
                     <span className="truncate text-sm">{conv.name}</span>
@@ -471,8 +489,8 @@ export const Sidebar = memo(() => {
       </nav>
 
       {/* Footer */}
-      <div className="app-sidebar-footer flex min-h-0 flex-shrink flex-col max-h-[45%] border-t border-separator">
-        <div className="min-h-0 overflow-y-auto overscroll-contain px-3 pt-3 space-y-1">
+      <div className="app-sidebar-footer flex max-h-[45%] min-h-0 flex-shrink flex-col">
+        <div className="min-h-0 space-y-1 overflow-y-auto overscroll-contain px-3 pt-3">
           <AppearanceSettings />
           {/* Clear all conversations */}
           {conversations.length > 0 && (

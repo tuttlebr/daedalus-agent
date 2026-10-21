@@ -76,23 +76,23 @@ export const BottomNav = memo(
 
     return (
       <nav
-        className="app-chrome app-tab-bar md:hidden flex-shrink-0 border-t z-40"
+        className="app-tab-bar relative z-40 flex-shrink-0 md:hidden"
         role="navigation"
         aria-label="Primary navigation"
       >
-        <div className="app-bottom-nav">
+        <div className="app-bottom-nav app-chrome">
           {items.map(({ icon: Icon, label, active, onClick }) => (
             <button
               key={label}
+              type="button"
               onClick={onClick}
               aria-label={label}
               aria-current={active ? 'page' : undefined}
               className={classNames(
                 'app-nav-item flex flex-col items-center justify-center gap-1',
-
-                'transition-all duration-150 touch-manipulation motion-reduce:transition-none',
-
-                active ? 'text-nvidia-green' : 'text-dark-text-muted',
+                'touch-manipulation transition-colors duration-150 motion-reduce:transition-none',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus',
+                !active && 'text-muted',
               )}
             >
               <div className="relative">

@@ -618,8 +618,8 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   );
 
   return (
-    <div className="image-workspace relative flex h-full w-full flex-col overflow-hidden bg-app text-primary">
-      <header className="z-10 flex flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b border-separator/70 px-3 pb-2 pt-2 safe-top md:border-0 md:px-5 md:py-3">
+    <div className="image-workspace relative flex h-full w-full flex-col overflow-hidden text-primary">
+      <header className="z-10 flex flex-none flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-2 pt-2 safe-top md:px-5 md:py-3">
         <h1 className="min-w-fit flex-1 text-base font-semibold tracking-tight text-primary">
           Create
         </h1>

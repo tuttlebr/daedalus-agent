@@ -144,7 +144,7 @@ export const UserMessage = memo(
             <div className="relative max-w-full">
               <div
                 className={classNames(
-                  'min-w-0 px-4 py-3 rounded-2xl rounded-br-lg',
+                  'min-w-0 px-5 py-3 rounded-3xl',
                   'chat-bubble-user bg-chat-user border border-chat-user',
                   'text-on-user text-sm',
                 )}

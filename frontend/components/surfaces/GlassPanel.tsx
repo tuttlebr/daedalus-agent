@@ -9,19 +9,17 @@ export interface GlassPanelProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 /**
- * Full-height glass panel for sidebars and navigation.
- * Uses heavier blur than GlassCard for panel surfaces.
+ * Inset glass panel for sidebars and navigation.
+ * The shared material keeps content behind the navigation softly diffused.
  */
 export const GlassPanel = memo(
   forwardRef<HTMLDivElement, GlassPanelProps>(
     ({ position = 'left', className = '', children, ...props }, ref) => (
       <div
         ref={ref}
+        data-position={position}
         className={classNames(
-          'h-full flex flex-col',
-          'app-chrome',
-          position === 'left' ? 'border-r' : 'border-l',
-          'border-separator',
+          'app-glass-panel app-chrome flex h-full flex-col',
           className,
         )}
         {...props}

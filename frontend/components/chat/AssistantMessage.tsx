@@ -227,7 +227,7 @@ export const AssistantMessage = memo(
                     isAutonomousFeedHtml
                       ? 'p-0'
                       : [
-                          'px-4 py-3 rounded-2xl rounded-tl-lg',
+                          'px-5 py-4 rounded-3xl',
                           'chat-bubble-assistant bg-chat-assistant border border-separator',
                         ],
                     isStreaming && 'border-nvidia-green/20',
@@ -373,7 +373,7 @@ export const AssistantMessage = memo(
           onClose={() => setIsFullscreen(false)}
           position="fullscreen"
           aria-label="Response document"
-          className="flex h-full w-full flex-col bg-dark-bg-primary/95 backdrop-blur-xl"
+          className="flex h-full w-full flex-col bg-dark-bg-primary"
           backdropClassName="bg-dark-bg-primary/95"
         >
           {/* Toolbar */}

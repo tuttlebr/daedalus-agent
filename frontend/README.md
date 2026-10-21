@@ -120,6 +120,22 @@ Use the root Compose stack for an integrated local environment. The E2E command
 builds the production frontend and starts isolated Redis, SeaweedFS, mock
 backend, stream worker, WebSocket, and Next.js processes automatically.
 
+## Appearance
+
+The interface adapts [Apple's Liquid Glass guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass)
+to the web: translucent navigation, composers, menus, and sheets sit above a
+quiet content layer. Reading surfaces and form controls remain solid. Shared
+colors and material tokens live in `styles/appearance.css`; components use
+`app-chrome` for glass and `app-card` for content. Avoid nesting glass surfaces.
+
+System, Light, and Dark appearance are available in the sidebar. Glass becomes
+opaque when backdrop filters are unsupported or reduced transparency or
+increased contrast is requested. Reduced motion disables decorative animation;
+forced colors retain visible boundaries and selection. Keep keyboard focus,
+44px touch targets, safe-area insets, and enlarged text usable when adjusting
+these styles. `e2e/tests/hig-design.spec.ts` covers the shared appearance and
+accessibility behavior across desktop, phone, and tablet layouts.
+
 ## Updating branding icons
 
 Replace the PNGs in `public/icons/` and `public/favicon.png`, then rebuild and

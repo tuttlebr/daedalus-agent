@@ -7,9 +7,9 @@ import classNames from 'classnames';
 export type InputSize = 'sm' | 'md' | 'lg';
 
 const sizeClasses: Record<InputSize, string> = {
-  sm: 'h-9 px-3 text-sm rounded-lg',
-  md: 'h-11 px-3.5 text-sm rounded-lg',
-  lg: 'h-14 px-4 text-base rounded-xl',
+  sm: 'h-9 px-3 text-sm rounded-xl',
+  md: 'h-11 px-3.5 text-sm rounded-2xl',
+  lg: 'h-14 px-4 text-base rounded-2xl',
 };
 
 export interface InputProps

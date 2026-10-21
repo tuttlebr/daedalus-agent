@@ -969,6 +969,48 @@ describe('ChatView OAuth banner', () => {
     act(() => root.unmount());
   });
 
+  it('starts an overflowing empty conversation at the top', () => {
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(2400);
+    useConversationStore.setState({ selectedConversationId: null });
+    const { root, container } = renderChatView();
+    const scroller = container.querySelector<HTMLDivElement>(
+      '[aria-label="Conversation messages"]',
+    )!;
+
+    expect(scroller.scrollTop).toBe(0);
+    act(() => vi.advanceTimersByTime(50));
+    expect(scroller.scrollTop).toBe(0);
+    expect(container.textContent).toContain('How can I help?');
+    act(() => root.unmount());
+  });
+
+  it('does not apply a queued follow-scroll after switching to an empty conversation', () => {
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(2400);
+    const { root, container } = renderChatView();
+    const scroller = container.querySelector<HTMLDivElement>(
+      '[aria-label="Conversation messages"]',
+    )!;
+    expect(scroller.scrollTop).toBe(2400);
+
+    act(() => {
+      useConversationStore.getState().addConversation({
+        id: 'empty-chat',
+        name: 'New Chat',
+        folderId: null,
+        messages: [],
+      });
+      useConversationStore.getState().selectConversation('empty-chat');
+    });
+    expect(scroller.scrollTop).toBe(0);
+    act(() => vi.advanceTimersByTime(50));
+    expect(scroller.scrollTop).toBe(0);
+
+    // Returning to a real thread still opens its latest messages.
+    act(() => useConversationStore.getState().selectConversation('conv-1'));
+    expect(scroller.scrollTop).toBe(2400);
+    act(() => root.unmount());
+  });
+
   it('jumps to the latest message by scrolling only the conversation pane', () => {
     const { root } = renderChatView();
     const scroller = document.querySelector(

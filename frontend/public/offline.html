@@ -157,7 +157,7 @@
         --panel: var(--palette-overcast);
         --control: var(--palette-white);
         --elevated: var(--palette-white);
-        --bot-bubble: var(--palette-glacier);
+        --bot-bubble: var(--palette-overcast);
         --label: var(--palette-navy);
         --secondary-label: var(--palette-steel);
         --muted-label: var(--secondary-label);
@@ -173,6 +173,14 @@
         --status-success: var(--palette-slate);
         --raised-secondary: var(--palette-steel);
         --bubble-secondary: var(--palette-slate);
+        --glass-tint: var(--palette-white);
+        --glass-opacity: 0.74;
+        --glass-edge: rgb(var(--palette-navy) / 0.13);
+        --glass-highlight: rgb(var(--palette-white) / 0.95);
+        --glass-shadow: 0 8px 32px -12px rgb(var(--palette-slate) / 0.2),
+          0 2px 6px rgb(var(--palette-slate) / 0.05);
+        --glass-selection: rgb(var(--palette-white) / 0.9);
+        --canvas-wash: 0.22;
       }
 
       html.dark,
@@ -196,6 +204,14 @@
         /* Glacier on raised blue is only 4.25:1. Use the allowed light neutral. */
         --raised-secondary: var(--palette-snow);
         --bubble-secondary: var(--palette-glacier);
+        --glass-tint: var(--palette-navy);
+        --glass-opacity: 0.8;
+        --glass-edge: rgb(var(--palette-white) / 0.18);
+        --glass-highlight: rgb(var(--palette-white) / 0.18);
+        --glass-shadow: 0 12px 36px -12px rgb(0 0 0 / 0.48),
+          0 2px 8px rgb(0 0 0 / 0.15);
+        --glass-selection: rgb(var(--palette-steel) / 0.38);
+        --canvas-wash: 0.12;
       }
 
       :root {
@@ -217,7 +233,11 @@
         --on-action: var(--palette-navy);
         --status-error: var(--palette-mauve);
         --fill: var(--label);
-        --chrome: var(--bg-surface);
+        /* Opaque by default: unsupported browsers get the same readable hierarchy. */
+        --glass-background: rgb(var(--glass-tint));
+        --glass-filter: none;
+        --glass-radius: 1.75rem;
+        --chrome: var(--glass-background);
         --color-focus: var(--accent-primary);
 
         /* Compatibility aliases keep existing features on the semantic palette. */
@@ -262,12 +282,12 @@
         --input-bg: var(--bg-surface-raised);
         --input-border: rgb(var(--border-control));
         --input-focus-border: var(--accent-primary);
-        --surface-glass: var(--bg-surface);
+        --surface-glass: var(--glass-background);
         --surface-glass-hover: var(--bg-surface-raised);
         --surface-glass-control: var(--bg-surface-raised);
         --surface-glass-control-hover: var(--bg-surface-raised);
-        --surface-glass-overlay: var(--bg-surface-raised);
-        --surface-glass-border: var(--border-subtle);
+        --surface-glass-overlay: var(--glass-background);
+        --surface-glass-border: var(--glass-edge);
         --surface-glass-border-strong: rgb(var(--border-control));
         --button-bg: var(--accent-primary);
         --button-hover: var(--accent-secondary);
@@ -331,6 +351,14 @@
         --color-nvidia-red-light: rgb(var(--status-error));
         --color-nvidia-red-dark: rgb(var(--status-error));
         --color-nvidia-green-bright: rgb(var(--accent));
+      }
+
+      @supports (backdrop-filter: blur(1px)) or
+        (-webkit-backdrop-filter: blur(1px)) {
+        :root {
+          --glass-background: rgb(var(--glass-tint) / var(--glass-opacity));
+          --glass-filter: blur(24px) saturate(1.35);
+        }
       }
       /* END GENERATED APPEARANCE */
       :focus-visible {

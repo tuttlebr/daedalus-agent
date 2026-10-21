@@ -62,10 +62,7 @@ export const ImagesDock = memo(function ImagesDock({
     >
       <div
         className={classNames(
-          'image-composer w-full md:max-w-3xl md:mx-auto',
-          'rounded-2xl backdrop-blur-xl',
-          'bg-panel/80 border border-separator/70',
-          'shadow-[0_20px_50px_-20px_rgba(0,0,0,0.6)]',
+          'image-composer app-chrome w-full md:max-w-3xl md:mx-auto',
         )}
       >
         {mode === 'edit' && <MobileEditAssetsRow disabled={loading} />}

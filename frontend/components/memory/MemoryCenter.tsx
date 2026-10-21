@@ -398,7 +398,7 @@ export function MemoryCenter() {
       : 'sources';
 
   return (
-    <section className="app-page h-full overflow-y-auto bg-app px-4 pb-8 md:px-8">
+    <section className="app-page app-workspace h-full overflow-y-auto px-4 pb-8 md:px-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 flex-wrap items-center gap-3">

@@ -18,12 +18,8 @@ export const GlassToolbar = memo(
     ({ position = 'bottom', className = '', children, ...props }, ref) => (
       <div
         ref={ref}
-        className={classNames(
-          'app-chrome',
-          position === 'top' ? 'border-b' : 'border-t',
-          'border-separator',
-          className,
-        )}
+        data-position={position}
+        className={classNames('app-glass-toolbar app-chrome', className)}
         {...props}
       >
         {children}

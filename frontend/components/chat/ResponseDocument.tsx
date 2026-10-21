@@ -16,7 +16,7 @@ export interface ClassifiedResponseContent {
 }
 
 export const RESPONSE_PROSE_CLASSES =
-  'prose dark:prose-invert prose-sm max-w-none break-words prose-p:my-1.5 prose-pre:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:text-dark-text-primary prose-a:text-nvidia-green prose-code:text-nvidia-green-light prose-strong:text-dark-text-primary';
+  'prose dark:prose-invert prose-sm max-w-none break-words leading-relaxed prose-p:my-2 prose-pre:my-3 prose-ul:my-2 prose-ol:my-2 prose-headings:text-dark-text-primary prose-a:text-nvidia-green prose-code:text-nvidia-green-light prose-strong:text-dark-text-primary';
 
 export function classifyResponseContent(
   content: string,
