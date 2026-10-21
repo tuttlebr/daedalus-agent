@@ -24,9 +24,13 @@ the provider's `gzip, deflate, zstd` HTTP contract; gzip and deflate use `flate2
 - [Zstandard](https://github.com/facebook/zstd/tree/v1.5.7):
   [BSD license](zstd-1.5.7-BSD-LICENSE.txt).
 
-Public HTTP uses the retained certifi 2026.6.17 CA bundle under the
+Public HTTP uses the certifi 2026.10.19 CA bundle under the
 [Mozilla Public License 2.0](certifi.txt). `export_public_http.py` exports the
 bundle and its hash. Both images package it as `/workspace/runtime-public-ca.pem`;
 standalone binaries embed the same fallback. Update this resource alongside the
 Python dependency when rotating public trust roots. Public fetching ignores
 proxy and CA environment overrides, preserving `trust_env=False`.
+The build-time runtime contract requires the Rust bundle to match the installed
+certifi bundle byte for byte. Refresh the bundle, license, and `certifi_version`
+and `certifi_sha256` fields in `runtime/resources/public-http.json` together;
+retain the independent address-policy fixtures and their baseline provenance.

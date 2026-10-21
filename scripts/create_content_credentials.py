@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["c2pa-python==0.37.10", "cryptography>=50,<51", "pillow>=12.2,<13"]
+# dependencies = ["c2pa-python==0.37.10", "cryptography>=50,<51", "pillow>=13.0.0,<14"]
 # ///
 """Create and verify a private C2PA development certificate bundle.
 

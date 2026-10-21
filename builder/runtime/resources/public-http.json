@@ -1,8 +1,8 @@
 {
   "baseline_image": "daedalus:milvus-retry-check",
   "baseline_digest": "sha256:a741ebc7aca8d6654e1892b38f32133ee53940a3ff292e461cd78424c0d0e5e7",
-  "certifi_version": "2026.6.17",
-  "certifi_sha256": "bbc7e9c01d7551bb8a159b5dedd989b8ee3ce105aff522b68eb1b01bf854cab0",
+  "certifi_version": "2026.10.19",
+  "certifi_sha256": "50f79f98dac192b20dbf73f35c56f0b0c557ab267ff5199d1117cc1180b70785",
   "address_policy": {
     "4": {
       "private": [

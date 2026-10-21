@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import yaml
 from nat_helpers.communication_style import COMMUNICATION_STYLE_GUIDANCE
+from packaging.version import Version
 
 CONFIG = Path(__file__).resolve().parents[2] / "backend" / "tool-calling-config.yaml"
 ENV_TEMPLATE = Path(__file__).resolve().parents[2] / ".env.template"
@@ -405,10 +406,24 @@ def test_public_http_trust_bundle_matches_its_frozen_provenance():
     pem = bundle.read_bytes()
 
     assert hashlib.sha256(pem).hexdigest() == provenance["certifi_sha256"]
+    assert Version(provenance["certifi_version"]) >= Version("2026.10.19")
     assert b"PRIVATE KEY" not in pem
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.load_verify_locations(cafile=bundle)
     assert context.cert_store_stats()["x509_ca"] > 100
+    common_names = {
+        value
+        for certificate in context.get_ca_certs()
+        for rdn in certificate["subject"]
+        for key, value in rdn
+        if key == "commonName"
+    }
+    assert "emSign ECC Root CA - G3" not in common_names
+    assert "emSign Root CA - G1" in common_names
+    for lock_path in RUNTIME_LOCKS.values():
+        packages = tomllib.loads(lock_path.read_text())["packages"]
+        certifi = next(package for package in packages if package["name"] == "certifi")
+        assert certifi["version"] == provenance["certifi_version"]
 
 
 def test_local_packages_declare_every_direct_runtime_import():
@@ -526,9 +541,12 @@ def test_runtime_locks_cover_local_sources_and_registry_hashes():
             "--overrides requirements-runtime-overrides.in" in lock_text.splitlines()[1]
         )
         assert by_name["aiohttp"]["version"] == "3.14.4"
+        assert Version(by_name["certifi"]["version"]) >= Version("2026.10.19")
         assert by_name["cryptography"]["version"] == "50.0.0"
         assert by_name["fastfeedparser"]["version"] == "0.5.10"
-        assert by_name["pillow"]["version"] == "12.3.0"
+        assert (
+            Version("13.0.0") <= Version(by_name["pillow"]["version"]) < Version("14")
+        )
         assert by_name["pyjwt"]["version"] == "2.15.1"
         assert by_name["pyopenssl"]["version"] == "26.4.0"
         assert by_name["starlette"]["version"] == "1.3.1"
@@ -1870,9 +1888,10 @@ def test_runtime_omits_legacy_async_job_dependencies():
     # requirement must remain explicit.
     assert "greenlet>=3,<4" in runtime_requirements
     assert "aiohttp>=3.14.4,<4" in runtime_requirements
+    assert "certifi>=2026.10.19,<2027" in runtime_requirements
     assert "cryptography>=50.0.0,<51" in runtime_requirements
     assert "fastfeedparser>=0.5.10,<0.6" in runtime_requirements
-    assert "pillow>=12.2,<13" in runtime_requirements
+    assert "pillow>=13.0.0,<14" in runtime_requirements
     assert "pyjwt>=2.14,<3" in runtime_requirements
     assert "pyopenssl>=26.4,<27" in runtime_requirements
     assert "starlette>=1.3.1,<2" in runtime_requirements

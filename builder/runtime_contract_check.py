@@ -13,9 +13,10 @@ from packaging.version import Version
 
 SECURITY_DEPENDENCY_RANGES = {
     "aiohttp": (Version("3.14.4"), Version("4")),
+    "certifi": (Version("2026.10.19"), Version("2027")),
     "cryptography": (Version("50.0.0"), Version("51")),
     "fastfeedparser": (Version("0.5.10"), Version("0.6")),
-    "pillow": (Version("12.2"), Version("13")),
+    "pillow": (Version("13.0.0"), Version("14")),
     "pyjwt": (Version("2.14"), Version("3")),
     "pyopenssl": (Version("26.4"), Version("27")),
     "starlette": (Version("1.3.1"), Version("2")),
@@ -40,6 +41,11 @@ def main():
         installed = Version(version(name))
         if not minimum <= installed < maximum:
             raise RuntimeError(f"{name} is outside its security-tested range")
+    import certifi
+
+    public_roots = Path(__file__).parent / "runtime-public-ca.pem"
+    if public_roots.read_bytes() != Path(certifi.where()).read_bytes():
+        raise RuntimeError("Rust public trust roots differ from installed certifi")
     from daedalus_runtime.service import create_app
     from daedalus_runtime.tools import load_tool_factories
     from tool_catalog_contract_check import check_catalog
