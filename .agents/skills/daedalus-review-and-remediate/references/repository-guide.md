@@ -142,8 +142,10 @@ separately when reviewing migration or compatibility behavior.
 | Hooks                                   | `uvx --from pre-commit==3.6.2 --python 3.12 pre-commit run --files <changed-files>`; `make hooks` installs frontend dependencies and runs the same pinned release on all files.                                                                                                                                                                                                             |
 | Automatic CI gate                       | `make ci` runs the automatic CI counterparts sequentially. Inspect `make help` and current CI for prerequisites and coverage. Record every unavailable gate; do not relabel a partial run as full CI.                                                                                                                                                                                       |
 
-`npm run build` writes `frontend/public/precache-manifest.json` (ignored) for
-the service worker; the build must not rewrite tracked sources, so a dirty tree
+`npm run build` runs `frontend/scripts/inject-precache.js`, which writes the
+service worker's ignored precache manifest under `frontend/public/`; name only
+tracked paths here, because the reference check runs on clean checkouts. The
+build must not rewrite tracked sources, so a dirty tree
 after `make frontend` or `make frontend-e2e` is a finding. Frozen Rust fixtures
 under `builder/runtime/tests/fixtures/` come from `builder/migration/export_*.py`
 against the baseline image (see `docs/rust-migration.md`); change them only for

@@ -113,6 +113,14 @@ export const ConversationActions = memo(
       else if (event.key === 'Home') next = 0;
       else if (event.key === 'End') next = items.length - 1;
       else if (event.key === 'Tab') menuRef.current?.hidePopover?.();
+      else if (event.key === 'Escape') {
+        // WebKit would also send this Escape to an enclosing modal dialog,
+        // closing the history drawer with the menu. Only the menu closes.
+        event.preventDefault();
+        event.stopPropagation();
+        menuRef.current?.hidePopover?.();
+        triggerRef.current?.focus({ preventScroll: true });
+      }
       if (next !== null) {
         event.preventDefault();
         items[next]?.focus();

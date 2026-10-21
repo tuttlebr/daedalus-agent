@@ -131,12 +131,33 @@ test('Alaska chat colors keep messages, actions, focus, and errors readable', as
           getComputedStyle(code, '::after').content,
         ]),
     ).toEqual(['none', 'none']);
-    // Scroll indicators follow the platform instead of custom colors.
+    // Scroll indicators follow the platform: no style sheet may restyle them
+    // beyond hiding a scroller. Each engine reports the rules it applies.
     expect(
-      await page
-        .getByLabel('Conversation messages')
-        .evaluate((pane) => getComputedStyle(pane).scrollbarColor),
-    ).toBe('auto');
+      await page.evaluate(() => {
+        const restyled: string[] = [];
+        const visit = (rules: CSSRuleList) => {
+          for (const rule of Array.from(rules)) {
+            if ('cssRules' in rule) visit((rule as CSSGroupingRule).cssRules);
+            if (!(rule instanceof CSSStyleRule)) continue;
+            if (
+              (rule.selectorText.includes('::-webkit-scrollbar') &&
+                rule.style.display !== 'none') ||
+              rule.style.getPropertyValue('scrollbar-color')
+            )
+              restyled.push(rule.selectorText);
+          }
+        };
+        for (const sheet of Array.from(document.styleSheets)) {
+          try {
+            visit(sheet.cssRules);
+          } catch {
+            // Cross-origin sheets are not readable; the app serves its own.
+          }
+        }
+        return restyled;
+      }),
+    ).toEqual([]);
     await expect(
       page
         .getByRole('alert')
