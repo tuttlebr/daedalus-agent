@@ -514,7 +514,16 @@ body:has(dialog[open]) .app-install-prompt {
   display: none;
 }
 .app-page {
-  padding-top: max(1.5rem, var(--safe-area-inset-top));
+  padding-top: 1.5rem;
+}
+@media (max-width: 767px) {
+  /* Keep the scrollport below the status bar. Padding inside a scrolling page
+     scrolls away and lets headings pass under the system's blurred edge. */
+  .app-page {
+    position: relative;
+    top: var(--safe-area-inset-top);
+    height: calc(100% - var(--safe-area-inset-top));
+  }
 }
 /* A destination's own top bar clears the status bar on phones. Wider windows
    place the shared toolbar above it, which already does. */

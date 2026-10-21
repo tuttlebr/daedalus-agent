@@ -43,7 +43,43 @@ for (const { name: phone, screen } of phones) {
           localStorage.setItem('pwa-install-blocked', '1');
         }, standalone);
         await openApp(page);
+        // Realistic lists make both destination pages scroll in every phone
+        // orientation, so safe-area checks also cover content passing the top.
+        await page.route('**/api/memory/pages', (route) =>
+          route.fulfill({
+            json: {
+              items: Array.from({ length: 8 }, (_, index) => ({
+                id: `page-${index}`,
+                name: `Knowledge page ${index + 1}`,
+                description:
+                  'Useful details saved from previous conversations.',
+                is_stale: false,
+              })),
+              total: 8,
+            },
+          }),
+        );
+        await page.route('**/api/google-workspace/connections', (route) =>
+          route.fulfill({
+            json: {
+              connections: [
+                'Gmail',
+                'Calendar',
+                'Drive',
+                'Docs',
+                'Sheets',
+                'Tasks',
+              ].map((label) => ({
+                id: label.toLowerCase(),
+                label,
+                description: `Use ${label} from your conversations.`,
+                authorizationSaved: false,
+              })),
+            },
+          }),
+        );
         const left = landscape ? 59 : 0;
+        const top = standalone && !landscape ? 62 : 0;
         await page.evaluate(
           ({ left, standalone, landscape }) => {
             const style = document.documentElement.style;
@@ -80,6 +116,90 @@ for (const { name: phone, screen } of phones) {
             page.getByRole('tabpanel', { name: view, exact: true }),
           ).toBeVisible();
           await assertFits(page);
+          if (view === 'Memory' || view === 'Connections') {
+            const panel = page.getByRole('tabpanel', {
+              name: view,
+              exact: true,
+            });
+            const scrollport = panel.locator('.app-page');
+            const title = panel.getByRole('heading', { level: 1 });
+            const initial = (await scrollport.boundingBox())!;
+            const titleBox = (await title.boundingBox())!;
+            expect(initial.y).toBeGreaterThanOrEqual(top);
+            // Normal page spacing belongs below the safe region, rather than
+            // being consumed by the status-bar inset.
+            expect(titleBox.y - initial.y).toBeGreaterThanOrEqual(16);
+            await expect
+              .poll(() =>
+                scrollport.evaluate((el) => el.scrollHeight - el.clientHeight),
+              )
+              .toBeGreaterThan(40);
+            await scrollport.evaluate((el) => {
+              el.scrollTop = 40;
+            });
+            await expect
+              .poll(() => scrollport.evaluate((el) => el.scrollTop))
+              .toBe(40);
+            const scrolled = (await scrollport.boundingBox())!;
+            expect(scrolled.y).toBeCloseTo(initial.y, 1);
+            expect((await title.boundingBox())!.y).toBeLessThan(titleBox.y);
+            if (top > 0) {
+              // The system region must be outside the scrollport even after
+              // its internal padding and heading have scrolled away.
+              expect(
+                await scrollport.evaluate(
+                  (el, safeTop) =>
+                    el.contains(
+                      document.elementFromPoint(
+                        window.innerWidth / 2,
+                        safeTop - 1,
+                      ),
+                    ),
+                  top,
+                ),
+              ).toBe(false);
+            }
+            await page.screenshot({
+              path: testInfo.outputPath(`${view}-scrolled-safe-top.png`),
+            });
+            if (view === 'Memory' && !landscape) {
+              const search = page.getByPlaceholder('Search Knowledge Pages');
+              await search.focus();
+              // iOS shrinks the visual viewport while retaining the layout
+              // viewport. Model that resize, then the browser revealing input.
+              await page.evaluate(() => {
+                const viewport = window.visualViewport!;
+                Object.defineProperty(viewport, 'height', {
+                  configurable: true,
+                  value: 500,
+                });
+                viewport.dispatchEvent(new Event('resize'));
+              });
+              await expect(page.locator('#main-content')).toHaveAttribute(
+                'data-keyboard-open',
+                'true',
+              );
+              await search.evaluate((el) =>
+                el.scrollIntoView({ block: 'start' }),
+              );
+              const input = (await search.boundingBox())!;
+              expect(input.y).toBeGreaterThanOrEqual(top);
+              expect(input.y + input.height).toBeLessThanOrEqual(500);
+              await search.blur();
+              await page.evaluate(() => {
+                const viewport = window.visualViewport!;
+                Reflect.deleteProperty(viewport, 'height');
+                viewport.dispatchEvent(new Event('resize'));
+              });
+              await expect(page.locator('#main-content')).toHaveAttribute(
+                'data-keyboard-open',
+                'false',
+              );
+            }
+            await scrollport.evaluate((el) => {
+              el.scrollTop = 0;
+            });
+          }
         }
         await navigate(page, 'Chat');
         const input = page.getByPlaceholder('Send a message...');
