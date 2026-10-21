@@ -378,6 +378,9 @@ svg.tabler-icon {
 .app-dialog-panel:has(.app-sidebar) {
   height: 100%;
   border-radius: 0;
+  /* The drawer wrapper receives announcement focus; the inset panel owns its
+     visible edge. Do not draw the global focus shadow down the wrapper. */
+  box-shadow: none;
 }
 .app-popover,
 .app-menu {
