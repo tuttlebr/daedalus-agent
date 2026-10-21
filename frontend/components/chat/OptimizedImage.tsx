@@ -356,7 +356,7 @@ const ImageView = memo(
             onClose={() => setIsFullscreen(false)}
             position="fullscreen"
             aria-label="Image preview"
-            className="flex h-full w-full flex-col bg-app safe-y"
+            className="flex h-full w-full flex-col bg-app pt-4 pb-[max(1rem,var(--safe-area-inset-bottom))]"
           >
             {/* Action buttons */}
             <div className="flex shrink-0 justify-end gap-2 px-4 pb-2">

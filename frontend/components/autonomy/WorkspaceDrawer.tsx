@@ -175,7 +175,7 @@ export function WorkspaceDrawer({
       aria-label="Daedalus workspace"
       className="flex h-full w-full max-w-md flex-col bg-panel shadow-xl"
     >
-      <header className="safe-top flex flex-wrap items-center justify-between gap-2 border-b border-separator/70 px-4 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-separator/70 px-4 py-3">
         <h2 className="min-w-0 break-words text-sm font-semibold text-primary sm:text-base">
           Workspace
         </h2>

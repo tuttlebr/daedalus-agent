@@ -160,7 +160,7 @@ export function HistoryDrawer() {
           'flex flex-col',
         )}
       >
-        <div className="safe-top flex items-center justify-between px-4 py-3 border-b border-separator/70">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-separator/70">
           <div>
             <div className="text-sm font-medium text-primary">History</div>
             <div className="mt-0.5 text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">

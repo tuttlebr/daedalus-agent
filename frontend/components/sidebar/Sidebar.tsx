@@ -270,7 +270,7 @@ export const Sidebar = memo(() => {
 
   return (
     <GlassPanel className="app-sidebar w-full h-full min-h-0 flex flex-col">
-      <div className="app-sidebar-header flex shrink-0 items-center justify-between gap-2 px-5 pt-safe-top">
+      <div className="app-sidebar-header flex shrink-0 items-center justify-between gap-2 px-5">
         <div className="flex min-w-0 items-center gap-2.5">
           <span
             className="app-sidebar-brand flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base font-semibold"

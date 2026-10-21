@@ -651,7 +651,7 @@ test('installed iPhone shell covers the screen outside the shortened percentage 
   // These selectors override the normal percentage rules, while the more
   // specific standalone 100vh rules must still win.
   await page.evaluate(
-    ({ bottomInset }) => {
+    ({ bottomInset, topInset }) => {
       document.documentElement.setAttribute(
         'data-test-short-percentage-root',
         '',
@@ -660,8 +660,12 @@ test('installed iPhone shell covers the screen outside the shortened percentage 
         '--safe-area-inset-bottom',
         `${bottomInset}px`,
       );
+      document.documentElement.style.setProperty(
+        '--safe-area-inset-top',
+        `${topInset}px`,
+      );
     },
-    { bottomInset: homeIndicatorInset },
+    { bottomInset: homeIndicatorInset, topInset: statusRegion },
   );
   await page.addStyleTag({
     content: `
@@ -672,9 +676,6 @@ test('installed iPhone shell covers the screen outside the shortened percentage 
       }
       .app-dialog {
         height: ${shortenedRootHeight}px;
-      }
-      .safe-top {
-        padding-top: ${statusRegion}px;
       }
     `,
   });
@@ -706,7 +707,8 @@ test('installed iPhone shell covers the screen outside the shortened percentage 
       navigationBottom: rect(navigation).bottom,
       navigationGap: window.innerHeight - rect(navigation).bottom,
       lastTabGap: window.innerHeight - rect(lastTab).bottom,
-      headerPaddingTop: parseFloat(getComputedStyle(header).paddingTop),
+      headerTop: rect(header).top,
+      headingTop: rect(header.querySelector('h1')!).top,
       bottomOwnedByNavigation:
         bottomHit instanceof Element && navigation.contains(bottomHit),
     };
@@ -717,9 +719,10 @@ test('installed iPhone shell covers the screen outside the shortened percentage 
     deviceScaleFactor: 3,
     shellInlineHeight: '',
     keyboardOpen: 'false',
-    headerPaddingTop: statusRegion,
     bottomOwnedByNavigation: true,
   });
+  expect(geometry.headerTop).toBeCloseTo(statusRegion, 0);
+  expect(geometry.headingTop).toBeGreaterThanOrEqual(statusRegion + 20);
   expect(geometry.rootHeight).toBeCloseTo(IPHONE_17_PRO.height, 0);
   expect(geometry.shellTop).toBeCloseTo(0, 0);
   expect(geometry.shellHeight).toBeCloseTo(IPHONE_17_PRO.height, 0);

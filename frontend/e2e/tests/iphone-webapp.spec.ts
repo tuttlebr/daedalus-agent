@@ -5,8 +5,8 @@ import {
   settleTransitions,
 } from '../helpers/design';
 
-import { devices, expect, test } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { devices, expect, test, type Locator } from '@playwright/test';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 test.use({ serviceWorkers: 'block' });
@@ -221,6 +221,185 @@ for (const { name: phone, screen } of phones) {
     }
   }
 }
+
+test('installed destinations and drawers preserve spacing below the status region', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'standalone', {
+      configurable: true,
+      value: true,
+    });
+  });
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await openApp(page);
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty(
+      '--safe-area-inset-bottom',
+      '34px',
+    );
+  });
+
+  const setInset = (top: number) =>
+    page.evaluate((inset) => {
+      document.documentElement.style.setProperty(
+        '--safe-area-inset-top',
+        `${inset}px`,
+      );
+    }, top);
+  const measurements: Array<{
+    surface: string;
+    inset: number;
+    surfaceTop: number;
+    anchorTop: number;
+  }> = [];
+
+  async function checkSpacing(
+    surface: Locator,
+    anchor: Locator,
+    name: string,
+    minimumGap: number,
+  ) {
+    await setInset(0);
+    await expect(anchor).toBeVisible();
+    await settleTransitions(page);
+    const ordinarySurface = (await surface.boundingBox())!;
+    const ordinaryAnchor = (await anchor.boundingBox())!;
+    measurements.push({
+      surface: name,
+      inset: 0,
+      surfaceTop: ordinarySurface.y,
+      anchorTop: ordinaryAnchor.y,
+    });
+    expect(ordinaryAnchor.y - ordinarySurface.y).toBeGreaterThanOrEqual(
+      minimumGap,
+    );
+    for (const top of [59, 62]) {
+      await setInset(top);
+      await settleTransitions(page);
+      const surfaceBox = (await surface.boundingBox())!;
+      const anchorBox = (await anchor.boundingBox())!;
+      measurements.push({
+        surface: name,
+        inset: top,
+        surfaceTop: surfaceBox.y,
+        anchorTop: anchorBox.y,
+      });
+      // An inset moves the complete content region. It must not replace the
+      // ordinary space above a heading or the first control in a drawer.
+      expect(surfaceBox.y - ordinarySurface.y).toBeCloseTo(top, 1);
+      expect(anchorBox.y - ordinaryAnchor.y).toBeCloseTo(top, 1);
+      expect(anchorBox.y - surfaceBox.y).toBeGreaterThanOrEqual(minimumGap);
+      expect(
+        await surface.evaluate(
+          (el, inset) =>
+            el.contains(
+              document.elementFromPoint(window.innerWidth / 2, inset - 1),
+            ),
+          top,
+        ),
+      ).toBe(false);
+      if (top === 62) {
+        await settleTransitions(page);
+        await page.screenshot({
+          path: testInfo.outputPath(`${name}-safe-top.png`),
+        });
+      }
+    }
+    await setInset(0);
+  }
+
+  for (const view of ['Chat', 'Create', 'Autonomy', 'Memory', 'Connections']) {
+    await navigate(page, view);
+    const panel = page.getByRole('tabpanel', { name: view, exact: true });
+    await checkSpacing(
+      panel,
+      panel.getByRole('heading', { level: 1 }),
+      view,
+      20,
+    );
+  }
+
+  for (const drawer of [
+    {
+      view: 'Chat',
+      trigger: 'Open conversation history',
+      name: 'Navigation menu',
+      close: 'Close sidebar',
+    },
+    {
+      view: 'Create',
+      trigger: 'History',
+      name: 'Session history',
+      close: 'Close history',
+    },
+    {
+      view: 'Autonomy',
+      trigger: 'Open workspace',
+      name: 'Daedalus workspace',
+      close: 'Close workspace',
+    },
+  ]) {
+    await navigate(page, drawer.view);
+    await page
+      .getByRole('button', { name: drawer.trigger, exact: true })
+      .click();
+    const dialog = page.getByRole('dialog', { name: drawer.name, exact: true });
+    const close = dialog.getByRole('button', {
+      name: drawer.close,
+      exact: true,
+    });
+    await checkSpacing(
+      dialog.locator('.app-dialog-panel'),
+      close,
+      drawer.name,
+      10,
+    );
+    await close.click();
+  }
+
+  const conversation = {
+    id: 'safe-area-document',
+    name: 'Document spacing',
+    folderId: null,
+    messages: [
+      {
+        role: 'assistant',
+        content:
+          '<!doctype html><html><body><h1>Example document</h1><p>Readable content below the status area.</p></body></html>',
+      },
+    ],
+  };
+  await page.route('**/api/session/conversationHistory', (route) =>
+    route.fulfill({ json: [conversation] }),
+  );
+  await page.route('**/api/session/selectedConversation', (route) =>
+    route.fulfill({ json: conversation }),
+  );
+  await navigate(page, 'Chat');
+  await page.reload();
+  await page
+    .getByRole('button', { name: 'View fullscreen', exact: true })
+    .click();
+  const documentDialog = page.getByRole('dialog', {
+    name: 'Response document',
+  });
+  await checkSpacing(
+    documentDialog.locator('.app-dialog-panel'),
+    documentDialog.getByRole('button', { name: 'Close fullscreen' }),
+    'Fullscreen document',
+    10,
+  );
+  await documentDialog
+    .getByRole('button', { name: 'Close fullscreen' })
+    .click();
+  writeFileSync(
+    testInfo.outputPath('safe-area-geometry.json'),
+    JSON.stringify(measurements, null, 2),
+  );
+});
 
 test('Safari explains installation while Home Screen launch suppresses it', async ({
   page,

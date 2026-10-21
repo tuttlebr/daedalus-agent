@@ -68,11 +68,11 @@ export const ModalSurface = memo(
 
     if (!mounted || !open) return null;
     const positions: Record<ModalSurfacePosition, string> = {
-      left: 'items-stretch justify-start',
-      right: 'items-stretch justify-end',
+      left: 'app-dialog-inset items-stretch justify-start',
+      right: 'app-dialog-inset items-stretch justify-end',
       center: 'app-dialog-centered items-center justify-center safe-y',
       bottom: 'items-end justify-center safe-top',
-      fullscreen: 'items-stretch justify-stretch',
+      fullscreen: 'app-dialog-inset items-stretch justify-stretch',
     };
 
     return createPortal(

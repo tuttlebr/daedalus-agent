@@ -41,8 +41,8 @@ export const StatusStrip = forwardRef<HTMLButtonElement, StatusStripProps>(
     const last = relativeTime(lastRunAt);
 
     return (
-      <div className="app-pane-inset sticky top-0 z-30 mb-4 border-b border-separator/70 app-chrome">
-        <div className="mx-auto flex max-w-[760px] items-center gap-3 px-4 py-3 md:px-6">
+      <div className="sticky top-0 z-30 mb-4 border-b border-separator/70 app-chrome">
+        <div className="mx-auto flex max-w-[760px] items-center gap-3 px-4 pb-3 pt-6 md:px-6 md:py-3">
           <PulseDot live={live} enabled={enabled} />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">

@@ -479,6 +479,13 @@ svg.tabler-icon {
   padding-left: var(--safe-area-inset-left);
   padding-right: var(--safe-area-inset-right);
 }
+/* Reserve the status-bar region outside every workspace and full-height
+   drawer. Their headers retain ordinary spacing and their scrollports cannot
+   carry content into the system's blurred top edge. */
+.app-shell-content,
+.app-dialog-inset {
+  padding-top: var(--safe-area-inset-top);
+}
 .safe-y {
   padding-top: max(1rem, var(--safe-area-inset-top));
   padding-bottom: max(1rem, var(--safe-area-inset-bottom));
@@ -516,38 +523,18 @@ body:has(dialog[open]) .app-install-prompt {
 .app-page {
   padding-top: 1.5rem;
 }
-@media (max-width: 767px) {
-  /* Keep the scrollport below the status bar. Padding inside a scrolling page
-     scrolls away and lets headings pass under the system's blurred edge. */
-  .app-page {
-    position: relative;
-    top: var(--safe-area-inset-top);
-    height: calc(100% - var(--safe-area-inset-top));
-  }
-}
-/* A destination's own top bar clears the status bar on phones. Wider windows
-   place the shared toolbar above it, which already does. */
-.app-pane-inset {
-  padding-top: var(--safe-area-inset-top);
-}
-@media (min-width: 768px) {
-  .app-pane-inset {
-    padding-top: 0;
-  }
-}
 .app-nav-item {
   min-height: 3rem;
   border-radius: 999px;
   transition: background-color 180ms ease, color 180ms ease,
     box-shadow 180ms ease;
 }
-/* The toolbar clears the status bar in phone landscape and otherwise keeps an
-   even margin around its controls. */
+/* The shell owns the safe inset; the toolbar keeps an even control margin. */
 .app-view-tabs {
   container-type: inline-size;
   container-name: app-toolbar;
   flex-wrap: wrap;
-  padding-top: max(0.625rem, var(--safe-area-inset-top));
+  padding-top: 0.625rem;
   padding-bottom: 0.625rem;
   padding-inline: min(0.75rem, 12px);
 }

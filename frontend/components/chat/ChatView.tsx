@@ -1343,7 +1343,7 @@ export const ChatView = memo(() => {
   return (
     <div className="chat-workspace flex flex-col h-full w-full">
       {/* Wider windows show the title and New chat in the shared toolbar. */}
-      <header className="chat-header safe-top flex min-h-14 flex-shrink-0 items-center justify-between gap-2 px-3 md:hidden">
+      <header className="chat-header flex min-h-14 flex-shrink-0 items-center justify-between gap-2 px-3 py-3 md:hidden">
         <div className="flex items-center gap-3 min-w-0">
           <IconButton
             icon={<IconMenu2 />}
