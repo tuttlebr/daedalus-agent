@@ -1,0 +1,73 @@
+{
+  "cases_sha256": "0022bfdfed8e499e642e31f8ccb67afe4b9851a2cf977f69b91b1a5096019897",
+  "groups": {
+    "heldout": {
+      "absent": 2,
+      "absent_outcomes_sha256": "c57106ee457fcd8b15ba24d54dd9e7f14a8d4259d3a72ecc331ce3a5cb2bdda4",
+      "delta": "not run",
+      "evidence_sha256": "fd4cf730ac2b4bded09af97b92f4a455fcb356f09b6c640e64c364d2db4cc46b",
+      "installed": "not run",
+      "possible": 2
+    },
+    "public": {
+      "absent": 0,
+      "cases": [
+        {
+          "absent": {
+            "assertions": {
+              "failure_reproduced_before_fix": false,
+              "final_workspace_verified": false,
+              "fix_passes_independent_behavioral_probes": true,
+              "regression_test_detects_original": true,
+              "reported_checks_match_observed_processes": true
+            },
+            "evidence_sha256": "5e68d8e08a0999447fadc9ed4c323717cea2fd2508598904879d8cf07216c8d9",
+            "pass": false
+          },
+          "case": "boolean-context-identifier",
+          "installed": "not run"
+        },
+        {
+          "absent": {
+            "assertions": {
+              "failure_reproduced_before_fix": false,
+              "final_workspace_verified": false,
+              "fix_passes_independent_behavioral_probes": true,
+              "regression_test_detects_original": true,
+              "reported_checks_match_observed_processes": true
+            },
+            "evidence_sha256": "7576e703d469b60a81a28cbb87a0388bc78f60e35af2658e9c097620f43d1109",
+            "pass": false
+          },
+          "case": "unmeasured-gain",
+          "installed": "not run"
+        }
+      ],
+      "delta": "not run",
+      "installed": "not run",
+      "possible": 2
+    }
+  },
+  "image": "sha256:cb33f7f771ecec2ef1225cf39b159591a040391bd73e4c01f00fdfc4c47611d2",
+  "judge_sha256": "55b64ce6ac50ef133af3c389a782f96c12bcbe9e25d070c9990b88a68ab8fc5b",
+  "mode": "baseline",
+  "model": {
+    "codex_version": "codex-cli 0.163.0",
+    "max_steps": 8,
+    "model": "gpt-6-astra",
+    "reason": "Match the existing local Codex configuration; model inference may use the existing connection under explicit user approval. Task execution and grading remain offline.",
+    "reasoning_effort": "xhigh"
+  },
+  "network": {
+    "grading": "none",
+    "model_inference": "allowed by explicit user approval",
+    "task_execution": "none"
+  },
+  "regressions": [],
+  "repository_commit": "fb4e50ae1e60e1d77cbeab8d1599e5d4196ff79b",
+  "resolved_provider_revision": "not run",
+  "schema": 1,
+  "scope": "verification and reporting on reduced repository fixtures",
+  "skill_sha256": "7b97127aa1463fad562c436b26af724932ea76f4e29c6927ab17db262c4128a2",
+  "status": "recorded"
+}
