@@ -1,0 +1,74 @@
+{
+  "id": "unmeasured-gain",
+  "prompt": "Fix this reduced reproduction of a Daedalus optimization-reporting bug. A run with no measured before/after pair reports zero gain. Unmeasured gain must be reported as \"not run\". If a pair exists, return the actual after-minus-before difference, including zero or negative results. Keep scope to the supplied component and tests; report verification performed and unavailable checks. This is a reduction of the loop reporting boundary, not a full optimization run.",
+  "source": "https://github.com/tuttlebr/daedalus-agent/commit/21d376f3705f7c58c2dd988fafc888a75e45de64",
+  "files": {
+    "component.py": "def handle(value):\n    if value[\"before\"] is None or value[\"after\"] is None:\n        return {\"gain\": 0}\n    return {\"gain\": value[\"after\"] - value[\"before\"]}\n",
+    "tests/test_component.py": "import unittest\nfrom component import handle\n\nclass GainTests(unittest.TestCase):\n    def test_measured(self):\n        self.assertEqual(handle({\"before\": 3, \"after\": 4}), {\"gain\": 1})\n\n    def test_unmeasured(self):\n        self.assertEqual(handle({\"before\": None, \"after\": None}), {\"gain\": \"not run\"})\n"
+  },
+  "probes": [
+    {
+      "input": {
+        "before": null,
+        "after": null
+      },
+      "expected": {
+        "gain": "not run"
+      }
+    },
+    {
+      "input": {
+        "before": 1,
+        "after": null
+      },
+      "expected": {
+        "gain": "not run"
+      }
+    },
+    {
+      "input": {
+        "before": null,
+        "after": 2
+      },
+      "expected": {
+        "gain": "not run"
+      }
+    },
+    {
+      "input": {
+        "before": 0,
+        "after": 0
+      },
+      "expected": {
+        "gain": 0
+      }
+    },
+    {
+      "input": {
+        "before": 3,
+        "after": 4
+      },
+      "expected": {
+        "gain": 1
+      }
+    },
+    {
+      "input": {
+        "before": 4,
+        "after": 3
+      },
+      "expected": {
+        "gain": -1
+      }
+    }
+  ],
+  "editable": [
+    "component.py",
+    "tests/test_component.py",
+    "tests/test_regression.py"
+  ],
+  "checks": {
+    "unit": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"]
+  },
+  "unavailable_checks": ["full integration suite"]
+}

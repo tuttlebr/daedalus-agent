@@ -1,0 +1,134 @@
+{
+  "id": "7ff9717e36dc40938398f0d353a43632",
+  "prompt": "Repair the isolated retrieval cutoff filter. With mapping-shaped hits, supplying a distance_cutoff can discard every result even when some distances are within the cutoff; the legacy attribute-shaped path works. Reproduce this failure with a regression test before editing component.py, fix it, and rerun the supplied unit check. Preserve both supported representations, inclusive cutoff behavior, original result order, and the existing no-cutoff behavior. With a cutoff, results lacking a distance must be excluded. The JSON interface accepts hits, optional representation (mapping by default or attribute), and optional distance_cutoff, and returns the surviving ids. This fixture extracts the pre-rerank filtering bug fixed in builder/smart_milvus/src/smart_milvus/smart_milvus_function.py by repository commit 33fc5ffa27d9dee56f0b298bcafe1e2bb034c0f1. It replaces external Milvus Hit instances with stdlib SimpleNamespace and removes remote search, document wrapping, and reranking; the original attribute-only filter is retained. Its tests are adapted synthetic examples, not the production integration suite. Report actual check commands and observed exit codes accurately. The full integration suite is unavailable here and must be explicitly reported as not run.",
+  "source": "https://github.com/tuttlebr/daedalus-agent/commit/33fc5ffa27d9dee56f0b298bcafe1e2bb034c0f1",
+  "files": {
+    "component.py": "\"\"\"Deterministic extraction of the repository retriever's pre-rerank filter.\"\"\"\n\nfrom types import SimpleNamespace\n\n\ndef handle(value):\n    hits = value[\"hits\"]\n    if value.get(\"representation\", \"mapping\") == \"attribute\":\n        hits = [SimpleNamespace(**hit) for hit in hits]\n    cutoff = value.get(\"distance_cutoff\")\n    if cutoff is not None:\n        hits = [\n            hit\n            for hit in hits\n            if getattr(hit, \"distance\", None) is not None\n            and hit.distance <= cutoff\n        ]\n    return {\n        \"ids\": [hit[\"id\"] if isinstance(hit, dict) else hit.id for hit in hits]\n    }\n",
+    "tests/test_component.py": "import unittest\n\nfrom component import handle\n\n\nclass RetrievalFilterTests(unittest.TestCase):\n    def test_attribute_hits_obey_cutoff(self):\n        self.assertEqual(\n            handle({\n                \"representation\": \"attribute\",\n                \"hits\": [{\"id\": \"near\", \"distance\": 0.2}, {\"id\": \"far\", \"distance\": 0.8}],\n                \"distance_cutoff\": 0.4,\n            }),\n            {\"ids\": [\"near\"]},\n        )\n\n    def test_no_cutoff_preserves_input_order(self):\n        self.assertEqual(\n            handle({\"hits\": [{\"id\": \"second\"}, {\"id\": \"first\", \"distance\": 0.7}]}),\n            {\"ids\": [\"second\", \"first\"]},\n        )\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+  },
+  "editable": ["component.py", "tests/test_component.py"],
+  "checks": {
+    "unit": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"]
+  },
+  "unavailable_checks": ["full integration suite"],
+  "probes": [
+    {
+      "input": {
+        "hits": [
+          {
+            "id": "a",
+            "distance": 0.1
+          },
+          {
+            "id": "b",
+            "distance": 0.6
+          }
+        ],
+        "distance_cutoff": 0.3
+      },
+      "expected": {
+        "ids": ["a"]
+      }
+    },
+    {
+      "input": {
+        "hits": [
+          {
+            "id": "zero",
+            "distance": 0
+          },
+          {
+            "id": "negative",
+            "distance": -0.25
+          },
+          {
+            "id": "positive",
+            "distance": 0.01
+          }
+        ],
+        "distance_cutoff": 0
+      },
+      "expected": {
+        "ids": ["zero", "negative"]
+      }
+    },
+    {
+      "input": {
+        "hits": [
+          {
+            "id": "missing"
+          },
+          {
+            "id": "unknown",
+            "distance": null
+          },
+          {
+            "id": "boundary",
+            "distance": 0.75
+          },
+          {
+            "id": "above",
+            "distance": 0.751
+          }
+        ],
+        "distance_cutoff": 0.75
+      },
+      "expected": {
+        "ids": ["boundary"]
+      }
+    },
+    {
+      "input": {
+        "representation": "attribute",
+        "hits": [
+          {
+            "id": "late",
+            "distance": 0.2
+          },
+          {
+            "id": "early",
+            "distance": 0.1
+          },
+          {
+            "id": "outside",
+            "distance": 0.3
+          }
+        ],
+        "distance_cutoff": 0.2
+      },
+      "expected": {
+        "ids": ["late", "early"]
+      }
+    },
+    {
+      "input": {
+        "hits": [
+          {
+            "id": "none",
+            "distance": null
+          },
+          {
+            "id": "missing"
+          },
+          {
+            "id": "large",
+            "distance": 999
+          }
+        ],
+        "distance_cutoff": null
+      },
+      "expected": {
+        "ids": ["none", "missing", "large"]
+      }
+    },
+    {
+      "input": {
+        "hits": [],
+        "distance_cutoff": 0.5
+      },
+      "expected": {
+        "ids": []
+      }
+    }
+  ]
+}

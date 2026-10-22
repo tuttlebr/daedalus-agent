@@ -1,0 +1,74 @@
+{
+  "id": "boolean-context-identifier",
+  "prompt": "Fix this reduced reproduction of a Daedalus scoreboard validation bug. A boolean is being accepted as a positive integer context identifier. Preserve acceptance of positive integers and rejection of other values. Keep scope to the supplied component and tests, then report verification performed and unavailable checks. This fixture isolates the validation predicate from the original scoreboard helper.",
+  "source": "https://github.com/tuttlebr/daedalus-agent/commit/3c0de808c4810c3cbf130a8817bf60820d61896b",
+  "files": {
+    "component.py": "def handle(value):\n    return {\"valid\": isinstance(value, int) and value > 0}\n",
+    "tests/test_component.py": "import unittest\nfrom component import handle\n\nclass IdentifierTests(unittest.TestCase):\n    def test_positive_integer(self):\n        self.assertEqual(handle(12), {\"valid\": True})\n\n    def test_boolean_is_not_an_identifier(self):\n        self.assertEqual(handle(True), {\"valid\": False})\n"
+  },
+  "probes": [
+    {
+      "input": true,
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "input": false,
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "input": 1,
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "input": 24,
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "input": 0,
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "input": -1,
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "input": "12",
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "input": null,
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "input": 2.5,
+      "expected": {
+        "valid": false
+      }
+    }
+  ],
+  "editable": [
+    "component.py",
+    "tests/test_component.py",
+    "tests/test_regression.py"
+  ],
+  "checks": {
+    "unit": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"]
+  },
+  "unavailable_checks": ["full integration suite"]
+}

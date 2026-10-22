@@ -1,0 +1,7 @@
+{
+  "model": "gpt-6-astra",
+  "reasoning_effort": "xhigh",
+  "codex_version": "codex-cli 0.163.0",
+  "max_steps": 8,
+  "reason": "Match the existing local Codex configuration; model inference may use the existing connection under explicit user approval. Task execution and grading remain offline."
+}

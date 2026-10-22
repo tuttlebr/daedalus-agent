@@ -1,0 +1,83 @@
+{
+  "id": "b55b0043d52d41d985a5f29430bb777c",
+  "prompt": "Repair the isolated configuration reader. A deployment-style input containing a bare OPTIONAL= line crashes, while quoted empty values work. Reproduce the reported failure with a regression test before changing component.py, fix the underlying parser behavior, and run the supplied unit check again. Preserve the existing handling of comments, export prefixes, quoted literals, and invalid variable names. The JSON contract is handle({\"text\": dotenv_text}) -> {\"entries\": parsed_values}. This fixture extracts the old _env_value/load_env logic from scripts/validate_auth_env.py before confirmed repository fix 8db57ffc88cff1fd59114607129506db2e7ec4b1; it replaces file I/O with JSON text input, removes unrelated authentication validation, and adapts representative tests from pytest to unittest. It does not deploy services or validate authentication. Report only checks actually performed and their observed exit codes. The full integration suite is unavailable in this fixture and must be reported explicitly as not run.",
+  "source": "https://github.com/tuttlebr/daedalus-agent/commit/8db57ffc88cff1fd59114607129506db2e7ec4b1",
+  "files": {
+    "component.py": "\"\"\"Isolated dotenv-value parser adapted from the repository preflight reader.\"\"\"\n\nimport re\n\n\ndef parse_value(key, value):\n    if value[:1] in \"\\\"'\":\n        quote = value[0]\n        closing = value.find(quote, 1)\n        if closing == -1:\n            raise ValueError(f\"{key} has an unterminated quote\")\n        inner = value[1:closing]\n        rest = value[closing + 1:].strip()\n        if rest and not rest.startswith(\"#\"):\n            raise ValueError(f\"{key} has text after its closing quote\")\n        if quote == '\\\"' and \"$\" in inner:\n            raise ValueError(\"Interpolated values are unsupported\")\n        return inner\n    value = re.split(r\"\\s+#\", value, maxsplit=1)[0].strip()\n    if \"$\" in value:\n        raise ValueError(\"Interpolated values are unsupported\")\n    return value\n\n\ndef handle(value):\n    entries = {}\n    for raw_line in value[\"text\"].splitlines():\n        line = raw_line.strip()\n        if not line or line.startswith(\"#\"):\n            continue\n        if line.startswith(\"export \"):\n            line = line[7:].lstrip()\n        key, separator, raw_value = line.partition(\"=\")\n        key = key.strip()\n        if not separator or not re.fullmatch(r\"[A-Za-z_][A-Za-z0-9_]*\", key):\n            continue\n        entries[key] = parse_value(key, raw_value.strip())\n    return {\"entries\": entries}\n",
+    "tests/test_component.py": "import unittest\n\nfrom component import handle\n\n\nclass ConfigurationReaderTests(unittest.TestCase):\n    def test_normal_values_and_comments(self):\n        self.assertEqual(\n            handle({\"text\": \"# comment\\nALPHA=ready # note\\nexport BETA=two\\n\"}),\n            {\"entries\": {\"ALPHA\": \"ready\", \"BETA\": \"two\"}},\n        )\n\n    def test_quoted_literals(self):\n        self.assertEqual(\n            handle({\"text\": \"VALUE=' padded $literal ' # note\\nEMPTY=''\\n\"}),\n            {\"entries\": {\"VALUE\": \" padded $literal \", \"EMPTY\": \"\"}},\n        )\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+  },
+  "editable": ["component.py", "tests/test_component.py"],
+  "checks": {
+    "unit": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"]
+  },
+  "unavailable_checks": ["full integration suite"],
+  "probes": [
+    {
+      "input": {
+        "text": "OPTIONAL=\nACTIVE=yes\n"
+      },
+      "expected": {
+        "entries": {
+          "OPTIONAL": "",
+          "ACTIVE": "yes"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "  export RESERVED =   \nNEXT=kept\n"
+      },
+      "expected": {
+        "entries": {
+          "RESERVED": "",
+          "NEXT": "kept"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "PLAIN=\nSINGLE=''\nDOUBLE=\"\"\n"
+      },
+      "expected": {
+        "entries": {
+          "PLAIN": "",
+          "SINGLE": "",
+          "DOUBLE": ""
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "PAD=' value with spaces ' # explanation\nHASH=value#literal\n"
+      },
+      "expected": {
+        "entries": {
+          "PAD": " value with spaces ",
+          "HASH": "value#literal"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "TOKEN='$LITERAL'\nCOUNT=0 # count\nDISABLED=false\n"
+      },
+      "expected": {
+        "entries": {
+          "TOKEN": "$LITERAL",
+          "COUNT": "0",
+          "DISABLED": "false"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "# ignored\ninvalid-key=ignored\nNO_SEPARATOR\nA=before\nA=\n"
+      },
+      "expected": {
+        "entries": {
+          "A": ""
+        }
+      }
+    }
+  ]
+}
