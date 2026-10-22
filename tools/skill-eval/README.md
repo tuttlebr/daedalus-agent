@@ -35,7 +35,10 @@ host evaluator, mounting only the candidate skill into the isolated executor.
 Changing any protected input requires separate human review, never an optimization
 round. Public regression cases do not substitute for private held-out tasks.
 
-An independent judge owns held-out cases outside the repository/editor workspace.
+An independent judge authors held-out cases in `tools/skill-eval/heldout/`, outside
+the skill and optimizer surfaces. Editors must never load that directory; the
+gate returns only aggregates. The deterministic editor accepts bounded textual
+replacements and cannot access judge data or change the judge.
 Run with `--private --cases /judge/cases` to emit only aggregate results; any failing
 held-out assertion rejects the candidate. Never send case contents or diagnostics
 to the editor. If exposed, retire that holdout and obtain an independently authored

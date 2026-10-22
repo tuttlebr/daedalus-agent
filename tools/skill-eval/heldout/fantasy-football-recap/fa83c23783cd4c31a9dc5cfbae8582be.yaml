@@ -1,0 +1,107 @@
+{
+  "id": "fa83c23783cd4c31a9dc5cfbae8582be",
+  "prompt": "Audit a completed two-week series whose final-week scoring order differs from the series result.",
+  "input": {
+    "league": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "settings": {
+        "scheduleSettings": {
+          "matchupPeriods": {
+            "6": [6, 7]
+          }
+        }
+      }
+    },
+    "teams": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "teams": [
+        {
+          "id": 11,
+          "name": "Copper Owls"
+        },
+        {
+          "id": 22,
+          "name": "Harbor Foxes"
+        }
+      ]
+    },
+    "scoreboard": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "week": 7,
+      "matchup_period": 6,
+      "matchups": [
+        {
+          "id": 601,
+          "matchupPeriodId": 6,
+          "winner": "HOME",
+          "home": {
+            "teamId": 11,
+            "totalPoints": "205.50",
+            "pointsByScoringPeriod": {
+              "6": "130.25",
+              "7": "75.25"
+            }
+          },
+          "away": {
+            "teamId": 22,
+            "totalPoints": "199.75",
+            "pointsByScoringPeriod": {
+              "6": "90.00",
+              "7": "109.75"
+            }
+          }
+        }
+      ]
+    },
+    "checks": {
+      "601": {
+        "status": "final",
+        "evidence": "Archived league status confirms completion of scoring period six and the matchup."
+      }
+    },
+    "idle_teams": {}
+  },
+  "assertions": [
+    {
+      "claim": "The supplied evidence has the expected certification outcome.",
+      "kind": "exit_code",
+      "equals": 0
+    },
+    {
+      "claim": "Certification status agrees with the process result.",
+      "kind": "json_equal",
+      "path": ["ok"],
+      "equals": true
+    },
+    {
+      "claim": "The certified winner comes from the aggregate result.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "winner_team_id"],
+      "equals": "11"
+    },
+    {
+      "claim": "The certified margin uses aggregate points.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "margin"],
+      "equals": "5.75"
+    },
+    {
+      "claim": "The selected week retains its own actuals.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "sides", "home", "weekly_points"],
+      "equals": "75.25"
+    },
+    {
+      "claim": "The series does not claim single-week full-population extrema.",
+      "kind": "json_equal",
+      "path": ["league_weekly_extrema"],
+      "equals": null
+    }
+  ]
+}

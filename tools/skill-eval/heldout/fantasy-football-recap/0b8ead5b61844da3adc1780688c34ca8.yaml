@@ -1,0 +1,103 @@
+{
+  "id": "0b8ead5b61844da3adc1780688c34ca8",
+  "prompt": "Audit an in-progress scoreboard with live actuals and projections before describing who is ahead.",
+  "input": {
+    "league": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "settings": {
+        "scheduleSettings": {
+          "matchupPeriods": {
+            "6": [6]
+          }
+        }
+      }
+    },
+    "teams": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "teams": [
+        {
+          "id": 11,
+          "name": "Copper Owls"
+        },
+        {
+          "id": 22,
+          "name": "Harbor Foxes"
+        }
+      ]
+    },
+    "scoreboard": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "week": 6,
+      "matchup_period": 6,
+      "matchups": [
+        {
+          "id": 601,
+          "matchupPeriodId": 6,
+          "winner": "HOME",
+          "home": {
+            "teamId": 11,
+            "totalPoints": "118.075",
+            "totalPointsLive": "130.250",
+            "totalProjectedPointsLive": "131.00"
+          },
+          "away": {
+            "teamId": 22,
+            "totalPoints": "118.025",
+            "totalPointsLive": "132.125",
+            "totalProjectedPointsLive": "120.00"
+          }
+        }
+      ]
+    },
+    "checks": {
+      "601": {
+        "status": "live",
+        "evidence": "The matchup remains in progress on the live league scoreboard."
+      }
+    },
+    "idle_teams": {}
+  },
+  "assertions": [
+    {
+      "claim": "The supplied evidence has the expected certification outcome.",
+      "kind": "exit_code",
+      "equals": 0
+    },
+    {
+      "claim": "Certification status agrees with the process result.",
+      "kind": "json_equal",
+      "path": ["ok"],
+      "equals": true
+    },
+    {
+      "claim": "A live result has no certified final winner.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "winner_team_id"],
+      "equals": null
+    },
+    {
+      "claim": "The live actual totals establish the away leader.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "leader_team_id"],
+      "equals": "22"
+    },
+    {
+      "claim": "The lead is computed from current actuals.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "lead"],
+      "equals": "1.875"
+    },
+    {
+      "claim": "Live populations have no certified final weekly extrema.",
+      "kind": "json_equal",
+      "path": ["league_weekly_extrema"],
+      "equals": null
+    }
+  ]
+}

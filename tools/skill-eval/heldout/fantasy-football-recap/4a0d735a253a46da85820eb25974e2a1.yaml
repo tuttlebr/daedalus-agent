@@ -1,0 +1,96 @@
+{
+  "id": "4a0d735a253a46da85820eb25974e2a1",
+  "prompt": "Reject a doubleheader snapshot that reports different weekly actuals for the same club.",
+  "input": {
+    "league": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "settings": {
+        "scheduleSettings": {
+          "matchupPeriods": {
+            "6": [6]
+          }
+        }
+      }
+    },
+    "teams": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "teams": [
+        {
+          "id": 11,
+          "name": "Copper Owls"
+        },
+        {
+          "id": 22,
+          "name": "Harbor Foxes"
+        },
+        {
+          "id": 33,
+          "name": "Granite Elk"
+        }
+      ]
+    },
+    "scoreboard": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "week": 6,
+      "matchup_period": 6,
+      "matchups": [
+        {
+          "id": 601,
+          "matchupPeriodId": 6,
+          "winner": "HOME",
+          "home": {
+            "teamId": 11,
+            "totalPoints": "118.075"
+          },
+          "away": {
+            "teamId": 22,
+            "totalPoints": "118.025"
+          }
+        },
+        {
+          "id": 602,
+          "matchupPeriodId": 6,
+          "winner": "HOME",
+          "home": {
+            "teamId": 11,
+            "totalPoints": "118.076"
+          },
+          "away": {
+            "teamId": 33,
+            "totalPoints": "97.250"
+          }
+        }
+      ]
+    },
+    "checks": {
+      "601": {
+        "status": "final",
+        "evidence": "Archived league status confirms completion of scoring period six and the matchup."
+      },
+      "602": {
+        "status": "final",
+        "evidence": "Archived league status confirms completion of scoring period six and the matchup."
+      }
+    },
+    "idle_teams": {}
+  },
+  "assertions": [
+    {
+      "claim": "The supplied evidence has the expected certification outcome.",
+      "kind": "exit_code",
+      "equals": 1
+    },
+    {
+      "claim": "Certification status agrees with the process result.",
+      "kind": "json_equal",
+      "path": ["ok"],
+      "equals": false
+    }
+  ]
+}

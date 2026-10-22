@@ -1,0 +1,93 @@
+{
+  "id": "207588b8b831459c87df7e0cc27d37d8",
+  "prompt": "Audit a scored matchup whose official-looking winner flag has no independent finality evidence.",
+  "input": {
+    "league": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "settings": {
+        "scheduleSettings": {
+          "matchupPeriods": {
+            "6": [6]
+          }
+        }
+      }
+    },
+    "teams": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "teams": [
+        {
+          "id": 11,
+          "name": "Copper Owls"
+        },
+        {
+          "id": 22,
+          "name": "Harbor Foxes"
+        }
+      ]
+    },
+    "scoreboard": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "week": 6,
+      "matchup_period": 6,
+      "matchups": [
+        {
+          "id": 601,
+          "matchupPeriodId": 6,
+          "winner": "HOME",
+          "home": {
+            "teamId": 11,
+            "totalPoints": "118.075"
+          },
+          "away": {
+            "teamId": 22,
+            "totalPoints": "118.025"
+          }
+        }
+      ]
+    },
+    "checks": {
+      "601": {
+        "status": "unconfirmed",
+        "evidence": "The source has scores and a winner flag but completion evidence is unavailable."
+      }
+    },
+    "idle_teams": {}
+  },
+  "assertions": [
+    {
+      "claim": "The supplied evidence has the expected certification outcome.",
+      "kind": "exit_code",
+      "equals": 0
+    },
+    {
+      "claim": "Certification status agrees with the process result.",
+      "kind": "json_equal",
+      "path": ["ok"],
+      "equals": true
+    },
+    {
+      "claim": "Unconfirmed evidence cannot certify a winner.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "winner_team_id"],
+      "equals": null
+    },
+    {
+      "claim": "Unconfirmed evidence cannot certify a winning margin.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "margin"],
+      "equals": null
+    },
+    {
+      "claim": "Unconfirmed results do not qualify for full final-population honors.",
+      "kind": "json_equal",
+      "path": ["league_weekly_extrema"],
+      "equals": null
+    }
+  ]
+}

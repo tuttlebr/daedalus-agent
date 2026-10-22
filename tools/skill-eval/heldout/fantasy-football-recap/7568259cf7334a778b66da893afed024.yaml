@@ -1,0 +1,87 @@
+{
+  "id": "7568259cf7334a778b66da893afed024",
+  "prompt": "Check the completed result for two clubs sharing a display name. Use stable team identities.",
+  "input": {
+    "league": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "settings": {
+        "scheduleSettings": {
+          "matchupPeriods": {
+            "6": [6]
+          }
+        }
+      }
+    },
+    "teams": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "teams": [
+        {
+          "id": 11,
+          "name": "Copper Owls"
+        },
+        {
+          "id": 22,
+          "name": "Copper Owls"
+        }
+      ]
+    },
+    "scoreboard": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "week": 6,
+      "matchup_period": 6,
+      "matchups": [
+        {
+          "id": 601,
+          "matchupPeriodId": 6,
+          "winner": "AWAY",
+          "home": {
+            "teamId": 11,
+            "totalPoints": "118.075"
+          },
+          "away": {
+            "teamId": 22,
+            "totalPoints": "122.125"
+          }
+        }
+      ]
+    },
+    "checks": {
+      "601": {
+        "status": "final",
+        "evidence": "Archived league status confirms completion of scoring period six and the matchup."
+      }
+    },
+    "idle_teams": {}
+  },
+  "assertions": [
+    {
+      "claim": "The supplied evidence has the expected certification outcome.",
+      "kind": "exit_code",
+      "equals": 0
+    },
+    {
+      "claim": "Certification status agrees with the process result.",
+      "kind": "json_equal",
+      "path": ["ok"],
+      "equals": true
+    },
+    {
+      "claim": "The winning team identity follows the higher away score.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "winner_team_id"],
+      "equals": "22"
+    },
+    {
+      "claim": "The winner name can be shared without changing identity.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "winner"],
+      "equals": "Copper Owls"
+    }
+  ]
+}

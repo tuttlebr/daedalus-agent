@@ -1,0 +1,98 @@
+{
+  "id": "e6e9c64c36fc4b52b9079f860a8a4b73",
+  "prompt": "Check a postseason bye and a verified inactive club while preserving complete league coverage.",
+  "input": {
+    "league": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "settings": {
+        "scheduleSettings": {
+          "matchupPeriods": {
+            "6": [6]
+          }
+        }
+      }
+    },
+    "teams": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "teams": [
+        {
+          "id": 11,
+          "name": "Copper Owls"
+        },
+        {
+          "id": 22,
+          "name": "Harbor Foxes"
+        }
+      ]
+    },
+    "scoreboard": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "week": 6,
+      "matchup_period": 6,
+      "matchups": [
+        {
+          "id": 601,
+          "matchupPeriodId": 6,
+          "winner": "HOME",
+          "home": {
+            "teamId": 11,
+            "totalPoints": null
+          },
+          "away": null
+        }
+      ]
+    },
+    "checks": {
+      "601": {
+        "status": "bye",
+        "evidence": "The published postseason bracket gives this club a bye."
+      }
+    },
+    "idle_teams": {
+      "22": "The published bracket identifies this club as eliminated."
+    }
+  },
+  "assertions": [
+    {
+      "claim": "The supplied evidence has the expected certification outcome.",
+      "kind": "exit_code",
+      "equals": 0
+    },
+    {
+      "claim": "Certification status agrees with the process result.",
+      "kind": "json_equal",
+      "path": ["ok"],
+      "equals": true
+    },
+    {
+      "claim": "A bye is not a played win.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "winner_team_id"],
+      "equals": null
+    },
+    {
+      "claim": "A bye has no winning margin.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "margin"],
+      "equals": null
+    },
+    {
+      "claim": "A bye score stays unknown when the source omits it.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "sides", "home", "weekly_points"],
+      "equals": null
+    },
+    {
+      "claim": "Idle populations do not earn whole-league final weekly extrema.",
+      "kind": "json_equal",
+      "path": ["league_weekly_extrema"],
+      "equals": null
+    }
+  ]
+}

@@ -160,3 +160,14 @@ the Makefile explicitly serializes `ci` because they share resources. A test
 environment failure is a blocker to explain or repair, not evidence of a product
 defect or permission to weaken the test. After passing final checks, repeat only
 checks affected by subsequent edits or new evidence.
+
+## Skill maintenance evidence
+
+Use [capture](../../../../tools/skill-capture/capture.py) for evidence-only observations
+and [evaluation](../../../../tools/skill-eval/evaluate.py) for paired helper checks.
+`make skill-eval-image` prepares the immutable runtime; `make eval` measures the
+installed and absent skill against committed baselines with no network access.
+Standard-library tests live in `tools/skill-capture/tests/` and
+`tools/skill-eval/tests/`. Require per-case results and independently held-out
+acceptance evidence for skill edits. Helper checks and syntax validation do not
+establish model behavior.

@@ -1,0 +1,94 @@
+{
+  "id": "24c5a84666644960817ef7283a8d0cf6",
+  "prompt": "Check an equal-score playoff result backed by the actual applied tiebreak rule.",
+  "input": {
+    "league": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "settings": {
+        "scheduleSettings": {
+          "matchupPeriods": {
+            "6": [6]
+          }
+        }
+      }
+    },
+    "teams": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "teams": [
+        {
+          "id": 11,
+          "name": "Copper Owls"
+        },
+        {
+          "id": 22,
+          "name": "Harbor Foxes"
+        }
+      ]
+    },
+    "scoreboard": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "week": 6,
+      "matchup_period": 6,
+      "matchups": [
+        {
+          "id": 601,
+          "matchupPeriodId": 6,
+          "winner": "AWAY",
+          "home": {
+            "teamId": 11,
+            "totalPoints": "104.125"
+          },
+          "away": {
+            "teamId": 22,
+            "totalPoints": "104.125"
+          }
+        }
+      ]
+    },
+    "checks": {
+      "601": {
+        "status": "final",
+        "evidence": "Archived league status confirms completion of scoring period six and the matchup.",
+        "tiebreaker": "Verified league postseason rule: the higher original playoff seed advances; the away club is seeded higher."
+      }
+    },
+    "idle_teams": {}
+  },
+  "assertions": [
+    {
+      "claim": "The supplied evidence has the expected certification outcome.",
+      "kind": "exit_code",
+      "equals": 0
+    },
+    {
+      "claim": "Certification status agrees with the process result.",
+      "kind": "json_equal",
+      "path": ["ok"],
+      "equals": true
+    },
+    {
+      "claim": "The winner follows the verified official tiebreak result.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "winner_team_id"],
+      "equals": "22"
+    },
+    {
+      "claim": "A tiebreak is distinguished from a points win.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "decision"],
+      "equals": "tiebreaker"
+    },
+    {
+      "claim": "A tiebreak win retains zero score margin.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "margin"],
+      "equals": "0"
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "id": "00896ee326b945dbb74d97e8f3ce7807",
+  "prompt": "Check the first week of a two-week series, keeping the weekly scoreboard separate from the series totals.",
+  "input": {
+    "league": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "settings": {
+        "scheduleSettings": {
+          "matchupPeriods": {
+            "6": [6, 7]
+          }
+        }
+      }
+    },
+    "teams": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "teams": [
+        {
+          "id": 11,
+          "name": "Copper Owls"
+        },
+        {
+          "id": 22,
+          "name": "Harbor Foxes"
+        }
+      ]
+    },
+    "scoreboard": {
+      "league_id": 784301,
+      "season": 2026,
+      "fetched_at": "2026-10-20T12:15:00Z",
+      "week": 6,
+      "matchup_period": 6,
+      "matchups": [
+        {
+          "id": 601,
+          "matchupPeriodId": 6,
+          "winner": "HOME",
+          "home": {
+            "teamId": 11,
+            "totalPoints": "189.25",
+            "pointsByScoringPeriod": {
+              "6": "89.25"
+            }
+          },
+          "away": {
+            "teamId": 22,
+            "totalPoints": "185.75",
+            "pointsByScoringPeriod": {
+              "6": "95.75"
+            }
+          }
+        }
+      ]
+    },
+    "checks": {
+      "601": {
+        "status": "live",
+        "evidence": "This is the first leg of an ongoing two-week series."
+      }
+    },
+    "idle_teams": {}
+  },
+  "assertions": [
+    {
+      "claim": "The supplied evidence has the expected certification outcome.",
+      "kind": "exit_code",
+      "equals": 0
+    },
+    {
+      "claim": "Certification status agrees with the process result.",
+      "kind": "json_equal",
+      "path": ["ok"],
+      "equals": true
+    },
+    {
+      "claim": "The series is recognized as multiweek.",
+      "kind": "json_equal",
+      "path": ["multiweek"],
+      "equals": true
+    },
+    {
+      "claim": "Weekly points come from the selected scoring period.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "sides", "away", "weekly_points"],
+      "equals": "95.75"
+    },
+    {
+      "claim": "The series aggregate remains separately labeled.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "sides", "away", "matchup_points"],
+      "equals": "185.75"
+    },
+    {
+      "claim": "The series leader follows aggregate scores.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "leader_team_id"],
+      "equals": "11"
+    },
+    {
+      "claim": "A live series leg has no final winner.",
+      "kind": "json_equal",
+      "path": ["matchups", 0, "winner_team_id"],
+      "equals": null
+    }
+  ]
+}

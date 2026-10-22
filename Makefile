@@ -54,7 +54,7 @@ help: ## show available targets
 deploy: ## build, verify, and deploy through the canonical development path
 	./deploy.sh $(DEPLOY_IMAGE_ARGS) $(DEPLOY_ARGS)
 
-ci: tools-check hooks builder test-integration frontend frontend-e2e rust-check rust-coverage helm redis-upgrade docker security ## run automatic CI jobs sequentially
+ci: tools-check hooks eval builder test-integration frontend frontend-e2e rust-check rust-coverage helm redis-upgrade docker security ## run automatic CI jobs sequentially
 
 hooks: ## run every pre-commit hook  (CI job: hooks)
 	cd frontend && npm ci --legacy-peer-deps
@@ -245,3 +245,11 @@ tools-check: ## verify required binaries, uv's Python 3.12 and Helm 3
 
 clean: ## remove generated test/scan artifacts
 	rm -f builder/coverage.xml builder/.coverage trivy-results.sarif $(TRIVY_RESULTS) $(TRIVY_INVENTORY) /tmp/daedalus-rendered.yaml /tmp/daedalus-rendered-custom.yaml
+
+.PHONY: eval skill-eval-image
+skill-eval-image: ## prepare the offline skill evaluation runtime (network may be needed)
+	docker pull --platform linux/amd64 python:3.12-slim@sha256:cb33f7f771ecec2ef1225cf39b159591a040391bd73e4c01f00fdfc4c47611d2
+
+eval: ## compare skill-on/off behavior against committed measurements without network
+	python3 tools/skill-eval/evaluate.py run --output .cache/skill-eval/report.json
+	python3 tools/skill-eval/gate.py

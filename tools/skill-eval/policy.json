@@ -1,0 +1,12 @@
+{
+  "max_edits_per_round": 3,
+  "max_rounds": 5,
+  "min_gain": 1,
+  "decay_days": 60,
+  "retrieval_top_k": 5,
+  "max_changed_lines": 60,
+  "changed_lines_reason": "Bound replacement size as well as count so one edit cannot replace an entire skill.",
+  "automatic_surfaces": {
+    "fantasy-football-recap": ["scripts/check_scoreboard.py"]
+  }
+}
