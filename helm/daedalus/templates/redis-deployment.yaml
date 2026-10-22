@@ -25,10 +25,14 @@ spec:
         # No deploy-timestamp here: `forceRedeploy` is a rollout nonce for the
         # application workloads. Redis runs one replica with Recreate, so a
         # restart per deployment would interrupt every session, stream and job
-        # and replay the AOF while all readiness probes fail. Auth and init
-        # changes still roll it through the checksums below.
+        # and replay the AOF while all readiness probes fail. Auth, TLS and
+        # init changes, including writes to external Secrets, still roll it
+        # through the checksums below.
         checksum/redis-auth-config: {{ include "daedalus.redisAuthConfigChecksum" . }}
         checksum/redis-init: {{ include (print $.Template.BasePath "/redis-init-configmap.yaml") . | sha256sum }}
+        {{- with include "daedalus.redisTlsSecretVersion" . }}
+        checksum/redis-tls: {{ . | sha256sum }}
+        {{- end }}
     spec:
       {{- include "daedalus.nodePlacement" (dict "Values" .Values "allowedArchitectures" .Values.redis.nodePlacement.allowedArchitectures) | nindent 6 }}
       automountServiceAccountToken: false

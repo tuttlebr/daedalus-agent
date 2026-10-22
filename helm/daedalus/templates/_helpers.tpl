@@ -116,12 +116,39 @@ the explicit tag. Call with: include "daedalus.image" .Values.images.backend
 {{- end -}}
 
 {{- /*
-Restart Redis and every in-chart client when Helm-managed ACL values change.
-External Secret contents are intentionally opaque to Helm and require the
-documented forceRedeploy value during rotation.
+Restart Redis and every in-chart client when the ACL configuration changes:
+Helm-managed values or, for redis.auth.existingSecret, the Secret's stored
+version, read at upgrade time. Redis ignores forceRedeploy, so this is what
+rolls it through a credential rotation.
 */ -}}
 {{- define "daedalus.redisAuthConfigChecksum" -}}
+{{- $version := include "daedalus.secretVersion" (dict "context" . "name" .Values.redis.auth.existingSecret) -}}
+{{- if $version -}}
+{{- dict "auth" .Values.redis.auth "existingSecretVersion" $version | toJson | sha256sum -}}
+{{- else -}}
 {{- toJson .Values.redis.auth | sha256sum -}}
+{{- end -}}
+{{- end -}}
+
+{{- /*
+The stored version (UID and resourceVersion) of a Secret the chart doesn't
+own; empty when the name is unset or the Secret can't be read, as when
+rendering without a cluster. Any write changes it, so rotating the Secret rolls
+its consumers without hashing its content.
+*/ -}}
+{{- define "daedalus.secretVersion" -}}
+{{- with .name -}}
+{{- $secret := lookup "v1" "Secret" $.context.Release.Namespace . -}}
+{{- if $secret -}}
+{{- printf "%s/%s" $secret.metadata.uid $secret.metadata.resourceVersion -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "daedalus.redisTlsSecretVersion" -}}
+{{- if .Values.redis.tls.enabled -}}
+{{- include "daedalus.secretVersion" (dict "context" . "name" (include "daedalus.redisTlsSecretName" .)) -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "daedalus.documentObjectSecretName" -}}

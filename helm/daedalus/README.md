@@ -187,10 +187,12 @@ credentials without a credential gap:
 3. Empty all former-password keys, force a final rollout, and verify every old
    credential is rejected.
 
-Run each rotation stage with `make deploy`; it supplies a fresh `forceRedeploy`
-value together with `--wait --atomic`. The same forced rollout is required after
-updating an externally managed Redis TLS Secret because Helm cannot hash Secret
-content it does not own.
+Run each rotation stage with `make deploy`. Helm reads the stored version of the
+external ACL and TLS Secrets during the upgrade and restarts Redis when either
+has changed since the last rollout. The application workloads restart through
+the fresh `forceRedeploy` value that `make deploy` supplies together with
+`--wait --atomic`. Renderers without cluster access, such as `helm template`,
+can't read those versions; with them, restart Redis after each stage.
 
 Rotate a Redis issuing CA without a trust gap in three forced rollouts:
 
@@ -362,7 +364,8 @@ They retain backend authentication requirements. Set
   so nginx's own per-IP limits do too. Without them, those limits apply to the
   Ingress address shared by every browser.
 - `make deploy` restarts the application workloads through `forceRedeploy`;
-  Redis is excluded and rolls only when its auth or init configuration changes.
+  Redis is excluded and rolls only when its image, init configuration, or auth
+  or TLS configuration changes, including writes to its external Secrets.
 - Document-object egress is isolated to the configured namespace, CIDRs, or
   FQDNs for the frontend. The stream worker has no object credential and can
   reach only DNS, Redis, and the backend. The backend also hosts arbitrary URL

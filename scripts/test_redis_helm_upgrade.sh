@@ -235,6 +235,12 @@ upgrade_redis() {
     "deployment/$FULLNAME-redis" --timeout=5m
 }
 
+redis_pod_uid() {
+  kubectl -n "$NAMESPACE" get pods \
+    -l "app.kubernetes.io/component=redis,app.kubernetes.io/instance=$RELEASE" \
+    -o jsonpath='{.items[*].metadata.uid}'
+}
+
 redis_cli() {
   local password="$1"
   shift
@@ -570,7 +576,17 @@ assert_plaintext_rejected "$OLD_PASSWORD"
 assert_mounted_certificate "$TLS_V1_DIR/tls.crt"
 assert_default_user_rejected "$OLD_PASSWORD"
 
-# Rotate the external ACL Secret without a credential gap. First add the new
+# A routine deploy changes only the forceRedeploy nonce. Redis keeps serving
+# through it; image, configuration and Secret changes are what restart it.
+REDIS_POD_UID="$(redis_pod_uid)"
+upgrade_redis "$NEW_REPOSITORY" "$NEW_TAG" "$NEW_DIGEST" IfNotPresent
+if [[ "$(redis_pod_uid)" != "$REDIS_POD_UID" ]]; then
+  echo "A routine upgrade restarted Redis" >&2
+  exit 1
+fi
+
+# Rotate the external ACL Secret without a credential gap. Helm reads the
+# Secret's version during each upgrade and restarts Redis when it changes. First add the new
 # credential as overlap while clients still use the old credential.
 apply_auth_secret "$OLD_PASSWORD" "$NEW_PASSWORD"
 upgrade_redis "$NEW_REPOSITORY" "$NEW_TAG" "$NEW_DIGEST" IfNotPresent
