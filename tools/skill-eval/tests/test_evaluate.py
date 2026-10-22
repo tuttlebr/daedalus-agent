@@ -3,6 +3,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location(
     "evaluate", Path(__file__).resolve().parents[1] / "evaluate.py"
@@ -22,6 +24,24 @@ class EvaluationTests(unittest.TestCase):
             evaluate.ROOT / "skills" / evaluate.SKILL / "evals/cases"
         )
         self.assertTrue(cases)
+
+    def test_identity_is_the_pinned_digest_in_either_image_store(self):
+        pinned = "sha256:" + "a" * 64
+        image = "python:3.12-slim@" + pinned
+        # The containerd store reports the index digest, the classic store the
+        # platform config digest; both run locally and record the pin.
+        for local in [pinned, "sha256:" + "b" * 64]:
+            inspected = SimpleNamespace(stdout=local + "\n")
+            with patch.object(evaluate.subprocess, "run", return_value=inspected):
+                self.assertEqual(evaluate.image_identity(image), (local, pinned))
+
+    def test_unpinned_override_records_the_local_image(self):
+        local = "sha256:" + "c" * 64
+        inspected = SimpleNamespace(stdout=local + "\n")
+        with patch.object(evaluate.subprocess, "run", return_value=inspected):
+            self.assertEqual(
+                evaluate.image_identity("python:3.12-slim"), (local, local)
+            )
 
     def test_missing_cases_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "No evaluation data"):

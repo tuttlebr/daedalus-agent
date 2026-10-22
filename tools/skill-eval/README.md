@@ -3,7 +3,9 @@
 `make eval` runs paired cases and writes `.cache/skill-eval/report.json` plus a
 terminal summary. Prepare the runtime once with `make skill-eval-image`; the suite
 itself uses `--pull=never --network=none`. Override `SKILL_EVAL_IMAGE` for an already
-cached compatible Python 3.12 image. No source credentials, home directory, Docker
+cached compatible Python 3.12 image. Measurements record the digest pinned in
+`runtime.json`, not the local image ID, which differs between Docker's
+containerd and classic image stores; an unpinned override records the local ID. No source credentials, home directory, Docker
 socket, evaluator, assertions, or sibling skills are mounted into the executor.
 
 This first adapter tests the real fantasy scoreboard helper's input/output and

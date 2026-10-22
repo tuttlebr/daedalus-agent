@@ -22,7 +22,9 @@ from common import (
     write_json,
 )
 from judge import grade
-from sandbox import image_identity
+
+# The bridge compares committed references against `image_identity`.
+from sandbox import image_identity, runtime  # noqa: F401
 
 BASELINE = HERE / "baseline.json"
 REFERENCE = HERE / "reference.json"
@@ -73,7 +75,9 @@ def group_report(rows, private=False, private_input=None):
 def run(mode, output, artifact_root):
     if mode in {"baseline", "reference"} and output.exists():
         raise ValueError("Refusing to overwrite a frozen measurement")
-    config, image, fingerprint = configuration(), image_identity(), identity()
+    config, fingerprint = configuration(), identity()
+    # Containers run by the local image ID; measurements record the pinned digest.
+    local, image = runtime()
     suites = {
         name: load_cases(HERE / folder)
         for name, folder in [("public", "cases"), ("heldout", "heldout")]
@@ -142,8 +146,8 @@ def run(mode, output, artifact_root):
             }
             for installed in [False] if mode == "baseline" else [False, True]:
                 condition = "installed" if installed else "absent"
-                episode = perform(case, installed, image, config)
-                measured = grade(case, episode, image)
+                episode = perform(case, installed, local, config)
+                measured = grade(case, episode, local)
                 # Detailed held-out traces belong to the independent judge, never the editor.
                 artifact = artifact_root / name / str(index) / (condition + ".json")
                 write_json(artifact, episode)

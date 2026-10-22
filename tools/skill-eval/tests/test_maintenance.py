@@ -20,8 +20,18 @@ import sandbox
 class MaintenanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.image = sandbox.image_identity()
+        cls.image = sandbox.runtime()[0]
         cls.case = common.load_cases(common.HERE / "cases")[0]
+
+    def test_runtime_records_the_pin_while_running_the_local_image(self):
+        pinned = json.loads((common.HERE.parent / "runtime.json").read_text())[
+            "image"
+        ].rpartition("@")[2]
+        classic = "sha256:" + "d" * 64
+        inspected = SimpleNamespace(stdout=classic + "\n")
+        with patch.object(sandbox.subprocess, "run", return_value=inspected):
+            self.assertEqual(sandbox.runtime(), (classic, pinned))
+            self.assertEqual(sandbox.image_identity(), pinned)
 
     def episode(self, fixed):
         files = dict(self.case["files"])

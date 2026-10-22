@@ -16,14 +16,27 @@ print(json.dumps({'exit_code': result.returncode, 'stdout': result.stdout, 'stde
 """
 
 
-def image_identity():
+def runtime():
+    """Return the local image ID to run and the identity to record.
+
+    `docker image inspect` reports a store-specific `.Id`: the containerd image
+    store returns the pulled index digest, the classic store the platform's
+    config digest. The pinned digest names the same content in both, so
+    measurements record it while containers run by the local ID.
+    """
     image = json.loads((HERE.parent / "runtime.json").read_text())["image"]
-    return subprocess.run(
+    local = subprocess.run(
         ["docker", "image", "inspect", image, "--format", "{{.Id}}"],
         check=True,
         capture_output=True,
         text=True,
     ).stdout.strip()  # nosec B603 B607
+    _, separator, pinned = image.rpartition("@")
+    return local, pinned if separator and pinned.startswith("sha256:") else local
+
+
+def image_identity():
+    return runtime()[1]
 
 
 def command(image, work, name):

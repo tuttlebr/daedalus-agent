@@ -235,16 +235,29 @@ def committed(path):
     return result.returncode == 0 and result.stdout == path.read_bytes()
 
 
-def run(skill, case_dir, image, mode="run", private=False):
-    cases = cases_at(case_dir)
-    case_hash = digest(json.dumps(cases, sort_keys=True).encode())
-    identity = subprocess.run(
+def image_identity(image):
+    """Return the local image ID to run and the identity to record.
+
+    `docker image inspect` reports a store-specific `.Id`: the containerd image
+    store returns the pulled index digest, the classic store the platform's
+    config digest. A digest-pinned reference names the same content in both,
+    so measurements record that digest; an unpinned override records the ID.
+    """
+    local = subprocess.run(
         ["docker", "image", "inspect", image, "--format", "{{.Id}}"],
         capture_output=True,
         text=True,
         check=True,
     ).stdout.strip()  # nosec B603 B607
-    rows = measure(cases, skill, identity, absent_only=mode == "baseline")
+    _, separator, pinned = image.rpartition("@")
+    return local, pinned if separator and pinned.startswith("sha256:") else local
+
+
+def run(skill, case_dir, image, mode="run", private=False):
+    cases = cases_at(case_dir)
+    case_hash = digest(json.dumps(cases, sort_keys=True).encode())
+    local, identity = image_identity(image)
+    rows = measure(cases, skill, local, absent_only=mode == "baseline")
     score = (
         None
         if mode == "baseline"
