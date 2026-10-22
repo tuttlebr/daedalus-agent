@@ -3,7 +3,7 @@ module.exports = {
   singleQuote: true,
   // The offline skill evaluator reads the strict JSON subset of YAML.
   overrides: [
-    { files: '**/skills/*/evals/**/*.yaml', options: { parser: 'json' } },
+    { files: '../skills/*/evals/**/*.yaml', options: { parser: 'json' } },
   ],
   plugins: [
     'prettier-plugin-tailwindcss',

@@ -17,6 +17,12 @@ class EvaluationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
+    def test_bundled_case_files_remain_readable_after_formatting(self):
+        cases = evaluate.cases_at(
+            evaluate.ROOT / "skills" / evaluate.SKILL / "evals/cases"
+        )
+        self.assertTrue(cases)
+
     def test_missing_cases_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "No evaluation data"):
             evaluate.cases_at(self.root)

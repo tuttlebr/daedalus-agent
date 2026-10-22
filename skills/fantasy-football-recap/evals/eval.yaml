@@ -1,9 +1,9 @@
 {
-  'schema': 1,
-  'skill': 'fantasy-football-recap',
-  'executor': 'scoreboard-helper',
-  'scope': 'Offline helper behavior only; language-model behavior is not run.',
-  'cases': 'cases/*.yaml',
-  'assertions': 'exit_code and json_equal; all claims must pass for one rubric point',
-  'protected': true,
+  "schema": 1,
+  "skill": "fantasy-football-recap",
+  "executor": "scoreboard-helper",
+  "scope": "Offline helper behavior only; language-model behavior is not run.",
+  "cases": "cases/*.yaml",
+  "assertions": "exit_code and json_equal; all claims must pass for one rubric point",
+  "protected": true
 }

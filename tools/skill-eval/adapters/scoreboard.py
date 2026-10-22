@@ -11,12 +11,13 @@ request = json.loads(sys.stdin.read())
 Path("/work/snapshot.json").write_text(json.dumps(request["input"]))
 script = Path("/skill/scripts/check_scoreboard.py")
 if not script.is_file():
-    print(
+    output = (
         json.dumps({"ok": False, "status": "not run", "reason": "skill helper absent"})
+        + "\n"
     )
-    Path("/work/execution.json").write_text(json.dumps({"exit_code": 2}))
+    print(json.dumps({"exit_code": 2, "stdout": output, "stderr": ""}))
     sys.exit(0)
-result = subprocess.run(  # nosec B603 - fixed interpreter and mounted helper
+result = subprocess.run(  # nosec B603
     [sys.executable, "-I", str(script), "/work/snapshot.json"],
     capture_output=True,
     text=True,
@@ -24,7 +25,14 @@ result = subprocess.run(  # nosec B603 - fixed interpreter and mounted helper
     check=False,
 )
 Path("/work/result.json").write_text(result.stdout or result.stderr)
-sys.stdout.write(result.stdout)
-sys.stderr.write(result.stderr)
-Path("/work/execution.json").write_text(json.dumps({"exit_code": result.returncode}))
-sys.exit(0)
+# The adapter owns this channel. Candidate-writable files never supply process
+# status. Extra output injected through /proc fails the single-JSON parser.
+print(
+    json.dumps(
+        {
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+    )
+)

@@ -152,7 +152,17 @@ def execute(case, skill, image):
             )
             if completed.returncode != 0:
                 raise RuntimeError("Executor failed; task score not run")
-            exit_code = json.loads((work / "execution.json").read_text())["exit_code"]
+            envelope = json.loads(completed.stdout)
+            if (
+                not isinstance(envelope, dict)
+                or set(envelope) != {"exit_code", "stdout", "stderr"}
+                or type(envelope["exit_code"]) is not int
+                or not isinstance(envelope["stdout"], str)
+                or not isinstance(envelope["stderr"], str)
+                or completed.stderr
+            ):
+                raise RuntimeError("Invalid executor envelope; task score not run")
+            exit_code = envelope["exit_code"]
         finally:
             subprocess.run(
                 ["docker", "rm", "-f", container_name],
@@ -161,7 +171,7 @@ def execute(case, skill, image):
                 check=False,
             )  # nosec B603 B607
         try:
-            document = json.loads(completed.stdout or completed.stderr)
+            document = json.loads(envelope["stdout"] or envelope["stderr"])
         except ValueError:
             document = None
         assertions = []
@@ -195,7 +205,7 @@ def execute(case, skill, image):
             "pass": all(assertions),
             "assertions": assertions,
             "exit_code": exit_code,
-            "output_sha256": digest((completed.stdout + completed.stderr).encode()),
+            "output_sha256": digest((envelope["stdout"] + envelope["stderr"]).encode()),
         }
 
 

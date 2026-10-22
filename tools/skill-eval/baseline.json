@@ -3,7 +3,7 @@
   "scope": "scripted-helper behavior; language-model behavior: not run",
   "case_sha256": "73fcbbb94f60b467de7cd41033d4d90b9c51d1855d1967175d939aaf167605d7",
   "skill_sha256": "94010fb6a2f85b6461f0ae722956b65745a9ce6ca5df9fa32f832150197b491d",
-  "adapter_sha256": "1f5637b1d554545d851acf3e6d9e98cb5a21ed8a4f943600b00668eaf1bc86ea",
+  "adapter_sha256": "7afb4ecb56cebf2d960f48527ee4229e1a9e9e129bec729e1621e700a7c4e04e",
   "image": "sha256:cb33f7f771ecec2ef1225cf39b159591a040391bd73e4c01f00fdfc4c47611d2",
   "score": null,
   "possible": 4,
