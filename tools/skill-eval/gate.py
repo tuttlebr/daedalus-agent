@@ -4,6 +4,7 @@
 import argparse
 import ast
 import hashlib
+import importlib.util
 import json
 import subprocess  # nosec B404
 import sys
@@ -154,6 +155,11 @@ def check_changed_skills(base):
     ).stdout.splitlines()  # nosec B603 B607
     for name in changed:
         parts = Path(name).parts
+        if any(
+            name.startswith(row["root"] + "/")
+            for row in POLICY.get("reviewed_surfaces", {}).values()
+        ):
+            continue
         if parts[0] != "skills" or len(parts) < 3:
             raise ReviewRequired(
                 "Changed maintenance instructions require independent review"
@@ -170,6 +176,13 @@ def check_changed_skills(base):
         if not (ROOT / name).is_file():
             raise ReviewRequired("Skill deletion is forbidden; archive instead")
         validate_code(ROOT / name)
+    # Inspect every commit, including edits hidden by a later net-zero change.
+    spec = importlib.util.spec_from_file_location(
+        "reviewed_gate", HERE / "reviewed_gate.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.check_commit_range(revision, root=ROOT)
 
 
 def main():

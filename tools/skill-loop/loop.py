@@ -80,9 +80,22 @@ def append_log(path, record):
     return payload
 
 
-def run(proposals, history, max_rounds=5):
+def run(proposals, history, max_rounds=5, allow_model_network=False):
     if not 1 <= max_rounds <= gate.POLICY["max_rounds"]:
         raise ValueError("max_rounds must be within the fixed policy cap")
+    if proposals[0].get("skill") in gate.POLICY.get("reviewed_surfaces", {}):
+        reviewed = reviewed_module()
+        if history.resolve() != (ROOT / ".learnings/rounds.jsonl").resolve():
+            raise ValueError("Reviewed rounds use the fixed rejection history")
+        with reviewed.locked(ROOT):
+            return reviewed.run(
+                proposals[:max_rounds],
+                history,
+                append_log,
+                read_log,
+                edit_text,
+                allow_model_network,
+            )
     if git("status", "--porcelain", "--untracked-files=no"):
         raise ValueError("Start from a clean committed repository")
     identity = gate.fingerprint()
@@ -270,19 +283,50 @@ def run(proposals, history, max_rounds=5):
     return result
 
 
+def reviewed_module():
+    spec = importlib.util.spec_from_file_location(
+        "reviewed_loop", ROOT / "tools/skill-loop/reviewed.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("proposals", type=Path)
+    parser.add_argument("proposals", type=Path, nargs="?")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--review", metavar="ROUND_ID")
+    action.add_argument("--accept", metavar="ROUND_ID")
+    action.add_argument("--reject", metavar="ROUND_ID")
+    parser.add_argument("--approval-source")
+    parser.add_argument("--allow-model-network", action="store_true")
     parser.add_argument(
         "--history", type=Path, default=ROOT / ".learnings/rounds.jsonl"
     )
     parser.add_argument("--max-rounds", type=int, default=gate.POLICY["max_rounds"])
     args = parser.parse_args()
     try:
+        if args.approval_source and not args.review:
+            raise ValueError("--approval-source belongs to --review only")
+        for command in ["review", "accept", "reject"]:
+            identifier = getattr(args, command)
+            if identifier:
+                if args.proposals or args.history != ROOT / ".learnings/rounds.jsonl":
+                    raise ValueError(
+                        "Review actions use a round ID and fixed history only"
+                    )
+                result = reviewed_module().action(
+                    command, identifier, args.approval_source, append_log
+                )
+                print(json.dumps(result, indent=2))
+                return 0
+        if not args.proposals:
+            raise ValueError("Supply proposals or a review action")
         proposals = json.loads(args.proposals.read_text())
         if not isinstance(proposals, list) or not proposals:
             raise ValueError("Supply a nonempty proposal list")
-        result = run(proposals, args.history, args.max_rounds)
+        result = run(proposals, args.history, args.max_rounds, args.allow_model_network)
         print(json.dumps(result, indent=2))
         return (
             2
@@ -292,7 +336,7 @@ def main():
             else 0
         )
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
-        parser.exit(2, f"loop stopped; score not run: {exc}\n")
+        parser.exit(2, f"loop blocked: {exc}\n")
 
 
 if __name__ == "__main__":

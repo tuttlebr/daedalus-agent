@@ -45,3 +45,11 @@ to the editor. If exposed, retire that holdout and obtain an independently autho
 replacement. A general editor with unrestricted host access is outside this trust
 boundary; production enforcement needs a separate judge account/runner and a
 required branch check. A local report file is evidence, not an unforgeable approval.
+
+The repository maintenance skill has a separate
+[reviewed optimization path](../skill-loop/README.md#repository-maintenance-skill).
+`maintenance_bridge.py` supplies registered candidate skill bytes to the unchanged
+maintenance evaluator. Its output paths are restricted to fresh controller-owned
+cache files; it cannot overwrite a committed baseline or reference. The reviewed
+gate keeps human approval outside the editor, binds it to the measured diff, and
+validates the resulting commit receipt in the existing CI admission command.

@@ -8,5 +8,12 @@
   "changed_lines_reason": "Bound replacement size as well as count so one edit cannot replace an entire skill.",
   "automatic_surfaces": {
     "fantasy-football-recap": ["scripts/check_scoreboard.py"]
+  },
+  "reviewed_surfaces": {
+    "daedalus-review-and-remediate": {
+      "root": ".agents/skills/daedalus-review-and-remediate",
+      "files": ["SKILL.md", "references/repository-guide.md"],
+      "dimension": "verification-reporting"
+    }
   }
 }
