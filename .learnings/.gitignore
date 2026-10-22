@@ -1,2 +1,4 @@
 .lock
 .capture-*
+state/
+promotion-backups/

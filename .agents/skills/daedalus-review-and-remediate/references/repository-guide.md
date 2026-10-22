@@ -167,7 +167,10 @@ Use [capture](../../../../tools/skill-capture/capture.py) for evidence-only obse
 and [evaluation](../../../../tools/skill-eval/evaluate.py) for paired helper checks.
 `make skill-eval-image` prepares the immutable runtime; `make eval` measures the
 installed and absent skill against committed baselines with no network access.
-Standard-library tests live in `tools/skill-capture/tests/` and
-`tools/skill-eval/tests/`. Require per-case results and independently held-out
-acceptance evidence for skill edits. Helper checks and syntax validation do not
-establish model behavior.
+The offline CI job runs standard-library tests in `tools/skill-capture/tests/`,
+`tools/skill-eval/tests/`, `tools/skill-loop/tests/`, and `tools/skill-memory/tests/`.
+Use the [bounded loop](../../../../tools/skill-loop/README.md) only for skills with
+evaluation data, and [task-start retrieval](../../../../tools/skill-memory/README.md)
+for budgeted, provenance-linked skill context and reviewed promotion.
+Require per-case results and independently held-out acceptance evidence for skill
+edits. Helper checks and syntax validation do not establish model behavior.

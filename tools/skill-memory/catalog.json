@@ -1,0 +1,107 @@
+[
+  {
+    "name": "bubblewrap-agent-workflow",
+    "path": "skills/bubblewrap-agent-workflow/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/2a988f4b99d0d1195b80adcfc6db146e3f943188/skills/bubblewrap-agent-workflow",
+    "pinned": true
+  },
+  {
+    "name": "creative-ideation",
+    "path": "skills/creative-ideation/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/9bec6ddb9737cfa3698cb900b9e51ea1f4bcd759/skills/creative-ideation",
+    "pinned": false
+  },
+  {
+    "name": "daily-summary",
+    "path": "skills/daily-summary/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/33fc5ffa27d9dee56f0b298bcafe1e2bb034c0f1/skills/daily-summary",
+    "pinned": false
+  },
+  {
+    "name": "devops-engineer",
+    "path": "skills/devops-engineer/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/21d36bf30598c5a00020dd952f4392a51b304eb4/skills/devops-engineer",
+    "pinned": true
+  },
+  {
+    "name": "email-inbox-triage",
+    "path": "skills/email-inbox-triage/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/21d36bf30598c5a00020dd952f4392a51b304eb4/skills/email-inbox-triage",
+    "pinned": false
+  },
+  {
+    "name": "espn-fantasy-football",
+    "path": "skills/espn-fantasy-football/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/6508a3354e643ee25d3e8da3fcb21275a6bbe1a2/skills/espn-fantasy-football",
+    "pinned": false
+  },
+  {
+    "name": "fantasy-football-recap",
+    "path": "skills/fantasy-football-recap/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/3c0de808c4810c3cbf130a8817bf60820d61896b/skills/fantasy-football-recap",
+    "pinned": false
+  },
+  {
+    "name": "image-creation",
+    "path": "skills/image-creation/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/f61ad643a0228258c18244079d1226344d9b1043/skills/image-creation",
+    "pinned": false
+  },
+  {
+    "name": "kubernetes-specialist",
+    "path": "skills/kubernetes-specialist/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/21d36bf30598c5a00020dd952f4392a51b304eb4/skills/kubernetes-specialist",
+    "pinned": true
+  },
+  {
+    "name": "last30days",
+    "path": "skills/last30days/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/d96e33389e7352bddbecdc8603da766c0a8763b3/skills/last30days",
+    "pinned": false
+  },
+  {
+    "name": "network-health-check",
+    "path": "skills/network-health-check/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/f61ad643a0228258c18244079d1226344d9b1043/skills/network-health-check",
+    "pinned": true
+  },
+  {
+    "name": "unifi-network",
+    "path": "skills/unifi-network/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/9bec6ddb9737cfa3698cb900b9e51ea1f4bcd759/skills/unifi-network",
+    "pinned": true
+  },
+  {
+    "name": "unifi-network-setup",
+    "path": "skills/unifi-network-setup/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/9bec6ddb9737cfa3698cb900b9e51ea1f4bcd759/skills/unifi-network-setup",
+    "pinned": true
+  },
+  {
+    "name": "use-hue-api",
+    "path": "skills/use-hue-api/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/9bec6ddb9737cfa3698cb900b9e51ea1f4bcd759/skills/use-hue-api",
+    "pinned": false
+  },
+  {
+    "name": "daedalus-review-and-remediate",
+    "path": ".agents/skills/daedalus-review-and-remediate/SKILL.md",
+    "provenance": "derived",
+    "source": "https://github.com/tuttlebr/daedalus-agent/tree/fa61189d7a7889a4d0c6e604c1875408bad1ee56/.agents/skills/daedalus-review-and-remediate",
+    "pinned": false
+  }
+]

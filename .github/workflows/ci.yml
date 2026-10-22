@@ -25,6 +25,9 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/skill-capture/tests -v
           python3 -m unittest discover -s tools/skill-eval/tests -v
+          python3 -m unittest discover -s tools/skill-loop/tests -v
+          python3 -m unittest discover -s tools/skill-memory/tests -v
+          python3 tools/skill-memory/memory.py check
           make eval
       - name: Check changed skill admission
         if: github.event_name == 'pull_request'
