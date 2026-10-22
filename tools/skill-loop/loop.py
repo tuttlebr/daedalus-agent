@@ -92,7 +92,7 @@ def run(proposals, history, max_rounds=5):
         for row in prior
         if row["decision"] in {"reverted", "rejected"}
     }
-    result = {"accepted": [], "rounds": [], "stop": "max_rounds", "gain": 0}
+    result = {"accepted": [], "rounds": [], "stop": "max_rounds", "gain": "not run"}
     worktree = None
     skill = None
     previous = None
@@ -177,6 +177,8 @@ def run(proposals, history, max_rounds=5):
             after = gate.evaluate(skill, worktree / "skills" / skill)
             record["after"] = after["score"]
             gain = after["score"] - before
+            if result["gain"] == "not run":
+                result["gain"] = 0
             private = gate.evaluate(skill, worktree / "skills" / skill, private=True)
             record["heldout"] = private
             accepted = (
@@ -284,7 +286,9 @@ def main():
         print(json.dumps(result, indent=2))
         return (
             2
-            if result["stop"] in {"rejected", "review_required"} or result["gain"] <= 0
+            if result["stop"] in {"rejected", "review_required"}
+            or result["gain"] == "not run"
+            or result["gain"] <= 0
             else 0
         )
     except (ValueError, OSError, subprocess.SubprocessError) as exc:

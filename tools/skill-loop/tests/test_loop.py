@@ -53,6 +53,7 @@ class LoopTests(unittest.TestCase):
             self.assertEqual(paths[0].read_text(), "x = 1\n")
             self.assertEqual(result["rounds"][0]["decision"], "rejected")
             self.assertEqual(result["rounds"][0]["after"], "not run")
+            self.assertEqual(result["gain"], "not run")
 
     def test_repeated_rejection_never_runs_another_evaluation(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -81,6 +82,22 @@ class LoopTests(unittest.TestCase):
             ) as judge:
                 result = loop.run([proposal], history)
             self.assertEqual(result["stop"], "repeated_rejection")
+            self.assertEqual(result["gain"], "not run")
+            judge.assert_not_called()
+
+    def test_blocked_high_risk_proposal_has_no_measured_gain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proposal = {
+                "skill": "network-health-check",
+                "idea": "review-demo",
+                "edits": [{"path": "SKILL.md", "old": "before", "new": "after"}],
+            }
+            with patch.object(loop, "git", return_value=""), patch.object(
+                loop.gate, "evaluate"
+            ) as judge:
+                result = loop.run([proposal], Path(directory) / "history.jsonl")
+            self.assertEqual(result["stop"], "review_required")
+            self.assertEqual(result["gain"], "not run")
             judge.assert_not_called()
 
     def test_history_detects_tampering_and_retains_rejections(self):
