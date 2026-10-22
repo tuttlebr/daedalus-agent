@@ -25,8 +25,8 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   edges, so Safari's title bar, the toolbar edge and the composer edge meet
   one flat canvas color. Phones and keyboard layouts keep the composer below
   the messages.
-- Window geometry: floating panels (the sidebar and the Create inspector)
-  keep one 8px inset from the window. On pointer devices their corners are
+- Window geometry: floating panels (the sidebar, the Create inspector and a
+  fullscreen document's page) keep one 8px inset from the window. On pointer devices their corners are
   concentric with the window's (Safari web-app windows on macOS 26 round at
   about 16px, so panels use 8px); touch layouts keep the sheet radius. The
   resize divider covers the gap beside the sidebar instead of adding width.
@@ -80,6 +80,13 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   optional status, a description, and commands that move into the toolbar on
   wide windows. View switches and filters share one segmented control: a
   raised thumb on a tinted track, or a glass group inside the toolbar.
+- An HTML response names itself and holds all its commands, including View
+  fullscreen, in one header inside its message, and its page's corners are
+  concentric with the bubble's. In a narrow message the command labels give
+  way to icons before the title is squeezed. The fullscreen viewer has one
+  toolbar placed like the window toolbar: the title, the document's commands
+  in a glass group and a Close circle. Its HTML page floats below at the
+  window inset; Markdown scrolls beneath a scroll edge instead of a divider.
 - Each conversation has one More button whose menu offers Rename, Download
   Activity and Delete. The menu is a top-layer popover with arrow-key
   navigation; Escape and canceled actions return focus to the More button.
@@ -198,7 +205,7 @@ five destinations in light/dark appearance, enlarged text, reduced motion,
 increased contrast, navigation state, and modal keyboard behavior. Axe checks
 WCAG A/AA rules in each destination. Screenshots are saved with test results.
 The existing `ui-layout.spec.ts` checks the mobile keyboard and fullscreen
-HTML/Markdown. The agentic suite covers authenticated streaming, cancellation,
+HTML/Markdown, including the viewer's single toolbar and window inset. The agentic suite covers authenticated streaming, cancellation,
 uploads, approvals, and recovery against isolated test services.
 
 The browser matrix includes desktop Chromium, 402px Chromium and WebKit,

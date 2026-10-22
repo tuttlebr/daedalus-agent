@@ -1,4 +1,4 @@
-import { FC } from 'react';
+import { FC, ReactNode } from 'react';
 
 import dynamic from 'next/dynamic';
 
@@ -9,6 +9,8 @@ interface Props {
   value: string;
   defaultPreview?: boolean;
   fullscreen?: boolean;
+  documentTitle?: string;
+  actions?: ReactNode;
 }
 
 // Lazy load the CodeBlock component

@@ -582,6 +582,40 @@ svg.tabler-icon {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+/* The document viewer's toolbar sits where the window toolbar does: the
+   compact header's margin on phones, the window inset on wider screens. */
+.document-viewer-toolbar {
+  gap: var(--app-inset);
+  padding: 0.75rem;
+}
+@media (min-width: 768px) {
+  .document-viewer-toolbar {
+    padding: var(--app-inset);
+  }
+}
+/* Markdown scrolls below the toolbar; a scroll edge fades it out there. */
+.document-viewer-toolbar[data-kind='markdown']::after {
+  content: '';
+  position: absolute;
+  inset: 100% 0 -1rem;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--app) / var(--scroll-edge-strength)),
+    rgb(var(--app) / 0)
+  );
+}
+/* An HTML document floats below the toolbar as the sidebar does beside it:
+   one window inset, and corners concentric with the window. It stacks above
+   the toolbar so the controls' glass shadows fall on the canvas, not the
+   page. */
+.document-viewer-body {
+  --document-radius: var(--panel-radius);
+  position: relative;
+  z-index: 20;
+  padding: 0 var(--app-inset)
+    max(var(--app-inset), var(--safe-area-inset-bottom));
+}
 .app-dialog-panel:has(.app-sidebar) {
   height: 100%;
   border-radius: 0;
@@ -1278,6 +1312,27 @@ body:has(dialog[open]) .app-install-prompt {
   background: var(--bg-surface-raised);
   border: 1px solid var(--border-subtle);
   border-radius: 0.75rem;
+}
+/* A response document's frame. Its container sets the radius: in a message,
+   the bubble's 1.5rem corners less its 1rem padding. */
+.codeblock.codeblock-document-frame {
+  overflow: hidden;
+  border-radius: var(--document-radius, 0.5rem);
+}
+/* In a narrow message the document's command labels give way to icons
+   before its title is squeezed; the names remain for assistive technology. */
+.codeblock-document-header {
+  container: codeblock-header / inline-size;
+}
+@container codeblock-header (max-width: 24rem) {
+  .codeblock-control-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 .codeblock pre,
 .codeblock code {

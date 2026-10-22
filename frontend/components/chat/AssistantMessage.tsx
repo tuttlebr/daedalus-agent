@@ -27,6 +27,7 @@ import { parseMcpApprovalMarker } from '@/utils/app/mcpApproval';
 import { Message } from '@/types/chat';
 
 import type { ActivityProgress } from '@/components/agent/IntermediateSteps';
+import { ToolbarSlotProvider } from '@/components/layout/ToolbarSlot';
 import { Avatar, IconButton, Badge } from '@/components/primitives';
 import { ModalSurface } from '@/components/surfaces';
 
@@ -78,6 +79,9 @@ export const AssistantMessage = memo(
     const [copied, setCopied] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [viewerToolbar, setViewerToolbar] = useState<HTMLElement | null>(
+      null,
+    );
     const [needsCollapse, setNeedsCollapse] = useState(false);
     const contentRef = useRef<HTMLDivElement>(null);
     const enableIntermediateSteps = useUISettingsStore(
@@ -143,15 +147,16 @@ export const AssistantMessage = memo(
     };
 
     const feedClasses = 'autonomous-feed-render max-w-none';
-    const showDocumentHeader = !isStreaming && responseDocument.kind === 'html';
-    const fullscreenButton = (
+    const isHtmlDocument = !isStreaming && responseDocument.kind === 'html';
+    // The icon matches the commands beside it in size and colour.
+    const fullscreenButton = (iconSize: number) => (
       <button
         type="button"
         onClick={() => setIsFullscreen(true)}
-        className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-lg text-dark-text-muted transition-colors hover:bg-fill/[0.04] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-9 md:w-9"
+        className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-lg text-primary transition-colors hover:bg-fill/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-9 md:w-9"
         aria-label="View fullscreen"
       >
-        <IconMaximize size={14} />
+        <IconMaximize size={iconSize} />
       </button>
     );
 
@@ -234,17 +239,6 @@ export const AssistantMessage = memo(
                     isStreaming && 'border-nvidia-green/20',
                   )}
                 >
-                  {/* HTML documents name their format above the preview. */}
-                  {showDocumentHeader && (
-                    <div className="flex items-center justify-between mb-2 pb-2 border-b border-separator/70">
-                      <div className="flex min-w-0 items-center gap-2 text-xs text-dark-text-muted">
-                        <IconFileText size={14} className="text-nvidia-green" />
-                        <span className="truncate">HTML preview</span>
-                      </div>
-                      {fullscreenButton}
-                    </div>
-                  )}
-
                   {/* Collapsible content wrapper */}
                   <div
                     ref={contentRef}
@@ -271,6 +265,9 @@ export const AssistantMessage = memo(
                           isAutonomousFeedHtml
                             ? feedClasses
                             : RESPONSE_PROSE_CLASSES
+                        }
+                        documentActions={
+                          isHtmlDocument ? fullscreenButton(18) : undefined
                         }
                       />
                     )}
@@ -309,7 +306,7 @@ export const AssistantMessage = memo(
                           </>
                         )}
                       </button>
-                      {fullscreenButton}
+                      {fullscreenButton(14)}
                     </div>
                   )}
                 </div>
@@ -373,7 +370,9 @@ export const AssistantMessage = memo(
           )}
         </div>
 
-        {/* Fullscreen document viewer */}
+        {/* Fullscreen document viewer. One toolbar names the document and
+            holds every command, as the window toolbar does; an HTML
+            document's own commands join it through the toolbar slot. */}
         <ModalSurface
           open={isFullscreen}
           onClose={() => setIsFullscreen(false)}
@@ -382,58 +381,66 @@ export const AssistantMessage = memo(
           className="flex h-full w-full flex-col bg-dark-bg-primary"
           backdropClassName="bg-dark-bg-primary/95"
         >
-          {/* Toolbar */}
-          <div className="flex min-h-14 flex-shrink-0 items-center justify-between border-b border-separator/70 px-3 py-3 md:px-6">
-            <div className="flex items-center gap-2 text-sm text-dark-text-muted">
-              <IconFileText size={16} className="text-nvidia-green" />
-              <span>
+          <div
+            data-kind={responseDocument.kind}
+            className="document-viewer-toolbar relative z-10 flex flex-shrink-0 items-center"
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-2 pl-2 text-sm font-medium text-dark-text-primary">
+              <IconFileText
+                size={16}
+                className="flex-shrink-0 text-nvidia-green"
+              />
+              <span className="truncate">
                 {responseDocument.kind === 'html'
-                  ? 'HTML document'
-                  : 'Document view'}
+                  ? 'HTML Document'
+                  : 'Document View'}
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div ref={setViewerToolbar} className="contents" />
+            {responseDocument.kind !== 'html' && (
               <IconButton
                 icon={copied ? <IconCheck /> : <IconCopy />}
                 aria-label="Copy content"
                 variant="ghost"
-                size="sm"
+                className="app-chrome app-toolbar-button"
                 onClick={handleCopy}
               />
-              <IconButton
-                icon={<IconMinimize />}
-                aria-label="Close fullscreen"
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsFullscreen(false)}
-              />
-            </div>
+            )}
+            <IconButton
+              icon={<IconMinimize />}
+              aria-label="Close fullscreen"
+              variant="ghost"
+              className="app-chrome app-toolbar-button"
+              onClick={() => setIsFullscreen(false)}
+            />
           </div>
 
-          <div
-            className={classNames(
-              'safe-bottom min-h-0 flex-1',
-              responseDocument.kind === 'html'
-                ? 'p-2 md:p-4'
-                : 'overflow-y-auto px-4 py-5 md:px-12 md:py-6 lg:px-24',
-            )}
-          >
+          <ToolbarSlotProvider value={viewerToolbar}>
             <div
               className={classNames(
+                'min-h-0 flex-1',
                 responseDocument.kind === 'html'
-                  ? 'h-full min-h-0 w-full'
-                  : 'mx-auto max-w-4xl',
+                  ? 'document-viewer-body'
+                  : 'safe-bottom overflow-y-auto px-4 py-5 md:px-12 md:py-6 lg:px-24',
               )}
             >
-              <ResponseDocument
-                document={responseDocument}
-                messageIndex={messageIndex}
-                messageId={message.id}
-                className={RESPONSE_PROSE_CLASSES}
-                fullscreen
-              />
+              <div
+                className={classNames(
+                  responseDocument.kind === 'html'
+                    ? 'h-full min-h-0 w-full'
+                    : 'mx-auto max-w-4xl',
+                )}
+              >
+                <ResponseDocument
+                  document={responseDocument}
+                  messageIndex={messageIndex}
+                  messageId={message.id}
+                  className={RESPONSE_PROSE_CLASSES}
+                  fullscreen
+                />
+              </div>
             </div>
-          </div>
+          </ToolbarSlotProvider>
         </ModalSurface>
       </div>
     );

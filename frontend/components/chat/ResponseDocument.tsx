@@ -34,6 +34,8 @@ interface ResponseDocumentProps {
   messageId?: string;
   className?: string;
   fullscreen?: boolean;
+  /** Commands that join an HTML document's header, such as View fullscreen. */
+  documentActions?: React.ReactNode;
   /**
    * While tokens are still arriving, completed top-level blocks keep their
    * rendered output and only the growing tail is parsed again, and the
@@ -89,6 +91,7 @@ export const ResponseDocument = memo(
     messageId,
     className = RESPONSE_PROSE_CLASSES,
     fullscreen = false,
+    documentActions,
     isStreaming = false,
   }: ResponseDocumentProps) => {
     if (document.kind === 'html') {
@@ -98,6 +101,8 @@ export const ResponseDocument = memo(
           value={document.content}
           defaultPreview
           fullscreen={fullscreen}
+          documentTitle="HTML Preview"
+          actions={documentActions}
         />
       );
     }

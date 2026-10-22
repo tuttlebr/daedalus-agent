@@ -733,13 +733,34 @@ test('fullscreen preserves HTML preview and Markdown formatting', async ({
   await page.getByRole('button', { name: 'New chat', exact: true }).click();
 
   await sendMessage(page, 'E2E_HTML');
-  await expect(page.getByText('HTML preview')).toBeVisible();
-  await page.getByRole('button', { name: 'View fullscreen' }).click();
+  // The document names itself and holds its commands in one header.
+  const documentHeader = page
+    .locator('.codeblock-document-header')
+    .filter({ hasText: 'HTML Preview' });
+  await expect(documentHeader).toBeVisible();
+  await documentHeader.getByRole('button', { name: 'View fullscreen' }).click();
 
   const htmlDialog = page.getByRole('dialog', { name: 'Response document' });
   await expect(htmlDialog).toBeVisible();
+  // One toolbar holds every command, and the page has no header of its own.
+  await expect(
+    htmlDialog
+      .getByRole('group', { name: 'Document commands' })
+      .getByRole('button', { name: 'Copy code' }),
+  ).toBeVisible();
+  await expect(htmlDialog.getByRole('button', { name: /^Copy/ })).toHaveCount(
+    1,
+  );
   const htmlFrame = htmlDialog.locator('iframe[title="HTML Preview"]');
   await expect(htmlFrame).toBeVisible();
+  // Controls and page share the window inset; the frame adds a 1px edge.
+  // The sheet rises into place, so measure once it has settled.
+  await settleTransitions(page);
+  const closeBox = (await htmlDialog
+    .getByRole('button', { name: 'Close fullscreen' })
+    .boundingBox())!;
+  expect(closeBox.y).toBeCloseTo(8, 0);
+  expect((await htmlFrame.boundingBox())!.x).toBeCloseTo(9, 0);
   await expect(
     htmlFrame.contentFrame().getByRole('heading', { name: 'Formatted HTML' }),
   ).toHaveCSS('color', 'rgb(255, 0, 0)');
