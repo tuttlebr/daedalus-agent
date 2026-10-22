@@ -33,7 +33,13 @@ def number(value):
 def audit(snapshot):
     league, teams, board = (snapshot[key] for key in ("league", "teams", "scoreboard"))
     for key in ("league_id", "season"):
-        require(league.get(key) is not None, f"Missing {key}")
+        require(
+            all(
+                type(response.get(key)) is int and response[key] > 0
+                for response in (league, teams, board)
+            ),
+            f"Invalid {key}: expected a positive integer",
+        )
         require(
             league[key] == teams.get(key) == board.get(key),
             f"Mixed {key} across responses",
