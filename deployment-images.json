@@ -20,7 +20,7 @@
     },
     {
       "id": "seaweedfs",
-      "image": "daedalus/seaweedfs:4.46-go1.26.9-net0.60.0",
+      "image": "daedalus/seaweedfs:4.46-go1.26.10-net0.60.0",
       "context": "vendor-images/seaweedfs",
       "services": {
         "compose": ["object-store", "object-store-init"],
