@@ -267,9 +267,32 @@ def evaluate(root, candidate, output, artifacts, reuse_reference=False):
     ]
     if reuse_reference:
         command.append("--reuse-reference")
-    result = subprocess.run(
-        command, cwd=root, capture_output=True, text=True, check=False, timeout=7200
-    )  # nosec B603
+    diagnostic = output.with_name(output.stem + "-process.json")
+    try:
+        result = subprocess.run(
+            command, cwd=root, capture_output=True, text=True, check=False, timeout=7200
+        )  # nosec B603
+    except subprocess.TimeoutExpired:
+        write(
+            diagnostic,
+            {
+                "visibility": "independent judge only",
+                "exit_code": "not run",
+                "reason": "measurement process exceeded 7200 seconds",
+            },
+        )
+        raise ValueError("Maintenance evaluation timed out; score not run") from None
+    # Child diagnostics can contain private task data. Preserve them for the
+    # independent judge without putting them in editor-visible exceptions/logs.
+    write(
+        diagnostic,
+        {
+            "visibility": "independent judge only",
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        },
+    )
     if result.returncode or not output.is_file():
         raise ValueError("Maintenance evaluation did not complete; score not run")
     return json.loads(output.read_text())

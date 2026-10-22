@@ -190,6 +190,38 @@ class ReviewedTests(unittest.TestCase):
             (Path(result["worktree"]) / RELATIVE / "SKILL.md").read_text(), ORIGINAL
         )
 
+    def test_process_failure_preserves_private_diagnostics_without_exposing_them(self):
+        output = self.root / ".cache/after.json"
+        result = subprocess.CompletedProcess(
+            args=[], returncode=2, stdout="private task output", stderr="private error"
+        )
+        with patch.object(gate.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(ValueError, "score not run") as error:
+                gate.evaluate(
+                    self.root, self.root / RELATIVE, output, self.root / "artifacts"
+                )
+        self.assertNotIn("private", str(error.exception))
+        diagnostic = json.loads(output.with_name("after-process.json").read_text())
+        self.assertEqual(diagnostic["exit_code"], 2)
+        self.assertEqual(diagnostic["stderr"], "private error")
+        self.assertEqual(diagnostic["visibility"], "independent judge only")
+        self.assertFalse(output.exists())
+
+    def test_process_timeout_records_not_run(self):
+        output = self.root / ".cache/after.json"
+        with patch.object(
+            gate.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired("fixture", 7200),
+        ):
+            with self.assertRaisesRegex(ValueError, "timed out; score not run"):
+                gate.evaluate(
+                    self.root, self.root / RELATIVE, output, self.root / "artifacts"
+                )
+        diagnostic = json.loads(output.with_name("after-process.json").read_text())
+        self.assertEqual(diagnostic["exit_code"], "not run")
+        self.assertFalse(output.exists())
+
     def test_approval_cannot_survive_changed_candidate_or_evidence(self):
         result, directory = self.make_round()
         self.approve_fixture(directory)

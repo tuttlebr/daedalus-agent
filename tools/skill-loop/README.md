@@ -89,7 +89,9 @@ retained beside the round's reports. Required-hook failures stop evaluation.
 The command records the diff, scores, decision, and reason in the hash-chained
 `.learnings/rounds.jsonl`. Raw evidence is retained in
 `.cache/skill-loop/reviewed/ROUND_ID/`; private traces are for the independent
-judge only. No measurement is replaced with an estimate. Rejected candidates
+judge only. Child-process diagnostics are also retained for that judge in
+`before-process.json` and `after-process.json`; they must not enter editor
+context. No measurement is replaced with an estimate. Rejected candidates
 restore the isolated worktree's Git snapshot; unexpected hook output is retained
 in `rollback.patch` and `quarantine/`. No user checkout is reset. Rejection keys
 include the resulting skill bytes so renaming or splitting a rejected proposal
