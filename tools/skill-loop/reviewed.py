@@ -151,6 +151,7 @@ def run(
         "judge_sha256": gate.identity(root),
     }
     try:
+        gate.prepare_hooks(root, candidate)
         before = gate.evaluate(
             root,
             candidate / selected["root"],
@@ -168,7 +169,7 @@ def run(
         if not record["diff"]:
             raise ValueError("Proposal made no change")
         gate.check_workspace(candidate, base, proposal["skill"], files)
-        gate.hooks(candidate, sorted(files))
+        gate.hooks(candidate, sorted(files), path / "hooks.json")
         gate.check_workspace(candidate, base, proposal["skill"], files)
         if gate.diff(candidate, base, proposal["skill"]) != record["diff"]:
             raise ValueError(

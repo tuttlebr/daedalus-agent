@@ -80,6 +80,12 @@ only when skill, case, judge, model, and image identities match. Otherwise the
 before condition is measured afresh. Every new comparison runs absent/installed
 pairs and rejects absent-baseline drift or lost reference passes.
 
+Activate the repository's Node.js 22 toolchain and install its frontend hook
+dependencies before running a round. Candidate worktrees reuse those installed
+dependencies through an ignored `frontend/node_modules` link; the controller
+does not install packages or change global Git configuration. Hook results are
+retained beside the round's reports. Required-hook failures stop evaluation.
+
 The command records the diff, scores, decision, and reason in the hash-chained
 `.learnings/rounds.jsonl`. Raw evidence is retained in
 `.cache/skill-loop/reviewed/ROUND_ID/`; private traces are for the independent

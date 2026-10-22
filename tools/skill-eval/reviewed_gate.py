@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import os
 import re
 import subprocess  # nosec B404
 import sys
@@ -193,7 +194,24 @@ def check_workspace(root, base, skill, expected):
     return current
 
 
-def hooks(root, files):
+def prepare_hooks(root, candidate):
+    dependencies = root / "frontend/node_modules"
+    if not (dependencies / "prettier/bin-prettier.js").is_file():
+        raise ValueError(
+            "Install the repository's frontend hook dependencies before evaluating; score not run"
+        )
+    target = candidate / "frontend/node_modules"
+    if target.exists() or target.is_symlink():
+        if not target.is_symlink() or target.resolve() != dependencies.resolve():
+            raise ValueError("Unexpected candidate hook dependency directory")
+    else:
+        # Reuse installed formatter/plugins; no candidate-selected executable.
+        git(candidate, "check-ignore", "--", "frontend/node_modules")
+        target.symlink_to(dependencies.resolve(), target_is_directory=True)
+    git(candidate, "check-ignore", "--", "frontend/node_modules")
+
+
+def hooks(root, files, evidence=None):
     result = subprocess.run(
         [
             "uvx",
@@ -210,7 +228,24 @@ def hooks(root, files):
         capture_output=True,
         text=True,
         check=False,
+        # Match the existing loop: trust only this task-created worktree for
+        # child Git commands, without changing the user's global configuration.
+        env={
+            **os.environ,
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "safe.directory",
+            "GIT_CONFIG_VALUE_0": str(root),
+        },
     )  # nosec B603 B607
+    if evidence:
+        write(
+            evidence,
+            {
+                "exit_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+        )
     if result.returncode:
         raise ValueError(
             "Required hooks failed or reformatted the candidate; score not run"
@@ -394,13 +429,13 @@ def accept(directory, root=ROOT):
     source(approval["approval_source"])
     candidate = Path(state["worktree"])
     record = f".learnings/skill-acceptances/{identifier}.json"
-    hooks(candidate, list(payload["files"]))
+    hooks(candidate, list(payload["files"]), directory / "accept-skill-hooks.json")
     verify(directory, root)
     if (candidate / record).exists():
         raise ValueError("Acceptance record already exists")
     try:
         write(candidate / record, {"packet": payload, "approval": approval})
-        hooks(candidate, [record])
+        hooks(candidate, [record], directory / "accept-record-hooks.json")
         if json.loads((candidate / record).read_text()) != {
             "packet": payload,
             "approval": approval,

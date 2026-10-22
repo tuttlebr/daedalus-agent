@@ -43,7 +43,9 @@ class ReviewedTests(unittest.TestCase):
         folder = self.root / RELATIVE
         folder.mkdir(parents=True)
         (folder / "SKILL.md").write_text(ORIGINAL)
-        (self.root / ".gitignore").write_text(".cache/\n.learnings/rounds.jsonl\n")
+        (self.root / ".gitignore").write_text(
+            ".cache/\n.learnings/rounds.jsonl\nfrontend/node_modules\n"
+        )
         protected = self.root / "tools/skill-eval/fixed.txt"
         protected.parent.mkdir(parents=True)
         protected.write_text("fixed judge fixture\n")
@@ -101,7 +103,7 @@ class ReviewedTests(unittest.TestCase):
 
         with patch.object(gate, "evaluate", side_effect=measured), patch.object(
             gate, "hooks", side_effect=hooks_effect
-        ):
+        ), patch.object(gate, "prepare_hooks"):
             result = reviewed.run(
                 [self.proposal],
                 self.root / ".learnings/rounds.jsonl",
@@ -302,7 +304,7 @@ class ReviewedTests(unittest.TestCase):
             gate.check_commit_range(self.base, root=self.root)
 
     def test_hook_side_effects_are_preserved_and_snapshot_is_clean(self):
-        def side_effect(candidate, files):
+        def side_effect(candidate, files, evidence=None):
             (candidate / ".gitignore").write_text("unexpected hook change\n")
             (candidate / "unexpected.txt").write_text("retained hook output\n")
 
@@ -345,6 +347,22 @@ class ReviewedTests(unittest.TestCase):
             )
         self.assertEqual(result["stop"], "repeated_rejection")
         evaluate.assert_not_called()
+
+    def test_hook_preparation_reuses_only_ignored_owner_dependencies(self):
+        result, _ = self.make_round()
+        candidate = Path(result["worktree"])
+        with self.assertRaisesRegex(ValueError, "hook dependencies"):
+            gate.prepare_hooks(self.root, candidate)
+        dependencies = self.root / "frontend/node_modules"
+        executable = dependencies / "prettier/bin-prettier.js"
+        executable.parent.mkdir(parents=True)
+        executable.write_text("// synthetic dependency fixture; not executed\n")
+        (candidate / "frontend").mkdir()
+        gate.prepare_hooks(self.root, candidate)
+        self.assertEqual((candidate / "frontend/node_modules").resolve(), dependencies)
+        self.assertEqual(
+            gate.git(candidate, "ls-files", "--others", "--exclude-standard"), b""
+        )
 
 
 if __name__ == "__main__":
