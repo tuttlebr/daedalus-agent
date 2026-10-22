@@ -21,12 +21,7 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 }
 
-/**
- * Get the backend host based on environment.
- *
- * @returns The backend hostname (with Kubernetes FQDN if in K8s environment)
- */
-export function getBackendHost(): string {
+function backendServiceHost(suffix: '' | '-pods'): string {
   const baseHost = process.env.BACKEND_HOST || 'daedalus-backend';
   const backendNamespace =
     process.env.BACKEND_NAMESPACE ||
@@ -38,9 +33,14 @@ export function getBackendHost(): string {
     process.env.DEPLOYMENT_MODE === 'kubernetes';
 
   if (isKubernetes) {
-    return `${baseHost}-default.${backendNamespace}.svc.cluster.local`;
+    return `${baseHost}-default${suffix}.${backendNamespace}.svc.cluster.local`;
   }
   return baseHost;
+}
+
+/** Get the backend hostname, including its service namespace in Kubernetes. */
+export function getBackendHost(): string {
+  return backendServiceHost('');
 }
 
 /**
@@ -49,21 +49,7 @@ export function getBackendHost(): string {
  * @returns The discovery hostname (pod-backed in Kubernetes)
  */
 export function getBackendPodDiscoveryHost(): string {
-  const baseHost = process.env.BACKEND_HOST || 'daedalus-backend';
-  const backendNamespace =
-    process.env.BACKEND_NAMESPACE ||
-    process.env.POD_NAMESPACE ||
-    process.env.NAMESPACE ||
-    'daedalus';
-  const isKubernetes =
-    process.env.KUBERNETES_SERVICE_HOST ||
-    process.env.DEPLOYMENT_MODE === 'kubernetes';
-
-  if (isKubernetes) {
-    return `${baseHost}-default-pods.${backendNamespace}.svc.cluster.local`;
-  }
-
-  return getBackendHost();
+  return backendServiceHost('-pods');
 }
 
 /**

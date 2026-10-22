@@ -78,77 +78,52 @@ export const apiBase = () => {
   return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 };
 
-export async function apiGet<T>(path: string): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(`${apiBase()}${path}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-  } catch (err) {
-    networkError('GET', path, err);
-  }
-  if (!res!.ok) await throwForStatus('GET', path, res!);
-  return res!.json() as Promise<T>;
-}
-
-export async function apiPut<TBody extends object, TResp = void>(
+async function requestJson<T>(
+  method: 'GET' | 'PUT' | 'POST' | 'DELETE',
   path: string,
-  body: TBody,
-): Promise<TResp> {
+  body?: object,
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, {
-      method: 'PUT',
+      method,
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch (err) {
-    networkError('PUT', path, err);
+    networkError(method, path, err);
   }
-  if (res!.status === 409) {
-    const data = await readBody(res!);
+
+  // Conversation saves use PUT conflicts to rebase onto the server's copy.
+  // Other methods keep the ordinary ApiError, including its response body.
+  if (method === 'PUT' && res.status === 409) {
+    const data = await readBody(res);
     throw new ConflictError((data as any)?.serverState);
   }
-  if (!res!.ok) await throwForStatus('PUT', path, res!);
-  if (res!.status === 204) return undefined as unknown as TResp;
-  return res!.json() as Promise<TResp>;
+  if (!res.ok) await throwForStatus(method, path, res);
+  if (method !== 'GET' && res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
 }
 
-export async function apiPost<TBody extends object, TResp = void>(
+export function apiGet<T>(path: string): Promise<T> {
+  return requestJson<T>('GET', path);
+}
+
+export function apiPut<TBody extends object, TResp = void>(
   path: string,
   body: TBody,
 ): Promise<TResp> {
-  let res: Response;
-  try {
-    res = await fetch(`${apiBase()}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    networkError('POST', path, err);
-  }
-  if (!res!.ok) await throwForStatus('POST', path, res!);
-  if (res!.status === 204) return undefined as unknown as TResp;
-  return res!.json() as Promise<TResp>;
+  return requestJson<TResp>('PUT', path, body);
 }
 
-export async function apiDelete<TResp = void>(path: string): Promise<TResp> {
-  let res: Response;
-  try {
-    res = await fetch(`${apiBase()}${path}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-  } catch (err) {
-    networkError('DELETE', path, err);
-  }
-  if (!res!.ok) await throwForStatus('DELETE', path, res!);
-  if (res!.status === 204) return undefined as unknown as TResp;
-  return res!.json() as Promise<TResp>;
+export function apiPost<TBody extends object, TResp = void>(
+  path: string,
+  body: TBody,
+): Promise<TResp> {
+  return requestJson<TResp>('POST', path, body);
+}
+
+export function apiDelete<TResp = void>(path: string): Promise<TResp> {
+  return requestJson<TResp>('DELETE', path);
 }

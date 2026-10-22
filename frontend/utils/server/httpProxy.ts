@@ -7,12 +7,7 @@ export interface BackendResponse {
   body: Buffer;
 }
 
-/**
- * The backend runs under uvicorn, whose `timeout_keep_alive` defaults to 5s.
- * Node's global agent pools idle sockets indefinitely, so a request that reuses
- * a socket the server just closed fails with ECONNRESET or "socket hang up" and
- * no corresponding error on either side. Retire our sockets first.
- */
+// Bound idle socket reuse; each request supplies its own inactivity timeout.
 const KEEP_ALIVE_TIMEOUT_MS = 4_000;
 
 const httpAgent = new http.Agent({
@@ -23,50 +18,6 @@ const httpsAgent = new https.Agent({
   keepAlive: true,
   timeout: KEEP_ALIVE_TIMEOUT_MS,
 });
-
-/**
- * Issue a POST to the backend over raw `http`/`https` and hand the response to
- * `onResponse`. Callers either collect the bytes or pipe them onward; the
- * request construction, keep-alive policy, and timeout handling are identical
- * either way, and were previously duplicated across two modules that had
- * already drifted (one supported HTTPS, the other did not).
- */
-function backendRequest(
-  url: string,
-  body: string,
-  headers: Record<string, string>,
-  timeoutMs: number,
-  onResponse: (res: http.IncomingMessage) => void,
-  onTimeout: (reject: (error: Error) => void) => void,
-  reject: (error: Error) => void,
-): void {
-  const parsed = new URL(url);
-  const isHttps = parsed.protocol === 'https:';
-  const transport = isHttps ? https : http;
-  const req = transport.request(
-    {
-      hostname: parsed.hostname,
-      port: parsed.port || (isHttps ? '443' : '80'),
-      path: parsed.pathname + parsed.search,
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Length': Buffer.byteLength(body),
-      },
-      timeout: timeoutMs,
-      agent: isHttps ? httpsAgent : httpAgent,
-    },
-    onResponse,
-  );
-
-  req.on('timeout', () => {
-    req.destroy();
-    onTimeout(reject);
-  });
-  req.on('error', reject);
-  req.write(body);
-  req.end();
-}
 
 /**
  * POST to a backend URL and resolve with the full response (status, headers,
@@ -81,11 +32,22 @@ export function postToBackend(
   timeoutMs: number,
 ): Promise<BackendResponse> {
   return new Promise((resolve, reject) => {
-    backendRequest(
-      url,
-      body,
-      headers,
-      timeoutMs,
+    const parsed = new URL(url);
+    const isHttps = parsed.protocol === 'https:';
+    const transport = isHttps ? https : http;
+    const req = transport.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || (isHttps ? '443' : '80'),
+        path: parsed.pathname + parsed.search,
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: timeoutMs,
+        agent: isHttps ? httpsAgent : httpAgent,
+      },
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -98,9 +60,13 @@ export function postToBackend(
         });
         res.on('error', reject);
       },
-      (rejectWith) =>
-        rejectWith(new Error(`Backend request timed out after ${timeoutMs}ms`)),
-      reject,
     );
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error(`Backend request timed out after ${timeoutMs}ms`));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
   });
 }

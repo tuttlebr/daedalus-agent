@@ -5,6 +5,7 @@ const ENV_KEYS = [
   'BACKEND_HOST',
   'BACKEND_NAMESPACE',
   'BACKEND_PORT',
+  'BACKEND_POD_PORT',
   'DEPLOYMENT_MODE',
   'KUBERNETES_SERVICE_HOST',
   'NAMESPACE',
@@ -31,6 +32,71 @@ afterEach(() => {
 });
 
 describe('backendApi configuration', () => {
+  it.each([
+    [{}, 'daedalus-backend'],
+    [{ BACKEND_HOST: 'backend', POD_NAMESPACE: 'prod' }, 'backend'],
+  ])(
+    'uses the same local host for service and discovery: %j',
+    async (env, host) => {
+      const backendApi = await importBackendApiWithEnv(env);
+      expect(backendApi.getBackendHost()).toBe(host);
+      expect(backendApi.getBackendPodDiscoveryHost()).toBe(host);
+    },
+  );
+
+  describe.each([
+    { DEPLOYMENT_MODE: 'kubernetes' },
+    { KUBERNETES_SERVICE_HOST: '10.0.0.1' },
+  ])('Kubernetes detection: %j', (mode) => {
+    it.each([
+      [
+        {
+          BACKEND_NAMESPACE: 'backend-ns',
+          POD_NAMESPACE: 'pod-ns',
+          NAMESPACE: 'legacy-ns',
+        },
+        'backend-ns',
+      ],
+      [{ POD_NAMESPACE: 'pod-ns', NAMESPACE: 'legacy-ns' }, 'pod-ns'],
+      [{ NAMESPACE: 'legacy-ns' }, 'legacy-ns'],
+      [{}, 'daedalus'],
+    ])(
+      'shares namespace precedence for both hosts: %j',
+      async (env, namespace) => {
+        const backendApi = await importBackendApiWithEnv({
+          ...mode,
+          ...env,
+          BACKEND_HOST: 'backend',
+        });
+        expect(backendApi.getBackendHost()).toBe(
+          `backend-default.${namespace}.svc.cluster.local`,
+        );
+        expect(backendApi.getBackendPodDiscoveryHost()).toBe(
+          `backend-default-pods.${namespace}.svc.cluster.local`,
+        );
+      },
+    );
+  });
+
+  it('preserves separate service and pod port overrides', async () => {
+    const backendApi = await importBackendApiWithEnv({
+      BACKEND_HOST: 'backend',
+      BACKEND_PORT: '8080',
+      BACKEND_POD_PORT: '8000',
+      BACKEND_API_PATH: '/custom/chat',
+    });
+    expect(backendApi.buildBackendBaseUrlForMode()).toBe('http://backend:8080');
+    expect(
+      backendApi.buildBackendUrl({
+        backendHost: '127.0.0.1',
+        port: backendApi.BACKEND_POD_PORT,
+      }),
+    ).toBe('http://127.0.0.1:8000/custom/chat');
+    expect(
+      backendApi.buildBackendUrlFromBase('https://backend/', '/health'),
+    ).toBe('https://backend/health');
+  });
+
   it('defaults to the OpenAI-compatible chat completions path', async () => {
     const backendApi = await importBackendApiWithEnv({
       BACKEND_HOST: 'backend',
