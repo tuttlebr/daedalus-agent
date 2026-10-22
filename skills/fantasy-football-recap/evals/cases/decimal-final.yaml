@@ -1,0 +1,60 @@
+{
+  'id': 'decimal-final',
+  'prompt': 'Validate this supplied synthetic scoreboard and report only supported results.',
+  'input':
+    {
+      'league':
+        {
+          'league_id': 1,
+          'season': 2026,
+          'settings':
+            { 'scheduleSettings': { 'matchupPeriods': { '1': [1] } } },
+        },
+      'teams':
+        {
+          'league_id': 1,
+          'season': 2026,
+          'teams':
+            [{ 'id': 1, 'name': 'Comets' }, { 'id': 2, 'name': 'Moons' }],
+        },
+      'scoreboard':
+        {
+          'league_id': 1,
+          'season': 2026,
+          'week': 1,
+          'matchup_period': 1,
+          'matchups':
+            [
+              {
+                'id': 7,
+                'matchupPeriodId': 1,
+                'winner': 'HOME',
+                'home': { 'teamId': 1, 'totalPoints': '101.10' },
+                'away': { 'teamId': 2, 'totalPoints': '99.95' },
+              },
+            ],
+        },
+      'checks':
+        {
+          '7':
+            {
+              'status': 'final',
+              'evidence': 'Synthetic fixture, final period',
+            },
+        },
+    },
+  'assertions':
+    [
+      {
+        'claim': 'The checker returns the required validation exit status',
+        'kind': 'exit_code',
+        'equals': 0,
+      },
+      {
+        'claim': 'The computed result preserves the declared scoreboard contract',
+        'kind': 'json_equal',
+        'path': ['matchups', 0, 'margin'],
+        'equals': '1.15',
+      },
+    ],
+}
