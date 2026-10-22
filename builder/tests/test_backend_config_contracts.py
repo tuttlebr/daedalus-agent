@@ -1031,10 +1031,13 @@ def test_daily_summary_uses_a_narrow_catalog_and_reserved_synthesis_phase():
     assert workflow["max_iterations"] == 128
 
 
-def test_domain_retriever_has_calibrated_relevance_floor():
+def test_domain_retriever_applies_no_probability_cutoff_to_raw_logits():
     tool = _config()["functions"]["domain_retriever_tool"]
 
-    assert tool["reranker_min_score"] == 0.0002
+    # The reranker returns raw logits, so a probability-scale floor would
+    # discard relevant passages; the ranked top N bounds the results instead.
+    assert tool["reranker_min_score"] is None
+    assert tool["reranker_top_n"] == 5
 
 
 def test_visual_media_tool_is_top_level():
