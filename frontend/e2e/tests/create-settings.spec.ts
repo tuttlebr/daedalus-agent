@@ -110,8 +110,12 @@ test('Create settings reflow, use equal control heights, and preserve collapsed 
     }),
   );
   expect(boxes).toHaveLength(7);
+  // Pointer devices use the 36px control height; touch keeps 44px targets.
+  const coarse = await page.evaluate(
+    () => matchMedia('(pointer: coarse)').matches,
+  );
   expect(Math.min(...boxes.map((box) => box.height))).toBeGreaterThanOrEqual(
-    44,
+    coarse ? 44 : 36,
   );
   expect(
     Math.max(...boxes.map((box) => box.height)) -

@@ -387,9 +387,10 @@ svg.tabler-icon {
 .chat-composer-textarea:focus {
   border-color: transparent;
 }
+/* The field matches the buttons, but enlarged text always gets a full line. */
 .chat-composer-textarea {
-  min-height: var(--composer-control);
-  padding-block: calc((var(--composer-control) - 1lh) / 2);
+  min-height: max(var(--composer-control), calc(1lh + 0.5rem));
+  padding-block: max(0.25rem, calc((var(--composer-control) - 1lh) / 2));
   background: transparent;
   border-radius: calc(var(--composer-control) / 2);
 }
@@ -719,11 +720,18 @@ svg.tabler-icon {
 .app-sidebar-footer {
   /* The floating panel still keeps its controls clear of the home indicator. */
   min-height: calc(4.25rem + max(0.75rem, var(--safe-area-inset-bottom)));
-  padding-bottom: max(0.75rem, var(--safe-area-inset-bottom));
+  /* When enlarged text makes the footer scroll, sub-pixel heights can leave
+     its last control a sliver short of visible: WebKit rounds the scroll edge
+     and the scroll range to whole pixels. Keep the footer whole pixels tall,
+     and keep part of its bottom space inside the scroller. */
+  max-height: 45%;
+  max-height: round(down, 45%, 1px);
+  padding-bottom: calc(max(0.75rem, var(--safe-area-inset-bottom)) - 0.25rem);
   overflow-wrap: anywhere;
 }
 .app-sidebar-footer > div {
   padding-inline: var(--sidebar-fill-inset);
+  padding-bottom: 0.25rem;
 }
 .app-sidebar-footer button,
 .app-sidebar-footer legend,

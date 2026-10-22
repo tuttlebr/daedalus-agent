@@ -494,7 +494,7 @@ export const Sidebar = memo(() => {
       </nav>
 
       {/* Footer */}
-      <div className="app-sidebar-footer flex max-h-[45%] min-h-0 flex-shrink flex-col">
+      <div className="app-sidebar-footer flex min-h-0 flex-shrink flex-col">
         <div className="min-h-0 space-y-1 overflow-y-auto overscroll-contain pt-3">
           <AppearanceSettings />
           {/* Clear all conversations */}
