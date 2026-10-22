@@ -79,7 +79,7 @@ describe('Memory Center curation', () => {
   async function showMemories() {
     await act(async () => root.render(<MemoryCenter />));
     const tab = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent === 'Advanced facts',
+      (button) => button.textContent === 'Advanced Facts',
     );
     expect(tab).toBeDefined();
     await act(async () => tab!.click());
@@ -92,6 +92,35 @@ describe('Memory Center curation', () => {
     expect(paragraph).toBeDefined();
     return paragraph!.parentElement!.parentElement!;
   }
+
+  it('shows page controls only when results span more than one page', async () => {
+    const pageButtons = () =>
+      Array.from(container.querySelectorAll('button')).filter((button) =>
+        ['Previous', 'Next'].includes(button.textContent ?? ''),
+      );
+    items = [
+      { id: 'world-1', text: 'World fact', fact_type: 'world', state: 'valid' },
+    ];
+    await showMemories();
+    // The status line already reports the count of a single page.
+    expect(container.textContent).toContain('1 remembered facts');
+    expect(pageButtons()).toEqual([]);
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    items = Array.from({ length: 30 }, (_, index) => ({
+      id: `world-${index}`,
+      text: `World fact ${index}`,
+      fact_type: 'world',
+      state: 'valid',
+    }));
+    await showMemories();
+    expect(pageButtons().map((button) => button.textContent)).toEqual([
+      'Previous',
+      'Next',
+    ]);
+    expect(container.textContent).toContain('Page 1 of 2');
+  });
 
   it('uses the list API fact_type and only offers curation for source facts', async () => {
     items = [

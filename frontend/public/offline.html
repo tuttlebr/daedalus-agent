@@ -179,8 +179,12 @@
         --glass-highlight: rgb(var(--palette-white) / 0.95);
         --glass-shadow: 0 8px 32px -12px rgb(var(--palette-slate) / 0.2),
           0 2px 6px rgb(var(--palette-slate) / 0.05);
-        --glass-selection: rgb(var(--palette-white) / 0.9);
+        /* A tinted fill, not white: white selection disappears on white glass. */
+        --glass-selection: rgb(var(--palette-navy) / 0.08);
         --canvas-wash: 0.22;
+        /* Destructive actions only; errors keep mauve. White text measures 5.62:1. */
+        --destructive: 198 40 40; /* #C62828 */
+        --on-destructive: var(--palette-white);
       }
 
       html.dark,
@@ -212,6 +216,9 @@
           0 2px 8px rgb(0 0 0 / 0.15);
         --glass-selection: rgb(var(--palette-steel) / 0.38);
         --canvas-wash: 0.12;
+        /* Navy text on this fill measures 8.72:1; as text on raised blue, 4.72:1. */
+        --destructive: 255 161 152; /* #FFA198 */
+        --on-destructive: var(--palette-navy);
       }
 
       :root {
@@ -237,6 +244,18 @@
         --glass-background: rgb(var(--glass-tint));
         --glass-filter: none;
         --glass-radius: 1.75rem;
+        /* Floating panels keep one inset from the window edge. On a pointer device
+           their corners are concentric with the window's: Safari web-app windows on
+           macOS 26 round their corners at about 16px. Touch layouts keep the sheet
+           radius, which suits large display corners. */
+        --app-inset: 8px;
+        --window-radius: 16px;
+        --panel-radius: var(--glass-radius);
+        /* Toolbar controls share one height; items inside a group sit within it. */
+        --toolbar-control: 44px;
+        --toolbar-item: 36px;
+        /* Content fades as it passes under the toolbar and composer. */
+        --scroll-edge-strength: 0.92;
         --chrome: var(--glass-background);
         --color-focus: var(--accent-primary);
 
@@ -358,6 +377,17 @@
         :root {
           --glass-background: rgb(var(--glass-tint) / var(--glass-opacity));
           --glass-filter: blur(24px) saturate(1.35);
+        }
+      }
+      @media (min-width: 768px) and (pointer: fine) {
+        :root {
+          --panel-radius: calc(var(--window-radius) - var(--app-inset));
+        }
+      }
+      @media (pointer: coarse) {
+        :root {
+          --toolbar-control: 52px;
+          --toolbar-item: 44px;
         }
       }
       /* END GENERATED APPEARANCE */

@@ -119,7 +119,6 @@ export const CodeBlock: FC<Props> = memo(
           'codeblock relative text-[16px]',
           fullscreen && 'flex h-full min-h-0 flex-col',
         )}
-        style={{ fontFamily: 'var(--font-mono)' }}
       >
         {fileSaveDialog}
         <div className="flex items-center justify-between py-1.5 px-4">

@@ -26,11 +26,12 @@ import { Conversation } from '@/types/chat';
 
 import { useAuth } from '@/components/auth';
 import { AppearanceSettings } from '@/components/layout/AppearanceSettings';
-import { Button, IconButton, Input } from '@/components/primitives';
+import { IconButton, Input } from '@/components/primitives';
 import { GlassPanel } from '@/components/surfaces';
 
 import { ConversationActions } from './ConversationActions';
 
+import { branding } from '@/generated/branding';
 import { useConversationStore, useUISettingsStore } from '@/state';
 import classNames from 'classnames';
 
@@ -38,6 +39,9 @@ const rowActionClasses =
   'flex h-[44px] w-[44px] items-center justify-center rounded-full text-dark-text-muted transition-colors md:h-7 md:w-7 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
 const confirmActionClasses =
   'min-h-touch-min rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-50 md:min-h-8';
+// Footer commands and New Chat are rows: one height, one leading edge.
+const sidebarRowButtonClasses =
+  'flex min-h-8 w-full items-center gap-2.5 rounded-lg py-1.5 text-left text-sm text-primary transition-colors hover:bg-fill/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus';
 
 /** Return focus to a conversation's More button after its menu action ends. */
 function focusConversationActions(id: string) {
@@ -270,45 +274,49 @@ export const Sidebar = memo(() => {
 
   return (
     <GlassPanel className="app-sidebar w-full h-full min-h-0 flex flex-col">
-      <div className="app-sidebar-header flex shrink-0 items-center justify-between gap-2 px-5">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span
-            className="app-sidebar-brand flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base font-semibold"
-            aria-hidden="true"
-          >
-            D
-          </span>
-          <span className="min-w-0 truncate text-lg font-semibold tracking-tight text-primary">
+      <div className="app-sidebar-header flex shrink-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center">
+          <img
+            src={branding.assets['/favicon.png']}
+            alt=""
+            className="app-sidebar-brand shrink-0 object-contain"
+          />
+          <span className="min-w-0 truncate text-[0.9375rem] font-semibold tracking-tight text-primary">
             Daedalus
           </span>
         </div>
+        {/* Wide windows close the sidebar from the toolbar; the drawer on
+            phones keeps its own Close button. */}
         <IconButton
           icon={<IconX size={18} />}
           aria-label="Close sidebar"
           variant="ghost"
-          className="shrink-0"
+          className="shrink-0 md:hidden"
           onClick={() => setShowChatbar(false)}
         />
       </div>
       {/* Header */}
-      <div className="app-sidebar-controls flex-shrink-0 space-y-3 px-4 pb-3 pt-1">
-        <Button
-          variant="accent"
-          fullWidth
-          size="md"
-          leftIcon={<IconPlus size={18} />}
+      <div className="app-sidebar-controls flex flex-shrink-0 flex-col gap-2 pb-2 pt-1">
+        <button
+          type="button"
           onClick={handleNewConversation}
-          className="min-h-touch-min rounded-full"
+          className={classNames(
+            sidebarRowButtonClasses,
+            'bg-fill/[0.07] font-medium hover:bg-fill/[0.12] dark:bg-control dark:hover:bg-control/80',
+          )}
         >
+          <IconPlus size={16} aria-hidden="true" className="flex-shrink-0" />
           New Chat
-        </Button>
+        </button>
 
         <Input
           type="search"
-          placeholder="Search conversations..."
+          placeholder="Search conversations"
           aria-label="Search conversations"
           size="sm"
           leftIcon={<IconSearch size={16} />}
+          wrapperClassName="app-sidebar-search"
+          className="!rounded-lg"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -322,20 +330,20 @@ export const Sidebar = memo(() => {
           {error}
         </p>
       )}
-      <h2 className="app-sidebar-section-label px-5 pb-2 pt-3 text-xs font-medium text-muted">
+      <h2 className="app-sidebar-section-label pb-1.5 pt-3 text-xs font-medium text-muted">
         Conversations
       </h2>
       {/* Conversation list */}
       <nav
         aria-label="Conversation history"
-        className="app-sidebar-history flex-1 overflow-y-auto overscroll-contain px-3 py-1"
+        className="app-sidebar-history flex-1 overflow-y-auto overscroll-contain py-1"
       >
         {sorted.length === 0 && (
           <p className="text-center text-xs text-dark-text-muted py-8">
             {searchTerm ? 'No conversations found' : 'No conversations yet'}
           </p>
         )}
-        <ul className="space-y-1" role="list">
+        <ul className="space-y-0.5" role="list">
           {sorted.map((conv) => {
             const isActive = conv.id === selectedConversationId;
             const isAutonomous = conv.id === 'autonomous-agent-thoughts';
@@ -345,7 +353,7 @@ export const Sidebar = memo(() => {
             if (isRenaming) {
               return (
                 <li key={conv.id}>
-                  <div className="flex items-center gap-1 rounded-2xl bg-fill/[0.08] px-2 py-1.5 ring-1 ring-inset ring-separator/50">
+                  <div className="flex items-center gap-1 rounded-lg bg-fill/[0.08] px-1.5 py-1 ring-1 ring-inset ring-separator/50">
                     <input
                       ref={renameInputRef}
                       value={renameValue}
@@ -395,7 +403,7 @@ export const Sidebar = memo(() => {
                   <div
                     role="group"
                     aria-label={`Delete ${conv.name}`}
-                    className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-error bg-error/10 px-3 py-2 text-sm text-primary"
+                    className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-sm text-primary"
                   >
                     <span className="min-w-0 flex-[1_1_8rem] truncate">
                       Delete &ldquo;{conv.name}&rdquo;?
@@ -423,7 +431,7 @@ export const Sidebar = memo(() => {
                         disabled={pending !== null}
                         className={classNames(
                           confirmActionClasses,
-                          'bg-error text-on-action hover:bg-error/85',
+                          'bg-destructive text-on-destructive hover:bg-destructive/90',
                         )}
                         onClick={() => handleDelete(conv.id)}
                       >
@@ -440,10 +448,8 @@ export const Sidebar = memo(() => {
                 <div
                   data-selected={isActive}
                   className={classNames(
-                    'app-history-row group flex w-full items-center gap-1 rounded-2xl pl-2 pr-1 text-left transition-colors duration-150',
-                    isActive
-                      ? 'text-dark-text-primary'
-                      : 'text-dark-text-secondary hover:bg-fill/[0.04]',
+                    'app-history-row group flex w-full items-center gap-1 pr-1 text-left text-primary transition-colors duration-150',
+                    !isActive && 'hover:bg-fill/[0.05]',
                   )}
                 >
                   <button
@@ -451,7 +457,7 @@ export const Sidebar = memo(() => {
                     aria-current={isActive ? 'true' : undefined}
                     onClick={() => handleSelect(conv.id)}
                     className={classNames(
-                      'flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1.5 text-left',
+                      'app-history-select flex min-h-8 min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 text-left',
                       isActive && 'font-medium',
                     )}
                   >
@@ -475,7 +481,6 @@ export const Sidebar = memo(() => {
                       conversationId={conv.id}
                       conversationName={conv.name}
                       disabled={pending !== null}
-                      emphasized={isActive}
                       onRename={() => startRename(conv)}
                       onDownload={() => void handleDownloadTraces(conv.id)}
                       onDelete={() => setConfirmingDeleteId(conv.id)}
@@ -490,7 +495,7 @@ export const Sidebar = memo(() => {
 
       {/* Footer */}
       <div className="app-sidebar-footer flex max-h-[45%] min-h-0 flex-shrink flex-col">
-        <div className="min-h-0 space-y-1 overflow-y-auto overscroll-contain px-3 pt-3">
+        <div className="min-h-0 space-y-1 overflow-y-auto overscroll-contain pt-3">
           <AppearanceSettings />
           {/* Clear all conversations */}
           {conversations.length > 0 && (
@@ -499,7 +504,7 @@ export const Sidebar = memo(() => {
                 <div
                   role="group"
                   aria-label="Clear all conversations"
-                  className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-error bg-error/10 px-3 py-2 text-sm text-primary"
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-sm text-primary"
                 >
                   <span className="flex-[1_1_8rem]">
                     Clear all conversations?
@@ -524,7 +529,7 @@ export const Sidebar = memo(() => {
                       disabled={pending !== null}
                       className={classNames(
                         confirmActionClasses,
-                        'bg-error text-on-action hover:bg-error/85',
+                        'bg-destructive text-on-destructive hover:bg-destructive/90',
                       )}
                       onClick={handleClearAll}
                     >
@@ -534,10 +539,15 @@ export const Sidebar = memo(() => {
                 </div>
               ) : (
                 <button
+                  type="button"
                   onClick={() => setIsConfirmingClear(true)}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-primary rounded-lg hover:bg-error/5 transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                  className={sidebarRowButtonClasses}
                 >
-                  <IconTrash size={16} />
+                  <IconTrash
+                    size={16}
+                    aria-hidden="true"
+                    className="flex-shrink-0 text-muted"
+                  />
                   <span>Clear Conversations</span>
                 </button>
               )}
@@ -545,10 +555,15 @@ export const Sidebar = memo(() => {
           )}
 
           <button
+            type="button"
             onClick={() => logout()}
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-dark-text-muted hover:text-dark-text-primary rounded-lg hover:bg-fill/[0.04] transition-colors min-h-touch-min focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-separator/70"
+            className={sidebarRowButtonClasses}
           >
-            <IconLogout size={16} />
+            <IconLogout
+              size={16}
+              aria-hidden="true"
+              className="flex-shrink-0 text-muted"
+            />
             <span>Sign Out</span>
           </button>
         </div>

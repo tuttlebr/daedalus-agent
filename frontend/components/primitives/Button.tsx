@@ -27,23 +27,26 @@ const variantClasses: Record<ButtonVariant, string> = {
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg-primary
   `,
+  // A tinted fill stays visible on white canvases and cards, and changes on
+  // hover in both appearances.
   secondary: `
-    bg-control text-primary
-    hover:bg-control
+    bg-fill/[0.07] text-primary
+    hover:bg-fill/[0.12]
+    dark:bg-control dark:hover:bg-[rgb(var(--palette-steel)/0.7)]
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-focus
   `,
   ghost: `
     bg-transparent text-secondary
-    hover:bg-control/10
+    hover:bg-fill/[0.06]
     active:scale-[0.98]
     focus-visible:ring-2 focus-visible:ring-focus
   `,
   danger: `
-    bg-error/20 text-primary border border-error
-    hover:bg-error/30
+    bg-destructive text-on-destructive
+    hover:bg-destructive/90
     active:scale-[0.98]
-    focus-visible:ring-2 focus-visible:ring-focus
+    focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-dark-bg-primary
   `,
   success: `
     bg-chat-user text-on-user
@@ -61,7 +64,7 @@ const variantClasses: Record<ButtonVariant, string> = {
 
 const sizeClasses: Record<ButtonSize, string> = {
   xs: 'px-2.5 py-1 text-xs rounded-full min-h-[28px]',
-  sm: 'px-3 py-1.5 text-sm rounded-full min-h-[32px]',
+  sm: 'px-3 py-1.5 text-sm rounded-full min-h-[36px]',
   md: 'px-4 py-2 text-sm rounded-full min-h-[40px]',
   lg: 'px-5 py-2.5 text-base rounded-full min-h-touch-min',
   xl: 'px-6 py-3 text-lg rounded-full min-h-[52px]',

@@ -8,7 +8,7 @@ import {
   IconSparkles,
   IconPlugConnected,
 } from '@tabler/icons-react';
-import React, { useRef } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 
 import { ChatTitle, NewChatButton } from '@/components/chat/ChatTitle';
 import { IconButton } from '@/components/primitives';
@@ -45,14 +45,47 @@ const TABS: { id: AppView; label: string; icon: React.ReactNode }[] = [
 ];
 
 /**
- * The single toolbar for wider windows: sidebar, destinations and, in Chat,
- * the conversation title and New chat. Phones use the tab bar instead.
+ * The single toolbar for wider windows: sidebar, destinations and the shown
+ * destination's own controls (in Chat, the conversation title and New chat).
+ * It floats over the content, which scrolls beneath it. Phones use the tab
+ * bar instead.
  */
-export function ViewTabs() {
+export function ViewTabs({
+  onSlotChange,
+}: {
+  /** Receives the slot for destination controls while the toolbar is shown. */
+  onSlotChange?: (slot: HTMLElement | null) => void;
+}) {
   const activeView = useUISettingsStore((s) => s.activeView);
   const setActiveView = useUISettingsStore((s) => s.setActiveView);
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
+  const showChatbar = useUISettingsStore((s) => s.showChatbar);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const barRef = useRef<HTMLDivElement>(null);
+  const slotRef = useRef<HTMLDivElement>(null);
+
+  // Content starts below the toolbar and scrolls beneath it, so publish the
+  // toolbar's height to the column. It is zero while the toolbar is hidden on
+  // phones or above a software keyboard, which also withdraws the slot.
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const column = bar?.parentElement;
+    if (!bar || !column) return;
+    const update = () => {
+      const height = bar.getBoundingClientRect().height;
+      column.style.setProperty('--app-toolbar-inset', `${height}px`);
+      onSlotChange?.(height > 0 ? slotRef.current : null);
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      column.style.removeProperty('--app-toolbar-inset');
+      onSlotChange?.(null);
+    };
+  }, [onSlotChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
     let next: number | null = null;
@@ -69,18 +102,23 @@ export function ViewTabs() {
   };
 
   return (
-    <div className="app-view-tabs hidden min-w-0 items-center gap-3 md:flex">
+    <div
+      ref={barRef}
+      data-view={activeView}
+      className="app-view-tabs hidden min-w-0 items-center md:flex"
+    >
       <IconButton
         icon={<IconLayoutSidebar size={20} />}
         aria-label="Toggle sidebar"
+        aria-expanded={showChatbar}
         variant="ghost"
-        className="app-chrome app-sidebar-toggle shrink-0 rounded-full"
+        className="app-chrome app-toolbar-button app-sidebar-toggle shrink-0"
         onClick={toggleChatbar}
       />
       <div
         role="tablist"
         aria-label="Views"
-        className="app-navigation-cluster app-chrome flex min-w-0 flex-wrap items-center gap-1 rounded-full p-1"
+        className="app-navigation-cluster app-chrome flex min-w-0 flex-wrap items-center gap-1"
       >
         {TABS.map((tab, index) => {
           const active = activeView === tab.id;
@@ -112,12 +150,18 @@ export function ViewTabs() {
           );
         })}
       </div>
-      {activeView === 'chat' && (
-        <div className="app-toolbar-title flex min-w-[6rem] flex-1 items-center gap-2 pl-1">
-          <ChatTitle className="flex-1" />
-          <NewChatButton />
-        </div>
-      )}
+      <div className="app-toolbar-context flex min-w-0 flex-1 items-center gap-2">
+        {activeView === 'chat' && (
+          <div className="app-toolbar-title flex min-w-[6rem] flex-1 items-center gap-2 pl-1">
+            <ChatTitle className="flex-1" />
+            {/* The open sidebar offers New Chat; the toolbar does not repeat it. */}
+            {!showChatbar && (
+              <NewChatButton className="app-chrome app-toolbar-button" />
+            )}
+          </div>
+        )}
+        <div ref={slotRef} className="contents" />
+      </div>
     </div>
   );
 }

@@ -732,10 +732,10 @@ export const ChatInput = memo(
     );
 
     return (
-      <div data-chat-input className="chat-composer flex-shrink-0 py-3">
+      <div data-chat-input className="chat-composer flex-shrink-0 pb-3 pt-2">
         {fileSaveDialog}
         <div className="chat-content-rail space-y-2">
-          <GlassToolbar className="chat-composer-surface rounded-[1.75rem] border p-2">
+          <GlassToolbar className="chat-composer-surface border">
             <DropZone onDrop={handleFileSelect} className="chat-input-dropzone">
               {hasComposerExtras && (
                 <div className="chat-input-extras mb-2 space-y-2">
@@ -937,7 +937,7 @@ export const ChatInput = memo(
                   variant="ghost"
                   size="sm"
                   onClick={() => fileInputRef.current?.click()}
-                  className="chat-input-action mb-0.5 flex-shrink-0"
+                  className="chat-input-action flex-shrink-0"
                 />
 
                 <div className="flex-1 min-w-0">
@@ -970,7 +970,7 @@ export const ChatInput = memo(
                     variant="danger"
                     size="md"
                     onClick={onStop}
-                    className="chat-input-action mb-0.5 flex-shrink-0"
+                    className="chat-input-action flex-shrink-0"
                   />
                 )}
                 {(!isStreaming || !!onSteer) && (
@@ -981,7 +981,7 @@ export const ChatInput = memo(
                     size="md"
                     onClick={handleSend}
                     disabled={!canSend}
-                    className="chat-input-action chat-composer-send mb-0.5 flex-shrink-0 rounded-full"
+                    className="chat-input-action chat-composer-send flex-shrink-0 rounded-full"
                   />
                 )}
               </div>

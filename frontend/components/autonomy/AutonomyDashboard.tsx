@@ -20,7 +20,7 @@ import type {
 } from '@/types/autonomy';
 
 import { AutonomyFeed } from './AutonomyFeed';
-import { StatusStrip } from './StatusStrip';
+import { AutonomyHeader } from './AutonomyHeader';
 import { WorkspaceDrawer } from './WorkspaceDrawer';
 import { isActiveRun } from './utils';
 
@@ -533,8 +533,8 @@ export function AutonomyDashboard() {
 
   if (loading) {
     return (
-      <div className="app-workspace h-full overflow-y-auto">
-        <div className="mx-auto max-w-[720px] px-4 py-12 md:px-6">
+      <div className="app-page app-workspace h-full overflow-y-auto pb-8">
+        <div className="app-content-rail pt-6">
           <SkeletonFeed />
         </div>
       </div>
@@ -544,8 +544,8 @@ export function AutonomyDashboard() {
   // A failed first load must not masquerade as an empty feed.
   if (loadError && !state.config && state.feed.length === 0) {
     return (
-      <div className="app-workspace h-full overflow-y-auto text-dark-text-primary">
-        <div className="mx-auto flex h-full max-w-[720px] flex-col items-center justify-center gap-4 px-4 text-center">
+      <div className="app-page app-workspace h-full overflow-y-auto text-dark-text-primary">
+        <div className="app-content-rail flex h-full flex-col items-center justify-center gap-4 text-center">
           <p className="text-sm text-dark-text-secondary">
             Could not load the autonomy dashboard. Check your connection and try
             again.
@@ -566,23 +566,23 @@ export function AutonomyDashboard() {
   }
 
   return (
-    <div className="app-workspace h-full overflow-y-auto text-dark-text-primary">
-      <StatusStrip
-        ref={workspaceButtonRef}
-        config={state.config}
-        activeRun={activeRun}
-        lastRunAt={lastRunAt}
-        queuedRequests={state.queue.length}
-        onOpenWorkspace={() => setDrawerOpen(true)}
-        onRefresh={() => refresh()}
-        refreshing={refreshing}
-        wsConnected={wsConnected}
-      />
-      <div className="relative mx-auto w-full max-w-[760px] px-4 pb-8 md:px-6">
+    <div className="app-page app-workspace h-full overflow-y-auto pb-8 text-dark-text-primary">
+      <div className="app-content-rail relative space-y-6">
+        <AutonomyHeader
+          ref={workspaceButtonRef}
+          config={state.config}
+          activeRun={activeRun}
+          lastRunAt={lastRunAt}
+          queuedRequests={state.queue.length}
+          onOpenWorkspace={() => setDrawerOpen(true)}
+          onRefresh={() => refresh()}
+          refreshing={refreshing}
+          wsConnected={wsConnected}
+        />
         {loadError && (
           <p
             role="status"
-            className="my-3 rounded-lg bg-control p-3 text-sm text-secondary"
+            className="rounded-lg bg-control p-3 text-sm text-secondary"
           >
             Updates are temporarily unavailable. Showing the last saved
             activity. Use Refresh to try again.

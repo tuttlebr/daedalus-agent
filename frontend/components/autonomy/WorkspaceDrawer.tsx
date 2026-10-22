@@ -601,7 +601,7 @@ export function WorkspaceDrawer({
                     </span>
                     <span
                       className={classNames(
-                        'max-w-full break-words text-[0.75rem] uppercase tracking-wider [overflow-wrap:anywhere]',
+                        'max-w-full break-words font-mono text-[0.75rem] [overflow-wrap:anywhere]',
                         event.level === 'error' && 'text-primary',
                         event.level === 'warn' && 'text-nvidia-orange',
                         event.level === 'info' && 'text-nvidia-green',

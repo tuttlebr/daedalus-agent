@@ -53,8 +53,8 @@ const variantClasses: Record<IconButtonVariant, string> = {
   `,
   danger: `
     bg-transparent text-muted
-    hover:bg-error/20
-    hover:text-primary
+    hover:bg-destructive/15
+    hover:text-destructive
     active:scale-95
     focus-visible:ring-2 focus-visible:ring-focus
   `,

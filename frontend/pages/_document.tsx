@@ -38,6 +38,19 @@ export default function Document() {
         <meta name="apple-mobile-web-app-title" content="Daedalus" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="description" content="AI Agent Interface" />
+        {/* Browser chrome, including Safari's web-app title bar, matches the
+            canvas from the first paint. The script below applies an explicit
+            Light or Dark choice; useTheme keeps both tags current. */}
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: light)"
+          content="#ffffff"
+        />
+        <meta
+          name="theme-color"
+          media="(prefers-color-scheme: dark)"
+          content="#161d27"
+        />
 
         {/* Windows */}
         <meta name="msapplication-TileColor" content="#161d27" />
@@ -60,6 +73,15 @@ export default function Document() {
             var dark = mode === 'dark' || (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
             document.documentElement.classList.toggle('dark', dark);
             document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+            var canvas = getComputedStyle(document.documentElement).getPropertyValue('--bg-canvas').trim();
+            if (canvas) {
+              document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) {
+                meta.setAttribute('content', canvas);
+              });
+            }
+          } catch(e) {}
+          try {
+            if (s && s.state && s.state.reduceTransparency) document.documentElement.dataset.transparency = 'reduced';
           } catch(e) {}
           try {
             var standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;

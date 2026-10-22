@@ -285,14 +285,14 @@ function InputsSection({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
-          Input images {images.length > 0 && `(${images.length})`}
+        <div className="text-xs text-muted md:text-[0.75rem]">
+          Input Images {images.length > 0 && `(${images.length})`}
         </div>
         {images.length > 0 && (
           <button
             type="button"
             onClick={onClear}
-            className="min-h-11 rounded-lg px-2 text-xs uppercase tracking-wider text-muted transition-colors hover:bg-fill/5 hover:text-primary md:min-h-8 md:text-[0.75rem]"
+            className="min-h-11 rounded-lg px-2 text-xs text-muted transition-colors hover:bg-fill/5 hover:text-primary md:min-h-8 md:text-[0.75rem]"
           >
             Clear
           </button>
@@ -429,8 +429,8 @@ function MaskSection({
 
   return (
     <div>
-      <div className="mb-2 text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
-        Mask for Image 1 (optional)
+      <div className="mb-2 text-xs text-muted md:text-[0.75rem]">
+        Mask for Image 1 (Optional)
       </div>
       {mask ? (
         <div>

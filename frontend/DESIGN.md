@@ -11,9 +11,36 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   column, a gallery of actual images, concise empty states, and a single
   accent color for interactive emphasis. Messages and the composer share one
   column capped at 52rem, so prose stays near 70-90 characters per line;
-  tables and code scroll inside it rather than breaking words. Phones omit
-  message avatars, as in a one-to-one thread. Responses collapse only when
-  they would hide a substantial part of a long answer.
+  tables and code scroll inside it rather than breaking words. The welcome
+  suggestions, Autonomy, Memory and Connections use the same rail, so their
+  edges stay in place when switching tabs. Phones omit message avatars, as in
+  a one-to-one thread. Responses collapse only when they would hide a
+  substantial part of a long answer.
+- Liquid Glass layering: content scrolls beneath the toolbar and, on wider
+  windows with the keyboard closed, beneath the composer, which float over it.
+  Scroll containers reserve both heights, measured as they change, so first
+  and last items rest clear of the controls; a reader at the newest message
+  stays there when the composer grows. A scroll edge fades content into the
+  canvas under each bar. The canvas washes fade out near the top and bottom
+  edges, so Safari's title bar, the toolbar edge and the composer edge meet
+  one flat canvas color. Phones and keyboard layouts keep the composer below
+  the messages.
+- Window geometry: floating panels (the sidebar and the Create inspector)
+  keep one 8px inset from the window. On pointer devices their corners are
+  concentric with the window's (Safari web-app windows on macOS 26 round at
+  about 16px, so panels use 8px); touch layouts keep the sheet radius. The
+  resize divider covers the gap beside the sidebar instead of adding width.
+  The sidebar's header shares the toolbar's center line, and its fills and
+  its icons and labels each share one leading edge.
+- Pointer and touch sizes: with a pointer, rows are 32px and form controls,
+  segmented controls and composer buttons 36px; toolbar controls and groups
+  are 44px. Coarse pointers keep 44px targets, including iPad at desktop
+  widths. Hover-only controls take no space: a message's actions appear over
+  its outer top corner, and a conversation's More button over the end of its
+  row. Touch shows both at all times.
+- Text uses title-style capitalization for headers, tabs and section labels;
+  nothing is set in all capitals. Code and diagrams use the monospace face,
+  while a code block's language label and buttons are interface text.
 - Text, including the Autonomy feed, prefers SF Pro for regular, italic, and
   bold styles. Code, inline code, and diagrams prefer SF Mono. Shared CSS font
   variables also drive Tailwind and syntax highlighting. These are device-local
@@ -26,26 +53,40 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
   are available in the sidebar and sign-in screen. The System choice follows
   changes while the app is open. Existing explicit saved choices are retained.
 - Translucency is reserved for navigation and toolbars. Content cards and
-  settings sheets use solid surfaces. Increased contrast and reduced
-  transparency remove backdrop filters; reduced motion removes transitions
-  and smooth scrolling. Forced-colors selection retains a visible outline.
-  Scroll indicators are the platform's own, so macOS and iOS overlay
-  scrollers follow system settings and appearance.
+  settings sheets use solid surfaces. Increased contrast removes backdrop
+  filters and makes the scroll edges opaque. WebKit does not report the
+  system's Reduce Transparency setting to pages, so a Reduce transparency
+  switch beside Appearance does the same; it persists and applies before
+  hydration. Reduced motion removes transitions and smooth scrolling.
+  Forced-colors selection retains a visible outline. Scroll indicators are
+  the platform's own, so macOS and iOS overlay scrollers follow system
+  settings and appearance.
 - Five peer destinations remain visible in the mobile tab bar, whose items
   share its width while every label fits on one line. Commands are placed in
   toolbars. Wider windows, including phones in landscape, use one toolbar
-  with the sidebar toggle, labeled tabs with arrow/Home/End navigation and,
-  in Chat, the conversation title and New chat. The sidebar has an adjustable
-  divider and lists conversations only; destinations are not repeated there.
-  Visited tabs retain drafts, selections, and scroll position.
+  with the sidebar toggle, labeled tabs with arrow/Home/End navigation and
+  the shown destination's own controls: in Chat, the conversation title and
+  New chat; in Create, the mode and panel controls; elsewhere, Refresh and
+  workspace commands. Without the toolbar, those controls stay in the page.
+  Single toolbar commands are glass circles and related ones share a glass
+  group, all one height. Tab labels give way to icons before a title or a
+  destination's controls are squeezed. The toolbar's New chat appears while
+  the sidebar is hidden, since the open sidebar offers New Chat; wide windows
+  close the sidebar from the toolbar, and the phone drawer keeps its Close
+  button. The sidebar has an adjustable divider and lists conversations
+  only; destinations are not repeated there. Visited tabs retain drafts,
+  selections, and scroll position.
+- Destinations other than Chat share one page header: a title with an
+  optional status, a description, and commands that move into the toolbar on
+  wide windows. View switches and filters share one segmented control: a
+  raised thumb on a tinted track, or a glass group inside the toolbar.
 - Each conversation has one More button whose menu offers Rename, Download
   Activity and Delete. The menu is a top-layer popover with arrow-key
   navigation; Escape and canceled actions return focus to the More button.
   Deleting or clearing conversations asks for confirmation with labeled
   Cancel and destructive buttons.
-- Coarse-pointer controls have at least 44 CSS pixels of target height, including
-  iPad at desktop widths. Safe-area padding and the existing visual viewport
-  keyboard compensation remain part of the PWA shell. Zoom remains enabled.
+- Safe-area padding and the existing visual viewport keyboard compensation
+  remain part of the PWA shell. Zoom remains enabled.
 - Sheets, drawers, and the memory editor share native HTML dialog semantics for
   modal stacking, inert background, focus containment, Escape, and focus return.
   Mobile settings include an explicit Done action. Desktop popovers move focus
@@ -74,7 +115,9 @@ not use SwiftUI, distribute SF Symbols, or claim native Liquid Glass rendering.
 Design credit: _Alaska, by Alicia Curley_. The seven source swatches are
 `#161D27`, `#253D56`, `#4C6D8B`, `#9DB5B5`, `#B69BA6`, `#F5A35F`, and `#FFC04A`.
 The supplied specification also allows white, `#F5F7F8`, the light surface
-`#EFF3F3`, and the raised dark surface `#2C4A68`.
+`#EFF3F3`, and the raised dark surface `#2C4A68`. One role sits outside the
+swatches: destructive actions use red, as the platform does, because mauve
+read as a disabled control.
 
 `styles/appearance.css` is the color authority. Public CSS color tokens use the
 names below; RGB channel aliases support Tailwind opacity utilities and legacy
@@ -97,14 +140,18 @@ hydration. System follows the OS; manual Light/Dark choices persist.
 | `--accent-secondary`  | `#FFC04A` | `#FFC04A` |
 | `--accent-neutral`    | `#B69BA6` | `#B69BA6` |
 | `--border-subtle`     | `#9DB5B5` | `#4C6D8B` |
+| `--destructive`       | `#C62828` | `#FFA198` |
 
 User bubbles use the component rule's light text (5.05:1), resolving the conflicting
 mention of user bubbles under `--text-on-accent`. Bot text measures 7.84:1 in light
 mode and 10.39:1 in dark mode. Filled primary actions use apricot with navy text
 (8.30:1), switching to gold on hover (10.40:1). Links remain readable blue or inherit
 message text with an underline. Gold is used as a fill, never as bot message text.
-Minor errors use mauve borders/tints, normal primary text, and existing labels/icons;
-destructive confirmations fill mauve with navy text.
+Minor errors use mauve borders/tints, normal primary text, and existing labels/icons.
+Destructive actions (Delete, Clear, Clear all memory, Remove from workspace) use the
+destructive role: filled buttons carry white text in light mode (5.62:1) and navy text
+in dark mode (8.72:1); as text it measures 5.62:1 on white and 4.72:1 on raised blue.
+`--destructive` holds RGB channels, like the other roles used with opacity.
 
 Two local text adjustments satisfy AA without adding colors: secondary text on
 a light bot bubble uses deep slate (5.16:1), and secondary text/placeholders on
@@ -115,7 +162,10 @@ Focus has a 2px apricot outer outline and a contrasting inner edge, since aprico
 against white alone is only 2.04:1. Increased-contrast and forced-colors modes
 retain their accessibility overrides.
 
-Browser chrome reads the canvas token. The install manifest uses white, and
+Browser chrome, including Safari's web-app title bar, reads the canvas token. The
+first response carries a theme-color tag for each system appearance, the
+pre-hydration script applies an explicit Light or Dark choice to both, and the app
+keeps them current. The install manifest uses white, and
 `npm run branding` refreshes its content-hashed references. `npm run appearance`
 embeds the shared theme definitions into `public/offline.html`; the production
 build also runs this generator so offline recovery needs no stylesheet request.
@@ -124,7 +174,8 @@ artwork. Code highlighting and built-in chart styling consume palette tokens.
 
 Palette regression coverage lives in `e2e/tests/hig-design.spec.ts`: both themes,
 populated messages and errors, Markdown, primary-action hover, focus, placeholders,
-input boundaries, appearance persistence, and WCAG AA scans. Browser emulation does
+input boundaries, appearance persistence, the first response's theme-color tags,
+reduced transparency, and WCAG AA scans. Browser emulation does
 not replace physical-device or assistive-technology checks.
 
 ## Source guidance
@@ -163,7 +214,8 @@ a failed memory save followed by a successful retry with the same draft,
 the conversation menu's keyboard navigation and rename cancellation, and
 populated Autonomy articles with text scaling and keyboard navigation. Layout
 cases check that wide windows use a single toolbar with even margins while
-phones keep the Chat header, that tab bar items share its width, that inline
+phones keep the Chat header, that the new-chat welcome centers between the
+floating toolbar and composer, that tab bar items share its width, that inline
 code shows no Markdown backticks, that scroll indicators are native, and that
 table cells keep words whole while wide tables scroll inside the response.
 

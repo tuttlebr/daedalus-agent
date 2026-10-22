@@ -14,8 +14,6 @@ interface ConversationActionsProps {
   conversationId: string;
   conversationName: string;
   disabled: boolean;
-  /** Keeps the More button visible on wide screens, as for the open row. */
-  emphasized: boolean;
   onRename: () => void;
   onDownload: () => void;
   onDelete: () => void;
@@ -36,7 +34,6 @@ export const ConversationActions = memo(
     conversationId,
     conversationName,
     disabled,
-    emphasized,
     onRename,
     onDownload,
     onDelete,
@@ -142,12 +139,9 @@ export const ConversationActions = memo(
           aria-controls={menuId}
           title="More"
           {...invokes(menuId)}
-          className={classNames(
-            'flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md text-dark-text-muted transition-opacity hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-7 md:w-7',
-            'touch-action-controls',
-            !emphasized && !open && 'md:opacity-0 md:group-hover:opacity-100',
-            'md:focus-visible:opacity-100',
-          )}
+          // With a pointer, CSS shows the button over the end of its row while
+          // the row is hovered, focused, selected or open; touch keeps it.
+          className="app-history-actions touch-action-controls flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md text-dark-text-muted transition-opacity hover:bg-fill/[0.06] hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-7 md:w-7"
         >
           <IconDots size={16} aria-hidden="true" />
         </button>
@@ -158,7 +152,7 @@ export const ConversationActions = memo(
           aria-label={`Actions for ${conversationName}`}
           {...popover}
           onKeyDown={handleMenuKeyDown}
-          className="app-menu m-0 w-56 rounded-xl border border-separator/70 bg-elevated p-1 text-dark-text-primary shadow-xl"
+          className="app-menu w-56 p-1 text-dark-text-primary"
         >
           <button
             type="button"
@@ -188,7 +182,7 @@ export const ConversationActions = memo(
             role="menuitem"
             id={`delete-conversation-${conversationId}`}
             disabled={disabled}
-            className={itemClasses}
+            className={classNames(itemClasses, '!text-destructive')}
             onClick={() => choose(onDelete)}
           >
             <IconTrash size={16} aria-hidden="true" />

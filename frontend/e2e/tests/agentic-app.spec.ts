@@ -249,9 +249,9 @@ test('deletes a history-only conversation through the real API and keeps it dele
       .getByRole('button', { name: 'Toggle sidebar', exact: true })
       .click();
     await page
-      .getByRole('button', { name: 'Close sidebar', exact: true })
-      .evaluate(async (button) => {
-        const sidebar = button.closest('[aria-hidden="false"]');
+      .getByRole('navigation', { name: 'Conversation history' })
+      .evaluate(async (history) => {
+        const sidebar = history.closest('[aria-hidden="false"]');
         if (!sidebar) throw new Error('Open desktop sidebar was not found');
         // The row actions wrap while the sidebar animates from zero width. Wait
         // for that actual transition so the delete control cannot move mid-click.

@@ -10,7 +10,9 @@ interface DayGroupProps {
 export function DayGroup({ label, children }: DayGroupProps) {
   return (
     <section className="mb-10 last:mb-2">
-      <header className="-mx-1 mb-4 bg-app px-1 py-2">
+      {/* No fill: the canvas behind it carries a gradient a flat colour
+          would not match. */}
+      <header className="mb-4 py-2">
         <div className="flex items-baseline gap-3">
           <h2 className="text-sm font-semibold text-dark-text-primary">
             {label}

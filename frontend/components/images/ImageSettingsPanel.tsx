@@ -316,7 +316,7 @@ function SizeControl({
         <button
           type="button"
           onClick={startCustom}
-          className="h-11 rounded-lg border border-separator/70 bg-control px-3 text-sm text-secondary transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          className="h-9 rounded-xl border border-separator/70 bg-control px-3 text-sm text-secondary transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           Custom
         </button>
@@ -360,7 +360,7 @@ function SizeControl({
           <button
             type="button"
             onClick={applyCustom}
-            className="min-h-11 rounded-lg bg-action px-3 py-2 text-sm font-medium text-on-action transition-colors hover:bg-action-hover"
+            className="min-h-9 rounded-xl bg-action px-3 py-1.5 text-sm font-medium text-on-action transition-colors hover:bg-action-hover"
           >
             Apply
           </button>
@@ -462,4 +462,4 @@ function formatSizeLabel(size: ImageSize): string {
 }
 
 const fieldClassName =
-  'h-11 w-full min-w-0 rounded-lg border border-separator/70 bg-control px-3 text-base text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:text-sm';
+  'h-9 w-full min-w-0 rounded-xl border border-separator/70 bg-control px-3 text-base text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:text-sm';

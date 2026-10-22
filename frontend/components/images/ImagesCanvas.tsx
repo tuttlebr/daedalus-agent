@@ -74,9 +74,7 @@ export const ImagesCanvas = memo(function ImagesCanvas({
   return (
     <div className="relative w-full h-full">
       <div
-        className={classNames(
-          'grid h-full content-start gap-4 overflow-y-auto p-4',
-        )}
+        className="image-canvas-scroll grid h-full content-start gap-4 overflow-y-auto p-4"
         style={{
           gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
         }}
@@ -111,7 +109,7 @@ export const ImagesCanvas = memo(function ImagesCanvas({
         })}
       </div>
       {!loading && images.length === 0 && emptyState && (
-        <div className="absolute inset-0 z-10 flex overflow-y-auto p-5">
+        <div className="image-canvas-empty absolute inset-0 z-10 flex overflow-y-auto p-5">
           <div className="m-auto min-w-0">{emptyState}</div>
         </div>
       )}
@@ -145,9 +143,7 @@ function LoadingCell({
     <div className="absolute inset-0 flex items-center justify-center">
       <div className="flex flex-col items-center gap-2 text-center">
         <div className="w-6 h-6 rounded-full border-2 border-separator border-t-nvidia-green animate-spin" />
-        <div className="text-[0.75rem] font-medium uppercase tracking-wider text-muted">
-          {label}
-        </div>
+        <div className="text-xs font-medium text-muted">{label}</div>
         <div className="text-[0.75rem] text-muted">
           {index + 1}/{count} · {Math.floor(elapsedMs / 1000)}s
         </div>
@@ -204,7 +200,7 @@ const CanvasTile = memo(function CanvasTile({
         </div>
       ))}
       {visibleImage.partial && (
-        <div className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[0.75rem] font-medium uppercase tracking-wider text-white">
+        <div className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white">
           Partial
         </div>
       )}

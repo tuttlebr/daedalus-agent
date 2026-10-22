@@ -306,20 +306,3 @@
   white-space: nowrap;
   border-width: 0;
 }
-
-/* High contrast mode support */
-@media (prefers-contrast: high) {
-  :root {
-    --color-border: #000;
-    --color-text-primary: #000;
-    --color-bg-primary: #fff;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --color-border: #fff;
-      --color-text-primary: #fff;
-      --color-bg-primary: #000;
-    }
-  }
-}

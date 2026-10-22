@@ -39,6 +39,10 @@ import { ChatView } from '@/components/chat/ChatView';
 import { ConnectionsView } from '@/components/connections';
 import { ImagePanel } from '@/components/images';
 import { AppShell, ViewTabs } from '@/components/layout';
+import {
+  ToolbarSlotProvider,
+  ViewProvider,
+} from '@/components/layout/ToolbarSlot';
 import { MemoryCenter } from '@/components/memory';
 import { BottomNav } from '@/components/mobile/BottomNav';
 import { Sidebar } from '@/components/sidebar/Sidebar';
@@ -64,6 +68,8 @@ function adoptServerConversation(conversation: Conversation) {
 const Home = () => {
   const workflow = getWorkflowName() || 'Daedalus';
   const visualViewport = useVisualViewportKeyboard();
+  // Destinations place their own controls here while the toolbar is shown.
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLElement | null>(null);
 
   // Keyboard shortcuts
   const toggleChatbar = useUISettingsStore((s) => s.toggleChatbar);
@@ -391,10 +397,12 @@ const Home = () => {
             sidebar={<Sidebar />}
             bottomNav={<BottomNav keyboardOpen={visualViewport.keyboardOpen} />}
           >
-            <div className="flex h-full w-full min-w-0 flex-col">
-              <ViewTabs />
+            <div className="app-main-column relative flex h-full w-full min-w-0 flex-col">
+              <ViewTabs onSlotChange={setToolbarSlot} />
               <div className="flex-1 min-h-0 w-full overflow-hidden">
-                <ActiveView />
+                <ToolbarSlotProvider value={toolbarSlot}>
+                  <ActiveView />
+                </ToolbarSlotProvider>
               </div>
             </div>
           </AppShell>
@@ -433,9 +441,11 @@ function ActiveView() {
           hidden={activeView !== view}
           className="h-full min-w-0"
         >
-          {(visited.includes(view) || activeView === view) && (
-            <ActiveViewContent view={view} />
-          )}
+          <ViewProvider value={view}>
+            {(visited.includes(view) || activeView === view) && (
+              <ActiveViewContent view={view} />
+            )}
+          </ViewProvider>
         </section>
       ))}
     </>

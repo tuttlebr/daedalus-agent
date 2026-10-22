@@ -135,7 +135,12 @@ export const SplitPane = memo(
     }, [applyWidth, persistWidth]);
 
     return (
-      <div className={classNames('flex h-full overflow-hidden', className)}>
+      <div
+        className={classNames(
+          'relative flex h-full overflow-hidden',
+          className,
+        )}
+      >
         {/* Sidebar */}
         <div
           ref={sidebarRef}
@@ -152,17 +157,18 @@ export const SplitPane = memo(
           {!isMobile && sidebar}
         </div>
 
-        {/* Resize handle: 1px visual line with an invisible ~12px hit area */}
+        {/* Resize handle. It covers the one-inset gap beside the floating
+            sidebar rather than adding its own width, so the sidebar sits as
+            far from the content as from the window edge. A line appears only
+            while it is hovered, focused or dragged; the hit area is wider. */}
         {showChatbar && (
           <div
             className={classNames(
-              'relative w-1 flex-shrink-0 cursor-col-resize touch-none',
-              'after:absolute after:inset-y-0 after:-left-1.5 after:-right-1.5 after:content-[""]',
-              'hover:bg-nvidia-green/30 focus-visible:bg-nvidia-green/40',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
-              'transition-colors duration-150',
-              isResizing && 'bg-nvidia-green/50',
+              'group absolute inset-y-0 z-30 cursor-col-resize touch-none',
+              'after:absolute after:inset-y-0 after:-left-1 after:-right-1 after:content-[""]',
+              'focus-visible:outline-none',
             )}
+            style={{ left: `${chatbarWidth}px`, width: 'var(--app-inset)' }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -178,7 +184,16 @@ export const SplitPane = memo(
             aria-valuemax={MAX_SIDEBAR_WIDTH}
             aria-valuenow={chatbarWidth}
             title="Drag to resize. Double-click to reset."
-          />
+          >
+            <span
+              aria-hidden="true"
+              className={classNames(
+                'pointer-events-none absolute inset-y-3 left-1/2 w-0.5 -translate-x-1/2 rounded-full transition-colors duration-150',
+                'group-hover:bg-separator group-focus-visible:bg-focus',
+                isResizing && 'bg-separator',
+              )}
+            />
+          </div>
         )}
 
         {/* Main content */}

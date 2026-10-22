@@ -68,6 +68,8 @@ module.exports = {
         action: 'rgb(var(--action) / <alpha-value>)',
         'action-hover': 'rgb(var(--action-hover) / <alpha-value>)',
         'on-action': 'rgb(var(--on-action) / <alpha-value>)',
+        destructive: 'rgb(var(--destructive) / <alpha-value>)',
+        'on-destructive': 'rgb(var(--on-destructive) / <alpha-value>)',
         'on-user': 'var(--text-on-user)',
         focus: 'var(--color-focus)',
         'control-border': 'rgb(var(--border-control) / <alpha-value>)',

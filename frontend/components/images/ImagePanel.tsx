@@ -12,6 +12,7 @@ import {
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -32,6 +33,12 @@ import {
 } from '@/utils/app/queries';
 
 import type { ImageContext } from '@/types/imageBrief';
+
+import {
+  ToolbarGroup,
+  ToolbarItems,
+  useToolbarShown,
+} from '@/components/layout/ToolbarSlot';
 
 import { EditAssetsPanel } from './AttachmentsPopover';
 import { HistoryDrawer, HistoryToggleButton } from './HistoryDrawer';
@@ -315,9 +322,29 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
   const mountedRef = useRef(false);
   const stoppingRef = useRef(false);
   const isDesktop = useIsDesktop();
+  const toolbarShown = useToolbarShown();
   const [settingsOpen, setSettingsOpen] = useState(true);
   const [outputActionsOpen, setOutputActionsOpen] = useState(false);
   const [recoverableJobId, setRecoverableJobId] = useState<string | null>(null);
+  const canvasColumnRef = useRef<HTMLDivElement>(null);
+  const bottomBarRef = useRef<HTMLDivElement>(null);
+
+  // On wide windows the prompt bar floats over the gallery; reserve its height
+  // so the last row of images can scroll clear of it.
+  useLayoutEffect(() => {
+    const column = canvasColumnRef.current;
+    const bar = bottomBarRef.current;
+    if (!column || !bar || typeof ResizeObserver === 'undefined') return;
+    const update = () =>
+      column.style.setProperty(
+        '--bottom-bar-inset',
+        `${Math.round(bar.getBoundingClientRect().height)}px`,
+      );
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (historyData) setHistory(historyData);
@@ -619,34 +646,53 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
 
   return (
     <div className="image-workspace relative flex h-full w-full flex-col overflow-hidden text-primary">
-      <header className="z-10 flex flex-none flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-2 pt-3 md:px-5 md:py-3">
+      {/* While the toolbar is shown it holds the mode and panel controls, and
+          the selected tab already names the destination. */}
+      <header
+        className={classNames(
+          'z-10 flex flex-none flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-2 pt-3 md:px-5 md:py-3',
+          toolbarShown && 'sr-only',
+        )}
+      >
         <h1 className="min-w-fit flex-1 text-base font-semibold tracking-tight text-primary">
           Create
         </h1>
-        <div className="order-3 min-w-0 w-full md:order-none md:w-auto">
-          <ModeSegmentedControl fullWidth />
-        </div>
-        <div className="ml-auto flex items-center justify-end gap-2 md:flex-1">
-          <button
-            type="button"
-            aria-expanded={settingsOpen}
-            aria-controls="create-settings-sidebar"
-            onClick={() => setSettingsOpen((open) => !open)}
-            className="hidden min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-secondary transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:inline-flex"
-          >
-            {settingsOpen ? (
-              <IconLayoutSidebarRightCollapse size={18} aria-hidden="true" />
-            ) : (
-              <IconLayoutSidebarRightExpand size={18} aria-hidden="true" />
-            )}
-            Settings
-          </button>
-          <HistoryToggleButton />
-        </div>
+        <ToolbarItems>
+          <div className="order-3 min-w-0 w-full md:order-none md:w-auto">
+            <ModeSegmentedControl fullWidth />
+          </div>
+          <div className="ml-auto flex items-center justify-end md:flex-1">
+            <ToolbarGroup label="Create panels">
+              <button
+                type="button"
+                aria-label="Settings"
+                title="Settings"
+                aria-expanded={settingsOpen}
+                aria-controls="create-settings-sidebar"
+                onClick={() => setSettingsOpen((open) => !open)}
+                className="image-panel-toggle hidden min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-secondary transition-colors hover:bg-fill/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:inline-flex"
+              >
+                {settingsOpen ? (
+                  <IconLayoutSidebarRightCollapse
+                    size={18}
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <IconLayoutSidebarRightExpand size={18} aria-hidden="true" />
+                )}
+                <span className="image-toolbar-label">Settings</span>
+              </button>
+              <HistoryToggleButton />
+            </ToolbarGroup>
+          </div>
+        </ToolbarItems>
       </header>
 
       <div className="relative flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div
+          ref={canvasColumnRef}
+          className="image-canvas-column flex min-w-0 flex-1 flex-col"
+        >
           {mode === 'edit' && (
             <div className="hidden flex-none md:block">
               <EditAssetsPanel disabled={loading} />
@@ -670,37 +716,43 @@ export function ImagePanel({ onSendToChat }: ImagePanelProps) {
             />
           </div>
 
-          {error && (
-            <div className="flex-none px-4 pb-1">
-              <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-error bg-error/10 px-3 py-2 text-xs text-primary backdrop-blur">
-                <span>{error}</span>
-                {!loading && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (recoverableJobId) {
-                        void pollImageJob(recoverableJobId);
-                      } else {
-                        void submit();
-                      }
-                    }}
-                    className="shrink-0 rounded-md px-2 py-1 font-medium text-primary transition-colors hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-                  >
-                    {recoverableJobId ? 'Check status' : 'Try again'}
-                  </button>
-                )}
+          {/* The error and prompt bar travel together; wide windows float
+              them over the gallery. */}
+          <div ref={bottomBarRef} className="image-bottom-bar flex-none">
+            {error && (
+              <div className="flex-none px-4 pb-1 pt-2">
+                <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-error bg-error/10 px-3 py-2 text-xs text-primary backdrop-blur">
+                  <span>{error}</span>
+                  {!loading && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (recoverableJobId) {
+                          void pollImageJob(recoverableJobId);
+                        } else {
+                          void submit();
+                        }
+                      }}
+                      className="shrink-0 rounded-md px-2 py-1 font-medium text-primary transition-colors hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                    >
+                      {recoverableJobId ? 'Check status' : 'Try again'}
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <ImagesDock onSubmit={submit} onStop={stopGeneration} />
+            <ImagesDock onSubmit={submit} onStop={stopGeneration} />
+          </div>
         </div>
 
+        {/* The inspector floats like the sidebar, one inset from the window
+            and concentric with its corner. */}
         <aside
           id="create-settings-sidebar"
           aria-label="Create settings and output details"
           className={classNames(
-            'w-[360px] flex-none flex-col border-l border-separator/70 bg-app/90',
+            'app-inspector app-chrome w-[360px] flex-none flex-col',
             settingsOpen ? 'hidden lg:flex' : 'hidden',
           )}
         >
@@ -880,7 +932,7 @@ function outputActionClasses(danger = false) {
   return classNames(
     'inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs transition-colors',
     danger
-      ? 'border-error text-primary hover:bg-error/10'
+      ? 'border-destructive/50 text-destructive hover:bg-destructive/10'
       : 'border-separator/70 text-secondary hover:bg-fill/5 hover:text-primary',
   );
 }
@@ -894,9 +946,7 @@ function OutputMeta({
 }) {
   return (
     <div className="mb-3">
-      <div className="mb-1 text-[0.75rem] uppercase tracking-wider text-muted">
-        {label}
-      </div>
+      <div className="mb-1 text-xs font-medium text-muted">{label}</div>
       <div className="whitespace-pre-wrap break-words rounded-md bg-fill/5 p-2 text-[0.75rem] leading-relaxed text-secondary">
         {children}
       </div>

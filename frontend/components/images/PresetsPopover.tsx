@@ -89,8 +89,8 @@ export function PresetsPanel({
   return (
     <div className="w-full p-3 md:w-72">
       {showHeading && (
-        <div className="mb-2 text-[0.75rem] font-medium uppercase tracking-wider text-muted">
-          Presets · {mode}
+        <div className="mb-2 text-[0.75rem] font-medium text-muted">
+          Presets · {mode === 'edit' ? 'Edit' : 'Generate'}
         </div>
       )}
       <div className="flex flex-col gap-1">

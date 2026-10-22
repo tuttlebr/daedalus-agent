@@ -69,8 +69,9 @@ export interface Message {
 
 type Role = 'assistant' | 'user' | 'agent' | 'system';
 
-/** Title of a conversation that has not been named yet, in every layer. */
-export const DEFAULT_CONVERSATION_TITLE = 'New Conversation';
+/** Title of a conversation that has not been named yet, in every layer. It
+ * matches the New Chat action that creates one. */
+export const DEFAULT_CONVERSATION_TITLE = 'New Chat';
 
 export interface Conversation {
   id: string;

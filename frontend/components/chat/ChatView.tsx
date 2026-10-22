@@ -2,7 +2,6 @@
 
 import {
   IconArrowDown,
-  IconArrowUpRight,
   IconCalendarEvent,
   IconCheck,
   IconExternalLink,
@@ -10,7 +9,14 @@ import {
   IconRobot,
   IconTrophy,
 } from '@tabler/icons-react';
-import React, { memo, useCallback, useRef, useEffect, useState } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useState,
+} from 'react';
 import toast from 'react-hot-toast';
 
 import { useAsyncChat } from '@/hooks/useAsyncChat';
@@ -267,6 +273,37 @@ export const ChatView = memo(() => {
     null,
   );
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const bottomBarRef = useRef<HTMLDivElement>(null);
+
+  // On wide windows the composer floats over the messages. Reserve its height
+  // so the newest message can rest above it, and keep a reader who is at the
+  // newest message there when the composer grows or shrinks.
+  useLayoutEffect(() => {
+    const workspace = workspaceRef.current;
+    const bar = bottomBarRef.current;
+    if (!workspace || !bar || typeof ResizeObserver === 'undefined') return;
+    let previous = -1;
+    const update = () => {
+      const height = Math.round(bar.getBoundingClientRect().height);
+      if (height === previous) return;
+      previous = height;
+      const container = scrollContainerRef.current;
+      const atBottom =
+        !!container &&
+        container.scrollHeight - container.scrollTop - container.clientHeight <=
+          AT_BOTTOM_THRESHOLD_PX;
+      workspace.style.setProperty('--bottom-bar-inset', `${height}px`);
+      if (container && atBottom && hasMessagesRef.current) {
+        container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollTop;
+      }
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
 
   const pauseFollowing = useCallback(() => {
     if (!isStreamingRef.current || !isFollowingRef.current) return;
@@ -1341,7 +1378,10 @@ export const ChatView = memo(() => {
       : 'Google authorization required';
 
   return (
-    <div className="chat-workspace flex flex-col h-full w-full">
+    <div
+      ref={workspaceRef}
+      className="chat-workspace flex flex-col h-full w-full"
+    >
       {/* Wider windows show the title and New chat in the shared toolbar. */}
       <header className="chat-header flex min-h-14 flex-shrink-0 items-center justify-between gap-2 px-3 py-3 md:hidden">
         <div className="flex items-center gap-3 min-w-0">
@@ -1390,7 +1430,7 @@ export const ChatView = memo(() => {
               }
             />
           ) : (
-            <div className="chat-content-rail py-6 space-y-8 md:py-8">
+            <div className="chat-content-rail space-y-6 py-6 md:py-8">
               {hiddenMessageCount > 0 && (
                 <div className="flex justify-center">
                   <button
@@ -1488,73 +1528,79 @@ export const ChatView = memo(() => {
             type="button"
             onClick={jumpToLatest}
             aria-label="Jump to latest messages"
-            className="chat-jump-latest app-chrome absolute bottom-4 right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-separator/70 text-dark-text-secondary transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-10 md:w-10"
+            className="chat-jump-latest app-chrome absolute bottom-4 left-1/2 z-10 flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full text-dark-text-secondary transition-colors hover:text-dark-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus md:h-9 md:w-9"
           >
             <IconArrowDown size={20} />
           </button>
         )}
       </div>
 
-      {selectedOAuthPrompts.length > 0 && (
-        <div className="flex-shrink-0 pb-3">
-          <div className="chat-content-rail">
-            <div className="flex flex-col gap-2 rounded-md border border-nvidia-green/30 bg-nvidia-green/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-              <span className="text-sm text-dark-text-primary">
-                {oauthPromptTitle}
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {selectedOAuthPrompts.map((prompt) => (
-                  <button
-                    key={`${prompt.jobId || 'job'}:${prompt.id}`}
-                    type="button"
-                    className={
-                      prompt.succeeded
-                        ? 'inline-flex items-center gap-1.5 rounded-md border border-nvidia-green/40 bg-nvidia-green/15 px-3 py-1.5 text-xs font-medium text-nvidia-green'
-                        : 'inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-xs font-medium text-on-action hover:bg-action-hover'
-                    }
-                    onClick={
-                      prompt.succeeded
-                        ? undefined
-                        : () => handleOAuthPromptClick(prompt)
-                    }
-                    disabled={prompt.succeeded}
-                  >
-                    {prompt.succeeded ? (
-                      <IconCheck size={14} />
-                    ) : (
-                      <IconExternalLink size={14} />
-                    )}
-                    {prompt.succeeded
-                      ? `${prompt.service || 'Google'} connected`
-                      : prompt.opened
-                      ? `Reopen ${prompt.service || 'Google'}`
-                      : `Connect ${prompt.service || 'Google'}`}
-                  </button>
-                ))}
+      {/* Prompts and the composer travel together; wide windows float them
+          over the messages. */}
+      <div ref={bottomBarRef} className="chat-bottom-bar flex-shrink-0">
+        {selectedOAuthPrompts.length > 0 && (
+          <div className="flex-shrink-0 pt-2">
+            <div className="chat-content-rail">
+              <div className="flex flex-col gap-2 rounded-md border border-nvidia-green/30 bg-nvidia-green/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-sm text-dark-text-primary">
+                  {oauthPromptTitle}
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {selectedOAuthPrompts.map((prompt) => (
+                    <button
+                      key={`${prompt.jobId || 'job'}:${prompt.id}`}
+                      type="button"
+                      className={
+                        prompt.succeeded
+                          ? 'inline-flex items-center gap-1.5 rounded-md border border-nvidia-green/40 bg-nvidia-green/15 px-3 py-1.5 text-xs font-medium text-nvidia-green'
+                          : 'inline-flex items-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-xs font-medium text-on-action hover:bg-action-hover'
+                      }
+                      onClick={
+                        prompt.succeeded
+                          ? undefined
+                          : () => handleOAuthPromptClick(prompt)
+                      }
+                      disabled={prompt.succeeded}
+                    >
+                      {prompt.succeeded ? (
+                        <IconCheck size={14} />
+                      ) : (
+                        <IconExternalLink size={14} />
+                      )}
+                      {prompt.succeeded
+                        ? `${prompt.service || 'Google'} connected`
+                        : prompt.opened
+                        ? `Reopen ${prompt.service || 'Google'}`
+                        : `Connect ${prompt.service || 'Google'}`}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Input - hidden for autonomous agent conversations (read-only) */}
-      {isAutonomousConversation ? (
-        <div className="flex-shrink-0 border-t border-separator/70 py-3">
-          <div className="chat-content-rail">
-            <div className="flex items-center justify-center gap-2 py-2 text-xs text-dark-text-muted">
-              <IconRobot size={14} className="text-nvidia-purple" />
-              <span>This conversation is managed by the autonomous agent</span>
+        {/* Input - hidden for autonomous agent conversations (read-only) */}
+        {isAutonomousConversation ? (
+          <div className="flex-shrink-0 py-3">
+            <div className="chat-content-rail">
+              <div className="flex items-center justify-center gap-2 py-2 text-xs text-dark-text-muted">
+                <IconRobot size={14} className="text-nvidia-purple" />
+                <span>
+                  This conversation is managed by the autonomous agent
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      ) : (
-        <ChatInput
-          onSend={handleSend}
-          onStop={handleStop}
-          onSteer={selectedConversationId ? handleSteer : undefined}
-          isStreaming={isStreaming}
-        />
-      )}
+        ) : (
+          <ChatInput
+            onSend={handleSend}
+            onStop={handleStop}
+            onSteer={selectedConversationId ? handleSteer : undefined}
+            isStreaming={isStreaming}
+          />
+        )}
+      </div>
     </div>
   );
 });
@@ -1586,8 +1632,9 @@ const SUGGESTED_PROMPTS = [
 
 const EmptyState = memo(
   ({ onSuggestion }: { onSuggestion?: (text: string) => void }) => (
-    <div className="chat-empty-state flex min-h-full flex-col items-center px-5 py-6 md:py-8">
-      <div className="w-full max-w-lg space-y-6 text-center md:my-auto">
+    <div className="chat-empty-state flex min-h-full flex-col items-center py-6 md:py-8">
+      {/* The welcome shares the composer's rail, so their edges line up. */}
+      <div className="chat-content-rail space-y-6 text-center md:my-auto">
         <div className="chat-welcome-mark mx-auto flex h-20 w-20 items-center justify-center rounded-[1.75rem]">
           <img
             src={branding.assets['/favicon.png']}
@@ -1595,7 +1642,7 @@ const EmptyState = memo(
             className="h-12 w-auto"
           />
         </div>
-        <div className="space-y-3">
+        <div className="space-y-2">
           <h2 className="text-3xl font-semibold tracking-tight text-primary md:text-4xl">
             How can I help?
           </h2>
@@ -1604,29 +1651,27 @@ const EmptyState = memo(
           </p>
         </div>
         {onSuggestion && (
-          <div className="chat-suggestions flex flex-col gap-2 text-left">
+          <div className="chat-suggestions text-left">
             {SUGGESTED_PROMPTS.map(({ title, detail, prompt, icon: Icon }) => (
               <button
                 key={prompt}
                 type="button"
                 onClick={() => onSuggestion(prompt)}
                 title={prompt}
-                className="chat-suggestion flex min-h-touch-min items-center gap-3 rounded-2xl border border-separator/70 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                className="chat-suggestion flex min-h-touch-min flex-col items-start gap-2 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               >
-                <span className="chat-suggestion-icon flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl">
-                  <Icon size={20} strokeWidth={1.5} aria-hidden />
-                </span>
-                <span className="min-w-0 flex-1">
+                <Icon
+                  size={20}
+                  strokeWidth={1.5}
+                  aria-hidden
+                  className="chat-suggestion-icon flex-shrink-0"
+                />
+                <span className="min-w-0">
                   <span className="block text-sm font-medium text-primary">
                     {title}
                   </span>
                   <span className="block text-xs text-secondary">{detail}</span>
                 </span>
-                <IconArrowUpRight
-                  size={16}
-                  className="text-secondary"
-                  aria-hidden
-                />
               </button>
             ))}
           </div>

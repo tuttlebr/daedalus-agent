@@ -23,18 +23,20 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
   const loading = useImagePanelStore((s) => s.loading);
 
   return (
+    // The shared segmented control: a raised thumb on a tinted track, or a
+    // glass group when the toolbar shows it.
     <div
       role="radiogroup"
       aria-label="Image creation mode"
-      className={classNames(
-        'inline-grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] rounded-full bg-fill/[0.08] p-[2px]',
-        fullWidth && 'w-full md:w-auto',
-      )}
+      className={classNames('app-segmented', fullWidth && 'w-full md:w-auto')}
     >
       {MODES.map((item) => {
         const selected = mode === item.value;
         return (
-          <label key={item.value} className="relative min-w-0 cursor-pointer">
+          <label
+            key={item.value}
+            className="relative flex min-w-0 flex-1 cursor-pointer"
+          >
             <input
               type="radio"
               name="image-creation-mode"
@@ -46,11 +48,8 @@ export const ModeSegmentedControl = memo(function ModeSegmentedControl({
             />
             <span
               className={classNames(
-                'flex min-h-11 flex-wrap items-center justify-center gap-2 rounded-full px-[8px] py-2 text-sm text-secondary transition-colors md:min-h-9',
+                'app-segment w-full px-4 text-sm',
                 'peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus',
-                // The selected segment is raised above the track, as in a platform
-                // segmented control.
-                selected && 'bg-elevated font-semibold text-primary shadow',
                 loading && 'cursor-not-allowed opacity-50',
               )}
             >

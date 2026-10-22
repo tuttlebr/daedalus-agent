@@ -213,20 +213,23 @@ function MobileEditAssetsRow({ disabled }: { disabled: boolean }) {
 
 function SettingsSummary() {
   const params = useImagePanelStore((s) => s.params);
+  // Settings read as words, not codes: "Auto" rather than "auto".
+  const label = (value: string | undefined) =>
+    !value || value === 'auto' ? 'Auto' : value;
   const parts = [
     `${params.n ?? 1} image${(params.n ?? 1) === 1 ? '' : 's'}`,
-    params.size ?? 'auto',
-    params.quality ?? 'auto',
+    label(params.size),
+    label(params.quality),
   ];
-  const compactParts = [`${params.n ?? 1}x`, params.size ?? 'auto'];
+  const compactParts = [`${params.n ?? 1}x`, label(params.size)];
 
   return (
     <>
       {/* Condensed summary on phones so users can confirm settings at a glance */}
-      <span className="settings-summary inline-flex rounded-full bg-fill/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wider text-muted sm:hidden">
+      <span className="settings-summary inline-flex rounded-full bg-fill/5 px-2 py-0.5 text-xs font-medium text-muted sm:hidden">
         {compactParts.join(' · ')}
       </span>
-      <span className="settings-summary hidden rounded-full bg-fill/5 px-2 py-0.5 text-[0.75rem] font-medium uppercase tracking-wider text-muted sm:inline-flex">
+      <span className="settings-summary hidden rounded-full bg-fill/5 px-2 py-0.5 text-[0.75rem] font-medium text-muted sm:inline-flex">
         {parts.join(' · ')}
       </span>
     </>

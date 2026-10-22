@@ -176,7 +176,7 @@ export function AutonomyFeed({ items, config }: AutonomyFeedProps) {
           filtered
         />
       ) : (
-        <div className="mx-auto max-w-[720px] px-1">
+        <div className="pt-2">
           {grouped.map((bucket) => {
             return (
               <DayGroup key={bucket.dayStart} label={bucket.label}>

@@ -73,6 +73,18 @@ export async function openSidebar(page: Page) {
     .click();
 }
 
+/** Wide windows close the sidebar from the toolbar; the phone drawer has its
+ * own Close button. */
+export function closeSidebarButton(page: Page) {
+  return page.getByRole('button', {
+    name:
+      (page.viewportSize()?.width || 0) < 768
+        ? 'Close sidebar'
+        : 'Toggle sidebar',
+    exact: true,
+  });
+}
+
 export async function settleTransitions(page: Page) {
   await page.evaluate(async () => {
     // A parent's appearance transition can start another transition in an

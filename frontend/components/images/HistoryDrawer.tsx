@@ -163,7 +163,7 @@ export function HistoryDrawer() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-separator/70">
           <div>
             <div className="text-sm font-medium text-primary">History</div>
-            <div className="mt-0.5 text-xs uppercase tracking-wider text-muted md:text-[0.75rem]">
+            <div className="mt-0.5 text-xs text-muted md:text-[0.75rem]">
               {history.length} saved creation{history.length === 1 ? '' : 's'}
             </div>
           </div>
@@ -224,8 +224,8 @@ export function HistoryDrawer() {
                       </div>
                       <div className="flex-1 min-w-0 pr-5">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs uppercase tracking-wider text-muted md:text-[9px]">
-                            {entry.mode}
+                          <span className="text-xs text-muted md:text-[9px]">
+                            {entry.mode === 'edit' ? 'Edit' : 'Generate'}
                           </span>
                           <span className="text-xs text-muted md:text-[9px]">
                             · {entry.outputImageIds.length} image

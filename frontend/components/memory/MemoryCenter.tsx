@@ -2,7 +2,6 @@
 
 import {
   IconAlertTriangle,
-  IconBrain,
   IconCheck,
   IconDatabase,
   IconEdit,
@@ -14,6 +13,8 @@ import {
 } from '@tabler/icons-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
+import { PageHeader } from '@/components/layout/PageHeader';
+import { ToolbarButton } from '@/components/layout/ToolbarSlot';
 import { MarkdownRenderer } from '@/components/markdown/MarkdownRenderer';
 import { Badge, Button, Select } from '@/components/primitives';
 import { GlassCard, ModalSurface } from '@/components/surfaces';
@@ -398,33 +399,20 @@ export function MemoryCenter() {
       : 'sources';
 
   return (
-    <section className="app-page app-workspace h-full overflow-y-auto px-4 pb-8 md:px-8">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <span className="rounded-xl bg-nvidia-green/15 p-2 text-nvidia-green">
-              <IconBrain size={24} aria-hidden="true" />
-            </span>
-            <div className="min-w-0 flex-1 basis-48">
-              <h1 className="text-2xl font-semibold text-dark-text-primary">
-                Memory Center
-              </h1>
-              <p className="max-w-2xl text-sm text-dark-text-muted">
-                Review what Daedalus remembers, where it came from, and what you
-                want to change.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            leftIcon={<IconRefresh size={16} />}
-            isLoading={loading}
-            onClick={() => void refresh()}
-          >
-            Refresh
-          </Button>
-        </header>
+    <section className="app-page app-workspace h-full overflow-y-auto pb-8">
+      <div className="app-content-rail space-y-6">
+        <PageHeader
+          title="Memory Center"
+          description="Review what Daedalus remembers, where it came from, and what you want to change."
+          actions={
+            <ToolbarButton
+              icon={<IconRefresh />}
+              label="Refresh"
+              busy={loading}
+              onClick={() => void refresh()}
+            />
+          }
+        />
 
         <GlassCard
           variant="subtle"
@@ -478,7 +466,7 @@ export function MemoryCenter() {
         )}
 
         <div
-          className="flex flex-wrap items-center gap-1 border-b border-separator/70"
+          className="app-segmented"
           role="tablist"
           aria-label="Memory categories"
         >
@@ -520,16 +508,12 @@ export function MemoryCenter() {
                 setWorkingId(null);
                 detailSequence.current++;
               }}
-              className={`min-h-11 border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
-                tab === item
-                  ? 'border-nvidia-green text-nvidia-green'
-                  : 'border-transparent text-dark-text-muted hover:text-dark-text-primary'
-              }`}
+              className="app-segment px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
             >
               {item === 'pages'
                 ? 'Knowledge Pages'
                 : item === 'memories'
-                ? 'Advanced facts'
+                ? 'Advanced Facts'
                 : 'Sources'}
             </button>
           ))}
@@ -556,7 +540,7 @@ export function MemoryCenter() {
                   ? 'Search remembered facts'
                   : 'Search source IDs'
               }
-              className="min-h-touch-min w-full rounded-lg border border-separator/70 bg-fill/5 py-2 pl-10 pr-3 text-sm text-dark-text-primary outline-none focus:border-nvidia-green/60"
+              className="min-h-9 w-full rounded-xl border border-separator/70 bg-fill/5 py-1.5 pl-10 pr-3 text-sm text-dark-text-primary outline-none focus:border-nvidia-green/60"
             />
           </label>
           {tab === 'memories' && (
@@ -788,33 +772,44 @@ export function MemoryCenter() {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-dark-text-muted">
-          <span>{page.total} total</span>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={!canPrevious}
-              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={!canNext}
-              onClick={() => setOffset(offset + PAGE_SIZE)}
-            >
-              Next
-            </Button>
+        {/* The status line above reports the count; page controls appear
+            only when there is more than one page. */}
+        {(page.total > PAGE_SIZE || offset > 0) && (
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-dark-text-muted">
+            <span className="tabular-nums">
+              Page {Math.floor(offset / PAGE_SIZE) + 1} of{' '}
+              {Math.max(1, Math.ceil(page.total / PAGE_SIZE))}
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!canPrevious}
+                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!canNext}
+                onClick={() => setOffset(offset + PAGE_SIZE)}
+              >
+                Next
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
 
-        <GlassCard variant="subtle" className="space-y-3 border border-error">
+        <GlassCard
+          variant="subtle"
+          className="space-y-3 border border-destructive/40"
+        >
           <div className="flex items-start gap-3">
             <IconAlertTriangle
               size={19}
-              className="mt-0.5 flex-shrink-0 text-primary"
+              aria-hidden="true"
+              className="mt-0.5 flex-shrink-0 text-destructive"
             />
             <div className="space-y-1">
               <p className="font-medium text-dark-text-primary">

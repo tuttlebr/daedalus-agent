@@ -27,6 +27,16 @@ vi.mock('@/components/primitives', () => ({
     <button {...props}>{children}</button>
   ),
   Badge: ({ children }: any) => <span>{children}</span>,
+  IconButton: (props: any) => (
+    <button
+      type="button"
+      aria-label={props['aria-label']}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      {props.icon}
+    </button>
+  ),
 }));
 
 vi.mock('@/components/surfaces', () => ({
@@ -152,9 +162,12 @@ describe('ConnectionsView authorization semantics', () => {
         finishRefresh = () => resolve(staleStatus);
       }).then((value) => value),
     );
+    // Refresh is an icon command named by its label.
     const button = (label: string) =>
       Array.from(container.querySelectorAll('button')).find(
-        (candidate) => candidate.textContent === label,
+        (candidate) =>
+          candidate.textContent === label ||
+          candidate.getAttribute('aria-label') === label,
       )!;
 
     await act(async () => {

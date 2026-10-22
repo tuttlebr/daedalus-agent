@@ -1,16 +1,13 @@
 'use client';
 
-import {
-  IconBrandGoogle,
-  IconCheck,
-  IconRefresh,
-  IconShieldLock,
-} from '@tabler/icons-react';
+import { IconCheck, IconRefresh, IconShieldLock } from '@tabler/icons-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiDelete, apiGet } from '@/utils/app/api';
 import type { GoogleWorkspaceConnection } from '@/utils/app/googleWorkspace';
 
+import { PageHeader } from '@/components/layout/PageHeader';
+import { ToolbarButton } from '@/components/layout/ToolbarSlot';
 import { Button, Badge } from '@/components/primitives';
 import { GlassCard } from '@/components/surfaces';
 
@@ -99,23 +96,20 @@ export function ConnectionsView() {
   ).length;
 
   return (
-    <section className="app-page app-workspace h-full overflow-y-auto px-4 pb-8 md:px-8">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <header className="space-y-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-xl bg-nvidia-green/15 p-2 text-nvidia-green">
-              <IconBrandGoogle size={24} aria-hidden="true" />
-            </span>
-            <div className="min-w-0 flex-1 basis-48">
-              <h1 className="break-words text-2xl font-semibold text-dark-text-primary">
-                Google Workspace
-              </h1>
-              <p className="text-sm text-dark-text-muted">
-                Manage the Google services available in chats and automations.
-              </p>
-            </div>
-          </div>
-        </header>
+    <section className="app-page app-workspace h-full overflow-y-auto pb-8">
+      <div className="app-content-rail space-y-6">
+        <PageHeader
+          title="Google Workspace"
+          description="Manage the Google services available in chats and automations."
+          actions={
+            <ToolbarButton
+              icon={<IconRefresh />}
+              label="Refresh"
+              busy={loading}
+              onClick={() => void refresh()}
+            />
+          }
+        />
 
         <GlassCard variant="subtle" className="flex gap-3">
           <IconShieldLock
@@ -137,24 +131,13 @@ export function ConnectionsView() {
           </div>
         </GlassCard>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-dark-text-muted" aria-live="polite">
-            {loading
-              ? 'Checking saved authorizations…'
-              : error
-              ? 'Connection status unavailable'
-              : `${savedCount} of ${connections.length} services have saved authorization`}
-          </p>
-          <Button
-            variant="secondary"
-            size="sm"
-            leftIcon={<IconRefresh size={16} />}
-            isLoading={loading}
-            onClick={() => void refresh()}
-          >
-            Refresh
-          </Button>
-        </div>
+        <p className="text-sm text-dark-text-muted" aria-live="polite">
+          {loading
+            ? 'Checking saved authorizations…'
+            : error
+            ? 'Connection status unavailable'
+            : `${savedCount} of ${connections.length} services have saved authorization`}
+        </p>
 
         {error && (
           <p

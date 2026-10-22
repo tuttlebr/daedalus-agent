@@ -247,9 +247,9 @@ html[data-app-display-mode='standalone'] .app-dialog {
     border-color: var(--chat-border);
   }
 
-  /* Codeblock styling - ensure monospace font throughout */
-  .codeblock,
-  .codeblock *,
+  /* Code and diagrams use the monospace face; the code block's language label
+     and buttons are interface text in the system face. */
+  .codeblock :is(pre, code, svg, svg *),
   pre code,
   code {
     font-family: var(--font-mono) !important;
@@ -1033,8 +1033,11 @@ details div {
   }
 }
 /* One readable column for messages and the composer: prose stays near
-   70-90 characters per line; tables and code scroll inside it. */
-.chat-content-rail {
+   70-90 characters per line; tables and code scroll inside it. The other
+   destinations share its width and margins, so switching tabs keeps the
+   content's edges in place. */
+.chat-content-rail,
+.app-content-rail {
   box-sizing: border-box;
   width: 100%;
   max-width: 52rem;
@@ -1043,13 +1046,15 @@ details div {
 }
 
 @media (min-width: 640px) {
-  .chat-content-rail {
+  .chat-content-rail,
+  .app-content-rail {
     padding-inline: 1.5rem;
   }
 }
 
 @media (min-width: 1024px) {
-  .chat-content-rail {
+  .chat-content-rail,
+  .app-content-rail {
     padding-inline: 2rem;
   }
 }

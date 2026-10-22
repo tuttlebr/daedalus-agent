@@ -2,6 +2,7 @@ import {
   openApp,
   navigate,
   openSidebar,
+  closeSidebarButton,
   settleTransitions,
   assertFits,
 } from '../helpers/design';
@@ -252,6 +253,21 @@ test('Alaska chat colors keep messages, actions, focus, and errors readable', as
 test('appearance follows the system, respects an override, and persists', async ({
   page,
 }) => {
+  // Browser chrome, including Safari's web-app title bar, is coloured by the
+  // first response for each system appearance, before any script runs.
+  const firstResponse = await (await page.request.get('/')).text();
+  expect(firstResponse).toContain(
+    'name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff"',
+  );
+  expect(firstResponse).toContain(
+    'name="theme-color" media="(prefers-color-scheme: dark)" content="#161d27"',
+  );
+  const themeColors = () =>
+    page
+      .locator('meta[name="theme-color"]')
+      .evaluateAll((metas) =>
+        metas.map((meta) => meta.getAttribute('content')),
+      );
   await page.emulateMedia({ colorScheme: 'light' });
   await openApp(page);
   await expect(page.locator('html')).not.toHaveClass(/dark/);
@@ -265,18 +281,44 @@ test('appearance follows the system, respects an override, and persists', async 
     'background-color',
     'rgb(22, 29, 39)',
   );
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
-    'content',
-    'rgb(22 29 39)',
-  );
+  await expect.poll(themeColors).toEqual(['rgb(22 29 39)', 'rgb(22 29 39)']);
   await openSidebar(page);
   await page.getByRole('radio', { name: 'Light', exact: true }).check();
   await expect(page.locator('html')).not.toHaveClass(/dark/);
   await page.reload();
   await expect(page.locator('html')).not.toHaveClass(/dark/);
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
-    'content',
-    'rgb(255 255 255)',
+  // An explicit choice applies to both tags, whatever the system appearance.
+  await expect
+    .poll(themeColors)
+    .toEqual(['rgb(255 255 255)', 'rgb(255 255 255)']);
+});
+
+test('reduced transparency makes materials opaque and persists before hydration', async ({
+  page,
+}) => {
+  await openApp(page);
+  await openSidebar(page);
+  const sidebar = page.locator('.app-sidebar');
+  const opaque = () =>
+    sidebar.evaluate((element) => {
+      const channels = getComputedStyle(element)
+        .backgroundColor.match(/[\d.]+/g)!
+        .map(Number);
+      return channels.length === 3 || channels[3] === 1;
+    });
+  await expect.poll(opaque).toBe(false);
+  await page
+    .getByRole('switch', { name: 'Reduce transparency', exact: true })
+    .check();
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-transparency',
+    'reduced',
+  );
+  await expect.poll(opaque).toBe(true);
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-transparency',
+    'reduced',
   );
 });
 
@@ -579,9 +621,7 @@ test('resizing the sidebar keeps narrow desktop navigation and history usable', 
     const signOut = page.getByRole('button', { name: 'Sign Out' });
     await signOut.scrollIntoViewIfNeeded();
     await expect(signOut).toBeInViewport({ ratio: 1 });
-    await expect(
-      page.getByRole('button', { name: 'Close sidebar' }),
-    ).toBeInViewport({ ratio: 1 });
+    await expect(closeSidebarButton(page)).toBeInViewport({ ratio: 1 });
     await page.screenshot({
       path: testInfo.outputPath(`sidebar-narrow-${width}.png`),
     });
@@ -613,8 +653,21 @@ test('new-chat content uses the top of the mobile pane and centers on desktop', 
     expect(gap).toBeGreaterThanOrEqual(16);
     expect(gap).toBeLessThanOrEqual(32);
   } else {
+    // Messages scroll beneath the floating toolbar and composer, so the pane
+    // reserves their heights; the welcome centres in the region between them.
+    const padding = await messages.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        top: parseFloat(style.paddingTop),
+        bottom: parseFloat(style.paddingBottom),
+      };
+    });
+    expect(padding.top).toBeGreaterThan(0);
+    expect(padding.bottom).toBeGreaterThan(0);
+    const visibleTop = paneBox.y + padding.top;
+    const visibleBottom = paneBox.y + paneBox.height - padding.bottom;
     expect(contentBox.y + contentBox.height / 2).toBeCloseTo(
-      paneBox.y + paneBox.height / 2,
+      (visibleTop + visibleBottom) / 2,
       0,
     );
   }
@@ -867,14 +920,12 @@ test('navigation fits the screen and the drawer uses a single safe inset', async
         buttonBox.height -
         panelBorder,
     ).toBeCloseTo(Math.max(12, inset), 0);
-    await expect(
-      page.getByRole('button', { name: 'Close sidebar' }),
-    ).toBeInViewport({ ratio: 1 });
+    await expect(closeSidebarButton(page)).toBeInViewport({ ratio: 1 });
     await assertFits(page);
     await page.screenshot({
       path: testInfo.outputPath(`menu-inset-${inset}.png`),
     });
-    await page.getByRole('button', { name: 'Close sidebar' }).click();
+    await closeSidebarButton(page).click();
     await settleTransitions(page);
   }
 
@@ -916,9 +967,7 @@ test('navigation fits the screen and the drawer uses a single safe inset', async
   expect(signOutBox.y + signOutBox.height).toBeLessThanOrEqual(
     page.viewportSize()!.height - 34,
   );
-  await expect(
-    page.getByRole('button', { name: 'Close sidebar' }),
-  ).toBeInViewport({ ratio: 1 });
+  await expect(closeSidebarButton(page)).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: testInfo.outputPath('menu-large-text.png') });
   const accessibility = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])

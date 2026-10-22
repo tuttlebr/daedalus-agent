@@ -156,7 +156,7 @@ export const AssistantMessage = memo(
     );
 
     return (
-      <div className="group flex w-full gap-3 animate-morph-in">
+      <div className="chat-message group flex w-full gap-3 animate-morph-in">
         {/* Compact widths give the response the space, as in a 1:1 thread. */}
         <Avatar
           role={isAgent ? 'agent' : 'assistant'}
@@ -189,8 +189,9 @@ export const AssistantMessage = memo(
                 <div className="font-medium">{errorMessages!.message}</div>
                 {errorMessages!.category &&
                   errorMessages!.category !== 'unknown' && (
-                    <div className="text-[0.75rem] uppercase tracking-wider text-dark-text-muted mt-0.5">
-                      {errorMessages!.category.replace('_', ' ')}
+                    <div className="text-[0.75rem] text-dark-text-muted mt-0.5">
+                      {errorMessages!.category.charAt(0).toUpperCase() +
+                        errorMessages!.category.slice(1).replace(/_/g, ' ')}
                     </div>
                   )}
               </div>
@@ -313,9 +314,14 @@ export const AssistantMessage = memo(
                   )}
                 </div>
 
-                {/* Action buttons — always visible on touch, hover-only on desktop */}
+                {/* Actions. Touch shows them below the response at all times; a
+                    pointer reveals them over the bubble's top corner on hover
+                    or focus, so they reserve no space between messages. */}
                 {!isStreaming && content && (
-                  <div className="flex items-center gap-1 mt-1 opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100">
+                  <div
+                    data-side="end"
+                    className="message-actions touch-action-controls mt-1 flex items-center gap-1"
+                  >
                     <IconButton
                       icon={copied ? <IconCheck /> : <IconCopy />}
                       aria-label="Copy message"

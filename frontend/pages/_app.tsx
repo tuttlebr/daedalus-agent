@@ -21,7 +21,9 @@ import '@/styles/app.css';
 
 function App({ Component, pageProps }: AppProps<{}>) {
   const router = useRouter();
-  const { canvasColor } = useTheme();
+  // Applies the appearance to the document, including the theme-color tag
+  // that _document renders and sets before hydration.
+  useTheme();
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -69,7 +71,6 @@ function App({ Component, pageProps }: AppProps<{}>) {
       </a>
       <Head>
         <title>Daedalus</title>
-        <meta name="theme-color" content={canvasColor} />
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"

@@ -115,7 +115,7 @@ export const UserMessage = memo(
     const attachments = message.attachments || [];
 
     return (
-      <div className="group flex w-full justify-end gap-3 animate-morph-in">
+      <div className="chat-message group flex w-full justify-end gap-3 animate-morph-in">
         <div className="flex max-w-[85%] min-w-0 flex-col items-end md:max-w-2xl">
           {/* Attachments above bubble */}
           {attachments.length > 0 && (
@@ -156,9 +156,13 @@ export const UserMessage = memo(
                 />
               </div>
 
-              {/* Copy button — below the bubble so it never clips off-screen;
-                  always visible on touch, hover-only on desktop */}
-              <div className="mt-1 flex justify-end opacity-100 transition-opacity touch-action-controls md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
+              {/* Copy button. Touch shows it below the bubble at all times; a
+                  pointer reveals it over the bubble's top corner on hover or
+                  focus, so it reserves no space between messages. */}
+              <div
+                data-side="start"
+                className="message-actions touch-action-controls mt-1 flex justify-end"
+              >
                 <IconButton
                   icon={copied ? <IconCheck /> : <IconCopy />}
                   aria-label="Copy message"

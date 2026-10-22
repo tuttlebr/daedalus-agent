@@ -44,8 +44,12 @@
   --glass-highlight: rgb(var(--palette-white) / 0.95);
   --glass-shadow: 0 8px 32px -12px rgb(var(--palette-slate) / 0.2),
     0 2px 6px rgb(var(--palette-slate) / 0.05);
-  --glass-selection: rgb(var(--palette-white) / 0.9);
+  /* A tinted fill, not white: white selection disappears on white glass. */
+  --glass-selection: rgb(var(--palette-navy) / 0.08);
   --canvas-wash: 0.22;
+  /* Destructive actions only; errors keep mauve. White text measures 5.62:1. */
+  --destructive: 198 40 40; /* #C62828 */
+  --on-destructive: var(--palette-white);
 }
 
 html.dark,
@@ -77,6 +81,9 @@ html.dark,
     0 2px 8px rgb(0 0 0 / 0.15);
   --glass-selection: rgb(var(--palette-steel) / 0.38);
   --canvas-wash: 0.12;
+  /* Navy text on this fill measures 8.72:1; as text on raised blue, 4.72:1. */
+  --destructive: 255 161 152; /* #FFA198 */
+  --on-destructive: var(--palette-navy);
 }
 
 :root {
@@ -102,6 +109,18 @@ html.dark,
   --glass-background: rgb(var(--glass-tint));
   --glass-filter: none;
   --glass-radius: 1.75rem;
+  /* Floating panels keep one inset from the window edge. On a pointer device
+     their corners are concentric with the window's: Safari web-app windows on
+     macOS 26 round their corners at about 16px. Touch layouts keep the sheet
+     radius, which suits large display corners. */
+  --app-inset: 8px;
+  --window-radius: 16px;
+  --panel-radius: var(--glass-radius);
+  /* Toolbar controls share one height; items inside a group sit within it. */
+  --toolbar-control: 44px;
+  --toolbar-item: 36px;
+  /* Content fades as it passes under the toolbar and composer. */
+  --scroll-edge-strength: 0.92;
   --chrome: var(--glass-background);
   --color-focus: var(--accent-primary);
 
@@ -224,6 +243,17 @@ html.dark,
     --glass-filter: blur(24px) saturate(1.35);
   }
 }
+@media (min-width: 768px) and (pointer: fine) {
+  :root {
+    --panel-radius: calc(var(--window-radius) - var(--app-inset));
+  }
+}
+@media (pointer: coarse) {
+  :root {
+    --toolbar-control: 52px;
+    --toolbar-item: 44px;
+  }
+}
 
 /* END THEME TOKENS */
 
@@ -261,7 +291,20 @@ svg.tabler-icon {
 }
 .app-shell,
 .app-login {
+  position: relative;
+  isolation: isolate;
   background-color: var(--bg-canvas);
+}
+/* The washes fade out near the top and bottom edges. Safari's title bar takes
+   the flat canvas colour, and content fades into that same colour beneath the
+   toolbar and composer, so neither edge shows a seam. */
+.app-shell::before,
+.app-login::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image: radial-gradient(
       ellipse at 0% 0%,
       rgb(var(--palette-glacier) / var(--canvas-wash)),
@@ -272,6 +315,20 @@ svg.tabler-icon {
       rgb(var(--palette-apricot) / var(--canvas-wash)),
       transparent 55%
     );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 8rem,
+    #000 calc(100% - 8rem),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 8rem,
+    #000 calc(100% - 8rem),
+    transparent
+  );
 }
 /* One material layer for navigation and controls. Content cards stay opaque. */
 .app-chrome,
@@ -296,21 +353,45 @@ svg.tabler-icon {
 .image-workspace {
   background: transparent;
 }
-.chat-composer-surface,
 .image-composer {
   border-radius: var(--glass-radius);
 }
+/* The composer's corner is its control radius plus padding and border, so the
+   send button stays concentric while the field grows. Pointer devices use
+   36px controls; touch keeps 44px targets. */
 .chat-composer-surface {
-  padding: 0.5rem;
+  --composer-control: 36px;
+  --composer-pad: 6px;
+  padding: var(--composer-pad);
+  border-radius: calc(var(--composer-control) / 2 + var(--composer-pad) + 1px);
+}
+@media (pointer: coarse), (max-width: 767px) {
+  .chat-composer-surface {
+    --composer-control: 44px;
+    --composer-pad: 8px;
+  }
 }
 /* Keep the typing edge close to the keyboard even at enlarged text sizes. */
 [data-keyboard-open='true'] .chat-composer-surface {
-  padding: 4px;
+  --composer-pad: 4px;
+}
+.chat-composer-surface .chat-input-action {
+  width: var(--composer-control);
+  min-width: var(--composer-control);
+  height: var(--composer-control);
+  min-height: var(--composer-control);
+  margin-bottom: 0;
+}
+/* The field is borderless in every state; the composer draws the edge. */
+.chat-composer-textarea,
+.chat-composer-textarea:focus {
+  border-color: transparent;
 }
 .chat-composer-textarea {
+  min-height: var(--composer-control);
+  padding-block: calc((var(--composer-control) - 1lh) / 2);
   background: transparent;
-  border-color: transparent;
-  border-radius: 1.25rem;
+  border-radius: calc(var(--composer-control) / 2);
 }
 @media (max-width: 767px) {
   .chat-composer-textarea {
@@ -321,15 +402,140 @@ svg.tabler-icon {
 .image-composer:focus-within {
   border-color: rgb(var(--border-control));
 }
-.chat-composer-send {
+/* Focus belongs to the composer's own edge. A ring around the inner field
+   would draw a second capsule inside the first. */
+.chat-composer-surface:has(.chat-composer-textarea:focus-visible),
+.image-composer:has(textarea:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.chat-composer-textarea:focus-visible,
+.image-composer textarea:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.chat-composer-send:enabled {
   box-shadow: inset 0 1px 0 rgb(var(--palette-white) / 0.4),
     0 3px 8px rgb(var(--palette-navy) / 0.12);
+}
+/* With nothing to send, the button is a quiet filled circle; a highlight and
+   shadow on a transparent button would draw a hollow ring. */
+.chat-composer-send:disabled {
+  background-color: rgb(var(--fill) / 0.08);
+}
+/* Messages scroll beneath the toolbar. On wide windows with the keyboard
+   closed they also scroll beneath the composer, which floats over the bottom
+   edge; the scroll container reserves both heights so the first and last
+   messages can rest clear of the controls. Compact and keyboard layouts keep
+   the composer below the messages. */
+.chat-workspace,
+.image-canvas-column {
+  position: relative;
+}
+.chat-scroll-container {
+  padding-top: var(--app-toolbar-inset, 0px);
+  scroll-padding-top: var(--app-toolbar-inset, 0px);
+}
+@media (min-width: 768px) {
+  .app-viewport[data-keyboard-open='false']
+    :is(.chat-bottom-bar, .image-bottom-bar) {
+    position: absolute;
+    inset: auto 0 0;
+    z-index: 20;
+  }
+  .app-viewport[data-keyboard-open='false'] .chat-scroll-container {
+    padding-bottom: var(--bottom-bar-inset, 0px);
+    scroll-padding-bottom: var(--bottom-bar-inset, 0px);
+  }
+  .app-viewport[data-keyboard-open='false']
+    :is(.chat-bottom-bar, .image-bottom-bar)::before {
+    content: '';
+    position: absolute;
+    inset: -1.5rem 0 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(
+      to top,
+      rgb(var(--app) / var(--scroll-edge-strength)) calc(100% - 2rem),
+      rgb(var(--app) / 0)
+    );
+  }
+  .app-viewport[data-keyboard-open='false'] .chat-jump-latest {
+    bottom: calc(var(--bottom-bar-inset, 0px) + 0.5rem);
+  }
+}
+/* With a pointer, a message's actions appear on hover over its outer top
+   corner instead of reserving an empty row beneath every message. */
+@media (min-width: 768px) and (hover: hover) and (pointer: fine) {
+  .message-actions {
+    position: absolute;
+    top: 0;
+    z-index: 1;
+    margin: 0;
+    padding: 1px;
+    gap: 0;
+    border: 1px solid var(--glass-edge);
+    border-radius: 999px;
+    background: var(--glass-background);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    translate: 0 -50%;
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+  .message-actions[data-side='end'] {
+    right: 1rem;
+  }
+  .message-actions[data-side='start'] {
+    left: 1rem;
+  }
+  .chat-message:is(:hover, :focus-within) .message-actions {
+    opacity: 1;
+  }
+  .message-actions button {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+  }
+}
+/* The Create inspector floats like the sidebar, below the toolbar. */
+.app-inspector {
+  margin: 0 var(--app-inset) var(--app-inset) 0;
+  border-radius: var(--panel-radius);
+  overflow: hidden;
+}
+.image-workspace {
+  padding-top: var(--app-toolbar-inset, 0px);
+}
+@media (min-width: 768px) {
+  .app-viewport[data-keyboard-open='false'] .image-canvas-scroll {
+    padding-bottom: calc(var(--bottom-bar-inset, 0px) + 1rem);
+    scroll-padding-bottom: var(--bottom-bar-inset, 0px);
+  }
+  .app-viewport[data-keyboard-open='false'] .image-canvas-empty {
+    padding-bottom: calc(var(--bottom-bar-inset, 0px) + 1.25rem);
+  }
 }
 .chat-welcome-mark,
 .login-mark {
   border: 1px solid var(--glass-edge);
   background: var(--glass-selection);
   box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+}
+/* Suggestions sit side by side once the rail has room for all three. */
+.chat-empty-state .chat-content-rail {
+  container-type: inline-size;
+}
+.chat-suggestions {
+  display: grid;
+  gap: 0.5rem;
+}
+@container (min-width: 36rem) {
+  .chat-suggestions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 .chat-suggestion {
   border: 1px solid rgb(var(--separator) / 0.45);
@@ -406,61 +612,109 @@ svg.tabler-icon {
   margin: 0;
 }
 .app-sidebar {
-  /* A denser tint protects history labels when content moves behind a drawer. */
-  margin: 0.625rem 0.25rem 0.625rem 0.625rem;
-  width: calc(100% - 0.875rem);
-  height: calc(100% - 1.25rem);
+  /* Fills (rows, buttons, fields) share one inset from the panel edge, and
+     icons and labels share a second one inside them. */
+  --sidebar-fill-inset: 8px;
+  --sidebar-content-inset: 18px;
+  /* One inset from the window; the divider supplies the gap to the content. */
+  margin: var(--app-inset) 0 var(--app-inset) var(--app-inset);
+  width: calc(100% - var(--app-inset));
+  height: calc(100% - 2 * var(--app-inset));
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-radius: var(--glass-radius);
+  border-radius: var(--panel-radius);
 }
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .app-sidebar {
+  /* A denser tint protects history labels when content moves behind a drawer. */
+  .app-sidebar,
+  .app-inspector {
     background: rgb(var(--glass-tint) / 0.9);
   }
 }
+/* The header row shares the toolbar's centre line: both start one inset below
+   the window edge and are one toolbar control tall (less the panel border). */
 .app-sidebar-header {
-  min-height: 64px;
-  padding-inline: min(1.25rem, 20px);
+  min-height: calc(var(--toolbar-control) - 2px);
+  padding-inline: var(--sidebar-content-inset) var(--sidebar-fill-inset);
   border-bottom: 0;
 }
-.app-sidebar-header > button {
-  width: 44px;
-  height: 44px;
-}
 .app-sidebar-header > div {
-  gap: 10px;
+  gap: 8px;
 }
 .app-sidebar-brand {
-  width: 32px;
-  height: 32px;
-  font-size: 16px;
-  letter-spacing: -0.035em;
-  background: var(--glass-selection);
-  border: 1px solid var(--glass-edge);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+  width: 24px;
+  height: 24px;
 }
-.app-sidebar-controls,
+.app-sidebar-controls {
+  padding-inline: var(--sidebar-fill-inset);
+}
 .app-sidebar-controls > button {
-  padding-inline: min(1rem, 16px);
+  justify-content: flex-start;
+  padding-inline: calc(
+    var(--sidebar-content-inset) - var(--sidebar-fill-inset)
+  );
+}
+.app-sidebar-search input {
+  padding-left: calc(
+    var(--sidebar-content-inset) - var(--sidebar-fill-inset) + 1.5rem
+  );
+}
+.app-sidebar-search > span:first-child {
+  left: calc(var(--sidebar-content-inset) - var(--sidebar-fill-inset));
 }
 .app-sidebar-section-label {
+  padding-inline: var(--sidebar-content-inset);
   text-transform: none;
   letter-spacing: 0;
   color: var(--text-secondary);
 }
 .app-sidebar-history {
-  /* Keep one enlarged row, its border and scroll padding fully reachable. */
+  padding-inline: var(--sidebar-fill-inset);
+  /* Keep one enlarged row and its scroll padding fully reachable. */
   min-height: calc(3.25rem + 2px);
 }
 .app-history-row {
-  border: 1px solid transparent;
-  border-radius: 1rem;
+  border-radius: 8px;
 }
+.app-history-select {
+  padding-inline: calc(var(--sidebar-content-inset) - var(--sidebar-fill-inset))
+    0.25rem;
+}
+/* Selection is a fill, as in a platform sidebar; no outline or highlight. */
 .app-history-row[data-selected='true'] {
   background: var(--glass-selection);
-  border-color: var(--glass-edge);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+/* With a pointer, the More button appears over the end of the row only while
+   the row is hovered, focused, open or selected, so hidden controls do not
+   shorten every title. Touch keeps the button visible and in the row. */
+@media (min-width: 768px) and (hover: hover) and (pointer: fine) {
+  .app-history-row {
+    position: relative;
+  }
+  .app-history-actions {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    translate: 0 -50%;
+  }
+  .app-history-row:not(
+      :hover,
+      :focus-within,
+      [data-selected='true'],
+      :has([aria-expanded='true'])
+    )
+    .app-history-actions {
+    opacity: 0;
+  }
+  .app-history-row:is(
+      :hover,
+      :focus-within,
+      [data-selected='true'],
+      :has([aria-expanded='true'])
+    )
+    .app-history-select {
+    padding-right: 2.25rem;
+  }
 }
 .app-sidebar-footer {
   /* The floating panel still keeps its controls clear of the home indicator. */
@@ -468,9 +722,15 @@ svg.tabler-icon {
   padding-bottom: max(0.75rem, var(--safe-area-inset-bottom));
   overflow-wrap: anywhere;
 }
-.app-sidebar-footer > div,
-.app-sidebar-footer button {
-  padding-inline: min(0.75rem, 12px);
+.app-sidebar-footer > div {
+  padding-inline: var(--sidebar-fill-inset);
+}
+.app-sidebar-footer button,
+.app-sidebar-footer legend,
+.app-sidebar-footer .app-setting-row {
+  padding-inline: calc(
+    var(--sidebar-content-inset) - var(--sidebar-fill-inset)
+  );
 }
 .app-sidebar-footer button {
   text-align: left;
@@ -505,9 +765,10 @@ svg.tabler-icon {
 }
 @media (min-width: 768px) {
   /* Wide phones use top tabs, so the composer owns the home-indicator inset.
+     It otherwise keeps the window inset, level with the sidebar's bottom edge.
      The keyboard-open rule keeps its existing small gap above the keyboard. */
   .app-viewport[data-keyboard-open='false'] [data-chat-input] {
-    padding-bottom: max(0.75rem, var(--safe-area-inset-bottom));
+    padding-bottom: max(var(--app-inset), var(--safe-area-inset-bottom));
   }
   .app-install-prompt {
     bottom: max(1rem, var(--safe-area-inset-bottom));
@@ -520,8 +781,10 @@ body:has(input:focus, textarea:focus, [contenteditable='true']:focus)
 body:has(dialog[open]) .app-install-prompt {
   display: none;
 }
+/* Pages start below the toolbar and scroll beneath it. */
 .app-page {
-  padding-top: 1.5rem;
+  padding-top: calc(var(--app-toolbar-inset, 0px) + 1.5rem);
+  scroll-padding-top: var(--app-toolbar-inset, 0px);
 }
 .app-nav-item {
   min-height: 3rem;
@@ -529,35 +792,112 @@ body:has(dialog[open]) .app-install-prompt {
   transition: background-color 180ms ease, color 180ms ease,
     box-shadow 180ms ease;
 }
-/* The shell owns the safe inset; the toolbar keeps an even control margin. */
+/* The shell owns the safe inset; the toolbar keeps one even control margin. */
 .app-view-tabs {
   container-type: inline-size;
   container-name: app-toolbar;
   flex-wrap: wrap;
-  padding-top: 0.625rem;
-  padding-bottom: 0.625rem;
-  padding-inline: min(0.75rem, 12px);
+  gap: var(--app-inset);
+  padding: var(--app-inset);
 }
-.app-navigation-cluster {
-  padding: 0.25rem;
-  border-radius: 1.75rem;
-}
-@media (pointer: fine) {
-  .app-view-tabs .app-nav-item {
-    min-height: 2.25rem;
+/* On wide windows the toolbar floats over the content, which scrolls beneath
+   it. The scroll edge fades that content into the canvas so the controls stay
+   legible; reduced transparency makes the edge opaque. */
+@media (min-width: 768px) {
+  .app-view-tabs {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 20;
+  }
+  .app-view-tabs::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 -1rem;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      rgb(var(--app) / var(--scroll-edge-strength)) calc(100% - 1.25rem),
+      rgb(var(--app) / 0)
+    );
   }
 }
-/* Resizing history can leave a narrow workspace even on a wide display.
-   Keep each destination named for assistive technology and use icons when
-   there is not enough room for the visible labels. */
+/* Toolbar items share one height: single controls are that tall, and grouped
+   controls sit inside a capsule of the same height. */
+.app-navigation-cluster,
+.app-toolbar-group {
+  min-height: var(--toolbar-control);
+  padding: calc((var(--toolbar-control) - var(--toolbar-item)) / 2 - 1px);
+  border-radius: 999px;
+}
+.app-view-tabs .app-nav-item {
+  min-height: var(--toolbar-item);
+}
+.app-toolbar-button {
+  width: var(--toolbar-control);
+  min-width: var(--toolbar-control);
+  height: var(--toolbar-control);
+  min-height: var(--toolbar-control);
+  border-radius: 999px;
+}
+.app-toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.app-toolbar-group > * {
+  min-width: var(--toolbar-item);
+  min-height: var(--toolbar-item);
+  border-radius: 999px;
+}
+.app-toolbar-item {
+  width: var(--toolbar-item);
+  height: var(--toolbar-item);
+}
+/* Toolbar commands are icons; their names remain for assistive technology
+   and as tooltips. */
+.app-view-tabs :is(.image-toolbar-label, .image-history-label) {
+  display: none;
+}
+.app-view-tabs .image-panel-toggle {
+  width: var(--toolbar-item);
+  padding-inline: 0;
+  justify-content: center;
+}
+/* Resizing history can leave a narrow workspace even on a wide display. Each
+   destination stays named for assistive technology; labels give way to icons
+   before a destination's own title or controls are squeezed. */
 @container app-toolbar (max-width: 42rem) {
   .app-navigation-cluster .app-nav-label {
     display: none;
   }
   .app-navigation-cluster .app-nav-item {
-    width: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    width: var(--toolbar-item);
+    min-width: var(--toolbar-item);
+    padding-inline: 0;
+  }
+}
+@container app-toolbar (max-width: 46rem) {
+  .app-view-tabs[data-view='autonomy'] .app-navigation-cluster .app-nav-label {
+    display: none;
+  }
+  .app-view-tabs[data-view='autonomy'] .app-navigation-cluster .app-nav-item {
+    width: var(--toolbar-item);
+    min-width: var(--toolbar-item);
+    padding-inline: 0;
+  }
+}
+@container app-toolbar (max-width: 56rem) {
+  .app-view-tabs:is([data-view='chat'], [data-view='create'])
+    .app-navigation-cluster
+    .app-nav-label {
+    display: none;
+  }
+  .app-view-tabs:is([data-view='chat'], [data-view='create'])
+    .app-navigation-cluster
+    .app-nav-item {
+    width: var(--toolbar-item);
+    min-width: var(--toolbar-item);
     padding-inline: 0;
   }
 }
@@ -579,6 +919,112 @@ body:has(dialog[open]) .app-install-prompt {
   box-shadow: inset 0 1px 0 var(--glass-highlight),
     0 2px 5px rgb(var(--palette-navy) / 0.1);
   font-weight: 600;
+}
+/* One segmented control for switching views and filters: a tinted track with
+   a raised thumb on the selected segment, as on the platform. */
+.app-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgb(var(--fill) / 0.07);
+}
+/* Size and padding come from each use, so they stay in the markup. */
+.app-segment {
+  display: inline-flex;
+  min-height: 32px;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.app-segment:hover {
+  color: var(--text-primary);
+}
+.app-segment:is([aria-selected='true'], [aria-checked='true']),
+:checked + .app-segment {
+  background: rgb(var(--elevated));
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgb(var(--palette-navy) / 0.16),
+    0 0 0 0.5px rgb(var(--palette-navy) / 0.06);
+}
+@media (pointer: coarse) {
+  .app-segment {
+    min-height: 44px;
+  }
+}
+/* An on/off setting drawn as a platform switch. */
+.app-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 32px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgb(var(--fill) / 0.2);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.app-switch::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgb(var(--palette-white));
+  box-shadow: 0 1px 2px rgb(var(--palette-navy) / 0.3);
+  transition: translate 150ms ease;
+}
+.app-switch:checked {
+  background: rgb(var(--action));
+}
+.app-switch:checked::before {
+  translate: 12px 0;
+}
+@media (pointer: coarse) {
+  .app-setting-row {
+    min-height: 44px;
+  }
+}
+@media (forced-colors: active) {
+  .app-switch {
+    border: 1px solid CanvasText;
+  }
+  .app-switch:checked {
+    background: Highlight;
+  }
+}
+/* In the toolbar a segmented control is a glass group like the tabs. */
+.app-view-tabs .app-segmented {
+  min-height: var(--toolbar-control);
+  padding: calc((var(--toolbar-control) - var(--toolbar-item)) / 2 - 1px);
+  border: 1px solid var(--glass-edge);
+  background: var(--glass-background);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+}
+.app-view-tabs .app-segment {
+  min-height: var(--toolbar-item);
+}
+.app-view-tabs
+  :is(
+    .app-segment:is([aria-selected='true'], [aria-checked='true']),
+    :checked + .app-segment
+  ) {
+  background: var(--glass-selection);
+  box-shadow: inset 0 1px 0 var(--glass-highlight),
+    0 2px 5px rgb(var(--palette-navy) / 0.1);
 }
 .app-tab-bar {
   container-type: inline-size;
@@ -636,6 +1082,9 @@ body:has(dialog[open]) .app-install-prompt {
   }
 }
 
+/* Opaque materials. WebKit does not report the system's Reduce Transparency
+   setting, so the app offers the same choice beside Appearance; Increase
+   Contrast reaches the page and applies it too. */
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   :root,
   html.dark {
@@ -643,8 +1092,10 @@ body:has(dialog[open]) .app-install-prompt {
     --glass-filter: none;
     --glass-selection: rgb(var(--panel));
     --canvas-wash: 0;
+    --scroll-edge-strength: 1;
   }
-  .app-sidebar {
+  .app-sidebar,
+  .app-inspector {
     background: rgb(var(--glass-tint));
   }
   *,
@@ -653,6 +1104,22 @@ body:has(dialog[open]) .app-install-prompt {
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
+}
+:root[data-transparency='reduced'] {
+  --glass-background: rgb(var(--glass-tint));
+  --glass-filter: none;
+  --glass-selection: rgb(var(--panel));
+  --canvas-wash: 0;
+  --scroll-edge-strength: 1;
+}
+:root[data-transparency='reduced'] :is(.app-sidebar, .app-inspector) {
+  background: rgb(var(--glass-tint));
+}
+:root[data-transparency='reduced'] *,
+:root[data-transparency='reduced'] *::before,
+:root[data-transparency='reduced'] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 @media (prefers-contrast: more) {
   :root {
@@ -678,7 +1145,9 @@ body:has(dialog[open]) .app-install-prompt {
     border: 1px solid currentColor;
   }
   .app-nav-item[aria-current='page'],
-  .app-nav-item[aria-selected='true'] {
+  .app-nav-item[aria-selected='true'],
+  .app-segment:is([aria-selected='true'], [aria-checked='true']),
+  :checked + .app-segment {
     outline: 2px solid currentColor;
     outline-offset: -3px;
   }
@@ -698,11 +1167,14 @@ body:has(dialog[open]) .app-install-prompt {
     --glass-filter: none;
   }
   .app-nav-item[aria-current='page'],
-  .app-nav-item[aria-selected='true'] {
+  .app-nav-item[aria-selected='true'],
+  .app-segment:is([aria-selected='true'], [aria-checked='true']),
+  :checked + .app-segment {
     outline: 2px solid Highlight;
   }
   .app-card,
   .app-chrome,
+  .app-inspector,
   .app-menu,
   .app-popover,
   .app-dialog-panel {

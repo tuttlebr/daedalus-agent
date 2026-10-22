@@ -644,9 +644,7 @@ const SectionHeader: React.FC<{
 }> = ({ icon, title }) => (
   <div className="flex items-center gap-2 mb-2.5 mt-4 first:mt-0">
     <span className="text-nvidia-green">{icon}</span>
-    <h4 className="text-sm font-semibold text-primary uppercase tracking-wide">
-      {title}
-    </h4>
+    <h4 className="text-sm font-semibold text-primary">{title}</h4>
   </div>
 );
 

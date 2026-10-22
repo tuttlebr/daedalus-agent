@@ -42,9 +42,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
       if (hasMarkdown || hasLatex) {
         return (
           <div className="mb-3">
-            <h4 className="text-xs font-semibold mb-1.5 text-muted uppercase tracking-wider">
-              {title}
-            </h4>
+            <h4 className="text-xs font-semibold mb-1.5 text-muted">{title}</h4>
             <div
               tabIndex={0}
               aria-label={title}
@@ -62,9 +60,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
       return (
         <div className="mb-3">
-          <h4 className="text-xs font-semibold mb-1.5 text-muted uppercase tracking-wider">
-            {title}
-          </h4>
+          <h4 className="text-xs font-semibold mb-1.5 text-muted">{title}</h4>
           <div className="bg-fill/5 p-3 rounded-lg text-sm border border-separator/70 text-secondary whitespace-pre-wrap break-words">
             {data}
           </div>
@@ -74,9 +70,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
     return (
       <div className="mb-3">
-        <h4 className="text-xs font-semibold mb-1.5 text-muted uppercase tracking-wider">
-          {title}
-        </h4>
+        <h4 className="text-xs font-semibold mb-1.5 text-muted">{title}</h4>
         <pre
           tabIndex={0}
           aria-label={title}
@@ -175,7 +169,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
         {!isModel && (
           <div className="space-y-1">
             {typeof input === 'string' &&
-              renderContent(input, isTool ? 'What was requested' : 'Input')}
+              renderContent(input, isTool ? 'What Was Requested' : 'Input')}
             {typeof resultText === 'string' &&
               renderContent(resultText.slice(0, 4000), 'Result')}
             {results.length > 0 && (
@@ -266,7 +260,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               )}
 
               {renderContent(input, 'Arguments')}
-              {renderContent(output, 'Full result')}
+              {renderContent(output, 'Full Result')}
 
               {/* Raw event info */}
               <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-secondary">
@@ -314,7 +308,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
 
               {/* Function ancestry */}
               <div className="rounded-lg bg-fill/[0.04] p-3 space-y-2 text-xs text-secondary">
-                <div className="text-muted font-semibold uppercase tracking-wider mb-1">
+                <div className="text-muted font-semibold mb-1">
                   Function Ancestry
                 </div>
                 <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
@@ -348,7 +342,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               {/* Tags */}
               {step.payload.tags && step.payload.tags.length > 0 && (
                 <div className="rounded-lg bg-fill/[0.04] p-3">
-                  <div className="text-muted text-xs font-semibold uppercase tracking-wider mb-2">
+                  <div className="text-muted text-xs font-semibold mb-2">
                     Tags
                   </div>
                   <div className="flex flex-wrap gap-1">
@@ -377,7 +371,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               {/* Full metadata dump */}
               {step.payload.metadata && (
                 <div className="rounded-lg bg-fill/[0.04] p-3">
-                  <div className="text-muted text-xs font-semibold uppercase tracking-wider mb-2">
+                  <div className="text-muted text-xs font-semibold mb-2">
                     Raw Metadata
                   </div>
                   <pre
@@ -393,7 +387,7 @@ export const StepDetails: React.FC<StepDetailsProps> = ({
               {/* Full event data dump */}
               {step.payload.data && (
                 <div className="rounded-lg bg-fill/[0.04] p-3">
-                  <div className="text-muted text-xs font-semibold uppercase tracking-wider mb-2">
+                  <div className="text-muted text-xs font-semibold mb-2">
                     Raw Event Data
                   </div>
                   <pre

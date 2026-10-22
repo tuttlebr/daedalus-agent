@@ -19,6 +19,9 @@ export type AppView = 'chat' | 'autonomy' | 'create' | 'memory' | 'connections';
 export interface UISettingsState {
   // Theme
   lightMode: 'system' | 'light' | 'dark';
+  // Opaque materials. WebKit does not expose the system's Reduce
+  // Transparency setting to pages, so the app offers the same choice.
+  reduceTransparency: boolean;
 
   // Primary view tab
   activeView: AppView;
@@ -41,6 +44,7 @@ export interface UISettingsState {
 export interface UISettingsActions {
   // Theme
   setLightMode: (mode: 'system' | 'light' | 'dark') => void;
+  setReduceTransparency: (reduce: boolean) => void;
 
   // View tab
   setActiveView: (view: AppView) => void;
@@ -68,6 +72,7 @@ export type UISettingsStore = UISettingsState & UISettingsActions;
 
 const initialState: UISettingsState = {
   lightMode: 'system',
+  reduceTransparency: false,
   activeView: 'chat',
   showChatbar: false,
   chatbarWidth: 280,
@@ -92,6 +97,8 @@ export const useUISettingsStore = create<UISettingsStore>()(
         // ======================================================================
 
         setLightMode: (mode) => set({ lightMode: mode }),
+
+        setReduceTransparency: (reduce) => set({ reduceTransparency: reduce }),
 
         // ======================================================================
         // View tab
@@ -135,6 +142,7 @@ export const useUISettingsStore = create<UISettingsStore>()(
         // Only persist certain fields
         partialize: (state) => ({
           lightMode: state.lightMode,
+          reduceTransparency: state.reduceTransparency,
           activeView: state.activeView,
           showChatbar: state.showChatbar,
           chatbarWidth: state.chatbarWidth,
