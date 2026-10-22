@@ -247,6 +247,7 @@ def run(proposals, history, max_rounds=5):
         except (
             gate.ReviewRequired,
             ValueError,
+            SyntaxError,
             OSError,
             subprocess.SubprocessError,
         ) as exc:
