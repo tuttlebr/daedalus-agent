@@ -7,7 +7,6 @@ import {
   IconExternalLink,
   IconMenu2,
   IconRobot,
-  IconTrophy,
 } from '@tabler/icons-react';
 import React, {
   memo,
