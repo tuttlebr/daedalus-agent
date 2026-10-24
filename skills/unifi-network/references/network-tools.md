@@ -35,6 +35,25 @@ Alarm/event history, aggregate network-health scores and historical traffic
 flows cannot be promised from these operations. Use provided current fields,
 additional genuinely connected sources, or report the missing coverage.
 
+## Client identification coverage
+
+In the pinned v10.4.57 contract, wired/wireless client lists and details provide
+`id`, `name`, `macAddress`, `type`, `uplinkDeviceId`, and access information,
+with `ipAddress` and `connectedAt` when available. `name` is a display name;
+the contract does not identify it as a separately reported DHCP hostname.
+VPN/Teleport records do not promise a MAC or local device attachment.
+
+Resolve `uplinkDeviceId` against adopted-device `id` in the same site. Adopted
+device responses provide `name`, `model`, MAC/IP and feature information; their
+model describes that UniFi device, not the client attached to it.
+
+This contract has no client product/model, OS, fingerprint, DHCP/mDNS evidence,
+SSID, client network/VLAN ID, or switch-port field. Listing configured networks
+or Wi-Fi broadcasts alone cannot establish a client's membership. Newer live
+responses may add fields; use what was actually returned and retain its source.
+For evidence collection, product research, and naming, read
+[client-identification](client-identification.md).
+
 Maintainer evidence: daedalus-context `unifi-network-mcp/src/pkg/unifi/endpoints.go`
 and its embedded `network_v10.4.57_openapi.json`. For a changed controller
 contract, consult [UniFi's API documentation](https://developer.ui.com/network)

@@ -70,7 +70,7 @@ rollback implementation), and the actual leaf-tool schemas.
 | Sandbox commands/files               | bubblewrap-agent-workflow | devops-engineer for adapter/deployment changes                                                                                        |
 | CI/CD, images, delivery              | devops-engineer           | kubernetes-specialist for cluster objects                                                                                             |
 | Kubernetes objects and diagnosis     | kubernetes-specialist     | network-health-check for external network evidence                                                                                    |
-| UniFi operations                     | unifi-network             | network-health-check or unifi-network-setup                                                                                           |
+| UniFi operations and client identity | unifi-network             | public product research for identification/naming; network-health-check or unifi-network-setup                                        |
 | Hue lighting and resource operations | use-hue-api               | devops-engineer for a separately requested integration or deployment change                                                           |
 | UniFi connector configuration        | unifi-network-setup       | unifi-network after authenticated discovery/read                                                                                      |
 | Read-only UniFi health               | network-health-check      | unifi-network for a separately requested change                                                                                       |

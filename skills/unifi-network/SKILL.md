@@ -1,9 +1,9 @@
 ---
 name: unifi-network
-description: Inspect UniFi devices, clients, networks, Wi-Fi, and WAN inventory through Daedalus's read-only integration-API MCP. Prepare requested changes for an authorized operator; use network-health-check for health reports and unifi-network-setup for access failures.
+description: Inspect UniFi inventory, identify connected products and attachment points using read-only client data plus web research, and propose consistent device names. Prepare requested network changes for an authorized operator; use network-health-check for health reports and unifi-network-setup for access failures.
 metadata:
   author: Brandon Tuttle <tuttlebr@duck.com>
-  version: 2.0.0
+  version: 2.1.0
 ---
 
 # UniFi Network
@@ -47,6 +47,20 @@ For a health report, hand off to
 [network-health-check](../network-health-check/SKILL.md) with the site and
 completed reads. For a connector failure, use
 [unifi-network-setup](../unifi-network-setup/SKILL.md).
+
+## Identify connected products and locations
+
+For a MAC/IP lookup, unknown client, device inventory, or naming convention,
+load [client-identification](references/client-identification.md) with
+`agent_skills_tool(operation=load_skill, skill_name=unifi-network,
+resource=references/client-identification.md)`.
+
+Correlate the current client and its upstream UniFi device before researching
+the product with `perplexity_search_tool` and `webscrape_tool`. An address-block
+vendor can be the radio/module supplier; it does not identify the finished
+product. Distinguish confirmed identity, likely matches, and unresolved devices.
+Report network attachment separately from a confirmed physical room. Propose
+names from supported facts; applying them follows the write boundary below.
 
 ## Prepare a requested change
 
