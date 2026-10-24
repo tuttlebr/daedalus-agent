@@ -230,9 +230,9 @@ wheels = [{ url = "https://files.pythonhosted.org/packages/d7/0c/56be52741f75bad
 
 [[packages]]
 name = "filelock"
-version = "3.30.3"
-sdist = { url = "https://files.pythonhosted.org/packages/d6/01/9256cbe36eb2a84501920adad7d0e86738ab0ad60e64f4f5c38d7dd94dc1/filelock-3.30.3.tar.gz", upload-time = 2026-07-17T15:17:45Z, size = 177706, hashes = { sha256 = "6575420cd497ed15fc43a7ac46c48f6b6371c733fc40cf5a4e216871397bc1e2" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/e7/20/b0d6da41a08b30faef4f20302f5d826a9d39073750cd9100b463eb840cf4/filelock-3.30.3-py3-none-any.whl", upload-time = 2026-07-17T15:17:44Z, size = 94544, hashes = { sha256 = "06e1c6d5e12277022172b7f8d090affe0e8f940f1a37ca45f548855ee51a6b86" } }]
+version = "4.2.4"
+sdist = { url = "https://files.pythonhosted.org/packages/d8/28/3893324bcadf8f89b1616637468d766af3f625008c0735bf704fdfa86617/filelock-4.2.4.tar.gz", upload-time = 2026-10-19T01:57:51Z, size = 652444, hashes = { sha256 = "c6d8663535e1650ee430507b4ffbac7b464dd64b7647ea0112a9f406499d163d" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/e0/1b/5e74289a1878e666bb4b65fe5805a04cafcac2aa5f519ef1ead67ef91c56/filelock-4.2.4-py3-none-any.whl", upload-time = 2026-10-19T01:57:49Z, size = 162475, hashes = { sha256 = "301241438c57936ef93f4243a94f2559022268bfcf9b375a9a72eb0f8db8358e" } }]
 
 [[packages]]
 name = "flatbuffers"
