@@ -70,6 +70,15 @@ async function streamChat(req, res) {
   });
   res.flushHeaders();
 
+  if (prompt.includes('E2E_SILENT_PREPARATION')) {
+    // Accepted headers, then preparation/reasoning with no SSE body yet.
+    await wait(4000);
+    if (res.destroyed) return;
+    sendToken(res, 'E2E silent preparation complete');
+    res.end('data: [DONE]\n\n');
+    return;
+  }
+
   if (prompt.includes('E2E_APPROVAL_REQUEST')) {
     const canonicalArguments = '{"document_id":"doc-e2e","text":"hello"}';
     const argumentsSha256 = createHash('sha256')

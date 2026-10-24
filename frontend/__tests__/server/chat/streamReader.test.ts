@@ -134,6 +134,51 @@ describe('backend stream reader persistence', () => {
     vi.useRealTimers();
   });
 
+  it('records backend acceptance before any body chunk arrives', async () => {
+    const body = controlledBody();
+    let accept!: (response: typeof body.response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            accept = resolve;
+          }),
+      ),
+    );
+    const reading = startBackgroundStreamReader(
+      'job-1',
+      structuredClone(jobRequest),
+      [],
+      'alice',
+    );
+    await settle();
+    expect(mocks.markJobStreaming).not.toHaveBeenCalled();
+
+    accept(body.response);
+    await settle();
+    expect(mocks.markJobStreaming).toHaveBeenCalledExactlyOnceWith(
+      'job-1',
+      1_000_000,
+    );
+    // Preparation and hidden model reasoning may produce no SSE chunks.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(mocks.markJobStreaming).toHaveBeenCalledOnce();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.finalizeSuccess).not.toHaveBeenCalled();
+    body.push(
+      'data: {"choices":[{"delta":{"content":"Done"}}]}\n\ndata: [DONE]\n\n',
+    );
+    await reading;
+    expect(mocks.markJobStreaming).toHaveBeenCalledOnce();
+    expect(mocks.finalizeSuccess).toHaveBeenCalledWith(
+      'job-1',
+      expect.anything(),
+      'Done',
+      [],
+    );
+  });
+
   it.each([false, true])(
     'keeps a backend error finish reason as a partial failure (terminal=%s)',
     async (terminal) => {
@@ -474,7 +519,7 @@ describe('backend stream reader persistence', () => {
   });
 
   it('saves a fixed message when stream persistence fails with an internal error', async () => {
-    mocks.markJobStreaming.mockRejectedValueOnce(
+    mocks.appendStreamResponseDelta.mockRejectedValueOnce(
       new Error('connect ECONNREFUSED 10.0.7.2:6379'),
     );
     const body = controlledBody();

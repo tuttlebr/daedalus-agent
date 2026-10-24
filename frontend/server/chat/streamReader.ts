@@ -437,13 +437,18 @@ export async function startBackgroundStreamReader(
       return;
     }
 
+    // Successful response headers establish backend acceptance. Preparation
+    // and hidden reasoning can be silent, so waiting for a body chunk leaves
+    // an executing job labelled Queued. Publish this transition once, before
+    // reading the body; the worker already fenced backend execution in Redis.
+    await markJobStreaming(jobId, Date.now());
+
     const decoder = new TextDecoder();
     let buffer = '';
     let skipLeadingLineFeed = false;
     let currentSseEvent: string | null = null;
     const publisher = getPublisher();
 
-    let streamingStatusRecorded = false;
     let lastResponseFlushMs = 0;
     let lastStepsFlushMs = 0;
     let debugDeltaCounter = 0;
@@ -468,17 +473,6 @@ export async function startBackgroundStreamReader(
         return;
       lastStepsFlushMs = now;
       await persistSteps();
-    };
-
-    // Output lives in the append-only keys, so the status document needs only
-    // the pending -> streaming transition. Rewriting it on every flush cost
-    // two serial Redis round trips per interval inside the read loop. OAuth
-    // prompts and callbacks make their own atomic status transitions.
-    const flushStreamingStatus = async (force = false): Promise<void> => {
-      await flushResponse(force);
-      if (streamingStatusRecorded) return;
-      await markJobStreaming(jobId, Date.now());
-      streamingStatusRecorded = true;
     };
 
     while (true) {
@@ -536,7 +530,7 @@ export async function startBackgroundStreamReader(
             pendingSteps.push(step);
             // Append only new events so live polling doesn't rewrite history.
             await flushSteps();
-            await flushStreamingStatus();
+            await flushResponse();
 
             if (tokenChannel) {
               flushTokens();
@@ -727,7 +721,7 @@ export async function startBackgroundStreamReader(
             }
             // Publish content for real-time streaming in the PWA.
             publishToken(content, responseStart);
-            await flushStreamingStatus();
+            await flushResponse();
           }
 
           // The Responses adapter emits a Daedalus-only terminal marker when
@@ -754,7 +748,7 @@ export async function startBackgroundStreamReader(
       // so recovery polling, traces and reclaim see it during that gap. The
       // same 750 ms throttle bounds writes; an empty buffer writes nothing.
       await flushSteps();
-      await flushStreamingStatus();
+      await flushResponse();
     }
 
     // Transport EOF alone cannot establish that the agent finished. A pod or

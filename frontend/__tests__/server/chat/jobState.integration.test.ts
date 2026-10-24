@@ -28,6 +28,46 @@ describe.skipIf(process.env.RUN_REDIS_STREAM_INTEGRATION !== '1')(
     afterAll(() => client?.disconnect());
 
     it.each(['plain', 'json'])(
+      'persists and publishes backend acceptance for a %s status without output',
+      async (format) => {
+        const jobId = `accepted-${process.pid}-${Date.now()}-${format}`;
+        const key = redis.sessionKey(['async-job-status', jobId]);
+        const subscriber = client.duplicate();
+        const channel = `job:${jobId}:status`;
+        const initial = {
+          jobId,
+          status: 'pending',
+          createdAt: 1,
+          updatedAt: 1,
+        };
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          if (format === 'plain')
+            await client.set(key, JSON.stringify(initial), 'EX', 120);
+          else await client.call('JSON.SET', key, '$', JSON.stringify(initial));
+          await subscriber.subscribe(channel);
+          const notice = new Promise<any>((resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('Backend acceptance was not published')),
+              1000,
+            );
+            subscriber.on('message', (topic, raw) => {
+              if (topic === channel) resolve(JSON.parse(raw));
+            });
+          });
+          await state.markJobStreaming(jobId, 42);
+          const expected = { ...initial, status: 'streaming', updatedAt: 42 };
+          expect(await notice).toEqual(expected);
+          expect(await redis.jsonGet(key)).toEqual(expected);
+        } finally {
+          clearTimeout(timer);
+          subscriber.disconnect();
+          await client.del(key);
+        }
+      },
+    );
+
+    it.each(['plain', 'json'])(
       'deletes only a live %s status',
       async (format) => {
         const live = `delete-live-${process.pid}-${Date.now()}-${format}`;

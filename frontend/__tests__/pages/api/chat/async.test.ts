@@ -3109,7 +3109,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
     const streamingStatusEvents = publishedEvents()
       .filter((event) => event.channel === `job:${jobId}:status`)
       .filter((event) => event.data.status === 'streaming');
-    expect(streamingStatusEvents).toHaveLength(0);
+    expect(streamingStatusEvents).toHaveLength(1);
 
     const streamingStatusWrites = mocks.redisEval.mock.calls
       .filter(
@@ -3547,7 +3547,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       .filter((e) => e.channel === `job:${jobId}:status`)
       .map((e) => e.data)
       .filter((data) => data.status === 'streaming');
-    expect(streamingStatusEvents).toHaveLength(0);
+    expect(streamingStatusEvents).toHaveLength(1);
 
     const progressUpdates = mocks.redisEval.mock.calls
       .filter(
@@ -3716,7 +3716,7 @@ describe('chat/async streaming + finalize (characterization)', () => {
       expect(releaseLock).toHaveBeenCalledTimes(1);
       expect(store.get(`daedalus:async-job-abort:${jobId}`)).toBe(true);
       expect(store.get(`daedalus:async-job-status:${jobId}`)?.status).toBe(
-        'pending',
+        'streaming',
       );
     } finally {
       vi.unstubAllGlobals();
@@ -5182,13 +5182,16 @@ describe('chat/async submission recovery and validation', () => {
     } finally {
       clock.mockRestore();
     }
-    // markJobStreaming is the only unpublished live status update.
+    // Backend acceptance publishes exactly one streaming transition, even
+    // when many output flushes follow it.
     const streamingWrites = mocks.redisEval.mock.calls.filter(
       (args) =>
-        String(args[0]).includes('UPDATE_LIVE_JOB_STATUS') && args[6] === '',
+        String(args[0]).includes('UPDATE_LIVE_JOB_STATUS') &&
+        JSON.parse(args[4]).status === 'streaming',
     );
     expect(streamingWrites).toHaveLength(1);
     expect(JSON.parse(streamingWrites[0][4]).status).toBe('streaming');
+    expect(streamingWrites[0][6]).toMatch(/^job:.+:status$/);
   });
 });
 

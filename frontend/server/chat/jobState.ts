@@ -442,7 +442,7 @@ export async function updateJobStatus(
   );
 }
 
-/** Content from one parallel tool does not resolve another tool's OAuth wait.
+/** Backend acceptance does not resolve a concurrent OAuth wait.
  * Derive progress from the same snapshot we replace, so a callback cannot be
  * undone by a worker that read its prompt just before the callback completed.
  */
@@ -450,21 +450,17 @@ export async function markJobStreaming(
   jobId: string,
   updatedAt: number,
 ): Promise<void> {
-  await mutateLiveJobStatus(
-    jobId,
-    (current) => {
-      const awaitingOAuth =
-        current.status === 'oauth_required' &&
-        (Boolean(current.authUrl) || Boolean(current.oauthRequests?.length));
-      return {
-        ...current,
-        status: awaitingOAuth ? 'oauth_required' : 'streaming',
-        ...(awaitingOAuth ? {} : clearOAuthStatusFields()),
-        updatedAt,
-      };
-    },
-    false,
-  );
+  await mutateLiveJobStatus(jobId, (current) => {
+    const awaitingOAuth =
+      current.status === 'oauth_required' &&
+      (Boolean(current.authUrl) || Boolean(current.oauthRequests?.length));
+    return {
+      ...current,
+      status: awaitingOAuth ? 'oauth_required' : 'streaming',
+      ...(awaitingOAuth ? {} : clearOAuthStatusFields()),
+      updatedAt,
+    };
+  });
 }
 
 /** The live (non-terminal) status snapshot a terminal claim compares, or null. */

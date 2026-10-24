@@ -202,6 +202,37 @@ test('logs in through the real session boundary', async ({ page }) => {
   });
 });
 
+test('leaves Queued after backend acceptance while the response body is silent', async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  const submitted = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/api/chat/async'),
+  );
+  await sendMessage(page, 'E2E_SILENT_PREPARATION');
+  const { jobId } = await (await submitted).json();
+  await expect(
+    page.getByRole('button', {
+      name: 'Starting.... View agent activity',
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 2500 });
+  await expect(
+    page.getByText('E2E silent preparation complete', { exact: true }),
+  ).toHaveCount(0);
+  const status = JSON.parse(
+    (await browserGet(page, `/api/chat/async?jobId=${jobId}`)).body,
+  );
+  expect(status.status).toBe('streaming');
+  expect(status.partialResponse || '').toBe('');
+  await expect(
+    page.getByText('E2E silent preparation complete', { exact: true }),
+  ).toBeVisible();
+});
+
 test('deletes a history-only conversation through the real API and keeps it deleted after reload', async ({
   page,
 }) => {

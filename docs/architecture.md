@@ -32,6 +32,14 @@ flowchart LR
 4. The worker persists output in Redis and publishes live events to the browser
    through WebSocket, with authenticated HTTP polling for recovery.
 
+The chat activity indicator shows **Queued** until the backend accepts the
+worker's request with successful streaming response headers. The worker then
+persists and publishes the streaming status immediately, including while
+backend preparation or model reasoning produces no visible output. This
+transition reports execution progress; it does not imply the first answer
+token has arrived. Backend selection races at most three health probes per
+submission and cancels the remaining probes when a healthy pod responds.
+
 The diagram includes optional integrations. The local configuration needs only
 the browser, frontend, Redis, worker, backend, and model endpoint; Compose also
 starts object storage. See [capability requirements](#capability-requirements)
