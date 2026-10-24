@@ -643,7 +643,7 @@ def test_frontend_pins_the_fixed_mermaid_sanitization_graph():
 
     assert package["dependencies"]["mermaid"] == "11.16.1"
     assert package["overrides"]["@mermaid-js/parser"] == "1.1.0"
-    assert package["overrides"]["dompurify"] == "^3.4.13"
+    assert package["overrides"]["dompurify"] == "^3.4.17"
 
     versions = {
         name: lock["packages"][f"node_modules/{name}"]["version"]
@@ -653,5 +653,5 @@ def test_frontend_pins_the_fixed_mermaid_sanitization_graph():
     assert tuple(int(part) for part in versions["dompurify"].split(".")) >= (
         3,
         4,
-        13,
+        17,
     )
