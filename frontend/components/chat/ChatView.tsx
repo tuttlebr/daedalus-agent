@@ -1605,15 +1605,15 @@ export const ChatView = memo(() => {
 });
 
 ChatView.displayName = 'ChatView';
-
-const SUGGESTED_PROMPTS = [
-  {
-    title: 'Your daily briefing',
-    detail: 'Start with what matters today',
-    prompt: 'Run my daily briefing.',
-    icon: IconCalendarEvent,
-  },
-];
+const SUGGESTED_PROMPTS = [];
+// const SUGGESTED_PROMPTS = [
+//   {
+//     title: 'Your daily briefing',
+//     detail: 'Start with what matters today',
+//     prompt: 'Run my daily briefing.',
+//     icon: IconCalendarEvent,
+//   },
+// ];
 
 const EmptyState = memo(
   ({ onSuggestion }: { onSuggestion?: (text: string) => void }) => (
