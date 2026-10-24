@@ -2,7 +2,6 @@
 
 import {
   IconArrowDown,
-  IconCalendarEvent,
   IconCheck,
   IconExternalLink,
   IconMenu2,
