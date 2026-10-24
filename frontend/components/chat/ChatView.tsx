@@ -1614,20 +1614,6 @@ const SUGGESTED_PROMPTS = [
     prompt: 'Run my daily briefing.',
     icon: IconCalendarEvent,
   },
-  {
-    title: 'Fowling Friends',
-    detail: 'Last week in fantasy football',
-    prompt:
-      "Run the last completed week's fantasy football recap for Fowling Friends.",
-    icon: IconTrophy,
-  },
-  {
-    title: 'Driveway Tailgaters',
-    detail: 'Last week in fantasy football',
-    prompt:
-      "Run the last completed week's fantasy football recap for Driveway Tailgaters.",
-    icon: IconTrophy,
-  },
 ];
 
 const EmptyState = memo(
