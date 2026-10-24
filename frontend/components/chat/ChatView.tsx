@@ -1419,14 +1419,7 @@ export const ChatView = memo(() => {
           className="chat-scroll-container h-full overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus [-webkit-overflow-scrolling:touch]"
         >
           {!hasMessages ? (
-            <EmptyState
-              onSuggestion={
-                isAutonomousConversation
-                  ? undefined
-                  : (text) =>
-                      handleSend({ role: 'user', content: text, metadata: {} })
-              }
-            />
+            <EmptyState />
           ) : (
             <div className="chat-content-rail space-y-6 py-6 md:py-8">
               {hiddenMessageCount > 0 && (
@@ -1604,65 +1597,28 @@ export const ChatView = memo(() => {
 });
 
 ChatView.displayName = 'ChatView';
-const SUGGESTED_PROMPTS = [];
-// const SUGGESTED_PROMPTS = [
-//   {
-//     title: 'Your daily briefing',
-//     detail: 'Start with what matters today',
-//     prompt: 'Run my daily briefing.',
-//     icon: IconCalendarEvent,
-//   },
-// ];
 
-const EmptyState = memo(
-  ({ onSuggestion }: { onSuggestion?: (text: string) => void }) => (
-    <div className="chat-empty-state flex min-h-full flex-col items-center py-6 md:py-8">
-      {/* The welcome shares the composer's rail, so their edges line up. */}
-      <div className="chat-content-rail space-y-6 text-center md:my-auto">
-        <div className="chat-welcome-mark mx-auto flex h-20 w-20 items-center justify-center rounded-[1.75rem]">
-          <img
-            src={branding.assets['/favicon.png']}
-            alt="Daedalus"
-            className="h-12 w-auto"
-          />
-        </div>
-        <div className="space-y-2">
-          <h2 className="text-3xl font-semibold tracking-tight text-primary md:text-4xl">
-            How can I help?
-          </h2>
-          <p className="text-base text-secondary">
-            Ask a question, create something, or work through an idea.
-          </p>
-        </div>
-        {onSuggestion && (
-          <div className="chat-suggestions text-left">
-            {SUGGESTED_PROMPTS.map(({ title, detail, prompt, icon: Icon }) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => onSuggestion(prompt)}
-                title={prompt}
-                className="chat-suggestion flex min-h-touch-min flex-col items-start gap-2 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-              >
-                <Icon
-                  size={20}
-                  strokeWidth={1.5}
-                  aria-hidden
-                  className="chat-suggestion-icon flex-shrink-0"
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-primary">
-                    {title}
-                  </span>
-                  <span className="block text-xs text-secondary">{detail}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
+const EmptyState = memo(() => (
+  <div className="chat-empty-state flex min-h-full flex-col items-center py-6 md:py-8">
+    {/* The welcome shares the composer's rail, so their edges line up. */}
+    <div className="chat-content-rail space-y-6 text-center md:my-auto">
+      <div className="chat-welcome-mark mx-auto flex h-20 w-20 items-center justify-center rounded-[1.75rem]">
+        <img
+          src={branding.assets['/favicon.png']}
+          alt="Daedalus"
+          className="h-12 w-auto"
+        />
+      </div>
+      <div className="space-y-2">
+        <h2 className="text-3xl font-semibold tracking-tight text-primary md:text-4xl">
+          How can I help?
+        </h2>
+        <p className="text-base text-secondary">
+          Ask a question, create something, or work through an idea.
+        </p>
       </div>
     </div>
-  ),
-);
+  </div>
+));
 
 EmptyState.displayName = 'EmptyState';
