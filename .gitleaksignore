@@ -735,3 +735,9 @@
 987e57f58b05cc90afa15c8d98c3a423bd877b77:builder/runtime/tests/fixtures/milvus-search.json:generic-api-key:9793
 987e57f58b05cc90afa15c8d98c3a423bd877b77:builder/runtime/tests/fixtures/milvus-search.json:generic-api-key:9985
 987e57f58b05cc90afa15c8d98c3a423bd877b77:builder/runtime/tests/fixtures/user-interaction.json:generic-api-key:4
+
+# Reviewed public Hugging Face tokenizer source revisions in the frozen
+# evaluation metadata. These are source commit identifiers, not credentials.
+# Exact introducing-commit fingerprints preserve scanning of future changes.
+840f79d4a66aa6dc3678b5b19deb50223a800d0e:tools/context-isolation-eval/workload.json:generic-api-key:114
+840f79d4a66aa6dc3678b5b19deb50223a800d0e:tools/context-isolation-eval/workload.json:generic-api-key:432
