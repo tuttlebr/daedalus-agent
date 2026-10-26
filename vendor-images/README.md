@@ -6,8 +6,9 @@ uses the digest-pinned upstream unprivileged nginx slim image.
 
 - nginx retains 1.31.5 and installs signed Alpine PCRE2 10.49-r0, fixing
   [CVE-2026-103111](https://github.com/PCRE2Project/pcre2/security/advisories/GHSA-r9hj-j2rw-4q3m).
-- SeaweedFS retains release 4.46 and its existing runtime filesystem. Its Go
-  executable is rebuilt from checksum-verified source with Go 1.26.10, which
+- SeaweedFS retains release 4.46 and its existing runtime filesystem, with signed
+  Alpine runtime packages pinned to Brotli 1.2.1-r0 and curl/libcurl 8.23.0-r0.
+  Its Go executable is rebuilt from checksum-verified source with Go 1.26.10, which
   fixes [the standard library issue](https://pkg.go.dev/vuln/GO-2026-6809),
   and the pinned gRPC fix. The build pins `golang.org/x/net` 0.60.0
   for [the HTTP/2 SETTINGS issue](https://pkg.go.dev/vuln/GO-2026-6611).
