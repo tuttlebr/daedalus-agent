@@ -49,6 +49,15 @@ BOOTSTRAP_PROBES = (
     "renderer",
     "clock",
 )
+CONTEXT_POLICY_LIMITATION = (
+    "this tool or its outbound arguments are not eligible under context isolation"
+)
+PUBLIC_AUTHORIZATION_LIMITATION = "public work requires completed personal-source authorization and permitted source policy"
+RENDERER_PHOTO_HINT = (
+    "Article page URLs are citations, not permitted figure photos. "
+    "Omit figures without an explicitly registered URL in permitted_photo_urls, "
+    "and resubmit the complete edition using the evidence already collected."
+)
 
 
 def call(name, arguments, label):
@@ -72,6 +81,43 @@ def tool_json(raw):
             break
         value = json.loads(wrapped)
     return value
+
+
+def assert_renderer_photo_feedback(raw, rejected_url):
+    rejected = tool_json(raw)
+    require(
+        rejected.get("error") == "context_policy_rejected"
+        and rejected.get("executed") is False
+        and rejected.get("limitation") == CONTEXT_POLICY_LIMITATION
+        and rejected.get("hint") == RENDERER_PHOTO_HINT,
+        "Renderer photo rejection changed its error contract or lost the fixed recovery hint",
+    )
+    serialized = json.dumps(rejected) + "\n" + raw
+    require(
+        rejected_url not in serialized
+        and all(marker not in serialized for marker in PRIVATE.values()),
+        "Renderer photo feedback echoed the rejected URL or private source content",
+    )
+
+
+def assert_generic_policy_feedback(raw, expected_limitation=None):
+    rejected = tool_json(raw)
+    require(
+        "hint" not in rejected and RENDERER_PHOTO_HINT not in raw,
+        "An unrelated rejection received renderer-photo recovery guidance",
+    )
+    if expected_limitation is not None:
+        require(
+            rejected.get("error") == "context_policy_rejected"
+            and rejected.get("executed") is False
+            and rejected.get("limitation") == expected_limitation,
+            "Non-photo policy rejection changed its existing error contract",
+        )
+    elif rejected.get("error") == "context_policy_rejected":
+        require(
+            rejected.get("executed") is False,
+            "Non-photo policy rejection lost its not-executed status",
+        )
 
 
 def bootstrap_probes(edition, prefix):
@@ -853,6 +899,41 @@ class IsolationPeers(MemoryPeers):
                         ),
                     ]
                 elif "invalid_renderer" not in outputs:
+                    photo_calls = [
+                        item
+                        for item in body.get("input", [])
+                        if item.get("type") == "function_call"
+                        and item.get("call_id") == "private_image"
+                    ]
+                    require(
+                        len(photo_calls) == 1
+                        and photo_calls[0].get("name") == "briefing_renderer_tool"
+                        and json.loads(photo_calls[0]["arguments"])
+                        == {"edition": peers.photo_edition}
+                        and "private_image" in outputs,
+                        "The next coordinator request lost the rejected photo call/result pairing",
+                    )
+                    assert_renderer_photo_feedback(
+                        outputs["private_image"],
+                        peers.photo_edition["lead"]["figure"]["url"],
+                    )
+                    for ident in (
+                        "before_auth",
+                        "private_audit",
+                        "private_script",
+                        "forged",
+                        "direct_search",
+                    ):
+                        require(
+                            ident in outputs,
+                            "The photo-recovery request lost an earlier rejection result",
+                        )
+                        assert_generic_policy_feedback(
+                            outputs[ident],
+                            PUBLIC_AUTHORIZATION_LIMITATION
+                            if ident == "before_auth"
+                            else None,
+                        )
                     items = [
                         call(
                             "briefing_renderer_tool",
@@ -2079,6 +2160,8 @@ def check(args):
                 ),
                 "Public work began before personal-source authorization",
             )
+            for output in preflight_results:
+                assert_generic_policy_feedback(output, PUBLIC_AUTHORIZATION_LIMITATION)
             rejected_photos = [
                 item["output"]
                 for request in peers.local
@@ -2093,6 +2176,36 @@ def check(args):
                 ),
                 "Private image URL did not pass the runtime outbound argument gate",
             )
+            for output in rejected_photos:
+                assert_renderer_photo_feedback(
+                    output, peers.photo_edition["lead"]["figure"]["url"]
+                )
+            photo_recovery_requests = [
+                body
+                for body in ready_requests
+                if any(
+                    item.get("type") == "function_call_output"
+                    and item.get("call_id") == "private_image"
+                    for item in body.get("input", [])
+                )
+                and not any(
+                    item.get("type") == "function_call_output"
+                    and item.get("call_id") == "invalid_renderer"
+                    for item in body.get("input", [])
+                )
+            ]
+            require(
+                len(photo_recovery_requests) == 2,
+                "Both users did not receive paired photo feedback in the next coordinator request",
+            )
+            report["renderer_photo_feedback"] = {
+                "next_coordinator_requests": len(photo_recovery_requests),
+                "error": "context_policy_rejected",
+                "executed": False,
+                "hint": RENDERER_PHOTO_HINT,
+                "rejected_url_and_private_content_not_echoed": True,
+                "other_rejections_remained_generic": True,
+            }
             renderer_failures = [
                 tool_json(item["output"])
                 for request in peers.local
@@ -2296,6 +2409,7 @@ def check(args):
                     "source_reuse": True,
                     "outbound_arguments": True,
                     "renderer_recovery": True,
+                    "renderer_photo_feedback": True,
                     "protected_rollback": True,
                     "concurrent_users": True,
                     "local_failure_no_cloud_fallback": True,

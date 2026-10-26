@@ -1326,11 +1326,11 @@ impl Agent {
                             let result = if let (Some(workers), Some(preparation)) =
                                 (&tool_workers, &tool_preparation)
                             {
-                                if !workers
+                                if let Err(rejection) = workers
                                     .authorize_tool(preparation, &name, &call.function.arguments)
                                     .await
                                 {
-                                    Ok(crate::public_worker::policy_rejection())
+                                    Ok(rejection.outcome())
                                 } else if name == crate::public_worker::NAME {
                                     workers
                                         .call(
@@ -2695,11 +2695,34 @@ mod tests {
             ]).await;
         outcome.result.unwrap();
         assert_eq!(outcome.requests[0]["tool_choice"], "required");
+        let input = outcome.requests[1]["input"].as_array().unwrap();
+        let proposed = input
+            .iter()
+            .position(|item| item["type"] == "function_call" && item["call_id"] == "private_photo")
+            .unwrap();
+        assert_eq!(input[proposed]["name"], "briefing_renderer_tool");
+        let answer = &input[proposed + 1];
+        assert_eq!(answer["type"], "function_call_output");
+        assert_eq!(answer["call_id"], "private_photo");
+        let wrapper: Value = serde_json::from_str(answer["output"].as_str().unwrap()).unwrap();
+        let denial: Value = serde_json::from_str(wrapper["content"].as_str().unwrap()).unwrap();
+        assert_eq!(denial["error"], "context_policy_rejected");
+        assert_eq!(denial["executed"], false);
+        assert_eq!(denial["hint"], crate::public_worker::PHOTO_REJECTION_HINT);
         assert!(
-            outcome.requests[1]["input"]
-                .to_string()
-                .contains("context_policy_rejected")
+            !answer["output"]
+                .as_str()
+                .unwrap()
+                .contains("private-marker")
         );
+        assert!(!answer["output"].as_str().unwrap().contains("Private"));
+        assert_eq!(
+            outcome.tool_calls.len(),
+            1,
+            "the bad photo must never reach the executor"
+        );
+        assert_eq!(outcome.tool_calls[0]["name"], "briefing_renderer_tool");
+        assert_eq!(outcome.tool_calls[0]["arguments"], json!({"edition":{}}));
         assert_eq!(outcome.requests[1]["tool_choice"], "required");
         assert_eq!(outcome.requests[2]["tool_choice"], "auto");
     }
